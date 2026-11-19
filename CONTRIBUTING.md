@@ -62,9 +62,9 @@ wall-clock benchmark.
 Run browser checks on macOS or Ubuntu while Bun's Windows Chromium launch issue is open.
 See the [upstream Windows issue](https://github.com/oven-sh/bun/issues/27977).
 
-## Preview installers
+## Installers
 
-The **Preview installers** workflow builds an Apple Silicon DMG and a Windows x64 MSI.
+The **Installers** workflow builds an Apple Silicon DMG and a Windows x64 MSI.
 Run it manually from `main` or on a same-repository PR that changes the installer workflow or
 staging script. The Actions downloads include a SHA-256 checksum, the exact source revision,
 and third-party notices. The test DMG uses an ad-hoc signature and the test MSI is unsigned.

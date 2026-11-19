@@ -3,7 +3,7 @@ set -euo pipefail
 
 bundle=${1:?Pass dmg or msi}
 signing=${2:?Pass adhoc, developer-id, or unsigned}
-output=${RUNNER_TEMP:-target/preview-installers}/strudeland-installer
+output=${RUNNER_TEMP:-target/installers}/strudeland-installer
 metadata=$(cargo metadata --locked --no-deps --format-version 1)
 target_dir=$(jq -jr .target_directory <<< "$metadata")
 version=$(jq -jr '.packages[] | select(.name == "strudeland-app") | .version' <<< "$metadata")

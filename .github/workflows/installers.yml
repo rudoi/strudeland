@@ -1,10 +1,10 @@
-name: Preview installers
+name: Installers
 
 on:
   pull_request:
     paths:
       - '.github/workflows/installers.yml'
-      - 'scripts/stage-preview-installer.sh'
+      - 'scripts/stage-installer.sh'
   workflow_dispatch:
     inputs:
       sign_macos:
@@ -24,8 +24,8 @@ env:
   RUSTUP_TOOLCHAIN: 1.94.1
 
 jobs:
-  preview:
-    name: Preview installer (${{ matrix.bundle }})
+  installers:
+    name: Installer (${{ matrix.bundle }})
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
@@ -54,16 +54,16 @@ jobs:
         if: matrix.bundle == 'dmg' && inputs.sign_macos != true
         run: |
           bun run tauri build --ci --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked
-          bash scripts/stage-preview-installer.sh dmg adhoc
+          bash scripts/stage-installer.sh dmg adhoc
       - name: Build Windows x64 test MSI
         if: matrix.bundle == 'msi'
         run: |
           bun run tauri build --ci --no-sign --bundles msi -- --locked
-          bash scripts/stage-preview-installer.sh msi unsigned
+          bash scripts/stage-installer.sh msi unsigned
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: matrix.bundle == 'msi' || inputs.sign_macos != true
         with:
-          name: strudeland-preview-${{ matrix.bundle }}
+          name: strudeland-${{ matrix.bundle }}
           path: ${{ runner.temp }}/strudeland-installer
           if-no-files-found: error
           compression-level: 0
@@ -138,7 +138,7 @@ jobs:
           printf '%s\n' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
           unset APPLE_API_KEY_P8
           bun run tauri bundle --ci --bundles dmg
-          bash scripts/stage-preview-installer.sh dmg developer-id
+          bash scripts/stage-installer.sh dmg developer-id
       - name: Delete the signing keychain
         if: always()
         run: |
