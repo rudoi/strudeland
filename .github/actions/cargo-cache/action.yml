@@ -1,0 +1,54 @@
+name: Cargo cache
+description: Restore Cargo dependencies and build artifacts for one build profile
+inputs:
+  profile:
+    description: Profile directory inside Cargo's configured target directory
+    required: true
+  save:
+    description: Save after a successful build instead of restoring
+    default: 'false'
+outputs:
+  exact-hit:
+    description: Whether the full cache key matched
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Locate Cargo paths
+      id: paths
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        target=$(cargo metadata --locked --no-deps --format-version 1 | jq -er .target_directory)
+        registry=${CARGO_HOME:-$HOME/.cargo}
+        if [[ "$RUNNER_OS" == Windows ]]; then
+          target=$(cygpath -m "$target")
+          registry=$(cygpath -m "$registry")
+        fi
+        {
+          echo "prefix=cargo-v1-$RUNNER_OS-$RUNNER_ARCH-$ImageOS-$RUSTUP_TOOLCHAIN-$PROFILE-"
+          echo 'entries<<CARGO_CACHE_PATHS'
+          printf '%s\n' "$registry/registry/index" "$registry/registry/cache" "$registry/git/db"
+          printf '%s\n' "$target/$PROFILE/build" "$target/$PROFILE/.fingerprint"
+          for extension in rlib rmeta d a lib so dylib dll; do
+            printf '%s\n' "$target/$PROFILE/deps/*.$extension"
+          done
+          printf '%s\n' "!$target/$PROFILE/build/strudeland-*" "!$target/$PROFILE/.fingerprint/strudeland-*" \
+            "!$target/$PROFILE/deps/*strudeland_*" "!$target/$PROFILE/deps/*strudeland-*"
+          echo CARGO_CACHE_PATHS
+        } >> "$GITHUB_OUTPUT"
+    - name: Restore Cargo cache
+      id: restore
+      if: inputs.save != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.paths.outputs.entries }}
+        key: ${{ steps.paths.outputs.prefix }}${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'src-tauri/Cargo.toml', '.cargo/config*', 'rust-toolchain*') }}
+        restore-keys: ${{ steps.paths.outputs.prefix }}
+    - name: Save Cargo cache
+      if: inputs.save == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.paths.outputs.entries }}
+        key: ${{ steps.paths.outputs.prefix }}${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'src-tauri/Cargo.toml', '.cargo/config*', 'rust-toolchain*') }}

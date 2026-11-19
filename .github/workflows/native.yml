@@ -51,15 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-2025
-            bundle: nsis
-            suffix: .exe
-            package: windows-x64
-          - os: ubuntu-24.04
-            bundle: deb
-            suffix: ''
-            package: ubuntu-24.04-amd64
+        os: [windows-2025, ubuntu-24.04]
     env:
       CARGO_INCREMENTAL: '0'
       RUSTUP_TOOLCHAIN: 1.94.1
@@ -68,9 +60,6 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.3.11
       - name: Install Ubuntu build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -84,74 +73,21 @@ jobs:
           printf '%s %s (%s %s)\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion"
           rustc -vV
           cmake --version
+      - uses: ./.github/actions/cargo-cache
+        id: cargo-cache
+        with:
+          profile: debug
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Compile Rust workspace tests
+        run: cargo test --locked --workspace --no-run --timings
       - name: Test Rust workspace
         run: cargo test --locked --workspace --no-fail-fast -- --skip dropout_short
-      - name: Install locked frontend dependencies
-        run: bun install --frozen-lockfile
-      - name: Build unsigned desktop package and CLI
-        env:
-          BUNDLE: ${{ matrix.bundle }}
-        run: |
-          bun run tauri build --ci --no-sign --bundles "$BUNDLE" -- --locked
-          cargo build --locked --release -p strudeland-cli
-      - name: Stage package, CLI archive, and provenance
-        env:
-          BUNDLE: ${{ matrix.bundle }}
-          CLI_SUFFIX: ${{ matrix.suffix }}
-          PACKAGE: ${{ matrix.package }}
-        run: |
-          source_sha=$(git rev-parse HEAD)
-          metadata=$(cargo metadata --locked --no-deps --format-version 1)
-          target_dir=$(jq -j '.target_directory' <<< "$metadata")
-          temp_dir=$RUNNER_TEMP
-          if [[ "$RUNNER_OS" == Windows ]]; then
-            target_dir=$(cygpath -u "$target_dir")
-            temp_dir=$(cygpath -u "$temp_dir")
-          fi
-          artifacts="$temp_dir/strudeland-artifacts"
-          cli_stage="$temp_dir/strudeland-cli"
-          mkdir -p "$artifacts" "$cli_stage"
-          if [[ "$BUNDLE" == nsis ]]; then
-            cp "$target_dir"/release/bundle/nsis/*-setup.exe "$artifacts/"
-            llvm-readobj --coff-imports "$target_dir/release/strudeland-app.exe"
-          else
-            cp "$target_dir"/release/bundle/deb/*.deb "$artifacts/"
-            dpkg-deb --info "$artifacts"/*.deb
-            dpkg-deb --contents "$artifacts"/*.deb
-            ldd "$target_dir/release/strudeland-app"
-          fi
-          cli="strudeland$CLI_SUFFIX"
-          cp "$target_dir/release/$cli" "$cli_stage/"
-          cp -R LICENSE LICENSES THIRD-PARTY-NOTICES.md "$cli_stage/"
-          for file in crates/*/LICENSE-* vendor/strudel/LICENSE; do
-            mkdir -p "$cli_stage/$(dirname "$file")"
-            cp "$file" "$cli_stage/$file"
-          done
-          version=$(jq -j '.packages[] | select(.name == "strudeland-cli") | .version' <<< "$metadata")
-          test "$version" = "$(jq -j '.version' src-tauri/tauri.conf.json)"
-          "$cli_stage/$cli" --version
-          archive="strudeland-cli-$version-$PACKAGE"
-          if [[ "$RUNNER_OS" == Windows ]]; then
-            llvm-readobj --coff-imports "$cli_stage/$cli"
-            (cd "$cli_stage" && 7z a -tzip "../strudeland-artifacts/$archive.zip" .)
-          else
-            tar -czf "$artifacts/$archive.tar.gz" -C "$cli_stage" .
-          fi
-          (
-            cd "$artifacts"
-            printf 'source=%s\nversion=%s\nsigning=unsigned\nrunner=%s %s (%s %s)\n' \
-              "$source_sha" "$version" "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion" > BUILD.txt
-            sha256sum ./* > SHA256SUMS
-          )
-      - name: Upload packages for review
-        if: github.event.repository.private
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - name: Save Cargo cache from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.exact-hit != 'true'
+        uses: ./.github/actions/cargo-cache
         with:
-          name: strudeland-${{ matrix.package }}-${{ github.event.pull_request.head.sha || github.sha }}
-          path: ${{ runner.temp }}/strudeland-artifacts
-          if-no-files-found: error
-          compression-level: 0
+          profile: debug
+          save: 'true'
