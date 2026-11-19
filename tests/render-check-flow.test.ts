@@ -1,3 +1,4 @@
+import { basename, join, normalize } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import type { EngineName } from '../src/lib/render/engines';
 import { DEFAULT_OUT_DIR, type CheckOptions } from '../src/lib/render/check-options';
@@ -223,14 +224,14 @@ const opts = (o: Partial<CheckOptions> = {}): CheckOptions => ({
 class MemFs implements CheckFs {
   files = new Map<string, string | Uint8Array>();
   readText(p: string): string | null {
-    const v = this.files.get(p);
+    const v = this.files.get(normalize(p));
     return typeof v === 'string' ? v : null;
   }
   writeText(p: string, text: string): void {
-    this.files.set(p, text);
+    this.files.set(normalize(p), text);
   }
   writeBytes(p: string, bytes: Uint8Array): void {
-    this.files.set(p, bytes);
+    this.files.set(normalize(p), bytes);
   }
 }
 
@@ -727,8 +728,8 @@ describe('runCheck', () => {
     });
     const d = deps(r, corpusOf(fx));
     await runCheck(opts({ updateGoldens: true, keepWav: true, outDir: DEFAULT_OUT_DIR }), d);
-    const mix = d.fs.files.get(`${DEFAULT_OUT_DIR}/wav/a.wav`) as Uint8Array;
-    const stems = d.fs.files.get(`${DEFAULT_OUT_DIR}/wav/a.stems.wav`) as Uint8Array;
+    const mix = d.fs.files.get(join(DEFAULT_OUT_DIR, 'wav', 'a.wav')) as Uint8Array;
+    const stems = d.fs.files.get(join(DEFAULT_OUT_DIR, 'wav', 'a.stems.wav')) as Uint8Array;
     // 12 bars at 0.5 s, float32 stereo, 44-byte header
     expect(mix.length).toBe(44 + 12 * BAR_SEC * SR * 2 * 4);
     expect(stems.length).toBe(44 + 12 * BAR_SEC * SR * 2 * 4);
@@ -739,7 +740,7 @@ describe('runCheck', () => {
     const d = deps(r, corpusOf(fixture(), fixture({ name: 'b', file: 'b.js' })));
     const write = d.fs.writeBytes.bind(d.fs);
     d.fs.writeBytes = (p, bytes) => {
-      if (p.endsWith('/a.wav')) throw new Error('disk full');
+      if (basename(p) === 'a.wav') throw new Error('disk full');
       write(p, bytes);
     };
     const run = await runCheck(opts({ updateGoldens: true, keepWav: true }), d);
@@ -747,7 +748,7 @@ describe('runCheck', () => {
     expect(run.report.harnessError).toBeNull();
     expect(run.report.fixtures.map((f) => f.status)).toEqual(['error', 'pass']);
     expect(run.report.fixtures[0]!.errors).toEqual(['keep-wav: disk full']);
-    expect(d.fs.files.has('/out/wav/b.wav')).toBe(true);
+    expect(d.fs.files.has(join('/out', 'wav', 'b.wav'))).toBe(true);
   });
 });
 
@@ -1086,7 +1087,7 @@ describe('runCheck --planner batch', () => {
     expect(r.renders.length).toBe(3);
     expect(r.renders.filter((q) => q.fromBar === 0).length).toBe(2);
     // --keep-wav writes the batch audio.
-    const kept = d.fs.files.get('/out/wav/a.wav') as Uint8Array;
+    const kept = d.fs.files.get(join('/out', 'wav', 'a.wav')) as Uint8Array;
     expect(decodeWav(kept).channels[0]!.length).toBe(windowFrames(0, 12, CPS, SR));
     expect(Math.max(...decodeWav(kept).channels[0]!)).toBeCloseTo(peak(plain) / 2, 3);
   });

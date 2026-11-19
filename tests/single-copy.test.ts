@@ -10,9 +10,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const installed = new Map<string, string[]>();
 for (const p of new Bun.Glob('node_modules/**/package.json').scanSync({ cwd: root })) {
   try {
-    const { name } = JSON.parse(readFileSync(root + p, 'utf8'));
-    if (typeof name === 'string' && p.endsWith(`/${name}/package.json`))
-      installed.set(name, [...(installed.get(name) ?? []), p]);
+    const { name } = JSON.parse(readFileSync(join(root, p), 'utf8'));
+    const packagePath = p.replaceAll('\\', '/');
+    if (typeof name === 'string' && packagePath.endsWith(`/${name}/package.json`))
+      installed.set(name, [...(installed.get(name) ?? []), packagePath]);
   } catch {
     // Not every package.json in node_modules is valid JSON (test fixtures); skip those.
   }

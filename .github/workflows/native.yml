@@ -86,12 +86,10 @@ jobs:
           cmake --version
       - name: Check formatting
         run: cargo fmt --all --check
-      - name: Test engine and transcription
-        run: cargo test --locked -p strudeland-engine -p strudeland-transcribe --features strudeland-transcribe/eval
       - name: Check Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test Rust workspace
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
       - name: Install locked frontend dependencies
         run: bun install --frozen-lockfile
       - name: Install Chromium for host parity

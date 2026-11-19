@@ -400,17 +400,20 @@ test('query: an unknown layout, a meta error and an eval error', async () => {
   expect(evalErr.kind).toBe('eval');
 });
 
-// ---- the entry's helpers, imported directly (the import installs the shims: restored after)
+// ---- the entry's helpers, imported directly (restore the shims' replacements after import)
 
 const core = await import('@strudel/core');
 const { importHostRealModules, snapshotOwnProperties } =
   await import('./helpers/prototype-snapshot');
 await importHostRealModules();
+// Load the widget and audio methods before host shims can replace them. Otherwise the
+// snapshot has no real method to restore for a later test file.
+await import('@strudel/codemirror');
+await import('@strudel/webaudio');
 const restorePrototype = snapshotOwnProperties(core.Pattern.prototype);
 const hadHost = 'strudelandHost' in globalThis;
-const entry = await import('../src/host/main');
+const entry = await import('../src/host/main').finally(restorePrototype);
 afterAll(() => {
-  restorePrototype();
   if (!hadHost) delete (globalThis as any).strudelandHost;
 });
 
