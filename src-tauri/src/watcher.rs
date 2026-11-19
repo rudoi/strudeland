@@ -9,7 +9,9 @@
 //! may report a rename only by its destination (`songs-old`), not by `songs`.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use notify::{RecommendedWatcher, RecursiveMode};
