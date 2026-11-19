@@ -54,8 +54,10 @@ enum Kept {
     /// The root or an entry directly in it, such as the `songs` folder or where it was renamed
     /// to: the songs need a full re-check.
     TopLevel,
-    /// A memo file directly in `recordings/`, or the `recordings` entry itself.
+    /// A memo file directly in `recordings/`.
     Recording,
+    /// The `recordings` directory itself.
+    RecordingFolder,
 }
 
 /// Native notifications can omit the verbatim drive/UNC prefix used by canonical Windows
@@ -100,7 +102,7 @@ fn keep(root: &Path, path: &Path) -> Option<Kept> {
         return Some(Kept::Manifest);
     }
     if rel == Path::new(RECORDINGS_DIR) {
-        return Some(Kept::Recording);
+        return Some(Kept::RecordingFolder);
     }
     if rel.components().nth(1).is_none() {
         return Some(Kept::TopLevel);
@@ -161,20 +163,46 @@ struct Touched {
 }
 
 impl Touched {
+    #[cfg(test)]
     fn new(root: &Path, paths: impl IntoIterator<Item = PathBuf>) -> Touched {
         let mut touched = Touched::default();
         for path in paths {
-            match keep(root, &path) {
-                Some(Kept::Song(rel)) => {
-                    touched.named.insert(rel);
-                }
-                Some(Kept::Manifest) => touched.manifest = true,
-                Some(Kept::TopLevel) => touched.rescan = true,
-                Some(Kept::Recording) => touched.recordings = true,
-                None => {}
+            touched.add(keep(root, &path), false);
+        }
+        touched
+    }
+
+    fn from_events(root: &Path, events: impl IntoIterator<Item = notify::Event>) -> Self {
+        use notify::EventKind::{Create, Modify, Remove};
+        use notify::event::ModifyKind::Name;
+        let mut touched = Self::default();
+        for event in events {
+            if !affects_contents(event.kind) {
+                continue;
+            }
+            let namespace_change = matches!(event.kind, Create(_) | Remove(_) | Modify(Name(_)));
+            touched.rescan |= namespace_change;
+            let folder_metadata = matches!(event.kind, Modify(_)) && !namespace_change;
+            for path in event.paths {
+                touched.add(keep(root, &path), folder_metadata);
             }
         }
         touched
+    }
+
+    fn add(&mut self, kept: Option<Kept>, folder_metadata: bool) {
+        match kept {
+            Some(Kept::Song(rel)) => {
+                self.named.insert(rel);
+            }
+            Some(Kept::Manifest) => self.manifest = true,
+            Some(Kept::TopLevel) => self.rescan = true,
+            // Windows reports directory modifications for child writes, including ignored
+            // partials and temporaries. Recheck the catalog before reporting a change.
+            Some(Kept::RecordingFolder) if folder_metadata => self.rescan = true,
+            Some(Kept::Recording | Kept::RecordingFolder) => self.recordings = true,
+            None => {}
+        }
     }
 
     fn full_rescan() -> Self {
@@ -343,25 +371,7 @@ impl Watcher {
             // known song and refresh both catalogs even when the backend supplied no paths.
             let mut touched = match result {
                 Ok(events) if !events.iter().any(|e| e.need_rescan()) => {
-                    let moved = events.iter().any(|e| {
-                        matches!(
-                            e.kind,
-                            notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
-                                | notify::EventKind::Create(_)
-                                | notify::EventKind::Remove(_)
-                        )
-                    });
-                    let mut touched = Touched::new(
-                        &handler_root,
-                        events
-                            .into_iter()
-                            .filter(|e| affects_contents(e.kind))
-                            .flat_map(|e| e.event.paths),
-                    );
-                    if moved {
-                        touched.rescan = true;
-                    }
-                    touched
+                    Touched::from_events(&handler_root, events.into_iter().map(|e| e.event))
                 }
                 _ => Touched::full_rescan(),
             };
@@ -777,6 +787,37 @@ mod tests {
         assert!(affects_contents(Access(AccessKind::Close(
             AccessMode::Write
         ))));
+    }
+
+    #[test]
+    fn a_parent_directory_modification_only_reports_a_recording_catalog_change() {
+        use notify::event::{CreateKind, ModifyKind};
+        use notify::{Event, EventKind};
+
+        let d = Dir::new();
+        fs::create_dir(d.path(RECORDINGS_DIR)).unwrap();
+        let mut catalogs = Catalogs::default();
+        catalogs.reconcile(&d.root, &mut Touched::full_rescan());
+        let parent_modified =
+            || Event::new(EventKind::Modify(ModifyKind::Any)).add_path(d.path(RECORDINGS_DIR));
+        let partial = d.touch("recordings/take.wav.partial");
+        let mut touched = Touched::from_events(
+            &d.root,
+            [
+                Event::new(EventKind::Create(CreateKind::Any)).add_path(partial),
+                parent_modified(),
+            ],
+        );
+        catalogs.reconcile(&d.root, &mut touched);
+        let mut known = HashSet::new();
+        assert!(classify_in(&d.root, &mut known, touched, scan_songs).is_none());
+
+        d.touch("recordings/take.wav");
+        let mut touched = Touched::from_events(&d.root, [parent_modified()]);
+        catalogs.reconcile(&d.root, &mut touched);
+        let changed = classify_in(&d.root, &mut known, touched, scan_songs).unwrap();
+        assert!(changed.recordings);
+        assert!(!changed.manifest && changed.songs.is_empty());
     }
 
     #[test]
