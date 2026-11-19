@@ -224,13 +224,37 @@ mod tests {
 
     #[test]
     fn real_time_pacing_follows_wall_time() {
-        let (mut out, handle) = FakeOutput::new(info(44100), Pace::RealTime);
-        out.start(Box::new(|_, _| {})).unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+        let (mut out, _) = FakeOutput::new(info(44100), Pace::RealTime);
+        let (tx, rx) = mpsc::channel();
+        out.start(Box::new(move |_, t| {
+            let _ = tx.send((Instant::now(), t.host_ns));
+        }))
+        .unwrap();
+        let end = Instant::now() + Duration::from_secs(5);
+        let next = || {
+            rx.recv_timeout(end.saturating_duration_since(Instant::now()))
+                .unwrap()
+        };
+        let (first_wall, first_host) = next();
+        for _ in 0..23 {
+            next();
+        }
+        let (last_wall, last_host) = next();
         out.stop();
-        // 512 / 44100 s per pull, so about 25 pulls in 300 ms
-        let pulls = handle.pulls();
-        assert!((15..=35).contains(&pulls), "pulls {pulls}");
+
+        let virtual_elapsed = Duration::from_nanos(last_host - first_host);
+        assert_eq!(
+            virtual_elapsed,
+            Duration::from_nanos(24 * 512 * 1_000_000_000 / 44100)
+        );
+        let wall_elapsed = last_wall.duration_since(first_wall);
+        let one_block = Duration::from_nanos(512 * 1_000_000_000 / 44100);
+        // The harness observes actual callback times. Sleeping on the test thread and counting
+        // pulls would treat a late wake-up of that thread as an output running too fast.
+        assert!(
+            wall_elapsed + one_block >= virtual_elapsed,
+            "{wall_elapsed:?} for {virtual_elapsed:?}"
+        );
     }
 
     #[test]
