@@ -10,6 +10,10 @@ patterns, arrange them into sections, and keep your songs in a regular folder.
 - Keep songs, reusable instruments, voice memos, and renders together in a project.
 - Export synth arrangements to WAV, MP3, Ogg Vorbis, or Opus.
 
+Get the Apple Silicon DMG or Windows x64 MSI from [GitHub Releases](https://github.com/rudoi/strudeland/releases)
+when available. Open the DMG and drag Strudeland to Applications, or run the MSI on Windows.
+The release includes SHA-256 checksums, third-party notices, and a link to the exact source.
+
 ## Apple Silicon source preview
 
 You’ll need Git, the Xcode Command Line Tools (`xcode-select --install`), and CMake.
@@ -47,14 +51,12 @@ sudo apt install build-essential cmake file libasound2-dev libayatana-appindicat
 ```
 
 Use `bun install --frozen-lockfile` and `bun run tauri dev` from the repository root.
-For a local package build, use `bun run tauri build --bundles nsis -- --locked` on Windows
+For a local package build, use `bun run tauri build --bundles msi -- --locked` on Windows
 or `bun run tauri build --bundles deb -- --locked` on Ubuntu.
 
-For Windows installer artifacts, run the NSIS installer as the current user. Extract the matching
-CLI ZIP into a directory on your user PATH. On Ubuntu, install the Debian package with
-`sudo apt install ./path-to-strudeland.deb`. Extract the matching CLI archive and place its
-`strudeland` binary in a directory on your PATH. Start a fresh shell and check
-`strudeland --version`. The installed GUI and CLI have distinct executable names.
+On Ubuntu, install a locally built Debian package with `sudo apt install ./path-to-strudeland.deb`.
+To install the separate CLI from source, run `cargo install --locked --path crates/strudeland-cli`
+and check `strudeland --version`. The GUI and CLI have distinct executable names.
 
 If Windows denies microphone access, use **Settings → Privacy & security → Microphone** to
 allow desktop apps and retry. On Ubuntu, select and test an input in **Settings → Sound**.

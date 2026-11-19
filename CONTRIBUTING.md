@@ -48,6 +48,11 @@ cargo test --locked --workspace
 For desktop behavior, use `bun run tauri dev` and try the affected workflow in the app.
 The [repository guide](AGENTS.md) lists additional render, parity and performance checks by area.
 
+PR checks restore Cargo caches keyed by platform, architecture, Rust toolchain, build profile,
+and the Cargo manifests and lockfile. Successful pushes to `main` populate new cache entries.
+Check the GitHub step timings for cache restore, Clippy, test compilation, and test execution
+when investigating changes to CI runtime.
+
 For changes involving native APIs, report the target desktop, package, webview version and the
 runtime path you exercised. For audio timing, also report the device, negotiated sample rate and
 loopback measurements. Hosted fake-device and build checks cover reproducible regressions. The
@@ -64,20 +69,36 @@ See the [upstream Windows issue](https://github.com/oven-sh/bun/issues/27977).
 
 ## Installers
 
-The **Installers** workflow builds an Apple Silicon DMG and a Windows x64 MSI.
-Run it manually from `main` or on a same-repository PR that changes the installer workflow or
-staging script. The Actions downloads include a SHA-256 checksum, the exact source revision,
-and third-party notices. The test DMG uses an ad-hoc signature and the test MSI is unsigned.
+Run **Installers** manually to build an Apple Silicon DMG, a Windows x64 MSI, and an Ubuntu amd64
+Debian package. PR checks run the frontend and Rust suites. The Actions downloads include a
+SHA-256 checksum, the exact source revision, and third-party notices. The DMG uses an ad-hoc
+signature and the MSI is unsigned.
 
 To build locally, run `bun install --frozen-lockfile` first. On macOS, run
 `bun run tauri build --ci --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked`.
-On Windows, run `bun run tauri build --ci --no-sign --bundles msi -- --locked`. Tauri writes
-installers to `target/release/bundle`.
+On Windows, run `bun run tauri build --ci --no-sign --bundles msi -- --locked`. On Ubuntu, use
+`bun run tauri build --ci --no-sign --bundles deb -- --locked`. Tauri writes installers under
+`target/release/bundle`.
+
+## Releases
 
 For a Developer ID-signed and notarized DMG, configure the GitHub `release` environment to
 allow deployments from `main`. Add `MACOS_CERTIFICATE_P12` (base64 of a Developer ID Application
 identity exported as a `.p12`), `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_P8`, `APPLE_API_KEY`,
 and `APPLE_API_ISSUER` as environment secrets. Set `MACOS_SIGNING_SHA1` as an environment
 variable to the full fingerprint reported by `security find-identity -v -p codesigning`.
-Run the workflow from `main` with **Sign and notarize the macOS DMG** enabled. The job verifies
-both the disk image and the app inside it before uploading the result.
+
+Start a version change from a clean checkout of public `main` with `bun run release --patch`,
+`--minor`, `--major`, or `--set VERSION`. Add `--dry-run` to see the planned changes. The
+command opens a version-bump PR and enables squash auto-merge under the branch protection rules.
+
+After the bump merges and both CI workflows have passed on `main`, run `bun run release --current`.
+For the initial `v0.1.0`, this also works with the version already on `main`. The command tags the
+checked commit and dispatches **Release**. The workflow independently verifies the tag, source,
+version, and CI runs before signing. It builds the unsigned MSI and the Developer ID-signed and
+notarized DMG from the same commit, then attaches them to a GitHub release draft with checksums,
+notices, and the source link.
+
+If a build fails after the tag is pushed, rerun the workflow for that same tag from `main`.
+Before publishing the draft, verify the attached checksums, install both artifacts, and exercise
+project creation, playback, rendering, and microphone recording on clean supported desktops.

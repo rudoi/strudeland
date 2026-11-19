@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-bundle=${1:?Pass dmg or msi}
+bundle=${1:?Pass dmg, msi, or deb}
 signing=${2:?Pass adhoc, developer-id, or unsigned}
 output=${RUNNER_TEMP:-target/installers}/strudeland-installer
 metadata=$(cargo metadata --locked --no-deps --format-version 1)
@@ -19,6 +19,9 @@ case "$bundle:$signing" in
     output=$(cygpath -u "$output")
     files=("$target_dir"/release/bundle/msi/strudeland_"${version}"_x64_*.msi)
     ;;
+  deb:unsigned)
+    files=("$target_dir"/release/bundle/deb/strudeland_"${version}"_amd64.deb)
+    ;;
   *)
     echo "Unsupported bundle and signing mode: $bundle $signing" >&2
     exit 1
@@ -33,6 +36,7 @@ installer=${files[0]}
 
 if [[ "$bundle" == dmg ]]; then
   if [[ "$signing" == developer-id ]]; then
+    codesign --verify --strict "$installer"
     xcrun notarytool submit "$installer" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" \
       --issuer "$APPLE_API_ISSUER" --wait --timeout 30m --output-format json > "$RUNNER_TEMP/strudeland-notary.json"
     jq -e '.status == "Accepted"' "$RUNNER_TEMP/strudeland-notary.json"
@@ -48,9 +52,12 @@ if [[ "$bundle" == dmg ]]; then
   executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
   file "$app/Contents/MacOS/$executable" | grep -F arm64
   if [[ "$signing" == developer-id ]]; then
+    codesign -dr - "$app" 2>&1 | grep -F 'identifier "com.rudoi.strudeland"'
     xcrun stapler validate "$app"
     spctl --assess --type exec --verbose "$app"
   fi
+elif [[ "$bundle" == deb ]]; then
+  test "$(dpkg-deb -f "$installer" Architecture)" = amd64
 fi
 
 mkdir -p "$output"

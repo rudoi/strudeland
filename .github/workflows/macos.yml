@@ -48,9 +48,21 @@ jobs:
         run: |
           clang --version
           cmake --version
+      - uses: ./.github/actions/cargo-cache
+        id: cargo-cache
+        with:
+          profile: debug
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Compile Rust workspace tests
+        run: cargo test --locked --workspace --no-run --timings
       - name: Test Rust workspace
         run: cargo test --locked --workspace -- --skip dropout_short
+      - name: Save Cargo cache from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.exact-hit != 'true'
+        uses: ./.github/actions/cargo-cache
+        with:
+          profile: debug
+          save: 'true'

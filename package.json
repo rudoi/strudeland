@@ -37,7 +37,8 @@
     "strudel:sync": "bun scripts/strudel-sync.ts",
     "host:build": "bun scripts/host/build.ts",
     "host:parity": "bun scripts/render/host-parity.ts",
-    "app:signed": "bun scripts/app-signed.ts"
+    "app:signed": "bun scripts/app-signed.ts",
+    "release": "bun scripts/release.ts"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",

@@ -1,0 +1,232 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag on public main (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: '0'
+  RUSTUP_TOOLCHAIN: 1.94.1
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify tag, versions, and exact main checks
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::Use a release tag in the form vMAJOR.MINOR.PATCH.'
+            exit 1
+          fi
+          commit=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          if ! git merge-base --is-ancestor "$commit" "$GITHUB_SHA"; then
+            echo '::error::The release tag must point to a commit on public main.'
+            exit 1
+          fi
+          git checkout --detach "$commit"
+          test -f scripts/stage-installer.sh
+          for manifest in package.json src-tauri/tauri.conf.json; do
+            if [[ "v$(jq -er .version "$manifest")" != "$RELEASE_TAG" ]]; then
+              echo "::error::The release tag does not match $manifest."
+              exit 1
+            fi
+          done
+          for manifest in src-tauri/Cargo.toml crates/strudeland-cli/Cargo.toml; do
+            if [[ "v$(awk -F '"' '$1 == "version = " { print $2; exit }' "$manifest")" != "$RELEASE_TAG" ]]; then
+              echo "::error::The release tag does not match $manifest."
+              exit 1
+            fi
+          done
+          for workflow in macos.yml native.yml; do
+            result=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch main \
+              --event push --commit "$commit" --limit 1 --json conclusion --jq '.[0].conclusion')
+            if [[ "$result" != success ]]; then
+              echo "::error::No successful $workflow push run for $commit on main."
+              exit 1
+            fi
+          done
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows x64 MSI
+    needs: verify
+    uses: ./.github/workflows/installers.yml
+    with:
+      source: ${{ needs.verify.outputs.commit }}
+      bundle: msi
+
+  signed-macos:
+    name: Signed and notarized Apple Silicon DMG
+    needs: verify
+    runs-on: macos-15
+    timeout-minutes: 100
+    environment: release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.verify.outputs.commit }}
+      - name: Check signing configuration
+        env:
+          CONFIGURED: ${{ secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && vars.MACOS_SIGNING_SHA1 != '' && secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' }}
+        run: |
+          if [[ "$CONFIGURED" != true ]]; then
+            echo '::error::Configure the release environment values listed in CONTRIBUTING.md.'
+            exit 1
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.11
+      - name: Compile application
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          bun install --frozen-lockfile
+          bun run tauri build --ci --no-bundle -- --locked
+      - name: Import Developer ID Application identity
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_SHA1: ${{ vars.MACOS_SIGNING_SHA1 }}
+        run: |
+          [[ "$SIGNING_SHA1" =~ ^[[:xdigit:]]{40}$ ]]
+          umask 077
+          keychain="$RUNNER_TEMP/strudeland-signing.keychain-db"
+          password=$(openssl rand -hex 24)
+          certificate="$RUNNER_TEMP/strudeland-signing.p12"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -f pkcs12 -P "$CERTIFICATE_PASSWORD" -x -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          security find-certificate -c 'Developer ID Application:' -p "$keychain" > "$RUNNER_TEMP/strudeland-signing.pem"
+          issuer=$(openssl x509 -in "$RUNNER_TEMP/strudeland-signing.pem" -noout -issuer)
+          case "$issuer" in
+            *'Developer ID Certification Authority'*'OU=G2'* | *'OU=G2'*'Developer ID Certification Authority'*)
+              intermediate=DeveloperIDG2CA.cer ;;
+            *'Developer ID Certification Authority'*) intermediate=DeveloperIDCA.cer ;;
+            *) echo '::error::Unsupported Developer ID certificate issuer.'; exit 1 ;;
+          esac
+          curl -fsSL --proto '=https' --retry 3 "https://www.apple.com/certificateauthority/$intermediate" -o "$RUNNER_TEMP/$intermediate"
+          security import "$RUNNER_TEMP/$intermediate" -k "$keychain" || security find-certificate -c 'Developer ID Certification Authority' "$keychain" >/dev/null
+          security find-identity -v -p codesigning "$keychain" | grep -Ei "$SIGNING_SHA1 .*Developer ID Application:"
+      - name: Bundle and notarize
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_SHA1 }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          umask 077
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/strudeland-notary.p8"
+          trap 'rm -f "$APPLE_API_KEY_PATH"' EXIT
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
+          unset APPLE_API_KEY_P8
+          bun run tauri bundle --ci --bundles dmg
+          bash scripts/stage-installer.sh dmg developer-id
+      - name: Delete the signing keychain
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/strudeland-signing.keychain-db"
+          if [[ -f "$keychain" ]]; then
+            security delete-keychain "$keychain"
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: strudeland-notarized-dmg
+          path: ${{ runner.temp }}/strudeland-installer
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  draft:
+    name: Prepare GitHub release draft
+    needs: [verify, windows, signed-macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: strudeland-msi
+          path: windows
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: strudeland-notarized-dmg
+          path: macos
+      - name: Stage release assets
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+        run: |
+          mkdir release
+          for bundle in macos windows; do
+            grep -Fx "source=https://github.com/$GITHUB_REPOSITORY/tree/$RELEASE_COMMIT" "$bundle/BUILD.txt"
+            (cd "$bundle" && sha256sum --check SHA256SUMS)
+          done
+          cp macos/*.dmg windows/*.msi release/
+          tar -czf "release/strudeland-${RELEASE_TAG#v}-notices.tar.gz" -C macos \
+            LICENSE LICENSES THIRD-PARTY-NOTICES.md crates vendor
+          (cd release && sha256sum ./* > SHA256SUMS)
+          cat > release-notes.md <<NOTES
+          Strudeland ${RELEASE_TAG#v}
+
+          - macOS 13 or later on Apple Silicon. The DMG is Developer ID signed and notarized.
+          - Windows 11 x64. The MSI is unsigned.
+
+          The installers were built from [this exact source revision](https://github.com/$GITHUB_REPOSITORY/tree/$RELEASE_COMMIT).
+          SHA-256 checksums and third-party notices are attached.
+          NOTES
+      - name: Create or refresh the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)" != "$RELEASE_COMMIT" ]]; then
+            echo '::error::The release tag changed while the installers were building.'
+            exit 1
+          fi
+          draft=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .draft")
+          if [[ "$draft" == true ]]; then
+            gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
+          elif [[ -n "$draft" ]]; then
+            echo '::error::This release is already public.'
+            exit 1
+          else
+            gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --draft --title "Strudeland ${RELEASE_TAG#v}" --notes-file release-notes.md
+          fi

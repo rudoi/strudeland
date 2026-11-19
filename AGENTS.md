@@ -45,10 +45,12 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Rust format check | `cargo fmt --all --check` |
 | Install the CLI | `cargo install --path crates/strudeland-cli` |
 | Run the CLI | `cargo run -p strudeland-cli -- state` |
+| Open a version bump PR or build a tagged release draft | `bun run release (--current\|--patch\|--minor\|--major\|--set VERSION) [--dry-run]` |
 
 The [macOS workflow](.github/workflows/macos.yml) runs frozen Bun and locked Rust checks on
 Apple Silicon. The [native workflow](.github/workflows/native.yml) checks Windows x64 and Ubuntu
-24.04 amd64 and builds unsigned packages. Browser parity and live timing benchmarks run on demand.
+24.04 amd64. Both workflows restore Cargo caches and save new entries from successful `main`
+builds. Browser parity, live timing benchmarks, and installer builds run separately on demand.
 The [contributor guide](CONTRIBUTING.md#verify-your-changes) lists the local commands.
 
 `cargo test`/`clippy`/`check` do not need a built frontend (`dist/`). Only `tauri build` does, and it
