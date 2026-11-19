@@ -61,3 +61,23 @@ wall-clock benchmark.
 
 Run browser checks on macOS or Ubuntu while Bun's Windows Chromium launch issue is open.
 See the [upstream Windows issue](https://github.com/oven-sh/bun/issues/27977).
+
+## Preview installers
+
+The **Preview installers** workflow builds an Apple Silicon DMG and a Windows x64 MSI.
+Run it manually from `main` or on a same-repository PR that changes the installer workflow or
+staging script. The Actions downloads include a SHA-256 checksum, the exact source revision,
+and third-party notices. The test DMG uses an ad-hoc signature and the test MSI is unsigned.
+
+To build locally, run `bun install --frozen-lockfile` first. On macOS, run
+`bun run tauri build --ci --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked`.
+On Windows, run `bun run tauri build --ci --no-sign --bundles msi -- --locked`. Tauri writes
+installers to `target/release/bundle`.
+
+For a Developer ID-signed and notarized DMG, configure the GitHub `release` environment to
+allow deployments from `main`. Add `MACOS_CERTIFICATE_P12` (base64 of a Developer ID Application
+identity exported as a `.p12`), `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_P8`, `APPLE_API_KEY`,
+and `APPLE_API_ISSUER` as environment secrets. Set `MACOS_SIGNING_SHA1` as an environment
+variable to the full fingerprint reported by `security find-identity -v -p codesigning`.
+Run the workflow from `main` with **Sign and notarize the macOS DMG** enabled. The job verifies
+both the disk image and the app inside it before uploading the result.

@@ -1,0 +1,155 @@
+name: Preview installers
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/installers.yml'
+      - 'scripts/stage-preview-installer.sh'
+  workflow_dispatch:
+    inputs:
+      sign_macos:
+        description: Sign and notarize the macOS DMG using the release environment
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: '0'
+  RUSTUP_TOOLCHAIN: 1.94.1
+
+jobs:
+  preview:
+    name: Preview installer (${{ matrix.bundle }})
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            bundle: dmg
+          - os: windows-2025
+            bundle: msi
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.11
+      - name: Install build dependencies
+        if: matrix.bundle == 'msi' || inputs.sign_macos != true
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          bun install --frozen-lockfile
+      - name: Build Apple Silicon test DMG
+        if: matrix.bundle == 'dmg' && inputs.sign_macos != true
+        run: |
+          bun run tauri build --ci --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked
+          bash scripts/stage-preview-installer.sh dmg adhoc
+      - name: Build Windows x64 test MSI
+        if: matrix.bundle == 'msi'
+        run: |
+          bun run tauri build --ci --no-sign --bundles msi -- --locked
+          bash scripts/stage-preview-installer.sh msi unsigned
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: matrix.bundle == 'msi' || inputs.sign_macos != true
+        with:
+          name: strudeland-preview-${{ matrix.bundle }}
+          path: ${{ runner.temp }}/strudeland-installer
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  signed-macos:
+    name: Signed and notarized Apple Silicon DMG
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.sign_macos
+    runs-on: macos-15
+    timeout-minutes: 100
+    environment: release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Check signing configuration
+        env:
+          CONFIGURED: ${{ secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && vars.MACOS_SIGNING_SHA1 != '' && secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' }}
+        run: |
+          if [[ "$CONFIGURED" != true ]]; then
+            echo '::error::Configure the release environment values listed in CONTRIBUTING.md.'
+            exit 1
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.11
+      - name: Compile application
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          bun install --frozen-lockfile
+          bun run tauri build --ci --no-bundle -- --locked
+      - name: Import Developer ID Application identity
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_SHA1: ${{ vars.MACOS_SIGNING_SHA1 }}
+        run: |
+          [[ "$SIGNING_SHA1" =~ ^[[:xdigit:]]{40}$ ]]
+          umask 077
+          keychain="$RUNNER_TEMP/strudeland-signing.keychain-db"
+          password=$(openssl rand -hex 24)
+          certificate="$RUNNER_TEMP/strudeland-signing.p12"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -f pkcs12 -P "$CERTIFICATE_PASSWORD" -x -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          security find-certificate -c 'Developer ID Application:' -p "$keychain" > "$RUNNER_TEMP/strudeland-signing.pem"
+          issuer=$(openssl x509 -in "$RUNNER_TEMP/strudeland-signing.pem" -noout -issuer)
+          case "$issuer" in
+            *'Developer ID Certification Authority'*'OU=G2'* | *'OU=G2'*'Developer ID Certification Authority'*)
+              intermediate=DeveloperIDG2CA.cer ;;
+            *'Developer ID Certification Authority'*) intermediate=DeveloperIDCA.cer ;;
+            *) echo '::error::Unsupported Developer ID certificate issuer.'; exit 1 ;;
+          esac
+          curl -fsSL --proto '=https' --retry 3 "https://www.apple.com/certificateauthority/$intermediate" -o "$RUNNER_TEMP/$intermediate"
+          security import "$RUNNER_TEMP/$intermediate" -k "$keychain" || security find-certificate -c 'Developer ID Certification Authority' "$keychain" >/dev/null
+          security find-identity -v -p codesigning "$keychain" | grep -Ei "$SIGNING_SHA1 .*Developer ID Application:"
+      - name: Bundle and notarize
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_SHA1 }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          umask 077
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/strudeland-notary.p8"
+          trap 'rm -f "$APPLE_API_KEY_PATH"' EXIT
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
+          unset APPLE_API_KEY_P8
+          bun run tauri bundle --ci --bundles dmg
+          bash scripts/stage-preview-installer.sh dmg developer-id
+      - name: Delete the signing keychain
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/strudeland-signing.keychain-db"
+          if [[ -f "$keychain" ]]; then
+            security delete-keychain "$keychain"
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: strudeland-notarized-dmg
+          path: ${{ runner.temp }}/strudeland-installer
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
