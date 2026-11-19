@@ -14,14 +14,14 @@ pub enum RecordError {
     DeviceBusy,
     #[error("the input device was lost: {0}")]
     DeviceLost(String),
-    /// The device's sample format is not f32, i16 or i32, or the channel is out of range.
+    /// The device's sample format is unsupported, or the channel is out of range.
     #[error("unsupported input format: {0}")]
     UnsupportedFormat(String),
     #[error("not armed")]
     NotArmed,
     #[error("already recording")]
     AlreadyRecording,
-    /// No first anchor within the start timeout (2 s).
+    /// No samples written within the start timeout (2 s).
     #[error("the capture did not start")]
     StartTimeout,
     #[error(transparent)]

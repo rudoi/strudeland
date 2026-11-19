@@ -7,14 +7,21 @@ export function defaultProjectName(path: string): string {
 }
 
 export type AppShortcut = 'openProject' | 'newSong';
+export type PrimaryModifier = 'metaKey' | 'ctrlKey';
 
-/** Window-level shortcuts: plain Cmd-O and Cmd-N (no Ctrl, Alt or Shift, no key repeat). */
+/** Match CodeMirror's Command on Mac and Control elsewhere. */
+export function primaryModifier(platform: string): PrimaryModifier {
+  return platform.includes('Mac') ? 'metaKey' : 'ctrlKey';
+}
+
+/** Window-level open and new shortcuts with the platform's primary modifier alone. */
 export function matchShortcut(
   e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> & {
     repeat?: boolean;
   },
+  modifier: PrimaryModifier,
 ): AppShortcut | null {
-  if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat) return null;
+  if (!e[modifier] || (e.metaKey && e.ctrlKey) || e.altKey || e.shiftKey || e.repeat) return null;
   const key = e.key.toLowerCase();
   if (key === 'o') return 'openProject';
   if (key === 'n') return 'newSong';

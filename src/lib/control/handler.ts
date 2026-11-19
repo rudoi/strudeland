@@ -589,7 +589,6 @@ export function createControlHandler({
   async function projectOpen(params: unknown): Promise<ProjectOpenResult> {
     const p = object(params, ['path', 'discard']);
     const path = requireString(p, 'path');
-    if (!path.startsWith('/')) throw invalid(`'path' must be an absolute path`);
     const discard = optBool(p, 'discard') === true;
     const r = await session.openPath(path, { discard });
     if (!r.ok) {

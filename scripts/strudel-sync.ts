@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { DOCS_FILE, extractVendored, renderDocs } from './extract-strudel-docs';
 import { jsonText } from './json-text';
 import { sha256 } from './sha256';
@@ -318,7 +318,7 @@ const readOrNull = (p: string): Uint8Array | null =>
 
 function removeEmptyDirs(from: string, stopAt: string): void {
   let dir = from;
-  while (dir.startsWith(stopAt + '/') && existsSync(dir) && readdirSync(dir).length === 0) {
+  while (dir.startsWith(stopAt + sep) && existsSync(dir) && readdirSync(dir).length === 0) {
     rmdirSync(dir);
     dir = dirname(dir);
   }
@@ -501,7 +501,16 @@ export function sync(opts: SyncOptions): SyncResult {
   try {
     const clone = join(scratch, 'upstream');
     log(`cloning ${repo}`);
-    run('git', ['clone', '--quiet', '--filter=blob:none', '--no-checkout', repo, clone]);
+    run('git', [
+      'clone',
+      '--quiet',
+      '--config',
+      'core.autocrlf=false',
+      '--filter=blob:none',
+      '--no-checkout',
+      repo,
+      clone,
+    ]);
     const commit = resolveCommit(clone, opts.target);
     if (!commit) return refuse(`${opts.target} is not a commit or branch of ${repo}`);
     git(clone, 'checkout', '--quiet', '--detach', commit);

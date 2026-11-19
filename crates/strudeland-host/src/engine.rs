@@ -307,18 +307,36 @@ pub fn v8_version() -> &'static str {
     v8::V8::get_version()
 }
 
-/// This process's peak resident set size as `getrusage` reports it (`ru_maxrss`: bytes on macOS,
-/// KiB on Linux), or `None` when the call fails.
-pub(crate) fn max_rss_raw() -> Option<libc::c_long> {
+/// This process's peak resident set size in bytes (0 when unavailable).
+#[cfg(unix)]
+pub(crate) fn max_rss_bytes() -> u64 {
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
-    // SAFETY: `getrusage` writes a `rusage` into the valid, zeroed buffer it is given.
-    let status = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if status != 0 {
-        return None;
+    // SAFETY: getrusage writes into the valid, zeroed buffer.
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
+        return 0;
     }
-    // SAFETY: the call succeeded, so the buffer is initialised (it was zeroed before anyway).
+    // SAFETY: getrusage succeeded and initialized the result.
     let usage = unsafe { usage.assume_init() };
-    Some(usage.ru_maxrss)
+    crate::bench::rss_bytes(usage.ru_maxrss, cfg!(target_os = "macos"))
+}
+
+/// This process's peak working set in bytes (0 when unavailable).
+#[cfg(windows)]
+pub(crate) fn max_rss_bytes() -> u64 {
+    use windows_sys::Win32::System::{
+        ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+        Threading::GetCurrentProcess,
+    };
+    let size = size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: size,
+        ..Default::default()
+    };
+    // SAFETY: GetCurrentProcess is a valid pseudo-handle and counters is writable for size bytes.
+    if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } == 0 {
+        return 0;
+    }
+    counters.PeakWorkingSetSize as u64
 }
 
 /// A property key, or `None` if the name cannot become a JS string.

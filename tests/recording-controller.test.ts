@@ -159,6 +159,7 @@ function setup(
     timers,
     sleeps,
     sessionStore,
+    api: raw,
     setGraph: (on: boolean) => void (graphOn = on),
     onSleep: (f: (() => void) | null) => void (onSleep = f),
     /** Run every timer with period `every`. */
@@ -795,6 +796,39 @@ describe('failures while starting', () => {
       clockOffsetNs: { start: null, end: null },
       outputStamps: [],
     });
+  });
+
+  test('a saved clocked take with no input timing warns and keeps the memo', async () => {
+    const h = await armed();
+    const original = h.api.stop.bind(h.api);
+    h.api.stop = async (args) => {
+      const saved = await original(args);
+      const fields = args.sidecar!;
+      return {
+        ...saved,
+        sidecar: {
+          schema: 1,
+          createdAt: '',
+          app: { version: '1' },
+          input: {
+            deviceId: 'mic',
+            deviceName: 'mic',
+            sampleRate: 48000,
+            channel: 0,
+            channels: 1,
+          },
+          ...fields,
+          timing: { ...fields.timing, bar1Frame: null, anchors: [] },
+          xruns: 0,
+          recovered: false,
+        },
+      };
+    };
+    await h.c.record(SONG_ON);
+    h.g.setTime(8);
+    await h.c.stop();
+    expect(h.st().warning).toBe(MESSAGES.captureWarning);
+    expect(h.st().lastStem).toBe('a-01');
   });
 
   test('the output clock is retried every 50 ms', async () => {

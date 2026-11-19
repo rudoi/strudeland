@@ -7,6 +7,7 @@
 //! the app, [`testing::FakeSource`] in tests.
 
 mod anchors;
+pub mod clock;
 mod device;
 mod error;
 mod levels;
@@ -16,7 +17,8 @@ mod source;
 mod writer;
 
 pub use anchors::{Anchor, frame_at};
-pub use device::{DeviceInfo, find_input_device, host_now_ns, list_input_devices};
+pub use clock::host_now_ns;
+pub use device::{DeviceInfo, find_input_device, list_input_devices};
 pub use error::RecordError;
 pub use levels::Level;
 pub use pipeline::Capture;

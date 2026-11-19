@@ -25,7 +25,13 @@ beforeAll(() => {
     { onlyIfMissing: true },
   );
 });
-afterAll(() => restore());
+afterAll(() => {
+  // The last test leaves a worklet in the shared pool. Clear the fake nodes before
+  // removing their Web Audio constructors.
+  setNodePooling(false);
+  setNodePooling(true);
+  restore();
+});
 afterEach(() => setNodePooling(true));
 
 let nextKey = 0;

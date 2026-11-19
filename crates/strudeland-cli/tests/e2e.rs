@@ -1,15 +1,21 @@
 //! Runs the real `strudeland` binary against a fake control server.
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::process::{Command, Output};
+#[cfg(unix)]
 use std::thread::JoinHandle;
 
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(unix)]
+use serde_json::json;
 
 /// Binds `path`, accepts one connection and answers each request line with the script entry
 /// whose method matches: `{"error": {...}}` is sent as an error, anything else as the result.
+#[cfg(unix)]
 fn spawn_fake_server(path: &Path, script: Vec<(&'static str, Value)>) -> JoinHandle<()> {
     let listener = UnixListener::bind(path).unwrap();
     std::thread::spawn(move || {
@@ -42,15 +48,19 @@ fn strudeland(socket: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
+#[cfg(unix)]
 fn short_dir() -> tempfile::TempDir {
     // macOS limits socket paths to 103 bytes; $TMPDIR is long, /tmp is not.
+    use std::os::unix::fs::PermissionsExt;
     tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
         .prefix("e")
         .tempdir_in("/tmp")
         .unwrap()
 }
 
 #[test]
+#[cfg(unix)]
 fn state_against_a_fake_server() {
     let dir = short_dir();
     let sock = dir.path().join("s");
@@ -79,6 +89,7 @@ fn state_against_a_fake_server() {
 }
 
 #[test]
+#[cfg(unix)]
 fn rpc_error_exits_1() {
     let dir = short_dir();
     let sock = dir.path().join("s");
@@ -99,6 +110,7 @@ fn rpc_error_exits_1() {
 }
 
 #[test]
+#[cfg(unix)]
 fn not_running_exits_2() {
     let dir = short_dir();
     let sock = dir.path().join("none");
@@ -114,7 +126,7 @@ fn not_running_exits_2() {
 
 #[test]
 fn usage_errors_exit_4_and_help_exits_0() {
-    let dir = short_dir();
+    let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("none");
     assert_eq!(
         strudeland(&sock, &["--timeout", "0", "ping"]).status.code(),
@@ -125,6 +137,7 @@ fn usage_errors_exit_4_and_help_exits_0() {
 }
 
 #[test]
+#[cfg(unix)]
 fn events_against_a_fake_server() {
     let dir = short_dir();
     let sock = dir.path().join("s");
@@ -154,6 +167,7 @@ fn events_against_a_fake_server() {
 }
 
 #[test]
+#[cfg(unix)]
 fn events_sends_the_expected_params() {
     let dir = short_dir();
     let sock = dir.path().join("s");
@@ -182,7 +196,7 @@ fn events_sends_the_expected_params() {
 
 #[test]
 fn events_usage_errors_exit_4() {
-    let dir = short_dir();
+    let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("none");
     for args in [
         &["events", "--bars", "5-3"][..],
@@ -194,6 +208,7 @@ fn events_usage_errors_exit_4() {
 }
 
 #[test]
+#[cfg(unix)]
 fn screenshot_against_a_fake_server() {
     let dir = short_dir();
     let sock = dir.path().join("s");
@@ -339,4 +354,43 @@ fn render_refuses_unsupported_sounds_and_writes_nothing() {
     assert_eq!(o.status.code(), Some(1), "{stderr}");
     assert!(stderr.contains("first at bar"), "{stderr}");
     assert!(!out.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn cli_uses_a_verified_windows_control_pipe() {
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let socket = std::path::PathBuf::from(format!(
+        r"\\.\pipe\strudeland-cli-test-{}",
+        std::process::id()
+    ));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let server = {
+        let _entered = runtime.enter();
+        strudeland_ctl::windows_pipe::listen(&socket, true).unwrap()
+    };
+    let server = std::thread::spawn(move || {
+        runtime.block_on(async move {
+            server.connect().await.unwrap();
+            let mut server = BufReader::new(server);
+            let mut line = String::new();
+            server.read_line(&mut line).await.unwrap();
+            let req: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(req["method"], "ping");
+            let response = json!({"jsonrpc":"2.0", "id":req["id"], "result":{"version":"test","attached":true}});
+            server.get_mut().write_all(format!("{response}\n").as_bytes()).await.unwrap();
+            line.clear();
+            assert_eq!(server.read_line(&mut line).await.unwrap(), 0);
+        });
+    });
+    let output = strudeland(&socket, &["--timeout", "1", "ping"]);
+    assert!(output.status.success(), "{output:?}");
+    server.join().unwrap();
+    let output = strudeland(&socket, &["--timeout", "1", "ping"]);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
 }

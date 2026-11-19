@@ -4265,6 +4265,7 @@ name = "strudeland-app"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "cairo-rs",
  "notify",
  "notify-debouncer-full",
  "objc2",
@@ -4284,6 +4285,9 @@ dependencies = [
  "tauri-plugin-opener",
  "tempfile",
  "tokio",
+ "webkit2gtk",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]
@@ -4298,16 +4302,20 @@ dependencies = [
  "strudeland-render",
  "strudeland-transcribe",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
 name = "strudeland-ctl"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4334,6 +4342,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "v8",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4347,6 +4356,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strudeland-engine",
+ "strudeland-record",
  "thiserror 2.0.21",
 ]
 
@@ -4354,10 +4364,13 @@ dependencies = [
 name = "strudeland-project"
 version = "0.1.0"
 dependencies = [
+ "file-id",
+ "rustix 1.1.6",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4366,6 +4379,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "hound",
+ "libc",
  "mach2",
  "rtrb",
  "strudeland-project",

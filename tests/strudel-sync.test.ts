@@ -351,13 +351,12 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   // Nothing from the machine's git configuration leaks into the fixtures.
   GIT_CONFIG_NOSYSTEM: '1',
-  GIT_CONFIG_GLOBAL: '/dev/null',
 };
 
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], {
     cwd,
-    env: GIT_ENV,
+    env: { ...GIT_ENV, GIT_CONFIG_GLOBAL: join(sharedRoot, 'gitconfig') },
     encoding: 'utf8',
   });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
@@ -455,6 +454,7 @@ let first = '';
 
 beforeAll(() => {
   sharedRoot = mkdtempSync(join(tmpdir(), 'strudel-sync-test-shared-'));
+  writeFileSync(join(sharedRoot, 'gitconfig'), '');
   sharedUpstream = join(sharedRoot, 'upstream');
   mkdirSync(sharedUpstream, { recursive: true });
   git(sharedUpstream, 'init', '--quiet', '-b', 'main');

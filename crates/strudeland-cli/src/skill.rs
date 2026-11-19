@@ -105,6 +105,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn install_writes_through_a_symlink() {
         let dir = tempfile::tempdir().unwrap();
         let real = dir.path().join("dotfiles.md");

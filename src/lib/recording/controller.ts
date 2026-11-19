@@ -93,6 +93,7 @@ const TEMPO_EPSILON = 1e-9;
 export const MESSAGES = {
   ...BACKING_MESSAGES,
   clockWarning: 'the clock could not be measured: bar 1 is not marked in this memo',
+  captureWarning: 'the memo was saved, but the input clock could not place bar 1',
   outputWarning: 'the output clock could not be read: bar 1 is not marked in this memo',
   tempoWarning: 'the tempo changed during the take: the memo keeps the tempo it started with',
 } as const;
@@ -530,7 +531,11 @@ export function createRecordingController(deps: RecordingControllerDeps): Record
     let stopError: RecordingUiError | null = null;
     let lastStem = state.lastStem;
     try {
-      lastStem = (await api.stop({ sidecar })).stem;
+      const saved = await api.stop({ sidecar });
+      lastStem = saved.stem;
+      if (sidecar.timing.bar1HostNs !== null && saved.sidecar?.timing.bar1Frame === null) {
+        warn(MESSAGES.captureWarning);
+      }
     } catch (e) {
       stopError = uiError(e);
     }

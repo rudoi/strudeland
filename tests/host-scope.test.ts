@@ -1,6 +1,6 @@
 // The headless host's eval scope against the app's (`src/lib/strudel/prebake.ts`): every app
 // name is real, shimmed, stubbed or listed as not reachable, and the lists stay exact.
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import * as codemirror from '@strudel/codemirror';
 import * as core from '@strudel/core';
 import * as draw from '@strudel/draw';
@@ -12,12 +12,13 @@ import { NOT_REACHABLE } from '../src/host/not-reachable';
 import { SUPERDOUGH_FUNCTIONS } from '../src/host/superdough-names';
 import { snapshotOwnProperties } from './helpers/prototype-snapshot';
 
-// Importing the shims replaces Pattern.prototype methods; put the real ones back afterwards.
+// The name checks use the exports alone. Restore the real prototype after importing them.
 await import('@strudel/transpiler');
 const restore = snapshotOwnProperties(core.Pattern.prototype);
-const { shims } = await import('../src/host/shims');
-const { ASYNC_STUBS, superdoughStubs } = await import('../src/host/prebake');
-afterAll(restore);
+const [{ shims }, { ASYNC_STUBS, superdoughStubs }] = await Promise.all([
+  import('../src/host/shims'),
+  import('../src/host/prebake'),
+]).finally(restore);
 
 const keys = (...mods: object[]): Set<string> => new Set(mods.flatMap((m) => Object.keys(m)));
 const app = keys(core, mini, tonal, webaudio, draw, codemirror, { song });

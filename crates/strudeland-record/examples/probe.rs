@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{FromSample, InputCallbackInfo, SampleFormat, SizedSample};
+use strudeland_record::clock::{ClockReader, StreamClock};
 use strudeland_record::{RecordError, find_input_device, host_now_ns, list_input_devices};
 
 const USAGE: &str = "usage: probe [--list] [--device ID] [--seconds N]";
@@ -23,6 +24,7 @@ struct Row {
     now_ns: u64,
     callback_ns: u64,
     capture_ns: u64,
+    mapped_ns: Option<u64>,
     peak: f32,
 }
 
@@ -124,10 +126,14 @@ fn probe(device_id: Option<&str>, seconds: f64) -> Result<(), RecordError> {
     let error = move |e: cpal::Error| {
         let _ = err_tx.send(e);
     };
+    let clock = StreamClock::default();
+    let reader = clock.reader();
     let stream = match config.sample_format() {
-        SampleFormat::F32 => build::<f32>(&device, &config, tx, error),
-        SampleFormat::I16 => build::<i16>(&device, &config, tx, error),
-        SampleFormat::I32 => build::<i32>(&device, &config, tx, error),
+        SampleFormat::F32 => build::<f32>(&device, &config, reader, tx, error),
+        SampleFormat::I16 => build::<i16>(&device, &config, reader, tx, error),
+        SampleFormat::I24 => build::<cpal::I24>(&device, &config, reader, tx, error),
+        SampleFormat::U16 => build::<u16>(&device, &config, reader, tx, error),
+        SampleFormat::I32 => build::<i32>(&device, &config, reader, tx, error),
         other => {
             return Err(RecordError::UnsupportedFormat(format!(
                 "sample format {other}"
@@ -135,6 +141,7 @@ fn probe(device_id: Option<&str>, seconds: f64) -> Result<(), RecordError> {
         }
     }?;
     stream.play().map_err(|e| RecordError::from_cpal(&e))?;
+    clock.calibrate(&stream);
     std::thread::sleep(Duration::from_secs_f64(seconds));
     drop(stream);
 
@@ -157,6 +164,7 @@ fn probe(device_id: Option<&str>, seconds: f64) -> Result<(), RecordError> {
 fn build<T>(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
+    mut reader: ClockReader,
     mut tx: rtrb::Producer<Row>,
     error: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, RecordError>
@@ -177,6 +185,7 @@ where
             now_ns,
             callback_ns: ts.callback.as_nanos() as u64,
             capture_ns: ts.capture.as_nanos() as u64,
+            mapped_ns: reader.event(ts.callback, ts.capture, false),
             peak,
         });
     };
@@ -191,7 +200,7 @@ fn ms(ns: i128) -> f64 {
 
 fn report(rows: &[Row], rate: u32, xruns: usize) {
     println!(
-        "n\tframes\tnow_ns\tcallback_ns\tcapture_ns\tnow_minus_callback_ms\tcallback_minus_capture_ms\tbuffer_ms\textra_ms"
+        "n\tframes\tnow_ns\tcallback_ns\tcapture_ns\tnow_minus_callback_ms\tcallback_minus_capture_ms\tbuffer_ms\textra_ms\tmapped_capture_ns"
     );
     let mut cols: [Vec<f64>; 4] = Default::default();
     for (n, r) in rows.iter().enumerate() {
@@ -199,8 +208,11 @@ fn report(rows: &[Row], rate: u32, xruns: usize) {
         let cb_cap = ms(i128::from(r.callback_ns) - i128::from(r.capture_ns));
         let buffer = f64::from(r.frames) * 1e3 / f64::from(rate);
         let extra = cb_cap - buffer;
+        let mapped = r
+            .mapped_ns
+            .map_or_else(|| "unknown".into(), |t| t.to_string());
         println!(
-            "{n}\t{}\t{}\t{}\t{}\t{now_cb:.3}\t{cb_cap:.3}\t{buffer:.3}\t{extra:.3}",
+            "{n}\t{}\t{}\t{}\t{}\t{now_cb:.3}\t{cb_cap:.3}\t{buffer:.3}\t{extra:.3}\t{mapped}",
             r.frames, r.now_ns, r.callback_ns, r.capture_ns
         );
         for (col, v) in cols.iter_mut().zip([now_cb, cb_cap, buffer, extra]) {

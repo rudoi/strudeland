@@ -1,13 +1,14 @@
 # Contributing to Strudeland
 
 Follow the [source preview setup](README.md#apple-silicon-source-preview) to build and run the app
-on Apple Silicon. The [repository guide](AGENTS.md) describes the code layout, test commands and
+on Apple Silicon, or the [Windows and Ubuntu setup](README.md#windows-and-ubuntu-desktop-builds).
+The [repository guide](AGENTS.md) describes the code layout, test commands and
 project conventions.
 
 ## Report a bug
 
 Search [GitHub Issues](https://github.com/rudoi/strudeland/issues) before opening a new report.
-Include the source revision, macOS version, expected behavior, what actually happened, and steps
+Include the source revision, OS and version, expected behavior, what actually happened, and steps
 to reproduce it. For audio bugs, include the playback engine or export format if relevant.
 
 Use a small song or project you can share publicly. Synthetic examples make good fixtures.
@@ -26,7 +27,7 @@ keep the diff focused. Review the [license](LICENSE) and
 ## Verify your changes
 
 Run the following checks from the repository root to match
-[macOS CI](.github/workflows/macos.yml).
+[macOS CI](.github/workflows/macos.yml) and [Windows and Ubuntu CI](.github/workflows/native.yml).
 
 ```sh
 bun install --frozen-lockfile
@@ -46,3 +47,17 @@ cargo test --locked --workspace
 
 For desktop behavior, use `bun run tauri dev` and try the affected workflow in the app.
 The [repository guide](AGENTS.md) lists additional render, parity and performance checks by area.
+
+For changes involving native APIs, report the target desktop, package, webview version and the
+runtime path you exercised. For audio timing, also report the device, negotiated sample rate and
+loopback measurements. Hosted fake-device and build checks cover reproducible regressions. The
+desktop acceptance pass exercises installed packages with real playback and capture.
+
+Run the Chromium-based host and render checks on demand. Use `bun run host:parity` and
+`bun run host:parity --batch` after installing Chromium with `bunx playwright install chromium`.
+Run the timing-sensitive live benchmark on a quiet machine with
+`cargo test --locked -p strudeland-live --test dropout dropout_short`. Hosted PR checks skip this
+wall-clock benchmark.
+
+Run browser checks on macOS or Ubuntu while Bun's Windows Chromium launch issue is open.
+See the [upstream Windows issue](https://github.com/oven-sh/bun/issues/27977).

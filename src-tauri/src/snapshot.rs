@@ -1,6 +1,6 @@
-//! The native screenshot behind [`Snapshotter`]: a WKWebView snapshot of the `main` window's web
-//! content, written as a PNG. macOS only; elsewhere `snapshot` fails at once.
+//! Native screenshots of the main window webview, written as PNG.
 
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -47,30 +47,34 @@ impl SendOnce {
 
 const EMPTY: &str = "the snapshot was empty (is the window hidden or minimized?)";
 
-/// Writes the encoded PNG to `path` (overwriting) and describes it. An empty image is an error and
-/// writes nothing.
-/// Writes to a temporary file next to `path`, then renames it over `path`: a reader never sees a
-/// partial PNG, and a failed write leaves an existing file alone.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let name = path
-        .file_name()
-        .map_or_else(Default::default, |n| n.to_string_lossy());
-    let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
-    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    result
-}
-
-fn write_png(path: &Path, png: &[u8], width: isize, height: isize) -> Outcome {
+fn write_png(
+    path: &Path,
+    png: &[u8],
+    width: isize,
+    height: isize,
+    publish: impl FnOnce() -> bool,
+) -> Outcome {
     let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
         return Err(EMPTY.into());
     };
     if png.is_empty() || width == 0 || height == 0 {
         return Err(EMPTY.into());
     }
-    write_atomic(path, png).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    let write = || -> io::Result<()> {
+        let dir = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+        // NamedTempFile reserves a unique sibling and uses private permissions on Unix.
+        let mut temp = tempfile::NamedTempFile::new_in(dir)?;
+        temp.write_all(png)?;
+        if !publish() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "the snapshot was cancelled",
+            ));
+        }
+        temp.persist(path).map_err(|e| e.error)?;
+        Ok(())
+    };
+    write().map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     Ok(ScreenshotResult {
         path: path.to_string_lossy().into_owned(),
         width,
@@ -78,15 +82,15 @@ fn write_png(path: &Path, png: &[u8], width: isize, height: isize) -> Outcome {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 impl Snapshotter for TauriSnapshotter {
     /// No snapshot is started.
     fn snapshot(&self, _path: PathBuf) -> Result<SnapshotReceiver, String> {
-        Err("screenshots need macOS".into())
+        Err("screenshots are unavailable on this platform".into())
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 impl Snapshotter for TauriSnapshotter {
     fn snapshot(&self, path: PathBuf) -> Result<SnapshotReceiver, String> {
         use tauri::Manager;
@@ -98,7 +102,17 @@ impl Snapshotter for TauriSnapshotter {
         let (tx, rx) = SendOnce::new();
         let on_main = tx.clone();
         // Queued to the main thread; this thread (a tokio worker) does not wait for it.
-        if let Err(e) = window.with_webview(move |pw| macos::start(pw.inner(), path, on_main)) {
+        if let Err(e) = window.with_webview(move |pw| {
+            if on_main.abandoned() {
+                return;
+            }
+            #[cfg(target_os = "macos")]
+            macos::start(pw.inner(), path, on_main);
+            #[cfg(target_os = "linux")]
+            linux::start(pw.inner(), path, on_main);
+            #[cfg(windows)]
+            windows_webview::start(pw.controller(), path, on_main);
+        }) {
             tx.send(Err(format!("cannot reach the webview: {e}")));
         }
         Ok(rx)
@@ -167,7 +181,8 @@ mod macos {
         std::thread::spawn(move || {
             // The request may have timed out while WebKit was drawing; then write nothing.
             if !tx.abandoned() {
-                tx.send(encode(&tiff, &path));
+                let result = encode(&tiff, &path, &tx);
+                tx.send(result);
             }
         });
     }
@@ -175,7 +190,7 @@ mod macos {
     /// Runs on a background thread: decodes the TIFF, encodes it as PNG and writes it to `path`.
     /// `NSData` and `NSBitmapImageRep` are not main-thread-only (no `MainThreadMarker` needed),
     /// and every object here is created and dropped on this thread.
-    fn encode(tiff: &[u8], path: &Path) -> Outcome {
+    fn encode(tiff: &[u8], path: &Path, tx: &SendOnce) -> Outcome {
         // This thread has no run loop pool; drain the encoding temporaries here.
         autoreleasepool(|_| {
             let tiff = NSData::with_bytes(tiff);
@@ -190,8 +205,131 @@ mod macos {
             // SAFETY: `png` is a fresh result owned only by this thread; nothing mutates it while
             // the slice is borrowed.
             let bytes = unsafe { png.as_bytes_unchecked() };
-            write_png(path, bytes, rep.pixelsWide(), rep.pixelsHigh())
+            write_png(path, bytes, rep.pixelsWide(), rep.pixelsHigh(), || {
+                !tx.abandoned()
+            })
         })
+    }
+}
+
+#[cfg(any(target_os = "linux", windows, test))]
+fn dimensions(png: &[u8]) -> Option<(isize, isize)> {
+    let header = png.get(..24)?;
+    if header.get(..16)? != b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR" {
+        return None;
+    }
+    let width = u32::from_be_bytes(header[16..20].try_into().ok()?);
+    let height = u32::from_be_bytes(header[20..24].try_into().ok()?);
+    (width > 0 && height > 0).then_some((width as isize, height as isize))
+}
+
+#[cfg(any(target_os = "linux", windows))]
+fn finish_png(path: PathBuf, png: Vec<u8>, tx: SendOnce) {
+    std::thread::spawn(move || {
+        if !tx.abandoned() {
+            let result =
+                dimensions(&png)
+                    .ok_or_else(|| EMPTY.to_string())
+                    .and_then(|(width, height)| {
+                        write_png(&path, &png, width, height, || !tx.abandoned())
+                    });
+            tx.send(result);
+        }
+    });
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::{SendOnce, finish_png};
+    use std::path::PathBuf;
+    use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebView, WebViewExt, gio};
+
+    pub(super) fn start(webview: WebView, path: PathBuf, tx: SendOnce) {
+        webview.snapshot(
+            SnapshotRegion::Visible,
+            SnapshotOptions::empty(),
+            None::<&gio::Cancellable>,
+            move |result| {
+                if tx.abandoned() {
+                    return;
+                }
+                let png = result.map_err(|e| e.to_string()).and_then(|surface| {
+                    let mut png = Vec::new();
+                    surface.write_to_png(&mut png).map_err(|e| e.to_string())?;
+                    Ok(png)
+                });
+                match png {
+                    Ok(png) => finish_png(path, png, tx),
+                    Err(e) => tx.send(Err(e)),
+                }
+            },
+        );
+    }
+}
+
+#[cfg(windows)]
+mod windows_webview {
+    use super::{SendOnce, finish_png};
+    use std::path::PathBuf;
+    use webview2_com::CapturePreviewCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2Controller,
+    };
+    use windows::Win32::System::Com::{
+        IStream, STREAM_SEEK_SET, StructuredStorage::CreateStreamOnHGlobal,
+    };
+
+    pub(super) fn start(controller: ICoreWebView2Controller, path: PathBuf, tx: SendOnce) {
+        let completed = tx.clone();
+        // SAFETY: Tauri invokes this on the webview apartment thread. The controller, stream
+        // and callback are valid for the call, and the callback retains the stream until done.
+        let result = unsafe {
+            controller.CoreWebView2().and_then(|webview| {
+                let stream = CreateStreamOnHGlobal(Default::default(), true)?;
+                let snapshot = stream.clone();
+                let callback = CapturePreviewCompletedHandler::create(Box::new(move |result| {
+                    if !completed.abandoned() {
+                        match result.and_then(|()| bytes(&snapshot)) {
+                            Ok(png) => finish_png(path, png, completed),
+                            Err(e) => completed.send(Err(e.to_string())),
+                        }
+                    }
+                    Ok(())
+                }));
+                webview.CapturePreview(
+                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &stream,
+                    &callback,
+                )
+            })
+        };
+        if let Err(e) = result {
+            tx.send(Err(e.to_string()));
+        }
+    }
+
+    fn bytes(stream: &IStream) -> windows::core::Result<Vec<u8>> {
+        // SAFETY: this is the completed snapshot stream on the creating apartment.
+        unsafe { stream.Seek(0, STREAM_SEEK_SET, None)? };
+        let mut png = Vec::new();
+        let mut chunk = [0u8; 16 * 1024];
+        loop {
+            let mut read = 0;
+            // SAFETY: chunk is valid for writes of its length and read is a writable out pointer.
+            unsafe {
+                stream
+                    .Read(
+                        chunk.as_mut_ptr().cast(),
+                        chunk.len() as u32,
+                        Some(&mut read),
+                    )
+                    .ok()?
+            };
+            png.extend_from_slice(&chunk[..read as usize]);
+            if (read as usize) < chunk.len() {
+                return Ok(png);
+            }
+        }
     }
 }
 
@@ -200,11 +338,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dimensions_are_read_from_the_png_pixel_header() {
+        let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x06\x40\x00\x00\x04\xb0";
+        assert_eq!(dimensions(png), Some((1600, 1200)));
+        assert_eq!(dimensions(&png[..23]), None);
+        assert_eq!(dimensions(&png[1..]), None);
+    }
+
+    #[test]
     fn write_png_writes_and_describes_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.png");
         std::fs::write(&path, "old").unwrap();
-        let r = write_png(&path, b"png", 1600, 1200).unwrap();
+        let r = write_png(&path, b"png", 1600, 1200, || true).unwrap();
         assert_eq!(
             r,
             ScreenshotResult {
@@ -217,6 +363,30 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_snapshot_keeps_the_existing_file_and_removes_only_its_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.png");
+        std::fs::write(&path, b"old").unwrap();
+
+        assert!(write_png(&path, b"png", 3, 2, || false).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"old");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshots_are_private_even_in_a_shared_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.png");
+        write_png(&path, b"png", 3, 2, || true).unwrap();
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
     fn an_empty_snapshot_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.png");
@@ -226,7 +396,7 @@ mod tests {
             (&b"png"[..], 10, 0),
             (&b"png"[..], -1, 10),
         ] {
-            assert_eq!(write_png(&path, png, w, h), Err(EMPTY.to_string()));
+            assert_eq!(write_png(&path, png, w, h, || true), Err(EMPTY.to_string()));
         }
         assert!(!path.exists());
     }
@@ -235,7 +405,7 @@ mod tests {
     fn a_write_error_names_the_path() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing/s.png");
-        let err = write_png(&path, b"png", 1, 1).unwrap_err();
+        let err = write_png(&path, b"png", 1, 1, || true).unwrap_err();
         assert!(
             err.starts_with(&format!("cannot write {}: ", path.display())),
             "{err}"
@@ -276,7 +446,7 @@ mod tests {
     fn write_png_leaves_no_temporary_file_and_keeps_the_old_file_on_failure() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.png");
-        write_png(&path, b"png", 2, 2).unwrap();
+        write_png(&path, b"png", 2, 2, || true).unwrap();
         let names: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
@@ -287,7 +457,7 @@ mod tests {
         let sub = dir.path().join("taken");
         std::fs::create_dir(&sub).unwrap();
         std::fs::write(sub.join("keep"), "x").unwrap();
-        assert!(write_png(&sub, b"png", 2, 2).is_err());
+        assert!(write_png(&sub, b"png", 2, 2, || true).is_err());
         assert!(sub.join("keep").exists());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
     }

@@ -62,6 +62,28 @@ enum Control {
     Stop,
 }
 
+#[cfg(not(windows))]
+fn wait_control(control: &Receiver<Control>, wait: Duration) -> Result<Control, RecvTimeoutError> {
+    control.recv_timeout(wait)
+}
+
+#[cfg(windows)]
+fn wait_control(control: &Receiver<Control>, wait: Duration) -> Result<Control, RecvTimeoutError> {
+    match control.try_recv() {
+        Ok(message) => return Ok(message),
+        Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
+        Err(TryRecvError::Empty) => {}
+    }
+    // The channel's Windows timeout can outlast a full 512-frame render slice. Rust's
+    // Windows sleep uses a high-resolution waitable timer on the supported OS versions.
+    // Check for control again after sleeping for at most one engine period (~11.6 ms).
+    std::thread::sleep(wait);
+    control.try_recv().map_err(|e| match e {
+        TryRecvError::Empty => RecvTimeoutError::Timeout,
+        TryRecvError::Disconnected => RecvTimeoutError::Disconnected,
+    })
+}
+
 /// Live playback: an engine thread rendering haps into a ring that an [`Output`] plays.
 pub struct Player {
     control: Sender<Control>,
@@ -389,7 +411,7 @@ impl EngineThread {
                 let due = self.next_scope.min(self.next_stats);
                 idle.min(due.saturating_duration_since(Instant::now()))
             };
-            match control.recv_timeout(wait) {
+            match wait_control(control, wait) {
                 Ok(m) => pending = Some(m),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
@@ -605,6 +627,23 @@ impl EngineThread {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_slice_wait_checks_messages_and_disconnection() {
+        let (tx, rx) = mpsc::channel();
+        assert!(matches!(
+            wait_control(&rx, SLICE_WAIT),
+            Err(RecvTimeoutError::Timeout)
+        ));
+        assert!(tx.send(Control::Stop).is_ok());
+        drop(tx);
+        assert!(matches!(wait_control(&rx, SLICE_WAIT), Ok(Control::Stop)));
+        assert!(matches!(
+            wait_control(&rx, SLICE_WAIT),
+            Err(RecvTimeoutError::Disconnected)
+        ));
+    }
 
     #[test]
     fn an_anchor_before_the_streams_base_is_not_clamped_to_it() {

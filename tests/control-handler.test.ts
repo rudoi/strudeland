@@ -1622,12 +1622,8 @@ describe('project.open', () => {
     await ui;
   });
 
-  test('params: relative path, missing path, wrong types, unknown key', async () => {
+  test('params: missing path, wrong types, unknown key', async () => {
     const h = await setup();
-    expect(await h.fail('project.open', { path: 'rel/p' })).toEqual({
-      code: ErrorCode.INVALID_PARAMS,
-      message: `invalid params: 'path' must be an absolute path`,
-    });
     expect((await h.fail('project.open', {})).message).toBe(
       `invalid params: 'path' must be a string`,
     );

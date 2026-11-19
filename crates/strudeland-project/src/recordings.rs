@@ -4,9 +4,9 @@
 //! A memo is `recordings/<stem>.wav` plus an optional `recordings/<stem>.json` sidecar. During a
 //! take the audio goes to `recordings/.<stem>.wav.partial`, which is never listed.
 
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
-use std::os::unix::fs::FileExt;
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -14,8 +14,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::ProjectError;
 use crate::project::{
-    MAX_STEM_LEN, Placed, Project, atomic_write_bytes, check_dir, is_case_only_rename,
-    is_valid_stem, link_noclobber,
+    MAX_STEM_LEN, Placed, Project, atomic_create_bytes, atomic_write_bytes, check_dir,
+    has_exact_name, is_case_only_rename, is_new_stem, is_valid_stem, link_noclobber,
+    move_noreplace, redirects,
 };
 
 /// The folder under the project root that holds the memos.
@@ -466,12 +467,15 @@ struct RiffLayout {
 
 /// Walks the RIFF chunks from offset 12 up to `data` (at most [`MAX_CHUNKS`]), trusting nothing
 /// past the file end. The error is a reason for the repair report.
-fn walk_riff(file: &File, file_len: u64) -> Result<RiffLayout, &'static str> {
-    let read = |offset: u64, buf: &mut [u8]| {
+fn walk_riff(file: &mut File, file_len: u64) -> Result<RiffLayout, &'static str> {
+    let mut read = |offset: u64, buf: &mut [u8]| {
         offset
             .checked_add(buf.len() as u64)
             .is_some_and(|end| end <= file_len)
-            && file.read_exact_at(buf, offset).is_ok()
+            && file
+                .seek(SeekFrom::Start(offset))
+                .and_then(|_| file.read_exact(buf))
+                .is_ok()
     };
     let mut head = [0u8; 12];
     if !read(0, &mut head) || &head[0..4] != b"RIFF" || &head[8..12] != b"WAVE" {
@@ -520,9 +524,9 @@ fn walk_riff(file: &File, file_len: u64) -> Result<RiffLayout, &'static str> {
 /// dropped. `None` for a non-WAV, a truncated or corrupt header, or a zero channel count, rate or
 /// block align. The format tag is not checked.
 pub fn read_wav_header(path: &Path) -> Option<WavInfo> {
-    let file = File::open(path).ok()?;
+    let mut file = File::open(path).ok()?;
     let file_len = file.metadata().ok()?.len();
-    let layout = walk_riff(&file, file_len).ok()?;
+    let layout = walk_riff(&mut file, file_len).ok()?;
     if layout.channels == 0 || layout.sample_rate == 0 || layout.block_align == 0 {
         return None;
     }
@@ -606,7 +610,7 @@ fn undo_moves(moves: &[(PathBuf, PathBuf)]) {
         if fs::symlink_metadata(from).is_ok() {
             let _ = fs::remove_file(to);
         } else {
-            let _ = fs::rename(to, from);
+            let _ = move_noreplace(to, from);
         }
     }
 }
@@ -621,6 +625,14 @@ fn fit_stem(base: &str, suffix: &str) -> String {
     let keep = MAX_STEM_LEN.saturating_sub(suffix.len()).min(base.len());
     // Stems are ASCII, so any byte index is a char boundary.
     format!("{}{suffix}", base[..keep].trim_end_matches(' '))
+}
+
+fn validate_new_stem(stem: &str) -> Result<(), ProjectError> {
+    if is_new_stem(stem) {
+        Ok(())
+    } else {
+        Err(ProjectError::InvalidRecordingName(stem.to_string()))
+    }
 }
 
 fn validate_stem(stem: &str) -> Result<(), ProjectError> {
@@ -651,8 +663,17 @@ enum FileKind {
 }
 
 fn file_kind(path: &Path, name: &str) -> Result<FileKind, ProjectError> {
+    let kind = listed_file_kind(path, name)?;
+    if matches!(kind, FileKind::File(_)) && !has_exact_name(path)? {
+        return Ok(FileKind::Missing);
+    }
+    Ok(kind)
+}
+
+/// The caller already has the exact entry spelling from read_dir, or checks it after this call.
+fn listed_file_kind(path: &Path, name: &str) -> Result<FileKind, ProjectError> {
     match fs::symlink_metadata(path) {
-        Ok(m) if m.file_type().is_symlink() => Err(ProjectError::PathOutsideProject(format!(
+        Ok(m) if redirects(&m) => Err(ProjectError::PathOutsideProject(format!(
             "{RECORDINGS_DIR}/{name}"
         ))),
         Ok(m) if m.is_file() => Ok(FileKind::File(m)),
@@ -682,6 +703,21 @@ fn mtime_secs(meta: &fs::Metadata) -> u64 {
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_secs())
+}
+
+/// Opens the recordings folder under a canonical project root, refusing directory links and
+/// junctions. A project without a recordings folder has no entries.
+pub fn recording_dir_entries(root: &Path) -> Result<Option<fs::ReadDir>, ProjectError> {
+    let dir = root.join(RECORDINGS_DIR);
+    match check_dir(&dir, RECORDINGS_DIR, "") {
+        Ok(()) => fs::read_dir(&dir)
+            .map(Some)
+            .map_err(|e| ProjectError::io(&dir, e)),
+        Err(ProjectError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 impl Project {
@@ -741,17 +777,21 @@ impl Project {
     /// without a WAV are not listed. Each entry's sidecar is read once; a bad sidecar never fails
     /// the listing. A missing `recordings/` gives an empty vec.
     pub fn recordings(&self) -> Result<Vec<RecordingEntry>, ProjectError> {
-        if !self.check_recordings_dir("")? {
+        let Some(entries) = recording_dir_entries(self.root())? else {
             return Ok(Vec::new());
-        }
+        };
         let dir = self.recordings_dir();
-        let entries = fs::read_dir(&dir).map_err(|e| ProjectError::io(&dir, e))?;
-        let mut out = Vec::new();
+        let mut wavs = Vec::new();
+        let mut sidecars = HashSet::new();
         for entry in entries {
             let entry = entry.map_err(|e| ProjectError::io(&dir, e))?;
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
+            if name.ends_with(JSON_EXT) {
+                sidecars.insert(name);
+                continue;
+            }
             let Some(stem) = name.strip_suffix(WAV_EXT) else {
                 continue;
             };
@@ -762,18 +802,28 @@ impl Project {
             let Ok(meta) = entry.metadata() else {
                 continue;
             };
-            if !meta.is_file() {
+            if !meta.is_file() || redirects(&meta) {
                 continue;
             }
-            out.push(self.entry(stem, &entry.path(), &meta));
+            wavs.push((stem.to_owned(), entry.path(), meta));
         }
+        let mut out: Vec<_> = wavs
+            .into_iter()
+            .map(|(stem, path, meta)| self.entry(&stem, &path, &meta, Some(&sidecars)))
+            .collect();
         out.sort_by(|a, b| a.stem.as_bytes().cmp(b.stem.as_bytes()));
         Ok(out)
     }
 
-    fn entry(&self, stem: &str, wav: &Path, meta: &fs::Metadata) -> RecordingEntry {
+    fn entry(
+        &self,
+        stem: &str,
+        wav: &Path,
+        meta: &fs::Metadata,
+        listed_sidecars: Option<&HashSet<String>>,
+    ) -> RecordingEntry {
         let header = read_wav_header(wav);
-        let (has_sidecar, read) = self.read_sidecar_found(stem);
+        let (has_sidecar, read) = self.read_sidecar_found(stem, listed_sidecars);
         let (sidecar, sidecar_error) = match read {
             Ok(sidecar) => (sidecar, None),
             Err(e) => (None, Some(e.to_string())),
@@ -802,7 +852,7 @@ impl Project {
     pub fn recording_entry(&self, stem: &str) -> Result<RecordingEntry, ProjectError> {
         validate_stem(stem)?;
         let meta = self.require_wav(stem)?;
-        Ok(self.entry(stem, &self.recording_wav_path(stem), &meta))
+        Ok(self.entry(stem, &self.recording_wav_path(stem), &meta, None))
     }
 
     /// The whole WAV of a memo (behind the app's `recording_read`).
@@ -830,7 +880,7 @@ impl Project {
     /// when it is missing. `RecordingExists` when the WAV, the sidecar or the partial already
     /// exists (any kind of entry). Creates no file.
     pub fn recording_partial_path(&self, stem: &str) -> Result<PathBuf, ProjectError> {
-        validate_stem(stem)?;
+        validate_new_stem(stem)?;
         let dir = self.recordings_dir();
         let partial = partial_name(stem);
         if !self.check_recordings_dir(&partial)? {
@@ -852,7 +902,7 @@ impl Project {
             stem,
             sidecar,
             |from, to| fs::hard_link(from, to),
-            atomic_write_bytes,
+            atomic_create_bytes,
         )
     }
 
@@ -897,12 +947,16 @@ impl Project {
     /// Reads and validates `<stem>.json`. `Ok(None)` when it does not exist; a symlink is
     /// `PathOutsideProject`; more than 16 MiB is `InvalidSidecar`.
     pub fn read_sidecar(&self, stem: &str) -> Result<Option<Sidecar>, ProjectError> {
-        self.read_sidecar_found(stem).1
+        self.read_sidecar_found(stem, None).1
     }
 
     /// [`Project::read_sidecar`], with whether `<stem>.json` is a regular file (`true` also
     /// when reading or parsing it failed).
-    fn read_sidecar_found(&self, stem: &str) -> (bool, Result<Option<Sidecar>, ProjectError>) {
+    fn read_sidecar_found(
+        &self,
+        stem: &str,
+        listed: Option<&HashSet<String>>,
+    ) -> (bool, Result<Option<Sidecar>, ProjectError>) {
         let found = || -> Result<Option<(PathBuf, String)>, ProjectError> {
             validate_stem(stem)?;
             let name = json_name(stem);
@@ -911,7 +965,12 @@ impl Project {
                 return Ok(None);
             }
             let path = self.recording_json_path(stem);
-            match file_kind(&path, &name)? {
+            let kind = match listed {
+                Some(names) if !names.contains(&name) => return Ok(None),
+                Some(_) => listed_file_kind(&path, &name)?,
+                None => file_kind(&path, &name)?,
+            };
+            match kind {
                 FileKind::Missing => Ok(None),
                 FileKind::Other => Err(ProjectError::InvalidSidecar(format!("{rel}: not a file"))),
                 FileKind::File(_) => Ok(Some((path, rel))),
@@ -934,11 +993,14 @@ impl Project {
             .map_err(|e| ProjectError::InvalidSidecar(format!("{RECORDINGS_DIR}/{name}: {e}")))?;
         self.require_wav(stem)?;
         let path = self.recording_json_path(stem);
-        if let FileKind::Other = file_kind(&path, &name)? {
-            let e = io::Error::new(io::ErrorKind::IsADirectory, "not a file");
-            return Err(ProjectError::io(&path, e));
+        match file_kind(&path, &name)? {
+            FileKind::File(_) => atomic_write_bytes(&path, &sidecar.to_file_bytes()),
+            FileKind::Missing => atomic_create_bytes(&path, &sidecar.to_file_bytes()),
+            FileKind::Other => Err(ProjectError::io(
+                &path,
+                io::Error::new(io::ErrorKind::IsADirectory, "not a file"),
+            )),
         }
-        atomic_write_bytes(&path, &sidecar.to_file_bytes())
     }
 
     /// Renames a memo (its WAV and sidecar) without ever replacing an existing one (nor the
@@ -961,13 +1023,13 @@ impl Project {
         remove: impl Fn(&Path) -> io::Result<()>,
     ) -> Result<String, ProjectError> {
         validate_stem(old)?;
-        validate_stem(new)?;
+        validate_new_stem(new)?;
         let old_wav_name = wav_name(old);
         if !self.check_recordings_dir(&old_wav_name)? {
             return Err(ProjectError::RecordingNotFound(old.to_string()));
         }
         let old_wav = self.recording_wav_path(old);
-        let FileKind::File(old_meta) = file_kind(&old_wav, &old_wav_name)? else {
+        let FileKind::File(_) = file_kind(&old_wav, &old_wav_name)? else {
             return Err(ProjectError::RecordingNotFound(old.to_string()));
         };
         if new == old {
@@ -990,7 +1052,15 @@ impl Project {
         }
 
         // A case-only rename on a case-insensitive volume: the new name is the same file.
-        if is_case_only_rename(&old_meta, &new_wav, old, new) {
+        if is_case_only_rename(&old_wav, &new_wav).map_err(|e| ProjectError::io(&old_wav, e))? {
+            if !is_free(&self.recording_partial_file(new))
+                || (!is_free(&new_json)
+                    && (!has_json
+                        || !is_case_only_rename(&old_json, &new_json)
+                            .map_err(|e| ProjectError::io(&old_json, e))?))
+            {
+                return Err(ProjectError::RecordingExists(new.to_string()));
+            }
             let mut done = Vec::new();
             for (from, to) in &pairs {
                 if let Err(e) = fs::rename(from, to) {
@@ -1080,7 +1150,7 @@ impl Project {
             if !is_valid_stem(stem) {
                 continue;
             }
-            if fs::symlink_metadata(entry.path()).is_ok_and(|m| m.is_file()) {
+            if fs::symlink_metadata(entry.path()).is_ok_and(|m| m.is_file() && !redirects(&m)) {
                 candidates.push((name.clone(), stem.to_string()));
             }
         }
@@ -1113,12 +1183,12 @@ impl Project {
             fs::remove_file(&path).map_err(|e| e.to_string())?;
             return Ok(Outcome::Discarded);
         }
-        let handle = OpenOptions::new()
+        let mut handle = OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
             .map_err(|e| e.to_string())?;
-        let (frames, sample_rate) = fix_partial_sizes(&handle, file_len)?;
+        let (frames, sample_rate) = fix_partial_sizes(&mut handle, file_len)?;
         if frames == 0 {
             drop(handle);
             fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -1142,7 +1212,7 @@ impl Project {
             return Err(e.to_string());
         }
         let sidecar = recovered_sidecar(created_at, sample_rate);
-        atomic_write_bytes(&self.recording_json_path(&target), &sidecar.to_file_bytes())
+        atomic_create_bytes(&self.recording_json_path(&target), &sidecar.to_file_bytes())
             .map_err(|e| format!("recovered as {target}.wav, but the sidecar failed: {e}"))?;
         Ok(Outcome::Recovered(RecoveredRecording {
             stem: target,
@@ -1155,7 +1225,7 @@ impl Project {
     fn recovered_stem(&self, stem: &str) -> Option<String> {
         let free =
             |s: &str| is_free(&self.recording_wav_path(s)) && is_free(&self.recording_json_path(s));
-        if free(stem) {
+        if is_new_stem(stem) && free(stem) {
             return Some(stem.to_string());
         }
         (1..=MAX_RECOVERED_N)
@@ -1175,7 +1245,7 @@ impl Project {
 /// clamps to the u32 limit, pads an odd data chunk and syncs. Returns the whole frames and the
 /// sample rate; with zero frames it changes nothing. Idempotent: a second call on a fixed file
 /// writes the same bytes.
-fn fix_partial_sizes(handle: &File, file_len: u64) -> Result<(u64, u32), String> {
+fn fix_partial_sizes(handle: &mut File, file_len: u64) -> Result<(u64, u32), String> {
     let layout = walk_riff(handle, file_len).map_err(str::to_string)?;
     if layout.block_align == 0 {
         return Err("block align 0".to_string());
@@ -1197,15 +1267,18 @@ fn fix_partial_sizes(handle: &File, file_len: u64) -> Result<(u64, u32), String>
     }
     let pad = data_bytes & 1;
     let end = layout.data_start + data_bytes;
-    let fix = || -> io::Result<()> {
+    let mut fix = || -> io::Result<()> {
         handle.set_len(end)?;
         if pad == 1 {
-            handle.write_all_at(&[0], end)?;
+            handle.seek(SeekFrom::Start(end))?;
+            handle.write_all(&[0])?;
         }
         let data_size = u32::try_from(data_bytes).expect("clamped to u32");
-        handle.write_all_at(&data_size.to_le_bytes(), layout.data_start - 4)?;
+        handle.seek(SeekFrom::Start(layout.data_start - 4))?;
+        handle.write_all(&data_size.to_le_bytes())?;
         let riff = u32::try_from(end + pad - 8).unwrap_or(u32::MAX);
-        handle.write_all_at(&riff.to_le_bytes(), 4)?;
+        handle.seek(SeekFrom::Start(4))?;
+        handle.write_all(&riff.to_le_bytes())?;
         handle.sync_all()
     };
     fix().map_err(|e| e.to_string())?;
@@ -1247,7 +1320,7 @@ fn recovered_sidecar(created_at: String, sample_rate: u32) -> Sidecar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use crate::test_symlink;
     use tempfile::TempDir;
 
     fn new_project() -> (TempDir, Project) {
@@ -1425,7 +1498,7 @@ mod tests {
         put(&p, "memo-01.wav", b"");
         put(&p, "memo-02.json", b"");
         put(&p, ".memo-03.wav.partial", b"");
-        symlink(rec(&p).join("memo-01.wav"), rec(&p).join("memo-04.wav")).unwrap();
+        test_symlink!(rec(&p).join("memo-01.wav"), rec(&p).join("memo-04.wav")).unwrap();
         assert_eq!(p.default_recording_stem(None).unwrap(), "memo-05");
     }
 
@@ -1518,7 +1591,7 @@ mod tests {
         put(&p, "g.h.wav", &mono(10));
         put(&p, "notes.txt", b"x");
         fs::create_dir(rec(&p).join("dir.wav")).unwrap();
-        symlink(rec(&p).join("a.wav"), rec(&p).join("link.wav")).unwrap();
+        test_symlink!(rec(&p).join("a.wav"), rec(&p).join("link.wav")).unwrap();
         assert_eq!(stems(&p), ["Z", "a", "b"]);
     }
 
@@ -1581,6 +1654,24 @@ mod tests {
     }
 
     #[test]
+    fn listing_uses_exact_sidecar_entries_for_each_wav() {
+        let (_tmp, p) = new_project();
+        put(&p, "Named.wav", &mono(1));
+        put(&p, "named.json", &sidecar().to_file_bytes());
+        put(&p, "Pair.wav", &mono(1));
+        put(&p, "Pair.json", &sidecar().to_file_bytes());
+        let list = p.recordings().unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(!list[0].has_sidecar);
+        assert!(list[0].sidecar_error.is_none());
+        assert!(list[1].has_sidecar);
+        assert!(list[1].sidecar.is_some());
+        for item in list {
+            assert_eq!(p.recording_entry(&item.stem).unwrap(), item);
+        }
+    }
+
+    #[test]
     fn one_entry_matches_the_listing() {
         let (_t, p) = new_project();
         put(&p, "good.wav", &mono(24_000));
@@ -1606,7 +1697,7 @@ mod tests {
             p.recording_entry("dir"),
             Err(ProjectError::RecordingNotFound(_))
         ));
-        symlink(rec(&p).join("good.wav"), rec(&p).join("link.wav")).unwrap();
+        test_symlink!(rec(&p).join("good.wav"), rec(&p).join("link.wav")).unwrap();
         assert!(matches!(
             p.recording_entry("link"),
             Err(ProjectError::PathOutsideProject(_))
@@ -1757,7 +1848,7 @@ mod tests {
         let (_t, p) = new_project();
         put(&p, "m.wav", &mono(5));
         assert_eq!(p.read_recording_bytes("m").unwrap(), mono(5));
-        symlink(rec(&p).join("m.wav"), rec(&p).join("s.wav")).unwrap();
+        test_symlink!(rec(&p).join("m.wav"), rec(&p).join("s.wav")).unwrap();
         assert!(matches!(
             p.read_recording_bytes("s"),
             Err(ProjectError::PathOutsideProject(ref s)) if s == "recordings/s.wav"
@@ -2627,7 +2718,7 @@ mod tests {
         put(&p, ".bad name .wav.partial", &mono(4));
         let target = put(&p, "target", &mono(4));
         set_old(&target);
-        symlink(&target, rec(&p).join(".link.wav.partial")).unwrap();
+        test_symlink!(&target, rec(&p).join(".link.wav.partial")).unwrap();
         fs::create_dir(rec(&p).join(".dir.wav.partial")).unwrap();
         assert_eq!(p.repair_partials().unwrap(), RepairReport::default());
         // A second run over nothing to do is a no-op too.
@@ -2648,13 +2739,13 @@ mod tests {
             )
             .unwrap();
             let fix = || {
-                let file = OpenOptions::new()
+                let mut file = OpenOptions::new()
                     .read(true)
                     .write(true)
                     .open(&path)
                     .unwrap();
                 let len = file.metadata().unwrap().len();
-                fix_partial_sizes(&file, len).unwrap()
+                fix_partial_sizes(&mut file, len).unwrap()
             };
             let first = fix();
             let once = fs::read(&path).unwrap();
@@ -2678,7 +2769,7 @@ mod tests {
         fs::write(elsewhere.join("m.wav"), mono(2)).unwrap();
         fs::write(elsewhere.join(".n.wav.partial"), mono(2)).unwrap();
         fs::remove_dir_all(rec(&p)).unwrap();
-        symlink(&elsewhere, rec(&p)).unwrap();
+        test_symlink!(&elsewhere, rec(&p)).unwrap();
         let outside = |r: Result<(), ProjectError>| {
             assert!(
                 matches!(r, Err(ProjectError::PathOutsideProject(ref s)) if s.starts_with("recordings/")),
@@ -2720,9 +2811,9 @@ mod tests {
         let (tmp, p) = new_project();
         let target = tmp.path().join("t");
         fs::write(&target, mono(2)).unwrap();
-        symlink(&target, rec(&p).join("w.wav")).unwrap();
+        test_symlink!(&target, rec(&p).join("w.wav")).unwrap();
         put(&p, "j.wav", &mono(2));
-        symlink(&target, rec(&p).join("j.json")).unwrap();
+        test_symlink!(&target, rec(&p).join("j.json")).unwrap();
         let outside = |r: Result<(), ProjectError>, name: &str| {
             assert!(
                 matches!(r, Err(ProjectError::PathOutsideProject(ref s)) if s == &format!("recordings/{name}")),
@@ -2738,7 +2829,7 @@ mod tests {
         outside(p.rename_recording("j", "k").map(drop), "j.json");
         outside(p.delete_recording("j"), "j.json");
         // A symlinked partial is refused by finish.
-        symlink(&target, rec(&p).join(".f.wav.partial")).unwrap();
+        test_symlink!(&target, rec(&p).join(".f.wav.partial")).unwrap();
         outside(
             p.finish_recording("f", &sidecar()).map(drop),
             ".f.wav.partial",

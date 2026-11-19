@@ -1,6 +1,6 @@
 # Strudeland
 
-A macOS app for writing and performing music with [Strudel](https://strudel.cc). Live-code
+A desktop app for writing and performing music with [Strudel](https://strudel.cc). Live-code
 patterns, arrange them into sections, and keep your songs in a regular folder.
 
 ![Strudeland playing a synth arrangement, with the code editor, section timeline, and live output meter visible](docs/strudeland.png)
@@ -23,7 +23,42 @@ bun run tauri dev
 ```
 
 Choose **new project**, select an empty folder, and click **create**. Click **play** to hear
-the starter song. Use `⌘S` to save and `⌘↵` to save and evaluate.
+the starter song. Use Command on macOS and Control on Windows and Linux. With that modifier,
+S saves, Enter saves and evaluates, O opens a project, and N adds a song.
+
+## Windows and Ubuntu desktop builds
+
+The initial Windows target is Windows 11 25H2 x64 with WebView2 Evergreen and a WASAPI audio
+device. The initial Linux target is Ubuntu Desktop 24.04 LTS amd64 on GNOME Wayland with
+WebKitGTK 4.1 and the desktop's default ALSA-compatible audio route. Use local NTFS or ext4
+project folders. Native desktop acceptance for these targets is tracked in the platform PR.
+
+To build from source, use Git, Bun 1.3.11, Rust 1.94.1 with Clippy and rustfmt, and CMake.
+On Windows, install the Visual Studio C++ build tools with a Windows SDK, use the x64 MSVC Rust
+toolchain, and make sure WebView2 Evergreen is installed. See the
+[Tauri Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows).
+
+On Ubuntu, install the native development packages before running Bun or Cargo.
+
+```sh
+sudo apt update
+sudo apt install build-essential cmake file libasound2-dev libayatana-appindicator3-dev \
+  librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config
+```
+
+Use `bun install --frozen-lockfile` and `bun run tauri dev` from the repository root.
+For a local package build, use `bun run tauri build --bundles nsis -- --locked` on Windows
+or `bun run tauri build --bundles deb -- --locked` on Ubuntu.
+
+For Windows installer artifacts, run the NSIS installer as the current user. Extract the matching
+CLI ZIP into a directory on your user PATH. On Ubuntu, install the Debian package with
+`sudo apt install ./path-to-strudeland.deb`. Extract the matching CLI archive and place its
+`strudeland` binary in a directory on your PATH. Start a fresh shell and check
+`strudeland --version`. The installed GUI and CLI have distinct executable names.
+
+If Windows denies microphone access, use **Settings → Privacy & security → Microphone** to
+allow desktop apps and retry. On Ubuntu, select and test an input in **Settings → Sound**.
+If capture timing is unavailable, the recorder can keep the audio as a gridless memo.
 
 ## Projects
 
@@ -55,6 +90,14 @@ cargo install --locked --path crates/strudeland-cli
 strudeland --help
 strudeland render songs/main.js --format wav
 ```
+
+The CLI connects to a per-user endpoint.
+
+- macOS uses `~/Library/Application Support/com.rudoi.strudeland/ctl.sock`.
+- Ubuntu uses `$XDG_RUNTIME_DIR/com.rudoi.strudeland/ctl.sock`. The runtime and socket
+  parent directories must be owned by the current user with mode `0700`.
+- Windows uses a local named pipe at `\\.\pipe\com.rudoi.strudeland.<user-SID>.ctl` restricted to
+  the current user.
 
 Live playback uses Strudel’s Superdough by default. Offline rendering uses the Rust engine and
 supports a subset of Strudel sounds. See the [render guide](crates/strudeland-render/README.md)

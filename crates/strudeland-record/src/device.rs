@@ -8,7 +8,8 @@ use crate::error::RecordError;
 use crate::recorder::ArmConfig;
 use crate::source::{CpalSource, DEFAULT_CAPTURE_TIME, Source};
 
-/// One input device, with its default input config's channel count and rate.
+/// One input device, with its default channel count and rate (both zero until a busy or
+/// access-controlled endpoint can be opened).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceInfo {
     /// `DeviceId::to_string()`, `coreaudio:<uid>` on macOS.
@@ -21,7 +22,8 @@ pub struct DeviceInfo {
 }
 
 /// The input devices, default first, then by name. Devices whose id, description or default
-/// input config cannot be read are skipped. Opens no stream.
+/// input config cannot be read are skipped, except for busy or denied inputs: these stay
+/// selectable so arming can report their actual error. Opens no stream.
 pub fn list_input_devices() -> Result<Vec<DeviceInfo>, RecordError> {
     let host = cpal::default_host();
     let default_id = host
@@ -35,19 +37,36 @@ pub fn list_input_devices() -> Result<Vec<DeviceInfo>, RecordError> {
         .filter_map(|device| {
             let id = device.id().ok()?.to_string();
             let description = device.description().ok()?;
-            let config = device.default_input_config().ok()?;
+            let (channels, sample_rate) = input_dimensions(device.default_input_config())?;
             Some(DeviceInfo {
                 is_default: default_id.as_deref() == Some(id.as_str()),
                 id,
                 name: description.name().to_string(),
-                channels: config.channels(),
-                sample_rate: config.sample_rate(),
+                channels,
+                sample_rate,
                 bluetooth: description.interface_type() == cpal::InterfaceType::Bluetooth,
             })
         })
         .collect();
     sort_devices(&mut out);
     Ok(out)
+}
+
+fn input_dimensions(
+    config: Result<cpal::SupportedStreamConfig, cpal::Error>,
+) -> Option<(u16, u32)> {
+    match config {
+        Ok(config) => Some((config.channels(), config.sample_rate())),
+        Err(error)
+            if matches!(
+                error.kind(),
+                cpal::ErrorKind::DeviceBusy | cpal::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Some((0, 0))
+        }
+        Err(_) => None,
+    }
 }
 
 fn sort_devices(devices: &mut [DeviceInfo]) {
@@ -68,8 +87,28 @@ pub fn find_input_device(device_id: Option<&str>) -> Result<cpal::Device, Record
     let host = cpal::default_host();
     match id {
         None => host.default_input_device().ok_or(RecordError::NoDevice),
-        Some(id) => host.device_by_id(&id).ok_or(RecordError::NoDevice),
+        Some(id) => {
+            if cfg!(target_os = "linux") {
+                // ALSA's device_by_id normalizes some exact hint names (for example
+                // sysdefault:CARD=PCH) into an unadvertised name ending in ,DEV=0.
+                let devices = host
+                    .input_devices()
+                    .map_err(|e| RecordError::from_cpal(&e))?;
+                if let Some(device) = exact_device(devices, &id, |d| d.id().ok()) {
+                    return Ok(device);
+                }
+            }
+            host.device_by_id(&id).ok_or(RecordError::NoDevice)
+        }
     }
+}
+
+fn exact_device<T, I: PartialEq>(
+    mut devices: impl Iterator<Item = T>,
+    wanted: &I,
+    id: impl Fn(&T) -> Option<I>,
+) -> Option<T> {
+    devices.find(|device| id(device).as_ref() == Some(wanted))
 }
 
 /// The source factory `Recorder::new` uses.
@@ -82,39 +121,32 @@ pub(crate) fn cpal_source(config: &ArmConfig) -> Result<Box<dyn Source>, RecordE
     )?))
 }
 
-/// The mach host time in nanoseconds, the clock of cpal's CoreAudio timestamps and of WebKit's
-/// `getOutputTimestamp()`.
-#[cfg(target_vendor = "apple")]
-pub fn host_now_ns() -> u64 {
-    use std::sync::OnceLock;
-    static TIMEBASE: OnceLock<(u32, u32)> = OnceLock::new();
-    let (numer, denom) = *TIMEBASE.get_or_init(|| {
-        let mut info = mach2::mach_time::mach_timebase_info::default();
-        // SAFETY: `info` is a valid, writable `mach_timebase_info` for the call's duration.
-        let status = unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
-        if status == 0 && info.denom != 0 {
-            (info.numer, info.denom)
-        } else {
-            (1, 1)
-        }
-    });
-    // SAFETY: `mach_absolute_time` takes no arguments and has no preconditions.
-    let ticks = unsafe { mach2::mach_time::mach_absolute_time() };
-    (u128::from(ticks) * u128::from(numer) / u128::from(denom)) as u64
-}
-
-/// Nanoseconds since a process-wide origin (no mach clock off Apple platforms).
-#[cfg(not(target_vendor = "apple"))]
-pub fn host_now_ns() -> u64 {
-    use std::sync::OnceLock;
-    use std::time::Instant;
-    static ORIGIN: OnceLock<Instant> = OnceLock::new();
-    ORIGIN.get_or_init(Instant::now).elapsed().as_nanos() as u64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host_now_ns;
+
+    #[test]
+    fn discovery_keeps_endpoints_that_cannot_currently_be_opened() {
+        use cpal::ErrorKind;
+        for kind in [ErrorKind::DeviceBusy, ErrorKind::PermissionDenied] {
+            assert_eq!(input_dimensions(Err(cpal::Error::new(kind))), Some((0, 0)));
+        }
+        assert_eq!(
+            input_dimensions(Err(cpal::Error::new(ErrorKind::UnsupportedConfig))),
+            None
+        );
+    }
+
+    #[test]
+    fn exact_alsa_hint_names_survive_selection() {
+        let hint = "sysdefault:CARD=PCH";
+        let devices = [None, Some("sysdefault:CARD=PCH,DEV=0"), Some(hint)];
+        assert_eq!(
+            exact_device(devices.into_iter(), &hint, |d| *d),
+            Some(Some(hint))
+        );
+    }
 
     fn dev(id: &str, name: &str, is_default: bool) -> DeviceInfo {
         DeviceInfo {

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'bun:test';
 import {
@@ -24,7 +25,7 @@ test('the committed docs file matches a fresh extraction', () => {
       'crates/strudeland-cli/strudel-docs.json is out of date; run `bun run docs:extract` and commit it',
     );
   }
-  expect(renderDocs(extractVendored(root.pathname))).toBe(committedText);
+  expect(renderDocs(extractVendored(fileURLToPath(root)))).toBe(committedText);
 });
 
 test('the docs file is schema 2 for the vendored commit', () => {

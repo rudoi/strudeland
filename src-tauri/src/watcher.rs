@@ -1,6 +1,6 @@
 //! Watches the open project folder and reports song and manifest changes.
 //!
-//! A debounced `notify` watcher collects raw events; after each batch the pure [`classify`] looks
+//! A debounced `notify` watcher collects raw events; after each batch the pure [`classify_in`] looks
 //! at which kept files exist now, so an atomic save (rename-over, seen as remove plus create)
 //! arrives as `changed`. The app's own saves are reported too; the frontend ignores them by
 //! comparing content. An event on the project root or any entry directly in it (other than
@@ -8,16 +8,18 @@
 //! renamed, deleted or recreated the songs inside get no events of their own, and the debouncer
 //! may report a rename only by its destination (`songs-old`), not by `songs`.
 
-use std::collections::{BTreeSet, HashSet};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer_opt};
 use serde::Serialize;
 use strudeland_project::{
-    MANIFEST_FILE, Project, RECORDINGS_DIR, SONGS_DIR, is_recording_file_name, is_song_file,
-    is_song_file_name, song_rel_path,
+    MANIFEST_FILE, Project, RECORDINGS_DIR, is_recording_file_name, list_songs,
+    recording_dir_entries, song_rel_path,
 };
 
 /// The Tauri event name carrying a [`ProjectChanged`] payload.
@@ -54,19 +56,55 @@ enum Kept {
     /// The root or an entry directly in it, such as the `songs` folder or where it was renamed
     /// to: the songs need a full re-check.
     TopLevel,
-    /// A memo file directly in `recordings/`, or the `recordings` entry itself.
+    /// A memo file directly in `recordings/`.
     Recording,
+    /// The `recordings` directory itself.
+    RecordingFolder,
+}
+
+/// Native notifications can omit the verbatim drive/UNC prefix used by canonical Windows
+/// roots. Compare components without resolving an event path that might already be gone.
+fn relative_event<'a>(root: &Path, path: &'a Path) -> Option<&'a Path> {
+    if let Ok(rel) = path.strip_prefix(root) {
+        return Some(rel);
+    }
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        let mut root_parts = root.components();
+        let mut path_parts = path.components();
+        let (Some(Component::Prefix(r)), Some(Component::Prefix(p))) =
+            (root_parts.next(), path_parts.next())
+        else {
+            return None;
+        };
+        let same_root = match (r.kind(), p.kind()) {
+            (
+                Prefix::VerbatimDisk(a) | Prefix::Disk(a),
+                Prefix::VerbatimDisk(b) | Prefix::Disk(b),
+            ) => a.eq_ignore_ascii_case(&b),
+            (
+                Prefix::VerbatimUNC(a, b) | Prefix::UNC(a, b),
+                Prefix::VerbatimUNC(c, d) | Prefix::UNC(c, d),
+            ) => a.eq_ignore_ascii_case(c) && b.eq_ignore_ascii_case(d),
+            _ => false,
+        };
+        if same_root && root_parts.all(|r| Some(r) == path_parts.next()) {
+            return Some(path_parts.as_path());
+        }
+    }
+    None
 }
 
 /// Keeps `project.json`, the song paths of `root` (the crate's song rule), and the root and its
 /// direct entries; drops the rest.
 fn keep(root: &Path, path: &Path) -> Option<Kept> {
-    let rel = path.strip_prefix(root).ok()?;
+    let rel = relative_event(root, path)?;
     if rel == Path::new(MANIFEST_FILE) {
         return Some(Kept::Manifest);
     }
     if rel == Path::new(RECORDINGS_DIR) {
-        return Some(Kept::Recording);
+        return Some(Kept::RecordingFolder);
     }
     if rel.components().nth(1).is_none() {
         return Some(Kept::TopLevel);
@@ -87,14 +125,10 @@ fn keep(root: &Path, path: &Path) -> Option<Kept> {
 /// The song rel paths in `root/songs` now, as [`Project::songs`] would list them, spelt exactly
 /// as the folder lists them. A missing or unreadable folder has none.
 fn scan_songs(root: &Path) -> BTreeSet<String> {
-    let dir = root.join(SONGS_DIR);
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return BTreeSet::new();
-    };
-    entries
-        .filter_map(|e| e.ok()?.file_name().into_string().ok())
-        .filter(|name| is_song_file_name(name) && is_song_file(&dir.join(name)))
-        .map(|name| format!("{SONGS_DIR}/{name}"))
+    list_songs(root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.path)
         .collect()
 }
 
@@ -109,12 +143,13 @@ fn scan_songs(root: &Path) -> BTreeSet<String> {
 /// A song exists only when its exact name is in the `songs/` listing. On a case-insensitive
 /// volume a lookup by path also finds `Verse.js` after it was renamed to `verse.js`, which would
 /// keep the old spelling alive.
-pub fn classify(
+#[cfg(test)]
+fn classify(
     root: &Path,
     known: &mut HashSet<String>,
     paths: impl IntoIterator<Item = PathBuf>,
 ) -> Option<ProjectChanged> {
-    classify_in(root, known, paths, scan_songs)
+    classify_in(root, known, Touched::new(root, paths), scan_songs)
 }
 
 /// What one batch's kept paths touched.
@@ -124,25 +159,62 @@ struct Touched {
     named: BTreeSet<String>,
     /// The root or an entry directly in it: every song needs a re-check.
     rescan: bool,
+    revalidate: bool,
     manifest: bool,
     recordings: bool,
 }
 
 impl Touched {
+    #[cfg(test)]
     fn new(root: &Path, paths: impl IntoIterator<Item = PathBuf>) -> Touched {
         let mut touched = Touched::default();
         for path in paths {
-            match keep(root, &path) {
-                Some(Kept::Song(rel)) => {
-                    touched.named.insert(rel);
-                }
-                Some(Kept::Manifest) => touched.manifest = true,
-                Some(Kept::TopLevel) => touched.rescan = true,
-                Some(Kept::Recording) => touched.recordings = true,
-                None => {}
+            touched.add(keep(root, &path), false);
+        }
+        touched
+    }
+
+    fn from_events(root: &Path, events: impl IntoIterator<Item = notify::Event>) -> Self {
+        use notify::EventKind::{Create, Modify, Remove};
+        use notify::event::ModifyKind::Name;
+        let mut touched = Self::default();
+        for event in events {
+            if !affects_contents(event.kind) {
+                continue;
+            }
+            let namespace_change = matches!(event.kind, Create(_) | Remove(_) | Modify(Name(_)));
+            touched.rescan |= namespace_change;
+            let folder_metadata = matches!(event.kind, Modify(_)) && !namespace_change;
+            for path in event.paths {
+                touched.add(keep(root, &path), folder_metadata);
             }
         }
         touched
+    }
+
+    fn add(&mut self, kept: Option<Kept>, folder_metadata: bool) {
+        match kept {
+            Some(Kept::Song(rel)) => {
+                self.named.insert(rel);
+            }
+            Some(Kept::Manifest) => self.manifest = true,
+            Some(Kept::TopLevel) => self.rescan = true,
+            // Windows reports directory modifications for child writes, including ignored
+            // partials and temporaries. Recheck the catalog before reporting a change.
+            Some(Kept::RecordingFolder) if folder_metadata => self.rescan = true,
+            Some(Kept::Recording | Kept::RecordingFolder) => self.recordings = true,
+            None => {}
+        }
+    }
+
+    fn full_rescan() -> Self {
+        Self {
+            rescan: true,
+            revalidate: true,
+            manifest: true,
+            recordings: true,
+            ..Self::default()
+        }
     }
 
     /// Nothing kept: no song, top-level entry, manifest or memo.
@@ -162,14 +234,13 @@ impl SongChanges {
     }
 }
 
-/// [`classify`] with the `songs/` listing supplied by `list`, which is called at most once.
+/// Classifies touched paths with the `songs/` listing supplied by `list`, which is called at most once.
 fn classify_in(
     root: &Path,
     known: &mut HashSet<String>,
-    paths: impl IntoIterator<Item = PathBuf>,
+    touched: Touched,
     list: impl FnOnce(&Path) -> BTreeSet<String>,
 ) -> Option<ProjectChanged> {
-    let touched = Touched::new(root, paths);
     if touched.is_empty() {
         return None;
     }
@@ -187,7 +258,7 @@ fn classify_in(
     let mut changes = SongChanges::default();
     for rel in songs {
         match (present.contains(&rel), known.contains(&rel)) {
-            (true, true) if named.contains(&rel) => changes.changed.push(rel),
+            (true, true) if touched.revalidate || named.contains(&rel) => changes.changed.push(rel),
             (true, true) => {}
             (true, false) => {
                 known.insert(rel.clone());
@@ -211,10 +282,73 @@ fn classify_in(
     })
 }
 
+// inotify also reports opens caused by our directory scans and the editor's own reloads.
+// Only close-after-write can signal changed contents among the access events.
+fn affects_contents(kind: notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+    match kind {
+        notify::EventKind::Access(access) => access == AccessKind::Close(AccessMode::Write),
+        _ => true,
+    }
+}
+
+/// A one-sided move can name an unrelated destination while removing the manifest or a memo.
+/// Keep metadata for just these entries so unrelated temp and render writes remain silent.
+#[derive(PartialEq)]
+struct Revision {
+    length: u64,
+    modified: Option<SystemTime>,
+    created: Option<SystemTime>,
+}
+
+impl From<std::fs::Metadata> for Revision {
+    fn from(meta: std::fs::Metadata) -> Self {
+        Self {
+            length: meta.len(),
+            modified: meta.modified().ok(),
+            created: meta.created().ok(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Catalogs {
+    manifest: Option<Revision>,
+    recordings: Option<BTreeMap<String, Revision>>,
+}
+
+impl Catalogs {
+    fn reconcile(&mut self, root: &Path, touched: &mut Touched) {
+        if touched.rescan || touched.manifest {
+            let now = std::fs::symlink_metadata(root.join(MANIFEST_FILE))
+                .ok()
+                .map(Revision::from);
+            touched.manifest |= now != self.manifest;
+            self.manifest = now;
+        }
+        if touched.rescan || touched.recordings {
+            let now = recording_dir_entries(root).ok().flatten().map(|entries| {
+                entries
+                    .flatten()
+                    .filter_map(|entry| {
+                        let name = entry.file_name().into_string().ok()?;
+                        if !is_recording_file_name(&name) {
+                            return None;
+                        }
+                        Some((name, Revision::from(entry.metadata().ok()?)))
+                    })
+                    .collect()
+            });
+            touched.recordings |= now != self.recordings;
+            self.recordings = now;
+        }
+    }
+}
+
 /// A running watcher on one project. Dropping it stops watching; no event is emitted after the
 /// drop returns.
 pub struct Watcher {
-    debouncer: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
+    debouncer: Option<Debouncer<RecommendedWatcher, NoCache>>,
 }
 
 impl Watcher {
@@ -231,16 +365,33 @@ impl Watcher {
             .into_iter()
             .map(|s| s.path)
             .collect();
+        let mut catalogs = Catalogs::default();
+        catalogs.reconcile(&root, &mut Touched::full_rescan());
         let handler_root = root.clone();
         let handler = move |result: DebounceEventResult| {
-            // Watcher errors (e.g. a dropped FSEvents stream) carry nothing to classify.
-            let Ok(events) = result else { return };
-            let paths = events.into_iter().flat_map(|e| e.event.paths);
-            if let Some(changed) = classify(&handler_root, &mut known, paths) {
+            // A lost batch can change contents without changing any filenames. Re-read every
+            // known song and refresh both catalogs even when the backend supplied no paths.
+            let mut touched = match result {
+                Ok(events) if !events.iter().any(|e| e.need_rescan()) => {
+                    Touched::from_events(&handler_root, events.into_iter().map(|e| e.event))
+                }
+                _ => Touched::full_rescan(),
+            };
+            catalogs.reconcile(&handler_root, &mut touched);
+            if let Some(changed) = classify_in(&handler_root, &mut known, touched, scan_songs) {
                 emit(changed);
             }
         };
-        let mut debouncer = new_debouncer(DEBOUNCE, None, handler).map_err(|e| e.to_string())?;
+        // FileIdMap follows directory links while populating its cache. The classifier
+        // reconciles names from the checked project listing, including one-sided moves.
+        let mut debouncer = new_debouncer_opt(
+            DEBOUNCE,
+            None,
+            handler,
+            NoCache::new(),
+            notify::Config::default().with_follow_symlinks(false),
+        )
+        .map_err(|e| e.to_string())?;
         debouncer
             .watch(&root, RecursiveMode::Recursive)
             .map_err(|e| e.to_string())?;
@@ -609,6 +760,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_directory_or_symlink_named_like_a_song_does_not_exist_as_a_song() {
         let d = Dir::new();
         let mut known = set(&["songs/dir.js"]);
@@ -626,6 +778,102 @@ mod tests {
     }
 
     #[test]
+    fn reads_do_not_start_another_watch_and_reload_cycle() {
+        use notify::EventKind::Access;
+        use notify::event::{AccessKind, AccessMode};
+        assert!(!affects_contents(Access(AccessKind::Open(AccessMode::Any))));
+        assert!(!affects_contents(Access(AccessKind::Read)));
+        assert!(!affects_contents(Access(AccessKind::Close(
+            AccessMode::Read
+        ))));
+        assert!(affects_contents(Access(AccessKind::Close(
+            AccessMode::Write
+        ))));
+    }
+
+    #[test]
+    fn a_parent_directory_modification_only_reports_a_recording_catalog_change() {
+        use notify::event::{CreateKind, ModifyKind};
+        use notify::{Event, EventKind};
+
+        let d = Dir::new();
+        fs::create_dir(d.path(RECORDINGS_DIR)).unwrap();
+        let mut catalogs = Catalogs::default();
+        catalogs.reconcile(&d.root, &mut Touched::full_rescan());
+        let parent_modified =
+            || Event::new(EventKind::Modify(ModifyKind::Any)).add_path(d.path(RECORDINGS_DIR));
+        let partial = d.touch("recordings/take.wav.partial");
+        let mut touched = Touched::from_events(
+            &d.root,
+            [
+                Event::new(EventKind::Create(CreateKind::Any)).add_path(partial),
+                parent_modified(),
+            ],
+        );
+        catalogs.reconcile(&d.root, &mut touched);
+        let mut known = HashSet::new();
+        assert!(classify_in(&d.root, &mut known, touched, scan_songs).is_none());
+
+        d.touch("recordings/take.wav");
+        let mut touched = Touched::from_events(&d.root, [parent_modified()]);
+        catalogs.reconcile(&d.root, &mut touched);
+        let changed = classify_in(&d.root, &mut known, touched, scan_songs).unwrap();
+        assert!(changed.recordings);
+        assert!(!changed.manifest && changed.songs.is_empty());
+    }
+
+    #[test]
+    fn destination_only_moves_detect_removed_manifest_or_memo_without_reporting_unrelated_writes() {
+        let d = Dir::new();
+        let manifest = d.touch("project.json");
+        let memo = d.touch("recordings/a.wav");
+        let mut catalogs = Catalogs::default();
+        catalogs.reconcile(&d.root, &mut Touched::full_rescan());
+        let mut reconcile = |dest: &str| {
+            let mut touched = Touched::new(&d.root, [d.path(dest)]);
+            touched.rescan = true;
+            catalogs.reconcile(&d.root, &mut touched);
+            (touched.manifest, touched.recordings)
+        };
+        d.touch("recordings/.take.wav.partial");
+        assert_eq!(reconcile("recordings/.take.wav.partial"), (false, false));
+        fs::rename(manifest, d.path("old-manifest")).unwrap();
+        assert_eq!(reconcile("old-manifest"), (true, false));
+        fs::rename(memo, d.path("recordings/backup")).unwrap();
+        assert_eq!(reconcile("recordings/backup"), (false, true));
+        assert_eq!(reconcile("recordings/backup"), (false, false));
+    }
+
+    #[test]
+    fn loss_of_events_revalidates_known_contents_and_both_catalogs() {
+        let d = Dir::new();
+        let mut known = set(&["songs/same.js", "songs/gone.js"]);
+        d.touch("songs/same.js");
+        d.touch("songs/new.js");
+        let batch = classify_in(&d.root, &mut known, Touched::full_rescan(), scan_songs).unwrap();
+        assert_eq!(batch.songs.changed, ["songs/same.js"]);
+        assert_eq!(batch.songs.added, ["songs/new.js"]);
+        assert_eq!(batch.songs.removed, ["songs/gone.js"]);
+        assert!(batch.manifest && batch.recordings);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn drive_and_unc_notifications_match_canonical_roots_even_after_removal() {
+        for (root, event) in [
+            (r"\\?\C:\work", r"C:\work\songs\gone.js"),
+            (
+                r"\\?\UNC\server\share\work",
+                r"\\server\share\work\songs\gone.js",
+            ),
+        ] {
+            assert!(
+                matches!(keep(Path::new(root), Path::new(event)), Some(Kept::Song(id)) if id == "songs/gone.js")
+            );
+        }
+    }
+
+    #[test]
     fn a_case_only_rename_removes_the_old_spelling() {
         // A case-insensitive volume still finds `Verse.js` by path after the rename; only the
         // folder listing has the new spelling. The listing is injected so this holds on any FS.
@@ -633,7 +881,10 @@ mod tests {
         let mut known = set(&["songs/Verse.js"]);
         let batch = [d.path("songs/Verse.js"), d.path("songs/verse.js")];
         let listing = || BTreeSet::from(["songs/verse.js".to_string()]);
-        let changed = classify_in(&d.root, &mut known, batch, |_| listing()).map(|mut c| {
+        let changed = classify_in(&d.root, &mut known, Touched::new(&d.root, batch), |_| {
+            listing()
+        })
+        .map(|mut c| {
             c.root = String::new();
             c
         });

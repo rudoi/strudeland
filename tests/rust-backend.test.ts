@@ -231,7 +231,7 @@ describe('rust backend: resume, init and the clock', () => {
     expect(s.fake.of('start')).toHaveLength(1);
   });
 
-  test('resume resolves false after 2 s without an anchor; the next resume only waits again', async () => {
+  test('resume resolves false after 2 s without an anchor; the next resume opens a fresh device stream', async () => {
     jest.useFakeTimers();
     const s = setup();
     const first = s.backend.resume();
@@ -247,7 +247,7 @@ describe('rust backend: resume, init and the clock', () => {
     await settle();
     s.fake.emit({ kind: 'anchor', frame: 10, hostNs: '1' });
     expect(await second).toBe(true);
-    expect(s.fake.of('start')).toHaveLength(1);
+    expect(s.fake.of('start')).toHaveLength(2);
   });
 
   test('a rejected start propagates', async () => {

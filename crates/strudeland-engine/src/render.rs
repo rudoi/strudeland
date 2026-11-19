@@ -1792,7 +1792,32 @@ mod tests {
         assert_eq!(e.core.bus_graph.max_level(), 0);
         let r = render_job(&j).unwrap();
         assert!(r.errors.is_empty(), "{:?}", r.errors);
-        assert_eq!(fnv(&r.channels), 0x0a91_bfa1_28b7_2697);
+        assert!(r.channels.iter().flatten().any(|&sample| sample != 0.0));
+        let hash = fnv(&r.channels);
+
+        // An unused bus adds a graph level without changing any scheduled voice. Compare
+        // the two loop shapes on the same CPU, including CPUs without a reference hash.
+        let mut with_bus = j.clone();
+        with_bus
+            .values
+            .push(value_map(json!({ "s": "bus", "n": 1 })));
+        assert_eq!(
+            Engine::new(&with_bus).unwrap().core.bus_graph.max_level(),
+            1
+        );
+        let with_bus = render_job(&with_bus).unwrap();
+        assert!(with_bus.errors.is_empty(), "{:?}", with_bus.errors);
+        assert_eq!(fnv(&with_bus.channels), hash);
+
+        // The fixture exercises RustFFT's runtime-selected SIMD kernels via the periodic
+        // wave tables and reverb. Keep the historical Apple Silicon pin and the exact
+        // native Windows and Ubuntu x64 CI result for the AVX planner.
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        assert_eq!(hash, 0x0a91_bfa1_28b7_2697);
+        #[cfg(all(target_arch = "x86_64", any(target_os = "linux", windows)))]
+        if std::is_x86_feature_detected!("avx") && std::is_x86_feature_detected!("fma") {
+            assert_eq!(hash, 0x0312_e335_f118_3509);
+        }
     }
 
     #[test]

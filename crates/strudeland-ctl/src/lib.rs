@@ -1,13 +1,15 @@
 //! The strudeland control socket: JSON-RPC 2.0 envelope types, line framing, error codes, the
 //! typed params and results of every method, the socket path and a blocking client.
 //!
-//! No Tauri and no async runtime, so the app, the CLI and any other client can all share it.
+//! Shared by the app and CLI without any Tauri dependency.
 
 pub mod client;
 pub mod frame;
 pub mod methods;
 pub mod path;
 pub mod protocol;
+#[cfg(windows)]
+pub mod windows_pipe;
 
 pub use client::{CallError, Client};
 pub use frame::{

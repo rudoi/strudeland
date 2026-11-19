@@ -13,7 +13,7 @@ its editor, plays songs and reports what they play. Work through the CLI, not by
 ## Start
 
 1. `strudeland ping`: `strudeland X is running` (exit 0) means go ahead.
-   - Exit 2 (`error: strudeland is not running (no socket at …)`): ask the user to launch the app.
+   - Exit 2 (`error: strudeland is not running`): ask the user to launch the app.
      Do not try to start it yourself.
    - Exit 3 (`strudeland X is running but not ready`): the app is open but no window is attached
      yet. Wait a moment and ping again; if it persists, ask the user to check the window.
@@ -101,13 +101,13 @@ sent as is. Always pass `--file` or pipe something: an empty non-terminal stdin 
   - `note: the file changed on disk; the conflict bar is still open`: someone else changed the
     file. Your edit is in the editor, but the user has to choose in the app's bar between the
     editor text and the disk text. Tell them.
-  - `note: the file was deleted on disk`: the file is gone; the user's Cmd-S would recreate it.
+  - `note: the file was deleted on disk`: the file is gone; the user's save shortcut would recreate it.
     Tell them.
 
 **Save only when the user asks.** `code set`, `eval` and `play` work on the editor buffer, and
-that buffer (not the disk) is what gets evaluated. The user saves with Cmd-S (Cmd-Enter saves and
-evaluates). When they ask you to save, run `strudeland save` (the active song) or `strudeland save
---song S` / `--all`; it prints `saved main` or `nothing to save`. Do not write over `songs/*.js`
+that buffer is what gets evaluated. The user saves with Command-S on macOS or Control-S on Windows
+and Linux. Pressing Enter with the same modifier saves and evaluates. When they ask you to save,
+run `strudeland save` (the active song) or `strudeland save --song S` / `--all`; it prints `saved main` or `nothing to save`. Do not write over `songs/*.js`
 to "save" for them.
 
 **Writing files directly.** Create songs with `strudeland song new NAME`, not by writing a file.
@@ -123,7 +123,7 @@ strudeland code get --song main > /tmp/main.orig.js
 # write the changed song to /tmp/main.new.js with the Write tool
 strudeland code set --song main --file /tmp/main.new.js --expect-file /tmp/main.orig.js --eval
 strudeland events --bars 1-2                        # did it play what you meant
-strudeland screenshot /tmp/main.png                 # then Read /tmp/main.png
+strudeland screenshot main.png                      # then Read the reported file
 ```
 
 Use `--eval` when the song is not playing yet and you want to hear and inspect it. If `code set`
@@ -498,8 +498,8 @@ $: song(meta, {
 - `--json`: print the result as one line of JSON on stdout (errors and warnings stay on stderr).
   Use it when you need exact values, e.g. `strudeland --json state`.
 - `--timeout SECS`: how long to wait for the app (1 to 120, default 10).
-- `--socket PATH` or `STRUDELAND_SOCKET`: use another control socket. Only needed when the user
-  runs the app with a non-default socket.
+- `--socket PATH` or `STRUDELAND_SOCKET`: use another control endpoint. Match the app's endpoint.
+  Use a private Unix socket on macOS or Linux and a local `\\.\pipe\NAME` on Windows.
 - Global flags go before or after the subcommand. Warnings on stderr never change the exit code.
 
 | Exit | Meaning | What to do |

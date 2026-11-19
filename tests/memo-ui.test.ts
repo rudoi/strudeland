@@ -425,7 +425,17 @@ describe('recordingNotices', () => {
   });
 
   test('permission denied links to settings', () => {
-    expect(recordingNotices(state({ phase: 'idle', error: err('permissionDenied') }))).toEqual([
+    const denied = state({
+      phase: 'idle',
+      error: err('permissionDenied', 'microphone access denied'),
+    });
+    expect(recordingNotices(denied, null, 'Win32')[0]?.action).toEqual({
+      kind: 'link',
+      label: 'open settings',
+      href: 'ms-settings:privacy-microphone',
+    });
+    expect(recordingNotices(denied, null, 'Linux x86_64')[0]?.action).toBeUndefined();
+    expect(recordingNotices(denied, null, 'MacIntel')).toEqual([
       {
         id: 'permission',
         tone: 'danger',

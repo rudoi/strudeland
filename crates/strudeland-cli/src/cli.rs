@@ -12,7 +12,7 @@ use strudeland_transcribe::GridDivision;
 #[command(
     name = "strudeland",
     version,
-    about = "Drive the running strudeland app over its control socket, and render songs to audio files"
+    about = "Drive the running strudeland app over its local control endpoint, and render songs to audio files"
 )]
 pub struct Cli {
     /// Print the result as one line of JSON on stdout.
@@ -26,7 +26,7 @@ pub struct Cli {
         value_parser = clap::value_parser!(u64).range(1..=120)
     )]
     pub timeout: u64,
-    /// The control socket path (overrides STRUDELAND_SOCKET).
+    /// The local control endpoint (overrides STRUDELAND_SOCKET).
     #[arg(long, global = true, value_name = "PATH")]
     pub socket: Option<PathBuf>,
     #[command(subcommand)]

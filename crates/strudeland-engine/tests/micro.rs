@@ -5,7 +5,9 @@
 //! be below the case's `maxResidualDb` in `tests/refs/thresholds.json`. Frame and channel counts
 //! must equal the reference's, and the engine's errors must be exactly the case's `expectErrors`
 //! (none when absent). Every micro case has a threshold, refs and a source, and vice versa, and
-//! no micro job has an unsupported signature.
+//! no micro job has an unsupported signature. The null gate compares like Chromium platforms.
+//! With references from a different platform, the same jobs instead check output shape, silent
+//! channels, finite samples, error contracts and exact native repeatability.
 //!
 //! `thresholds.json` (schema 2) may mark a case `platform: "macos"` (judged only where
 //! `platform_applies`; skipped elsewhere with a printed `SKIP`) or `floor: { runs: 8, reason }`
@@ -110,8 +112,22 @@ fn platform_applies(p: &str) -> bool {
     }
 }
 
-/// Checks one case; `Ok(residual)` or the reasons it fails.
-fn check_case(name: &str, threshold: &Value) -> Result<f64, String> {
+fn reference_platform() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        other => other,
+    };
+    format!("{os}-{arch}")
+}
+
+/// Checks one case. A native Chromium comparison returns its measured residual.
+fn check_case(name: &str, threshold: &Value, judge_null: bool) -> Result<Option<f64>, String> {
     let max = threshold["maxResidualDb"]
         .as_f64()
         .ok_or("no numeric maxResidualDb")?;
@@ -126,9 +142,27 @@ fn check_case(name: &str, threshold: &Value) -> Result<f64, String> {
     if rc != ec {
         return Err(format!("{ec} channels, the reference has {rc}"));
     }
-    let (rf, ef) = (reference.channels[0].len(), rendered.channels[0].len());
-    if rf != ef {
-        return Err(format!("{ef} frames, the reference has {rf}"));
+    for (i, (reference, rendered)) in reference
+        .channels
+        .iter()
+        .zip(&rendered.channels)
+        .enumerate()
+    {
+        if reference.len() != rendered.len() {
+            return Err(format!(
+                "channel {i} has {} frames, expected {}",
+                rendered.len(),
+                reference.len()
+            ));
+        }
+        if !rendered.iter().all(|sample| sample.is_finite()) {
+            return Err(format!("channel {i} has a non-finite sample"));
+        }
+        if reference.iter().all(|&sample| sample == 0.0)
+            != rendered.iter().all(|&sample| sample == 0.0)
+        {
+            return Err(format!("channel {i} does not match reference silence"));
+        }
     }
     let mut expected: Vec<(i64, String)> = threshold["expectErrors"]
         .as_array()
@@ -158,11 +192,18 @@ fn check_case(name: &str, threshold: &Value) -> Result<f64, String> {
             rendered.errors
         ));
     }
+    if !judge_null {
+        let repeat = render(&job).map_err(|e| format!("repeat render: {e}"))?;
+        if residual_db(&rendered.channels, &repeat.channels) != Some(f64::NEG_INFINITY) {
+            return Err("repeat render differs on the same host".into());
+        }
+        return Ok(None);
+    }
     let r = residual_db(&reference.channels, &rendered.channels).ok_or("shape mismatch")?;
     if r.is_nan() || r >= max {
         return Err(format!("residual {r:.2} dB, max {max} dB"));
     }
-    Ok(r)
+    Ok(Some(r))
 }
 
 #[test]
@@ -196,15 +237,21 @@ fn micro_cases_are_within_their_null_thresholds() {
     let cases = thresholds["cases"].as_object().expect("cases");
     assert!(!cases.is_empty(), "no thresholds");
     let mut failures = Vec::new();
+    let index = read_json("index.json");
+    let native = reference_platform();
     for (name, t) in cases {
-        if let Some(p) = t.get("platform").and_then(Value::as_str)
-            && !platform_applies(p)
-        {
-            println!("SKIP {name} (platform {p})");
-            continue;
-        }
-        match check_case(name, t) {
-            Ok(r) => println!("{name}: residual {r:.2} dB (max {} dB)", t["maxResidualDb"]),
+        let reference = index["cases"][name]["provenance"]["platform"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name}: missing reference platform"));
+        let judge_null = native == reference
+            && t.get("platform")
+                .and_then(Value::as_str)
+                .is_none_or(platform_applies);
+        match check_case(name, t, judge_null) {
+            Ok(Some(r)) => println!("{name}: residual {r:.2} dB (max {} dB)", t["maxResidualDb"]),
+            Ok(None) => println!(
+                "{name}: native contracts and repeat render pass (Chromium reference: {reference})"
+            ),
             Err(e) => {
                 println!("{name}: FAIL {e}");
                 failures.push(format!("{name}: {e}"));
@@ -212,6 +259,15 @@ fn micro_cases_are_within_their_null_thresholds() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn the_native_contract_also_runs_without_a_matching_reference() {
+    let thresholds = read_json("thresholds.json");
+    assert_eq!(
+        check_case("osc-sine", &thresholds["cases"]["osc-sine"], false),
+        Ok(None)
+    );
 }
 
 #[test]

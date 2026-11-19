@@ -1,7 +1,10 @@
 //! A blocking client over the Unix socket. One request at a time, answered in order.
 
+#[cfg(windows)]
+use crate::windows_pipe::Pipe;
 use std::io::{self, BufReader};
-use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream as Pipe;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -19,7 +22,8 @@ const GRACE: Duration = Duration::from_secs(5);
 #[derive(Debug, thiserror::Error)]
 pub enum CallError {
     /// Nothing listens at the path (`ENOENT` or `ECONNREFUSED` on connect).
-    #[error("strudeland is not running (no socket at {})", path.display())]
+    #[cfg_attr(unix, error("strudeland is not running (no socket at {})", path.display()))]
+    #[cfg_attr(windows, error("strudeland is not running (no pipe at {})", path.display()))]
     NotRunning { path: PathBuf },
     /// Any other transport failure, including the app closing the connection early.
     #[error("{0}")]
@@ -49,7 +53,7 @@ impl CallError {
 
 /// A connection to the app's control socket.
 pub struct Client {
-    reader: BufReader<UnixStream>,
+    reader: BufReader<Pipe>,
     next_id: u64,
     timeout: Duration,
     /// Added to `timeout` for the socket's read and write timeouts.
@@ -60,12 +64,30 @@ impl Client {
     /// Connects to the socket at `path`. `timeout` is the per-request timeout, sent to the app as
     /// `timeout_ms`; the socket waits `timeout + 5 s`.
     pub fn connect(path: &Path, timeout: Duration) -> Result<Client, CallError> {
-        let stream = UnixStream::connect(path).map_err(|e| match e.kind() {
+        #[cfg(target_os = "linux")]
+        if let Some(dir) = path.parent() {
+            match crate::path::check_private_dir(dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    return Err(CallError::NotRunning {
+                        path: path.to_path_buf(),
+                    });
+                }
+                Err(e) => return Err(CallError::Io(e)),
+            }
+        }
+        #[cfg(unix)]
+        let stream = Pipe::connect(path);
+        #[cfg(windows)]
+        let stream = Pipe::connect(path, timeout.saturating_add(GRACE));
+        let stream = stream.map_err(|e| match e.kind() {
             io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => CallError::NotRunning {
                 path: path.to_path_buf(),
             },
-            _ => CallError::Io(e),
+            _ => CallError::from_io(e),
         })?;
+        #[cfg(target_os = "linux")]
+        crate::path::check_peer(&stream).map_err(CallError::Io)?;
         Ok(Client {
             reader: BufReader::new(stream),
             next_id: 1,
@@ -104,15 +126,27 @@ impl Client {
             });
         }
 
-        let io_timeout = Some(self.timeout + self.grace).filter(|d| !d.is_zero());
+        let io_timeout = self.timeout.saturating_add(self.grace);
         let stream = self.reader.get_mut();
-        stream.set_read_timeout(io_timeout).map_err(CallError::Io)?;
-        stream
-            .set_write_timeout(io_timeout)
-            .map_err(CallError::Io)?;
+        #[cfg(unix)]
+        {
+            stream
+                .set_read_timeout(Some(io_timeout))
+                .map_err(CallError::Io)?;
+            stream
+                .set_write_timeout(Some(io_timeout))
+                .map_err(CallError::Io)?;
+        }
+        #[cfg(windows)]
+        stream.set_deadline(io_timeout);
         write_message(stream, &line).map_err(CallError::from_io)?;
 
-        let line = match read_message(&mut self.reader, RESPONSE_MAX_BYTES) {
+        let raw = read_message(&mut self.reader, RESPONSE_MAX_BYTES);
+        #[cfg(windows)]
+        if !matches!(&raw, Ok(Some(_))) {
+            self.reader.get_mut().disconnect();
+        }
+        let line = match raw {
             Ok(Some(line)) => line,
             Ok(None) => {
                 return Err(CallError::Io(io::Error::new(
@@ -159,7 +193,7 @@ impl Client {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::methods::{Empty, Ping, PingResult, SongParams, StateCall, Stop, StopResult};
@@ -172,7 +206,12 @@ mod tests {
 
     /// A short-named tempdir, since socket paths are limited to 103 bytes.
     fn short_dir() -> tempfile::TempDir {
-        tempfile::Builder::new().prefix("c").tempdir().unwrap()
+        use std::os::unix::fs::PermissionsExt;
+        tempfile::Builder::new()
+            .prefix("c")
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap()
     }
 
     /// Accepts one connection and answers each request line with `respond(request)`; `None`

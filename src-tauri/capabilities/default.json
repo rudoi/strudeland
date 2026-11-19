@@ -8,7 +8,10 @@
     "opener:default",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone" }]
+      "allow": [
+        { "url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone" },
+        { "url": "ms-settings:privacy-microphone" }
+      ]
     },
     "dialog:allow-open",
     "dialog:allow-message",
