@@ -213,7 +213,8 @@ mod tests {
         assert_eq!(times[1], FAKE_EPOCH_NS + 512 * 1_000_000_000 / 48000);
         assert_eq!(times[2], FAKE_EPOCH_NS + 1024 * 1_000_000_000 / 48000);
         let pulled = handle.pulled();
-        assert_eq!(pulled.len() as u64, handle.pulls() * 1024);
+        let expected = (handle.pulls() * 1024).min(PULLED_CAP_SAMPLES as u64);
+        assert_eq!(pulled.len() as u64, expected);
         assert!(pulled.iter().all(|&s| s == 0.25));
         assert_eq!(
             handle.host_now_ns(),
