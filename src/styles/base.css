@@ -1,0 +1,160 @@
+/* Global rules. Roles and domain tokens only; palette tokens live in tokens.css. */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+/*
+ * Pattern painters (.pianoroll(), .punchcard(), …) draw on a full-window canvas that
+ * @strudel/draw prepends to <body> as a fixed element. Keep the UI above it and let the
+ * editor background through, as strudel.cc does, so visuals show behind the code.
+ */
+#test-canvas {
+  z-index: var(--z-canvas);
+}
+#app {
+  position: relative;
+  z-index: var(--z-app);
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+::selection {
+  background: var(--focus-wash);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+/*
+ * Tones. A primitive with a `tone` prop sets data-tone; without one it inherits the nearest
+ * data-tone or data-cat, and :root gives the neutral tone. Every block sets only --tone; the tints
+ * are derived from it here, once (the neutral tone overrides them below).
+ */
+:root,
+[data-tone],
+[data-cat] {
+  --tone-wash: color-mix(in srgb, var(--tone) 14%, transparent);
+  --tone-edge: color-mix(in srgb, var(--tone) 35%, transparent);
+  --tone-ink: var(--text-on-tone);
+}
+/* After the derivation rule, at the same specificity, so its tints win. */
+:root,
+[data-tone='neutral'] {
+  --tone: var(--text-dim);
+  --tone-wash: var(--state-hover);
+  --tone-edge: var(--border-strong);
+}
+[data-tone='accent'] {
+  --tone: var(--accent);
+}
+[data-tone='warning'] {
+  --tone: var(--warning);
+}
+[data-tone='danger'] {
+  --tone: var(--danger);
+}
+
+/* Categories: the categorical ramp (sections; later voices). */
+[data-cat='1'] {
+  --tone: var(--cat-1);
+}
+[data-cat='2'] {
+  --tone: var(--cat-2);
+}
+[data-cat='3'] {
+  --tone: var(--cat-3);
+}
+[data-cat='4'] {
+  --tone: var(--cat-4);
+}
+
+/*
+ * Interaction states. `.pressable`: hover and press overlays (background-image, so they work over
+ * any fill), the pointer and the disabled look. `.control`: the pill chrome buttons and inputs
+ * share. The disabled colour doubles the class so it beats a component's own single-class colour
+ * rule (Svelte's scoping adds one class to it).
+ */
+.pressable {
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.pressable:hover:not(:disabled, [aria-disabled='true']) {
+  background-image: linear-gradient(var(--state-hover), var(--state-hover));
+}
+.pressable:active:not(:disabled, [aria-disabled='true']) {
+  background-image: linear-gradient(var(--state-press), var(--state-press));
+}
+.pressable.pressable:is(:disabled, [aria-disabled='true']) {
+  color: var(--text-faint);
+  cursor: default;
+}
+.control {
+  box-sizing: border-box;
+  height: var(--control-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+}
+.control.sm {
+  height: var(--control-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--fs-sm);
+}
+.control:disabled {
+  border-color: var(--border);
+}
+
+/* Utilities */
+.hint {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.label {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-label);
+  color: var(--text-faint);
+}
+.mono {
+  font-family: var(--font-mono);
+}
+/* A faint dot grid: the sidebar and the welcome screen only. */
+.grid-bg {
+  background-image: radial-gradient(circle, var(--grid-dot) 1.2px, transparent 1.2px);
+  background-size: 16px 16px;
+  background-position: 8px 8px;
+}

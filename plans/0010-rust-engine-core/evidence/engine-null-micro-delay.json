@@ -1,0 +1,55 @@
+{
+  "what": "Null residuals of the orbit feedback delay (superdough's FeedbackDelayNode and Orbit.getDelay on Blink's DelayNode: the a-rate NEON kernel, the feedback cycle read one quantum late, the f32 guard, the mono-to-stereo channel change) against the Chromium micro-case references, and the thresholds derived from them.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "target": "below -40 dB (04, 05 section 3); tightened to -140 dB because every case is bit-identical",
+  "marginRule": "a bit-exact case (-inf) gets -140 dB, as in engine-null-micro-filters.json",
+  "determinism": "a second `bun run engine:refs` of the seven cases (no --write) reported 'refs are current'; every junction (the delay input: feedback plus one send; the summing node: the return plus at most one voice) has at most two non-silent inputs, so Blink's hash-set summing order cannot change a bit",
+  "measureItem": "evidence/measure-feedback-echo.json: echo k of a burst at frame 1 through a 2205-frame delay lands at 1 + k*2205 + (k-1)*128 (k = 1..4: 2206, 4539, 6872, 9205) with peaks 1, 0.5, 0.25, 0.125 relative to echo 1, as research/chromium.md says",
+  "cases": {
+    "measure-feedback-echo": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "s('one') burst, 0.05 s delay (a whole 2205 frames), feedback 0.5. Bit-identical. With the a-rate kernel in double (the scalar delay.cc path) instead of the float NEON kernel: -130.42 dB."
+    },
+    "delay-impulse-echoes": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Two orbit delays: 0.0625 s (2756.25 frames, interpolated) with feedback 0.6, and the delaysync default 3/16 / cps 2 = 0.09375 s with feedback 0.5. Bit-identical."
+    },
+    "delay-guard-f32exact": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "In one pause 0.0625 s creates the delay, 0.125 s is scheduled and 0.0625 s is skipped (`.value` still 0.0625), feedback 0.5/0.25/0.5 likewise; the next bar schedules both. Bit-identical. With the guard always firing: -2.02 dB."
+    },
+    "delay-guard-nonexact": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "0.03/0.05/0.03 s and feedback 0.3/0.6/0.3: not exact in float, so every hap schedules. Bit-identical. With the double kernel: -116.27 dB."
+    },
+    "delay-time-change": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Delay steps at onsets inside a quantum while the line holds signal (sample-accurate a-rate), including 0.002 s (88.2 frames, below a quantum). Bit-identical. Reading before writing the input quantum: -14.05 dB; the double kernel: -71.30 dB."
+    },
+    "delay-time-over-max": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "delaytime 1.5 renders as exactly 1 s (the param clips to [0, 1]); the next hap's 1 equals `.value` and is skipped. 1.1 s long (the echo needs more than 1 s). Bit-identical."
+    },
+    "delay-mono-to-stereo": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "A ringing mono delay that a panned voice joins in the next pause. Bit-identical with the history up-mixed (same write index) AND the feedback silent for the switch quantum: Blink re-creates the delay's output bus (AudioNodeOutput::UpdateInternalBus) when its channel count changes, so the feedback gain reads a fresh silent bus that quantum. Without that one-quantum drop: -25.49 dB; with the history cleared instead of copied: -12.08 dB."
+    }
+  },
+  "otherCases": {
+    "filter-24db, filter-ftype-numeric, filter-lp-const, level-gain-velocity, level-postgain-dry": "unchanged (-155.41, -181.59, -159.65, -165.55, -161.05 dB, last-bit summing order). Every other micro case stays -inf."
+  }
+}

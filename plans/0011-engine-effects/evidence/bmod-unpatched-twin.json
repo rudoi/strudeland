@@ -1,0 +1,198 @@
+{
+  "header": {
+    "generatedAt": "2026-11-11T20:00:48.463Z",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4"
+  },
+  "variant": "unpatched",
+  "source": "const meta = { title: 'bmod-twin', bpm: 120, meter: '4/4' };\n$: s(\"sine\").note(\"c2\").gain(0.8).bus(1).dry(0).orbit(2)\n$: s(\"sawtooth\").note(\"<c3 g3>\").lpf(900).bmod({ b: 1, c: 'cutoff', dep: 2 }).orbit(1)\n",
+  "renders": 6,
+  "window": {
+    "fromBar": 0,
+    "toBar": 4
+  },
+  "pairs": [
+    {
+      "pair": [
+        0,
+        1
+      ],
+      "differingFrames": 6934,
+      "firstDiff": {
+        "frame": 19456,
+        "channel": 0
+      },
+      "residualDb": -22.86594392076694
+    },
+    {
+      "pair": [
+        0,
+        2
+      ],
+      "differingFrames": 5994,
+      "firstDiff": {
+        "frame": 19456,
+        "channel": 0
+      },
+      "residualDb": -24.491172975084442
+    },
+    {
+      "pair": [
+        0,
+        3
+      ],
+      "differingFrames": 14956,
+      "firstDiff": {
+        "frame": 13056,
+        "channel": 0
+      },
+      "residualDb": -18.38099619312059
+    },
+    {
+      "pair": [
+        0,
+        4
+      ],
+      "differingFrames": 8844,
+      "firstDiff": {
+        "frame": 16128,
+        "channel": 0
+      },
+      "residualDb": -20.954054726730615
+    },
+    {
+      "pair": [
+        0,
+        5
+      ],
+      "differingFrames": 15328,
+      "firstDiff": {
+        "frame": 13312,
+        "channel": 0
+      },
+      "residualDb": -17.994053780754573
+    },
+    {
+      "pair": [
+        1,
+        2
+      ],
+      "differingFrames": 3696,
+      "firstDiff": {
+        "frame": 20608,
+        "channel": 0
+      },
+      "residualDb": -27.448954908972564
+    },
+    {
+      "pair": [
+        1,
+        3
+      ],
+      "differingFrames": 18198,
+      "firstDiff": {
+        "frame": 13056,
+        "channel": 0
+      },
+      "residualDb": -17.78511014746757
+    },
+    {
+      "pair": [
+        1,
+        4
+      ],
+      "differingFrames": 12300,
+      "firstDiff": {
+        "frame": 16128,
+        "channel": 0
+      },
+      "residualDb": -19.912442793458904
+    },
+    {
+      "pair": [
+        1,
+        5
+      ],
+      "differingFrames": 16802,
+      "firstDiff": {
+        "frame": 13312,
+        "channel": 0
+      },
+      "residualDb": -17.894723909451166
+    },
+    {
+      "pair": [
+        2,
+        3
+      ],
+      "differingFrames": 17514,
+      "firstDiff": {
+        "frame": 13056,
+        "channel": 0
+      },
+      "residualDb": -18.207442083711634
+    },
+    {
+      "pair": [
+        2,
+        4
+      ],
+      "differingFrames": 10998,
+      "firstDiff": {
+        "frame": 16128,
+        "channel": 0
+      },
+      "residualDb": -20.660550336529276
+    },
+    {
+      "pair": [
+        2,
+        5
+      ],
+      "differingFrames": 17092,
+      "firstDiff": {
+        "frame": 13312,
+        "channel": 0
+      },
+      "residualDb": -18.155343423176873
+    },
+    {
+      "pair": [
+        3,
+        4
+      ],
+      "differingFrames": 7314,
+      "firstDiff": {
+        "frame": 13056,
+        "channel": 0
+      },
+      "residualDb": -21.873100142852554
+    },
+    {
+      "pair": [
+        3,
+        5
+      ],
+      "differingFrames": 2160,
+      "firstDiff": {
+        "frame": 13056,
+        "channel": 0
+      },
+      "residualDb": -30.274361493410964
+    },
+    {
+      "pair": [
+        4,
+        5
+      ],
+      "differingFrames": 7304,
+      "firstDiff": {
+        "frame": 13312,
+        "channel": 0
+      },
+      "residualDb": -21.06317518507721
+    }
+  ],
+  "differingPairs": 15,
+  "worstResidualDb": -17.78511014746757
+}

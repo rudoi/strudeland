@@ -1,0 +1,32 @@
+[package]
+name = "strudeland-host"
+version = "0.1.0"
+description = "strudeland headless host: plans Strudel songs into engine jobs without a browser"
+authors = ["Andrew Rudoi"]
+edition = "2024"
+rust-version = "1.94"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "strudeland_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "strudeland-host"
+path = "src/bin/strudeland-host.rs"
+
+[dependencies]
+strudeland-engine = { path = "../strudeland-engine" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+thiserror = "=2.0.21"
+# `libc` (peak RSS) and `sha2` (job hashes) are used by the bench command, added with it.
+libc = "=0.2.191"
+sha2 = "=0.10.9"
+# The raw rusty_v8 crate, the latest release on 2026-11-12 (`cargo search v8 --limit 1`;
+# published 2026-08-20). The first build downloads its prebuilt static library (about 40 MB).
+v8 = "=152.2.0"
+
+[dev-dependencies]
+strudeland-engine = { path = "../strudeland-engine" }
+tempfile = "=3.27.0"

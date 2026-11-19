@@ -1,0 +1,30 @@
+{
+  "what": "Null residuals of the orbit bus (superdough's Orbit: the stereo summing node with up-mixing, the gain-1 output, the pan-0 StereoPanner of connectToDestination, the splitter to merger routing channels[i] % count) against the Chromium micro-case references, and the thresholds derived from them.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "marginRule": "a bit-exact case (-inf) gets -140 dB, as in engine-null-micro-filters.json; pan-orbit-stems gets -300 dB so the threshold pins the pan-0 panner's leak (about -333 dB without it)",
+  "determinism": "a second `bun run engine:refs pan-orbit-stems orbit-mix-two` (no --write) reported 'refs are current'; at most two voices overlap per orbit and at most two orbits share a channel, so Blink's hash-set summing order cannot change a bit",
+  "cases": {
+    "pan-orbit-stems": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -300,
+      "notes": "Panned sawtooths (pan 0 and 1) on orbit 2, a panned triangle with dry 0.6 on orbit 3 (two orbits on the mix pair). Bit-identical. With the orbit's pan-0 panner bypassed (orbit output = summing bus) it measures -333.25 dB: the difference is only the cos(pi/2) = 6.1e-17 leak of the right channel into the left."
+    },
+    "orbit-mix-two": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "A mono sawtooth on orbit 1 and a panned square on orbit 2, summed at the merger's inputs 0 and 1. Bit-identical."
+    }
+  },
+  "otherCases": {
+    "pan-mono-center": "was -333.40 dB (only the orbit pan-0 leak missing); -inf with the orbit bus. Threshold unchanged (-140).",
+    "pan-sweep": "was -334.52 dB (only the orbit pan-0 leak missing); -inf with the orbit bus. Threshold unchanged (-140).",
+    "filter-24db, filter-ftype-numeric, filter-lp-const, level-gain-velocity, level-postgain-dry": "unchanged (-155.41, -181.59, -159.65, -165.55, -161.05 dB): last-bit differences of sums of three or more voices, whose order Blink's hash-set summing junction leaves undefined (and Chromium's main-thread disconnect race reorders between runs). Every other micro case stays -inf."
+  }
+}

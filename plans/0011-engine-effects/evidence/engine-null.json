@@ -1,0 +1,7878 @@
+{
+  "generatedAt": "2026-11-12T08:49:12.777Z",
+  "playwright": "1.64.1",
+  "chromium": "156.0.8078.4",
+  "engine": "strudeland-engine 0.1.0",
+  "windowSec": 0.1,
+  "floorDb": -60,
+  "residual": "10*log10(sum((superdough - rust)^2) / sum(superdough^2)) over every sample of every channel, no alignment search",
+  "fixtures": [
+    {
+      "name": "pad-seam",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        20
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 882000,
+          "residualDb": -123.15,
+          "worstWindow": {
+            "startSec": 11,
+            "residualDb": -121.45,
+            "diffDbfs": -143.22,
+            "refDbfs": -21.77
+          }
+        },
+        {
+          "index": 1,
+          "frames": 1411200,
+          "residualDb": -123.16,
+          "worstWindow": {
+            "startSec": 1.1,
+            "residualDb": -121.25,
+            "diffDbfs": -147.7,
+            "refDbfs": -26.44
+          }
+        },
+        {
+          "index": 2,
+          "frames": 705600,
+          "residualDb": -123.22,
+          "worstWindow": {
+            "startSec": 10.8,
+            "residualDb": -121.43,
+            "diffDbfs": -143.15,
+            "refDbfs": -21.72
+          }
+        }
+      ],
+      "residualDb": -123.15,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 390775,
+        "residualDb": -148.73,
+        "bands": {
+          "sub": {
+            "cells": 200,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 200,
+            "p50": 0,
+            "p95": 0,
+            "max": 6.11208366274747e-7
+          },
+          "high": {
+            "cells": 200,
+            "p50": 0,
+            "p95": 0,
+            "max": 9.229353794489222e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "seam",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          1041,
+          1664,
+          837
+        ],
+        "superdoughRenderMs": [
+          1060,
+          1686,
+          850
+        ]
+      }
+    },
+    {
+      "name": "reverb-long",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        20
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 1587600,
+          "residualDb": -95.38,
+          "worstWindow": {
+            "startSec": 35.6,
+            "residualDb": -93.47,
+            "diffDbfs": -123.43,
+            "refDbfs": -29.96
+          }
+        },
+        {
+          "index": 1,
+          "frames": 1587600,
+          "residualDb": -95.38,
+          "worstWindow": {
+            "startSec": 35.6,
+            "residualDb": -93.47,
+            "diffDbfs": -123.43,
+            "refDbfs": -29.96
+          }
+        }
+      ],
+      "residualDb": -95.38,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 360,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 360,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 360,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "seam",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          9612,
+          9551
+        ],
+        "superdoughRenderMs": [
+          9700,
+          9608
+        ]
+      }
+    },
+    {
+      "name": "reverb-change",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        16
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 1411200,
+          "residualDb": -98.82,
+          "worstWindow": {
+            "startSec": 30.2,
+            "residualDb": -94.99,
+            "diffDbfs": -128.82,
+            "refDbfs": -33.83
+          }
+        },
+        {
+          "index": 1,
+          "frames": 970200,
+          "residualDb": -97.96,
+          "worstWindow": {
+            "startSec": 7.4,
+            "residualDb": -94.99,
+            "diffDbfs": -128.13,
+            "refDbfs": -33.15
+          }
+        }
+      ],
+      "residualDb": -97.96,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 320,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 320,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 320,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "seam",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          4469,
+          4068
+        ],
+        "superdoughRenderMs": [
+          4597,
+          4213
+        ]
+      }
+    },
+    {
+      "name": "worklets",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -143.99,
+          "worstWindow": {
+            "startSec": 0.1,
+            "residualDb": -143.24,
+            "diffDbfs": -161.59,
+            "refDbfs": -18.35
+          }
+        }
+      ],
+      "residualDb": -143.99,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 799628,
+        "residualDb": -144.62,
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 8.982063362820373e-7
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 6.480101412196201e-7
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 5.972048537156838e-7,
+            "max": 0.0000010038106568320624
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          151
+        ],
+        "superdoughRenderMs": [
+          604
+        ]
+      }
+    },
+    {
+      "name": "duck",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 682839,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 0,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -17.56
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 154,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 154,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 154,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          16
+        ],
+        "superdoughRenderMs": [
+          45
+        ]
+      }
+    },
+    {
+      "name": "odd-meter",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 540788,
+          "residualDb": -776.33,
+          "worstWindow": {
+            "startSec": 4.4,
+            "residualDb": -734.54,
+            "diffDbfs": -790.57,
+            "refDbfs": -56.03
+          }
+        }
+      ],
+      "residualDb": -776.33,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 100,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 92,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 92,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          18
+        ],
+        "superdoughRenderMs": [
+          49
+        ]
+      }
+    },
+    {
+      "name": "bass-line",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 0,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -19.93
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "bass",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          15
+        ],
+        "superdoughRenderMs": [
+          43
+        ]
+      }
+    },
+    {
+      "name": "stems-5",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -146.38,
+          "worstWindow": {
+            "startSec": 8.5,
+            "residualDb": -144.55,
+            "diffDbfs": -166.19,
+            "refDbfs": -21.64
+          }
+        }
+      ],
+      "residualDb": -146.38,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 44532,
+        "residualDb": -149.42,
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 6.637597252222763e-7
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "stems",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          51
+        ],
+        "superdoughRenderMs": [
+          121
+        ]
+      }
+    },
+    {
+      "name": "stems-shared",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        4
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 352800,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 0,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -14.64
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 24,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 24,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 24,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "stems",
+          "verdict": "unverifiable",
+          "reasons": [
+            "no testable stem: every pair aliased or without fast-attack notes"
+          ]
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          7
+        ],
+        "superdoughRenderMs": [
+          53
+        ]
+      }
+    },
+    {
+      "name": "silence-entry-perc",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        4
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 352800,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 4,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -18.51
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 4,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 4,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 4,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          2
+        ],
+        "superdoughRenderMs": [
+          13
+        ]
+      }
+    },
+    {
+      "name": "silence-entry-pad",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        4
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 352800,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 2,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -41.41
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 60,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 60,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 60,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          4
+        ],
+        "superdoughRenderMs": [
+          19
+        ]
+      }
+    },
+    {
+      "name": "clipping",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        4
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 352800,
+          "residualDb": -161.55,
+          "worstWindow": {
+            "startSec": 2.5,
+            "residualDb": -154.36,
+            "diffDbfs": -154.87,
+            "refDbfs": -0.51
+          }
+        }
+      ],
+      "residualDb": -161.55,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 3764,
+        "residualDb": -162.5,
+        "bands": {
+          "sub": {
+            "cells": 80,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 80,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 80,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          8
+        ],
+        "superdoughRenderMs": [
+          28
+        ]
+      }
+    },
+    {
+      "name": "sine-basic",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        4
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 352800,
+          "residualDb": -154.78,
+          "worstWindow": {
+            "startSec": 1.5,
+            "residualDb": -146.06,
+            "diffDbfs": -159.79,
+            "refDbfs": -13.73
+          }
+        }
+      ],
+      "residualDb": -154.78,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 39062,
+        "residualDb": -153.63,
+        "bands": {
+          "sub": {
+            "cells": 80,
+            "p50": 0,
+            "p95": 0,
+            "max": 9.120381970133286e-7
+          },
+          "mid": {
+            "cells": 80,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 80,
+            "p50": 0,
+            "p95": 0,
+            "max": 5.760791302644432e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          7
+        ],
+        "superdoughRenderMs": [
+          23
+        ]
+      }
+    },
+    {
+      "name": "song-linear",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 0,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -20.09
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          25
+        ],
+        "superdoughRenderMs": [
+          93
+        ]
+      }
+    },
+    {
+      "name": "song-clip",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        12
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 793800,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 0,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -20.09
+          }
+        },
+        {
+          "index": 1,
+          "frames": 617400,
+          "residualDb": "-inf",
+          "worstWindow": {
+            "startSec": 0,
+            "residualDb": "-inf",
+            "diffDbfs": "-inf",
+            "refDbfs": -21.44
+          }
+        }
+      ],
+      "residualDb": "-inf",
+      "hashEqual": true,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": true,
+        "differingFrames": 0,
+        "residualDb": "-inf",
+        "bands": {
+          "sub": {
+            "cells": 180,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 180,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 180,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "seam",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          17,
+          22
+        ],
+        "superdoughRenderMs": [
+          49,
+          86
+        ]
+      }
+    },
+    {
+      "name": "voice-osc",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -146.06,
+          "worstWindow": {
+            "startSec": 14.9,
+            "residualDb": -142.99,
+            "diffDbfs": -165.88,
+            "refDbfs": -22.89
+          }
+        }
+      ],
+      "residualDb": -146.06,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 396270,
+        "residualDb": -145.45,
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 6.244868031046113e-7
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 8.906030450812419e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          41
+        ],
+        "superdoughRenderMs": [
+          72
+        ]
+      }
+    },
+    {
+      "name": "voice-mod",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -151.01,
+          "worstWindow": {
+            "startSec": 14.1,
+            "residualDb": -144.72,
+            "diffDbfs": -164.32,
+            "refDbfs": -19.59
+          }
+        }
+      ],
+      "residualDb": -151.01,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 74340,
+        "residualDb": -151.32,
+        "bands": {
+          "sub": {
+            "cells": 136,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 136,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 136,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          29
+        ],
+        "superdoughRenderMs": [
+          976
+        ]
+      }
+    },
+    {
+      "name": "voice-noise",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -150.46,
+          "worstWindow": {
+            "startSec": 11,
+            "residualDb": -145.35,
+            "diffDbfs": -169.66,
+            "refDbfs": -24.31
+          }
+        }
+      ],
+      "residualDb": -150.46,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 155242,
+        "residualDb": -148.54,
+        "bands": {
+          "sub": {
+            "cells": 134,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 134,
+            "p50": 0,
+            "p95": 0,
+            "max": 5.691008344798592e-7
+          },
+          "high": {
+            "cells": 134,
+            "p50": 0,
+            "p95": 0,
+            "max": 8.399239399262146e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          18
+        ],
+        "superdoughRenderMs": [
+          60
+        ]
+      }
+    },
+    {
+      "name": "voice-filter",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -148.71,
+          "worstWindow": {
+            "startSec": 13,
+            "residualDb": -136.83,
+            "diffDbfs": -156.14,
+            "refDbfs": -19.31
+          }
+        }
+      ],
+      "residualDb": -148.71,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 172154,
+        "residualDb": -131.34,
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.000001781373058901032
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 5.569316642695756e-7
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 9.251647423074078e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          38
+        ],
+        "superdoughRenderMs": [
+          74
+        ]
+      }
+    },
+    {
+      "name": "voice-level",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -148.48,
+          "worstWindow": {
+            "startSec": 14.5,
+            "residualDb": -144.53,
+            "diffDbfs": -166.42,
+            "refDbfs": -21.89
+          }
+        }
+      ],
+      "residualDb": -148.48,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 175336,
+        "residualDb": -148.59,
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 5.926028783635479e-7
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 6.457657326480505e-7
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 9.200013778116988e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          41
+        ],
+        "superdoughRenderMs": [
+          71
+        ]
+      }
+    },
+    {
+      "name": "fx-delay",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 846720,
+          "residualDb": -166.34,
+          "worstWindow": {
+            "startSec": 16.2,
+            "residualDb": -153.21,
+            "diffDbfs": -204.66,
+            "refDbfs": -51.44
+          }
+        }
+      ],
+      "residualDb": -166.34,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 574,
+        "residualDb": -166.34,
+        "bands": {
+          "sub": {
+            "cells": 165,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 171,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 156,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          17
+        ],
+        "superdoughRenderMs": [
+          64
+        ]
+      }
+    },
+    {
+      "name": "fx-room",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -123.2,
+          "worstWindow": {
+            "startSec": 13.3,
+            "residualDb": -109.83,
+            "diffDbfs": -155.01,
+            "refDbfs": -45.18
+          }
+        }
+      ],
+      "residualDb": -123.2,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 19223,
+        "residualDb": -156.13,
+        "bands": {
+          "sub": {
+            "cells": 159,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 159,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 159,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          786
+        ],
+        "superdoughRenderMs": [
+          642
+        ]
+      }
+    },
+    {
+      "name": "fx-native",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 705600,
+          "residualDb": -145.87,
+          "worstWindow": {
+            "startSec": 1.1,
+            "residualDb": -142.89,
+            "diffDbfs": -173.45,
+            "refDbfs": -30.56
+          }
+        }
+      ],
+      "residualDb": -145.87,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 353403,
+        "residualDb": -147.94,
+        "bands": {
+          "sub": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 7.2682712221739e-7
+          },
+          "mid": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 160,
+            "p50": 0,
+            "p95": 0,
+            "max": 9.306590977511906e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          83
+        ],
+        "superdoughRenderMs": [
+          187
+        ]
+      }
+    },
+    {
+      "name": "fx-mod",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        8
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 846720,
+          "residualDb": -150.44,
+          "worstWindow": {
+            "startSec": 0.2,
+            "residualDb": -144.55,
+            "diffDbfs": -170.66,
+            "refDbfs": -26.11
+          }
+        }
+      ],
+      "residualDb": -150.44,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 300685,
+        "residualDb": -149.91,
+        "bands": {
+          "sub": {
+            "cells": 192,
+            "p50": 0,
+            "p95": 0,
+            "max": 7.52077872772411e-7
+          },
+          "mid": {
+            "cells": 192,
+            "p50": 0,
+            "p95": 0,
+            "max": 8.368481226706649e-7
+          },
+          "high": {
+            "cells": 192,
+            "p50": 0,
+            "p95": 0,
+            "max": 7.258992405330965e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          104
+        ],
+        "superdoughRenderMs": [
+          284
+        ]
+      }
+    },
+    {
+      "name": "fx-bus",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        12
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 793800,
+          "residualDb": -153.16,
+          "worstWindow": {
+            "startSec": 15.1,
+            "residualDb": -146.85,
+            "diffDbfs": -175.58,
+            "refDbfs": -28.73
+          }
+        },
+        {
+          "index": 1,
+          "frames": 617400,
+          "residualDb": -149.67,
+          "worstWindow": {
+            "startSec": 9.1,
+            "residualDb": -145.47,
+            "diffDbfs": -174.2,
+            "refDbfs": -28.73
+          }
+        }
+      ],
+      "residualDb": -149.67,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 36714,
+        "residualDb": -154.16,
+        "bands": {
+          "sub": {
+            "cells": 106,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "mid": {
+            "cells": 106,
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          },
+          "high": {
+            "cells": 106,
+            "p50": 0,
+            "p95": 0,
+            "max": 5.228848176776048e-7
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "seam",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          56,
+          52
+        ],
+        "superdoughRenderMs": [
+          95,
+          100
+        ]
+      }
+    },
+    {
+      "name": "fx-chain",
+      "kind": "targeted",
+      "stochastic": false,
+      "windowBars": [
+        0,
+        12
+      ],
+      "chunks": [
+        {
+          "index": 0,
+          "frames": 793800,
+          "residualDb": -123.71,
+          "worstWindow": {
+            "startSec": 14.5,
+            "residualDb": -109.91,
+            "diffDbfs": -140,
+            "refDbfs": -30.09
+          }
+        },
+        {
+          "index": 1,
+          "frames": 441000,
+          "residualDb": -128.14,
+          "worstWindow": {
+            "startSec": 6.5,
+            "residualDb": -113.28,
+            "diffDbfs": -150.98,
+            "refDbfs": -37.69
+          }
+        }
+      ],
+      "residualDb": -123.71,
+      "hashEqual": false,
+      "parityVsGolden": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "parityVsSuperdough": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "goldenDrift": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "twinFloor": {
+        "bitEqual": false,
+        "differingFrames": 49988,
+        "residualDb": -124.47,
+        "bands": {
+          "sub": {
+            "cells": 180,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.000004061968078575945
+          },
+          "mid": {
+            "cells": 180,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.000003432894599257772
+          },
+          "high": {
+            "cells": 180,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.000001925667208770739
+          }
+        },
+        "peakDeltaDb": 0,
+        "lufsDelta": 0
+      },
+      "gates": [
+        {
+          "gate": "seam",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "twin",
+          "verdict": "pass",
+          "reasons": []
+        },
+        {
+          "gate": "mix",
+          "verdict": "pass",
+          "reasons": []
+        }
+      ],
+      "timing": {
+        "rustRenderMs": [
+          185,
+          132
+        ],
+        "superdoughRenderMs": [
+          291,
+          213
+        ]
+      }
+    }
+  ],
+  "micro": [
+    {
+      "name": "adsr-attack-only",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.18
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "adsr-decay-only",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.09
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "adsr-defaults",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.34
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "adsr-long-attack",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -29.21
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "adsr-short-hap",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.02
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "adsr-sustain-only",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -25.38
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "bus-bmod",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.44
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "bus-sound",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.48
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": false,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "not aligned: no onset energy",
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "coarse-3",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.53
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "coarse-8",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.52
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "compressor-fresh",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 1.7,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.37
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "compressor-params",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -10.95
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "compressor-stereo",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.46
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "compressor-warmup",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0.1,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -15.13
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 1.56,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "offset 1.56 s exceeds 0.01 s",
+          "only 4 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "crush-frac",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -17.04
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "crush-int",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.11
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "delay-guard-f32exact",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.27
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "delay-guard-nonexact",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.7
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "delay-impulse-echoes",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.32
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "delay-mono-to-stereo",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.98
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "delay-time-change",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.5
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "delay-time-over-max",
+      "frames": 48510,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.96
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "distort-diode",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -7.11
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "distort-rational",
+      "frames": 19845,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -8.69
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 4 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "distort-sine-cheb",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -6.08
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "distort-tanh",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -5.94
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "distort-vol",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -16.65
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "djf-insert-persist",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.51
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "djf-lp-hp",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.06
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "djf-none",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.06
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "djf-returns",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.05
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "duck-across-pause",
+      "frames": 66150,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -13.83
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "duck-call-order",
+      "frames": 44100,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -16.07
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "duck-cancel-hold",
+      "frames": 44100,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -15.79
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "duck-first-ramp",
+      "frames": 66150,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -12.43
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "duck-gap-ramp",
+      "frames": 44100,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.19
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "duck-multi-target",
+      "frames": 44100,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -10.9
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "env-staircase",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.43
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": false,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "not aligned: no onset energy",
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-24db",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.03
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-bp-const",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -37.35
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-bp-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -37.52
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-ftype-numeric",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-hp-const",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -28.17
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-hp-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -26.32
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-lfo-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.44
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-lfo-hp-bp",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.76
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-lfo-lp",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.39
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-lfo-sync-shape",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.43
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-lp-const",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.89
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-lp-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.19
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "filter-tail-resonant",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -17.21
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fm-chain-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.54
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fm-noise-wave",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.32
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fm-pair",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.35
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-delay",
+      "frames": 66150,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -29.06
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-gain",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.83
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-mod",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.38
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-room",
+      "frames": 66150,
+      "residualDb": -140.08,
+      "worstWindow": {
+        "startSec": 1.1,
+        "residualDb": -122.97,
+        "diffDbfs": -172.01,
+        "refDbfs": -49.04
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -137,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fxrelease-fade",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -14.54
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "ladder-const",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.85
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "ladder-drive",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.63
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "ladder-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.96
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "ladder-hpf",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.5
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "level-gain-velocity",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.42
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "level-postgain-dry",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -30.65
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "lfo-shapes",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -27.13
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "measure-feedback-echo",
+      "frames": 13230,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.24
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 3 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "measure-suspend-quantization",
+      "frames": 64275,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.07
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "measure-worklet-start",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.65
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "measure-worklet-teardown",
+      "frames": 44100,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -17.56
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-env-cutoff",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.36
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-lfo-cutoff",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.39
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-lfo-cutoff-24db",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.94
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-lfo-gain",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.21
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-lfo-note",
+      "frames": 22050,
+      "residualDb": -130.52,
+      "worstWindow": {
+        "startSec": 0.3,
+        "residualDb": -129.03,
+        "diffDbfs": -148.58,
+        "refDbfs": -19.55
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": false,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -124,
+      "meetsThreshold": true,
+      "floorDb": -129.45,
+      "meetsFloorRule": true
+    },
+    {
+      "name": "mod-lfo-of-lfo",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.36
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-lfo-pan",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.54
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-lfo-retrig-sync",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.57
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-orbit-delaytime",
+      "frames": 66150,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.14
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "mod-orbit-djf",
+      "frames": 66150,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.62
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "noise-brown",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -32.18
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "noise-crackle",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0.1,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -32.33
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "noise-mix",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.38
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "noise-pink",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -26.51
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "noise-start-roundup",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -25.67
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "noise-white",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.62
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "orbit-mix-two",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.37
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-arate-start",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.59
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-one",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -17.18
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-partials",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.24
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-phases",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.85
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-sawtooth",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.51
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-sine",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.31
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-square",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -16.79
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-subsample-start",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.07
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-triangle",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.07
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-user",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -19.41
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "osc-vibrato",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.35
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "pan-mono-center",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.1
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "pan-orbit-stems",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.81
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -300,
+      "meetsThreshold": true
+    },
+    {
+      "name": "pan-sweep",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.54
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "param-exp-held",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.09
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "param-exp-ramp",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.33
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "param-linear-ramp",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.21
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "phaser-notch",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.82
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "phaser-params",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -22.21
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "pitch-env-exp-negative",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.31
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "pitch-env-linear",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.52
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "reverb-ir-lowpass",
+      "frames": 22050,
+      "residualDb": -140.51,
+      "worstWindow": {
+        "startSec": 0.1,
+        "residualDb": -124.43,
+        "diffDbfs": -177.77,
+        "refDbfs": -53.33
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": false,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -137,
+      "meetsThreshold": true
+    },
+    {
+      "name": "reverb-ir-nolowpass",
+      "frames": 22050,
+      "residualDb": -143.91,
+      "worstWindow": {
+        "startSec": 0.1,
+        "residualDb": -124.25,
+        "diffDbfs": -181.25,
+        "refDbfs": -57
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": false,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "reverb-ir-swap",
+      "frames": 44100,
+      "residualDb": -145.35,
+      "worstWindow": {
+        "startSec": 0.1,
+        "residualDb": -124.68,
+        "diffDbfs": -170.96,
+        "refDbfs": -46.28
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -142,
+      "meetsThreshold": true
+    },
+    {
+      "name": "reverb-room-send",
+      "frames": 22050,
+      "residualDb": -151.34,
+      "worstWindow": {
+        "startSec": 0.1,
+        "residualDb": -130.23,
+        "diffDbfs": -179.72,
+        "refDbfs": -49.5
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": false,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -148,
+      "meetsThreshold": true
+    },
+    {
+      "name": "reverb-roomsize-zero",
+      "frames": 22050,
+      "residualDb": -152.88,
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": -152.14,
+        "diffDbfs": -176.85,
+        "refDbfs": -24.71
+      },
+      "parity": "features: render failed",
+      "superdoughErrors": [
+        "hap@1"
+      ],
+      "engineErrors": [
+        "ir@1"
+      ],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -149,
+      "meetsThreshold": true
+    },
+    {
+      "name": "shape-basic",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "shape-one",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": 0
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "supersaw-boundary",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.65
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "supersaw-frac-unison",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.3
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "supersaw-pitch-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.76
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "supersaw-unison1",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.45
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "supersaw-unison5",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -25.33
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "supersaw-vibrato",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.32
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "transient-attack",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -12.01
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "transient-sustain",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.59
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "tremolo-depth-edges",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -12.3
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "tremolo-sum",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -16.62
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "vowel-formants",
+      "frames": 22050,
+      "residualDb": -146.61,
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": -146.27,
+        "diffDbfs": -164.48,
+        "refDbfs": -18.21
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": false,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -139,
+      "meetsThreshold": true,
+      "floorDb": -145.12,
+      "meetsFloorRule": true
+    },
+    {
+      "name": "vowel-unknown",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.79
+      },
+      "parity": "features: render failed",
+      "superdoughErrors": [
+        "hap@0"
+      ],
+      "engineErrors": [
+        "hap@0"
+      ],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    }
+  ],
+  "decision": {
+    "engine": {
+      "name": "engine",
+      "frameTolerance": 0,
+      "maxOffsetSec": 0.01,
+      "peakDb": 0.1,
+      "lufsDb": 0.05,
+      "bandMeanDb": 0.1,
+      "bandP95Db": 0.5,
+      "hashMustMatch": false
+    },
+    "worst": {
+      "frameDelta": 0,
+      "offsetSec": 0,
+      "peakDb": 0.01,
+      "lufsDb": 0,
+      "bandMeanDb": 0.02,
+      "bandP95Db": 0.13
+    },
+    "rules": {
+      "frameTolerance": "worst |frameDelta| (frames are planned identically, so 0)",
+      "maxOffsetSec": "max(0.01, 2 x worst |offsetSec|), as self",
+      "peakDb": "max(0.1, 2 x worst |peak delta|, golden or twin), as self",
+      "lufsDb": "max(0.05, 2 x worst |LUFS delta|, golden or twin), as self",
+      "bandMeanDb": "max(0.1, 2 x worst |band mean delta| or twin band p95), as self",
+      "bandP95Db": "max(0.5, 3 x worst |band p95 delta| or twin band p95), as self"
+    },
+    "renderTimesSec": {
+      "bass-line": 0.02,
+      "clipping": 0.01,
+      "duck": 0.02,
+      "fx-bus": 0.11,
+      "fx-chain": 0.32,
+      "fx-delay": 0.02,
+      "fx-mod": 0.1,
+      "fx-native": 0.08,
+      "fx-room": 0.79,
+      "odd-meter": 0.02,
+      "pad-seam": 3.54,
+      "reverb-change": 8.54,
+      "reverb-long": 19.16,
+      "silence-entry-pad": 0,
+      "silence-entry-perc": 0,
+      "sine-basic": 0.01,
+      "song-clip": 0.04,
+      "song-linear": 0.03,
+      "stems-5": 0.05,
+      "stems-shared": 0.01,
+      "voice-filter": 0.04,
+      "voice-level": 0.04,
+      "voice-mod": 0.03,
+      "voice-noise": 0.02,
+      "voice-osc": 0.04,
+      "worklets": 0.15
+    },
+    "gatesHold": true,
+    "gateFailures": [],
+    "microTargetsMet": true,
+    "microThresholdsMet": true,
+    "missedTargets": [],
+    "missedThresholds": []
+  },
+  "archiveNote": "Historical effect calibration. The archive keeps reviewed synthetic fixtures and unaffected micro cases. Measurements for the seven cases affected by the pulse replacement and the earlier voice-worklets fixture are omitted. See pulse-replacement-calibration.md for current results. The historical profile and its worst values are unchanged."
+}

@@ -1,0 +1,33 @@
+{
+  "item": "currentValue of an orbit-held param (05 \"(measure) captures\" 2)",
+  "cases": [
+    "mod-orbit-delaytime"
+  ],
+  "case": "two short notes per bar into the orbit delay (dry 0), delaytime <.02 .03 .03>, an lfo on delaytime with depth 0.5 * currentValue; bar 1's first hap schedules setValueAtTime(0.03, t) before its second hap reads currentValue at the same pause",
+  "candidates": [
+    {
+      "candidate": "a",
+      "description": "Param::value(): the intrinsic value the last rendered quantum left (the timeline's last frame, before inputs): bar 1's haps read 0.02, bar 2's 0.03",
+      "residualDb": {
+        "mod-orbit-delaytime": "-inf"
+      }
+    },
+    {
+      "candidate": "b",
+      "description": "the timeline value at the pause frame: identical to (a) here (no delayTime event lies on a pause frame: the harness schedules a bar's haps 0.05 s before the bar), so not separable by this case",
+      "residualDb": {
+        "mod-orbit-delaytime": "-inf (by construction)"
+      }
+    },
+    {
+      "candidate": "latest scheduled",
+      "description": "not a rule of the table, a control: the value of the param's last scheduled event (bar 1's second hap would read 0.03)",
+      "residualDb": {
+        "mod-orbit-delaytime": -63.08
+      }
+    }
+  ],
+  "outcome": "outcome (a): Param::value() is kept; no Param::value_at is added. The case is redesigned from 05's sketch (dep 0.5 instead of da 0.01, and a delaytime pattern) so that currentValue reaches the audio. A first design with fxr(0.2), meant to keep the voice alive past its sound for the modulator, rendered differently between Chromium runs (worklet-determinism: firstDiffFrame 31616, worst -51.77 dB): the lfo then ends together with the chain's main-thread releaseNodes; it was dropped and the keep-alive clause is pinned by the modulate.rs unit test orbit_held_modulators_keep_the_voice_alive",
+  "choice": "a",
+  "method": "the control candidate was measured by patching voice.rs's orbit-delay currentValue in a scratch build and running micro.rs against the committed ref; the patch is not committed"
+}

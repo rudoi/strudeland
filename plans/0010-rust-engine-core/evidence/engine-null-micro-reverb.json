@@ -1,0 +1,57 @@
+{
+  "what": "Null residuals of the orbit reverb (superdough's createReverb/getReverb on Blink's ConvolverNode: the generated IR with and without the nested lowpass, the normalization, the ReverbConvolver stage layout, IR swaps at pause frames, the room sends, the roomsize-0 ir error) against the Chromium micro-case references, and the thresholds derived from them.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "target": "below -40 dB (04, 05 section 3)",
+  "marginRule": "measured residual plus about 3 dB, rounded to a whole dB (the cases are not bit-exact, so -140 does not apply)",
+  "floor": "The differences are last-bit only (|diff| <= 1.9e-8 on a 0.23 peak, spread over the whole wet signal). Two known rounding sources keep the wet path from being bit-exact: the normalization's sum of squares (Blink: Accelerate vDSP_svesq, float, order not reproduced; the engine sums in double; scale off by about 1e-6 relative) and the direct stage's 64-tap sum (Blink: vDSP_conv, whose float order depends on the buffer alignment: probed with a cancellation test, chains of about 24 taps whose membership changes with the output index; the engine uses ascending fused multiply-adds). Probe with the engine calling vDSP_svesq: lowpass -145.43, nolowpass -152.31, swap -151.52, room-send -154.67, roomsize-zero -158.84 dB; with vDSP_conv too: within 0.3 dB of that (our buffer alignment is not Chromium's). Everything else in the convolver (rustfft FFTs with Blink's packing, vDSP_zvmul measured bit-exact as re = fma(-ai, bi, ar*br), im = fma(ai, br, ar*bi), the stage layout and pre-delays, the accumulation buffer) is ported operation for operation.",
+  "determinism": "Two runs of `bun run engine:refs` (no --write) after the final --write reported 'refs are current'. The first design of reverb-roomsize-zero (one pattern with room and delay) differed between Chromium runs: in bar 0 the voice, the delay return and the reverb return sounded together at the summing node, and Blink adds three or more inputs in hash-set order. Redesigned as two patterns so that at most two inputs sound at once on every junction.",
+  "sensitivity": {
+    "no IR swap (the first IR kept)": "reverb-ir-swap -18.08 dB",
+    "no nested IR lowpass": "reverb-ir-lowpass -21.17 dB, reverb-room-send -39.18 dB (its orbit-1 room uses the default lowpass)",
+    "no normalization (scale 1)": "reverb-ir-nolowpass +7.98 dB",
+    "a mono input feeding only the left IR channel": "reverb-ir-nolowpass -23.63 dB",
+    "unfused zvmul": "within 0.4 dB of the final residuals (below the floor)",
+    "unfused direct stage": "within 0.1 dB",
+    "no render-phase stagger (all pre-delays 0)": "identical to 0.01 dB (the IRs here are at most 16538 frames: two 4096-tap stages)",
+    "never stopping after the tail": "within 0.1 dB"
+  },
+  "cases": {
+    "reverb-ir-nolowpass": {
+      "measuredDb": -143.91,
+      "maxResidualDb": -140,
+      "notes": "A sawtooth stab into roomsize 0.25 (IR 16538 frames: the direct stage, FFT stages 64@128 to 4096@8192 and two 4096-tap stages with pre-delays), roomlp 0, default fade. 0.5 s."
+    },
+    "reverb-ir-lowpass": {
+      "measuredDb": -140.51,
+      "maxResidualDb": -137,
+      "notes": "roomsize 0.25, roomfade 0.02, roomlp 6000 ramping to roomdim 400: the nested lowpass is bit-identical (IR stage); the residual is the convolver floor. 0.5 s."
+    },
+    "reverb-ir-swap": {
+      "measuredDb": -145.35,
+      "maxResidualDb": -142,
+      "notes": "Four 0.25 s bars, each asking for a new roomsize (0.3, 0.1, 0.2, 0.05): each IR lands at its pause frame and the new convolver starts empty (the old tail and history are cut). Without the swap: -18.08 dB."
+    },
+    "reverb-room-send": {
+      "measuredDb": -151.34,
+      "maxResidualDb": -148,
+      "notes": "Orbit 1: a mono voice (room 0.4, roomsize 0.1, default lowpass) and a panned dry-0 voice (room 0.9; roomsize undefined, no new IR) making the convolver input stereo; orbit 2 with its own 0.05 s room. 0.5 s."
+    },
+    "reverb-roomsize-zero": {
+      "measuredDb": -152.88,
+      "maxResidualDb": -149,
+      "expectErrors": "bar 1, engine kind ir (Chromium: createBuffer with 0 frames throws, reported as a hap error at bar 1)",
+      "notes": "Bar 0 creates a 0.15 s room; in bar 1 a hap asks for roomsize 0: no IR, the bar-0 IR rings on, the voice is never connected to the summing node and is heard only through its delay send (made before the reverb send). 0.5 s."
+    }
+  },
+  "otherCases": {
+    "every other micro case": "unchanged (the filter/level cases at -155.41 .. -181.59 dB from the summing order, all others -inf)"
+  },
+  "wavBudget": "the five cases add 1.03 MiB of WAVs: 10.55 of 12.00 MiB used"
+}

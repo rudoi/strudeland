@@ -1,0 +1,69 @@
+{
+  "item": "compressor warm-up boundary (04 \"(measure) captures\" 1)",
+  "cases": [
+    "compressor-fresh",
+    "compressor-warmup"
+  ],
+  "rule": "AudioHandler::ProcessIfNecessary per node: a silent input is processed (as zeros, non-silent output) while last_non_silent_time + latency (256 frames before the first process, 264 after) + 1.625 s >= currentTime; a compressor paused at or before frame 71808 processes silence through the quantum at 71808 and freezes from 71936, one paused later starts fresh",
+  "caseRedesign": "compressor-warmup as first written (voice B with the default compressorRelease 0.05, paused at 1.45 s = frame 64000 by the harness's 0.05 s pause lead) nulled under candidates 0, 1 and 2 alike: the detector and gain converge within about 5300 frames of silence, so the 7808 frames before 71808 left a converged state and the case did not pin the boundary. Voice B now has compressorRelease(1) (its gain recovers slowly through the warm-up), which makes the frozen quantum audible at its onset. Voice A and compressor-fresh are unchanged.",
+  "candidates": [
+    {
+      "id": 0,
+      "description": "the rule above (freeze after the quantum at 71808)",
+      "residualDb": {
+        "compressor-fresh": "-inf",
+        "compressor-warmup": "-inf",
+        "compressor-params": "-inf",
+        "compressor-stereo": "-inf"
+      }
+    },
+    {
+      "id": 1,
+      "description": "no freeze: keep processing a silent input until the onset",
+      "residualDb": {
+        "compressor-fresh": -14.75,
+        "compressor-warmup": -25.97,
+        "compressor-params": "-inf",
+        "compressor-stereo": "-inf"
+      }
+    },
+    {
+      "id": 2,
+      "description": "freeze one quantum later (the quantum at 71936 still processed)",
+      "residualDb": {
+        "compressor-fresh": "-inf",
+        "compressor-warmup": -50.45,
+        "compressor-params": "-inf",
+        "compressor-stereo": "-inf"
+      }
+    },
+    {
+      "id": "2b",
+      "description": "freeze one quantum earlier (71808 not processed)",
+      "residualDb": {
+        "compressor-fresh": "-inf",
+        "compressor-warmup": -50.33,
+        "compressor-params": "-inf",
+        "compressor-stereo": "-inf"
+      }
+    },
+    {
+      "id": 3,
+      "description": "a silent-hint input is never processed (no warm-up)",
+      "residualDb": {
+        "compressor-fresh": "-inf",
+        "compressor-warmup": -9.67,
+        "compressor-params": -15.97,
+        "compressor-stereo": -16.14
+      }
+    }
+  ],
+  "outcome": "(a) both cases null with candidate 0: rule kept",
+  "choice": 0,
+  "provenance": {
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1",
+    "platform": "darwin-arm64",
+    "date": "2026-11-11"
+  }
+}

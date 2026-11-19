@@ -1,0 +1,239 @@
+{
+  "generatedAt": "2026-11-11T23:54:10.963Z",
+  "playwright": "1.64.1",
+  "chromium": "156.0.8078.4",
+  "engine": "strudeland-engine 0.1.0",
+  "windowSec": 0.1,
+  "floorDb": -60,
+  "residual": "10*log10(sum((superdough - rust)^2) / sum(superdough^2)) over every sample of every channel, no alignment search",
+  "fixtures": [],
+  "micro": [
+    {
+      "name": "measure-worklet-start",
+      "frames": 88200,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.65
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    },
+    {
+      "name": "supersaw-boundary",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.65
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    },
+    {
+      "name": "supersaw-frac-unison",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -21.3
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    },
+    {
+      "name": "supersaw-pitch-env",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.76
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    },
+    {
+      "name": "supersaw-unison1",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -23.45
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    },
+    {
+      "name": "supersaw-unison5",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -25.33
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    },
+    {
+      "name": "supersaw-vibrato",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -24.32
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": null,
+      "meetsThreshold": false
+    }
+  ],
+  "decision": null,
+  "archiveNote": "Current results for cases affected by the oscillator change are in pulse-replacement-calibration.md."
+}

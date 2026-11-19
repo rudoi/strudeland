@@ -1,0 +1,153 @@
+{
+  "generatedAt": "2026-11-12T07:15:47.385Z",
+  "playwright": "1.64.1",
+  "chromium": "156.0.8078.4",
+  "engine": "strudeland-engine 0.1.0",
+  "windowSec": 0.1,
+  "floorDb": -60,
+  "residual": "10*log10(sum((superdough - rust)^2) / sum(superdough^2)) over every sample of every channel, no alignment search",
+  "fixtures": [],
+  "micro": [
+    {
+      "name": "fx-chain-delay",
+      "frames": 66150,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -29.06
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": true,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-gain",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -18.83
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-mod",
+      "frames": 22050,
+      "residualDb": "-inf",
+      "worstWindow": {
+        "startSec": 0,
+        "residualDb": "-inf",
+        "diffDbfs": "-inf",
+        "refDbfs": -20.38
+      },
+      "parity": {
+        "verdict": "unverifiable",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": null,
+        "bandMeanDeltaDb": {},
+        "bandP95DeltaDb": {},
+        "hashEqual": true,
+        "reasons": [
+          "only 5 common band windows (need 10)"
+        ]
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -60,
+      "meetsTarget": true,
+      "maxResidualDb": -140,
+      "meetsThreshold": true
+    },
+    {
+      "name": "fx-chain-room",
+      "frames": 66150,
+      "residualDb": -140.08,
+      "worstWindow": {
+        "startSec": 1.1,
+        "residualDb": -122.97,
+        "diffDbfs": -172.01,
+        "refDbfs": -49.04
+      },
+      "parity": {
+        "verdict": "pass",
+        "frameDelta": 0,
+        "offsetSec": 0,
+        "aligned": true,
+        "peakDeltaDb": 0,
+        "lufsDeltaDb": 0,
+        "bandMeanDeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "bandP95DeltaDb": {
+          "sub": 0,
+          "low": 0,
+          "mid": 0,
+          "high": 0
+        },
+        "hashEqual": false,
+        "reasons": []
+      },
+      "superdoughErrors": [],
+      "engineErrors": [],
+      "targetDb": -40,
+      "meetsTarget": true,
+      "maxResidualDb": -137,
+      "meetsThreshold": true
+    }
+  ],
+  "decision": null
+}

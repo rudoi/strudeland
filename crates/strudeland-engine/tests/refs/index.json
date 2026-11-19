@@ -1,0 +1,4742 @@
+{
+  "schema": 2,
+  "files": {
+    "adsr-attack-only.job.json": {
+      "sha256": "57d2f896834bb3acf22a74f9c324425f8af0ed222e1b69d16eedf0b7d50aaec0",
+      "bytes": 704
+    },
+    "adsr-attack-only.wav": {
+      "sha256": "f3de3622c78f4eb1adf20085b45f3d84a894635606b92a5e33366511e75a64af",
+      "bytes": 176444
+    },
+    "adsr-decay-only.job.json": {
+      "sha256": "9df2e66ced2cecdd61c313ca6e4e7ce25a7cdd117977b4199e73b54e807bbdce",
+      "bytes": 703
+    },
+    "adsr-decay-only.wav": {
+      "sha256": "5599a350aa9ced8d2e1da5a37952e678063f2a7f02446a12ed02a7beab0ebcc3",
+      "bytes": 176444
+    },
+    "adsr-defaults.job.json": {
+      "sha256": "8bde652b6e38aac78a6d881fe9ec97a75c7ed1992304797242eb0720b727b2fd",
+      "bytes": 691
+    },
+    "adsr-defaults.wav": {
+      "sha256": "61c2563bf94a3e71d5a65eb54859ffd8a7cc92cea28475ea2d987fcab2464438",
+      "bytes": 176444
+    },
+    "adsr-long-attack.job.json": {
+      "sha256": "d1a7dcda4e3ac2d1b1c81c8a3bd32dbb8c20dbc38a77ecf9b8e187d15b6a64e6",
+      "bytes": 705
+    },
+    "adsr-long-attack.wav": {
+      "sha256": "d7d107f427aeae25f7394bc8c8fd6003d4fc7b26fee0c1fcd07dd584eaa02f01",
+      "bytes": 176444
+    },
+    "adsr-short-hap.job.json": {
+      "sha256": "6f278531a00c8a28ad64d396f0baa7bfa605215676ec2131552ee9a542df22cd",
+      "bytes": 801
+    },
+    "adsr-short-hap.wav": {
+      "sha256": "e066d51f01271dce42a324b83a40eb8b491a9511d7556d19fe6e176ef938798b",
+      "bytes": 176444
+    },
+    "adsr-sustain-only.job.json": {
+      "sha256": "010c03600492e0d8aee3e5a9375250074522b1471de4d80af67d775d03127b0c",
+      "bytes": 705
+    },
+    "adsr-sustain-only.wav": {
+      "sha256": "d16af56d32ff3cf2c61dee985fd6337dea5f5cd6505eca0d472a155cc90c1a99",
+      "bytes": 176444
+    },
+    "bus-bmod.job.json": {
+      "sha256": "906e578190879bb87a1551127dcd4499beacf4cc98372a2ebea9f0e2297c14f5",
+      "bytes": 867
+    },
+    "bus-bmod.wav": {
+      "sha256": "6efda30faf60493230cb26fae66b3b6e5dc648658677c3e925f4cd7881a67db1",
+      "bytes": 176444
+    },
+    "bus-sound.job.json": {
+      "sha256": "d28175b571afedc735e7b191584978152a44a000be75d97666eba20d338e06df",
+      "bytes": 787
+    },
+    "bus-sound.wav": {
+      "sha256": "b568c79658ca76dadd9bf57a61c18ec43c0c7dfc14f136067f8acf0210df7899",
+      "bytes": 176444
+    },
+    "coarse-3.job.json": {
+      "sha256": "12ba6eb2ab9c99dd759baded70a9b3f8070264a1ad790336b28025cb7b4087a2",
+      "bytes": 801
+    },
+    "coarse-3.wav": {
+      "sha256": "617a5926c55e85516b1c6966a5352720ab47e72b0702634c46390d46b00cf5aa",
+      "bytes": 176444
+    },
+    "coarse-8.job.json": {
+      "sha256": "2d54f16476be268535e2a1eae49aa9981e022dabb0b8dc6b157cb9c082121a57",
+      "bytes": 801
+    },
+    "coarse-8.wav": {
+      "sha256": "7205b8664a54232b958b36d3553ca3f2d46811845dc1e6a1874c5c40c59948f1",
+      "bytes": 176444
+    },
+    "compressor-fresh.job.json": {
+      "sha256": "ceffff2e27fe0dd72a8a20d1d7b8cb8e21dec372b3f8d9ec1f33e7209994c38e",
+      "bytes": 921
+    },
+    "compressor-fresh.wav": {
+      "sha256": "87f4c01a2b2345cc3b111397af51b3b5c1e6aa300a083424c9c9413edd43856f",
+      "bytes": 705644
+    },
+    "compressor-params.job.json": {
+      "sha256": "65719986c96cf6199d0888687d69d19b52844b9c510be97443e3d0c9e032f09e",
+      "bytes": 1417
+    },
+    "compressor-params.wav": {
+      "sha256": "27b52afd8e94f7c6d4dc3967fe9c9a5570d36b92f10e1120468bb66da565d7de",
+      "bytes": 705644
+    },
+    "compressor-stereo.job.json": {
+      "sha256": "f8e740315dc452b1960afed86234170cff58a73d28627c4c0fc0009d8730cdb2",
+      "bytes": 983
+    },
+    "compressor-stereo.wav": {
+      "sha256": "79dd21ea8077fc87996fabc11cd7ac03904e5b7a55248732e5214608df487cc1",
+      "bytes": 705644
+    },
+    "compressor-warmup.job.json": {
+      "sha256": "2d4a10f04f5069afb9732b2d0ad993e9e95d59e005fe746c2162104bfc52d792",
+      "bytes": 1053
+    },
+    "compressor-warmup.wav": {
+      "sha256": "bb9fab48500f91de591767b8b9bf6dde7f12bbe372218850c71385afa7714999",
+      "bytes": 705644
+    },
+    "crush-frac.job.json": {
+      "sha256": "75e966bd6123954dd948e0c4c423c6f9b3f5e03af7a1bbb3f2bca0e024456a8b",
+      "bytes": 702
+    },
+    "crush-frac.wav": {
+      "sha256": "e1af043413c3632a3a597a4ca43925c449d87784ec519e6c9ed0230ade18c883",
+      "bytes": 176444
+    },
+    "crush-int.job.json": {
+      "sha256": "a6b5b454e6353bed10a6523bcfb00daad9256962f5e4d5d77760e1180029e551",
+      "bytes": 842
+    },
+    "crush-int.wav": {
+      "sha256": "76a1c1b4045ac6d189de203ac0aa0ea1aa7f1fec542f2da9a03cd9cc68dbcdda",
+      "bytes": 176444
+    },
+    "delay-guard-f32exact.job.json": {
+      "sha256": "8f44b24abfd449398b73b928adc8cadb8270e4f32c626974eb6fff18484dbbc1",
+      "bytes": 1273
+    },
+    "delay-guard-f32exact.wav": {
+      "sha256": "b06389a3b4a78a6642f46386e642af3147cb90eaaa8990fb971525496df630d1",
+      "bytes": 176444
+    },
+    "delay-guard-nonexact.job.json": {
+      "sha256": "7b137c91adfefe30d5246b446fb61085a02c9ad5c53d85d83999f50936df4224",
+      "bytes": 1265
+    },
+    "delay-guard-nonexact.wav": {
+      "sha256": "2b389c580b10d4508bcab00d7b717a43557051f6f60bf3a95cb3b84abf9276a0",
+      "bytes": 176444
+    },
+    "delay-impulse-echoes.job.json": {
+      "sha256": "dbb1c6ffd3b49339d579e2d578e693ca1b6681c66ebcf055325227c89bb31038",
+      "bytes": 941
+    },
+    "delay-impulse-echoes.wav": {
+      "sha256": "e0158e31f38014614c86023c26cb064f6ee927dd895c7251d44aaf3ba0494e60",
+      "bytes": 176444
+    },
+    "delay-mono-to-stereo.job.json": {
+      "sha256": "90205aaa86a76e2b33ecd9e6c7962d09ae69ed4a7a3aa381522496ace113a474",
+      "bytes": 961
+    },
+    "delay-mono-to-stereo.wav": {
+      "sha256": "980f99b57e28df9b6fdce82c4eaaaa0dfdfc470b88e0e43bd94f77d6fdec7b12",
+      "bytes": 176444
+    },
+    "delay-time-change.job.json": {
+      "sha256": "d6297abdc3a73f2aeed24dc51f6708ec85b9966a9d4b567ed9098e0f211fd6d7",
+      "bytes": 1365
+    },
+    "delay-time-change.wav": {
+      "sha256": "8b672cc4fb1daefed71f8a0d46326ef0e9aaadb8175ddb5fdb151923063b164e",
+      "bytes": 176444
+    },
+    "delay-time-over-max.job.json": {
+      "sha256": "046570a4851445ad5a57aac80b4dd4328dc7e9fea4a21e51a200c94ace6bc073",
+      "bytes": 946
+    },
+    "delay-time-over-max.wav": {
+      "sha256": "e9fba7c7968f6c9afb9a77fe956f907b80b54025f45fd9ea41307cc627016118",
+      "bytes": 388124
+    },
+    "distort-diode.job.json": {
+      "sha256": "3c1702fc9f71687dd994bad39adec96b613b13bbd385966690fd31aa8b2c6d21",
+      "bytes": 861
+    },
+    "distort-diode.wav": {
+      "sha256": "b3bcafd042a2a5d9861214555b3878a6cc6d9a72dcbe631b401d4dd1573dd0c9",
+      "bytes": 176444
+    },
+    "distort-rational.job.json": {
+      "sha256": "c90207d04b258b6cea6847ed1ff9f16f39e69ec1c6d563c13927fec46b7dafd8",
+      "bytes": 1033
+    },
+    "distort-rational.wav": {
+      "sha256": "07522f0a4f4a63ad6f623623da362db7f55b7cd5595e4ec9381cb24ca771a01c",
+      "bytes": 158804
+    },
+    "distort-sine-cheb.job.json": {
+      "sha256": "43784b05fd27c1290b13f354512b712dea65a90171146f7f7916959e4958a4f2",
+      "bytes": 861
+    },
+    "distort-sine-cheb.wav": {
+      "sha256": "b8e40d9262bfc6c2b6a0d9e9960ad413248856ab81ae11272beee4b37ae8f790",
+      "bytes": 176444
+    },
+    "distort-tanh.job.json": {
+      "sha256": "bb1f0ee4b20187794bf0fa74db4e47475713358b3007351997c02c93580f5d3f",
+      "bytes": 861
+    },
+    "distort-tanh.wav": {
+      "sha256": "cf26168045f3e977bfc04675be50cc3e969b1f08e2b02f227426da4858b2f28e",
+      "bytes": 176444
+    },
+    "distort-vol.job.json": {
+      "sha256": "9efaea573cf4f19caa1d8d78b0fe928956112cdf5f486037244031619164058d",
+      "bytes": 723
+    },
+    "distort-vol.wav": {
+      "sha256": "216e18af36ddb8675f31e9a3e06d162c4e578262fb339810d509642f5bd527c5",
+      "bytes": 176444
+    },
+    "djf-insert-persist.job.json": {
+      "sha256": "0bdf14d0f5cd5139d0a0e08dba5171345a0105fc0074024bf6ec6fadc07da139",
+      "bytes": 1063
+    },
+    "djf-insert-persist.wav": {
+      "sha256": "57c126ea6a0277ff09c497cd9b5f605d5ba2bd6af1964e8551dd5bf1527164ce",
+      "bytes": 705644
+    },
+    "djf-lp-hp.job.json": {
+      "sha256": "639584f4ebc92be232392ca04dbbfb2b2a99e9c7880dca266d8e4c4aa67ceb2d",
+      "bytes": 1050
+    },
+    "djf-lp-hp.wav": {
+      "sha256": "26299a5ee7fd0d508b5dd95d8e7ea9aa5a7fa3e2cb0f659375058da322b01efa",
+      "bytes": 705644
+    },
+    "djf-none.job.json": {
+      "sha256": "ad5591bdd1f615216a1958cf52b6d0f661098fbbb17a938fce8ad72683486f7c",
+      "bytes": 1083
+    },
+    "djf-none.wav": {
+      "sha256": "834c9395efe817cb814e5cd37c5aab4f3a69a572a89d644e50e1925d640436ed",
+      "bytes": 705644
+    },
+    "djf-returns.job.json": {
+      "sha256": "c5dbbe049154378a6f352fb05493ac8de6eafdaadcfc3a3cfca280e94037132b",
+      "bytes": 995
+    },
+    "djf-returns.wav": {
+      "sha256": "2eb0c5451749350c784261869619268a8def0d4be04fc8bee09277404e979752",
+      "bytes": 705644
+    },
+    "duck-across-pause.job.json": {
+      "sha256": "005a07e01b629b9620653058aa81acf217e47d0469e461dc61f7494fb08c8e79",
+      "bytes": 998
+    },
+    "duck-across-pause.wav": {
+      "sha256": "3b24dcfef161d61e5bae6904c97d4792ad93d5d2fb8a9d9296d8556c29baf5f1",
+      "bytes": 529244
+    },
+    "duck-call-order.job.json": {
+      "sha256": "9bfe88bf9f8b6f09bf8cc9524827a3d963f6ea783aea864fe2b29f49cbc79b60",
+      "bytes": 1080
+    },
+    "duck-call-order.wav": {
+      "sha256": "9fabce9752cbad5bb0cbfb369ded6d293d0622ac2e02a98803adafe9214196fa",
+      "bytes": 352844
+    },
+    "duck-cancel-hold.job.json": {
+      "sha256": "564b1273f3a7c0d9c57d0b4673e5c5662b36049cb0c2de9ba1b929e5bb7e4dab",
+      "bytes": 1062
+    },
+    "duck-cancel-hold.wav": {
+      "sha256": "4bcdf5aec1fcc19f8af39a0bd8ba0b1ba46ae76f6894608b1d753052555aec0d",
+      "bytes": 352844
+    },
+    "duck-first-ramp.job.json": {
+      "sha256": "9357cc9f2a6caf8b3f1f1f0ac6849fb9f1168ef743d26b264cf47ea2f9650079",
+      "bytes": 943
+    },
+    "duck-first-ramp.wav": {
+      "sha256": "f2b09cdb9969353ba1551833c22f871fe16e4c609c816267cef157120df0c868",
+      "bytes": 529244
+    },
+    "duck-gap-ramp.job.json": {
+      "sha256": "708898063ac81fbfe34fc09150937dadc4d1c2df9d8f03229d6a94b291b67b0f",
+      "bytes": 1409
+    },
+    "duck-gap-ramp.wav": {
+      "sha256": "16cd31eddc122532c8645ebbbc4d8350c7393f00f14fc1c24970045afa834659",
+      "bytes": 352844
+    },
+    "duck-multi-target.job.json": {
+      "sha256": "3178ab039d30c5097ff9c57ebaa54210f32d85219f02c75272949c16aa8effe2",
+      "bytes": 1089
+    },
+    "duck-multi-target.wav": {
+      "sha256": "a9e9b549dc573d8c054d1cf0a2df63c160571fc0b1ff53f22a40e86e73adce52",
+      "bytes": 352844
+    },
+    "env-staircase.job.json": {
+      "sha256": "23dd9165846754454cc7f66d7d1a2a2a0f66b4588134de2b0daf0c9055ff6e69",
+      "bytes": 779
+    },
+    "env-staircase.wav": {
+      "sha256": "124de23392a69eb160dd30286ddcb3dc978c19117bc9c3dd7cb4f5af6427421a",
+      "bytes": 176444
+    },
+    "filter-24db.job.json": {
+      "sha256": "586366482969453cb2eddb2c297dff86cb031870a236f82e243583d11f2f90e1",
+      "bytes": 1001
+    },
+    "filter-24db.wav": {
+      "sha256": "e2b751c6909680b6bd551f09c1504467ee71c3f3cf13dbbd17f9944e4d4e00df",
+      "bytes": 176444
+    },
+    "filter-bp-const.job.json": {
+      "sha256": "a0524bad437c004c76eae3d28e770b3b31b1766ded983ca7413d8d864308d14c",
+      "bytes": 925
+    },
+    "filter-bp-const.wav": {
+      "sha256": "1de62e93c56dd79a6f8ff2724c946463db3f6df80017a6a43c1c3b7e5ff7778d",
+      "bytes": 176444
+    },
+    "filter-bp-env.job.json": {
+      "sha256": "9e04fad3e8c3c34445e9695d2e39b787b8a69eb5033707eabb363759868f742a",
+      "bytes": 971
+    },
+    "filter-bp-env.wav": {
+      "sha256": "34bf73edd100477f08269ae5277dc8e4effd8686ac75e9564d771b371aa0492e",
+      "bytes": 176444
+    },
+    "filter-ftype-numeric.job.json": {
+      "sha256": "899e45383250823321924a04a640b428a9ed64425451afce06428ecc6cf8fcfd",
+      "bytes": 1107
+    },
+    "filter-ftype-numeric.wav": {
+      "sha256": "3ac78dbe4594c6065e0109bc8699d0aa35f3865702e2258f8b4e8929c05f30da",
+      "bytes": 176444
+    },
+    "filter-hp-const.job.json": {
+      "sha256": "2746581c08a002fe055d4b1b52d18a6d5b254b11a45a983fdf7eb3f638a6d462",
+      "bytes": 1057
+    },
+    "filter-hp-const.wav": {
+      "sha256": "6fd992995ab8c7fe64be71dab0cd13b58e9a3be748a4aa725836abd222bfd9cc",
+      "bytes": 176444
+    },
+    "filter-hp-env.job.json": {
+      "sha256": "a68d5e96fa124f025eb2903ada91bd852f4dba9c7a22e8d34c560e703bb30af3",
+      "bytes": 949
+    },
+    "filter-hp-env.wav": {
+      "sha256": "2daa8c774ef522172dad0dc732aeb98084c03951244e3f21c5a64f60f8922834",
+      "bytes": 176444
+    },
+    "filter-lfo-env.job.json": {
+      "sha256": "004c473c72fddf27fe4b5f97a4759fcde7136ff4a80062765599bb4d2dd13076",
+      "bytes": 751
+    },
+    "filter-lfo-env.wav": {
+      "sha256": "29a1dd1d9caf36fcecf9ecd32b437f96c3f86f5d6f05ad8609a1aa6aa1612cbb",
+      "bytes": 176444
+    },
+    "filter-lfo-hp-bp.job.json": {
+      "sha256": "af5cf3bdee8af9b50632f4446b74efe92e43bc2174db165f348c5288e20629c8",
+      "bytes": 849
+    },
+    "filter-lfo-hp-bp.wav": {
+      "sha256": "c362b2dfc64f5c47651cf6f231da3ec543b8e0872e109ed38452845f6fbe8dbb",
+      "bytes": 176444
+    },
+    "filter-lfo-lp.job.json": {
+      "sha256": "43b47acc1b039ce3ca6cf1584ae26917acd0b3da7da867cf1f2bab0983933a26",
+      "bytes": 855
+    },
+    "filter-lfo-lp.wav": {
+      "sha256": "a1d926b1619ba8dc6b0c64c7c23e53bcc497dab27a80db203ef476b760091baf",
+      "bytes": 176444
+    },
+    "filter-lfo-sync-shape.job.json": {
+      "sha256": "8abded5ce05d619ccd35f272d2a0ba0745894b80fc370ef94399204c37190199",
+      "bytes": 913
+    },
+    "filter-lfo-sync-shape.wav": {
+      "sha256": "5c4d3c0f12526547c0518723ad72dffb7afedb3019eda6bc14bee32bab0906cb",
+      "bytes": 176444
+    },
+    "filter-lp-const.job.json": {
+      "sha256": "5ce3f81751ccbe0b23fb301d5548b51fa97790b83c27333d2b55c573805e85e2",
+      "bytes": 1167
+    },
+    "filter-lp-const.wav": {
+      "sha256": "5c0dec07adde86dd71a5d9b65049d1765e278274de350f11591f6984724ddb3e",
+      "bytes": 176444
+    },
+    "filter-lp-env.job.json": {
+      "sha256": "c0c08af6c0cf868421bfd06977b0d63c683612eef57ce56f57d7277bff84f09d",
+      "bytes": 1104
+    },
+    "filter-lp-env.wav": {
+      "sha256": "81cd127eadba2f9664b4c6a0c903c9a4d656f148d7957dfd4dfdabd5037f1871",
+      "bytes": 176444
+    },
+    "filter-tail-resonant.job.json": {
+      "sha256": "d40ccd41a0943e26830b06490f58c9e07a5faecbf9de3ac3b4ae978061638f01",
+      "bytes": 867
+    },
+    "filter-tail-resonant.wav": {
+      "sha256": "a70b1958ced1309e298beb8c53b4f2489ad2c83a952f3a9b963052448b3a09dd",
+      "bytes": 176444
+    },
+    "fixture-asymmetric-delay--mix-0.job.json": {
+      "sha256": "50a36f73a15f74232ee400f6a02a94266581d203473e427ba3433bc235780646",
+      "bytes": 4438
+    },
+    "fixture-asymmetric-delay--mix-0.ref.json": {
+      "sha256": "f888fb6a74b7ceb7944ed3c8a023cb7ab0945de4ec910c5c0a77bbcea9ff274a",
+      "bytes": 23768
+    },
+    "fixture-bass-line--mix-0.job.json": {
+      "sha256": "837e8b86f46235a326cd868add8c3d22146a8ef05f300f292bb166925f0bf848",
+      "bytes": 3560
+    },
+    "fixture-bass-line--mix-0.ref.json": {
+      "sha256": "6f90067273a3526b1a522b2a401d691e2a1ca403c7296f6abff803aa153c0d6d",
+      "bytes": 22192
+    },
+    "fixture-clipping--mix-0.job.json": {
+      "sha256": "377b91cde2ed72540509faf5ad7000f97827923715f1c9391f9b89cc9ddc0c0c",
+      "bytes": 2671
+    },
+    "fixture-clipping--mix-0.ref.json": {
+      "sha256": "12b4d681516851e7b1f4ce03f53626cf5cf4288181a35d059cb1f0cbc9a9da2d",
+      "bytes": 9504
+    },
+    "fixture-crowded-bass--mix-0.job.json": {
+      "sha256": "0d864a4f95878ffd756502f24c8c9990726fed4820464710a91a9e2d4208ab16",
+      "bytes": 28897
+    },
+    "fixture-crowded-bass--mix-0.ref.json": {
+      "sha256": "9c73748453d0bb6dfbc37333087d8f5e4641a4973511dfc3cef701e65d756b3c",
+      "bytes": 6936
+    },
+    "fixture-duck--mix-0.job.json": {
+      "sha256": "8cd0c0f15477b4ef948824bbbeb59f46e4ba78f8af300c1cc29c54ca92ce15a9",
+      "bytes": 2454
+    },
+    "fixture-duck--mix-0.ref.json": {
+      "sha256": "771be47ed630d3d4209748c18f8d939dfdb982b10b189e65b411048fe195acee",
+      "bytes": 21422
+    },
+    "fixture-filtered-opening--mix-0.job.json": {
+      "sha256": "afadc333b5174752eaaab30bc546c94a999cabdca47147aaba8dffdf1bef4f6c",
+      "bytes": 814
+    },
+    "fixture-filtered-opening--mix-0.ref.json": {
+      "sha256": "bd687770484645706153d0fa9c30dcf1cb7b7773afe31e9fb0c3146d74bcd631",
+      "bytes": 14698
+    },
+    "fixture-fx-bus--mix-0.job.json": {
+      "sha256": "b23b8f6406a179a94171fe226a72e5e9f365911ef4441b6da763921845691b2e",
+      "bytes": 4261
+    },
+    "fixture-fx-bus--mix-0.ref.json": {
+      "sha256": "a630640ba4e4aa79d2b8c95743275076ee2a84d8d33a3980a23fc91c7e66787d",
+      "bytes": 21758
+    },
+    "fixture-fx-bus--mix-1.job.json": {
+      "sha256": "f23543e872222658902fc15572080a6157a2995129c8878a5744d48bc831bc10",
+      "bytes": 4395
+    },
+    "fixture-fx-bus--mix-1.ref.json": {
+      "sha256": "b68818761b4e48c49b63b4b04fcb4607d1298933da1260e4b0143c75fb9f1cfd",
+      "bytes": 18960
+    },
+    "fixture-fx-chain--mix-0.job.json": {
+      "sha256": "3c2ec9670b4cc720d13adec1771020ed8f17934a6cd0ee586a926105b6501e0b",
+      "bytes": 5534
+    },
+    "fixture-fx-chain--mix-0.ref.json": {
+      "sha256": "27b54986b06195afc36b34599efb1e7b711722e654ad8121ecf7394b3e48570b",
+      "bytes": 25019
+    },
+    "fixture-fx-chain--mix-1.job.json": {
+      "sha256": "19a2fff0b846138fc470e329fd963994a7cb393e050fb2342966ebb5f14c3aff",
+      "bytes": 4088
+    },
+    "fixture-fx-chain--mix-1.ref.json": {
+      "sha256": "bcdf9fd4063cbd11ce0f53f2b1525afae3de49101529ad6f65b8077cf3804932",
+      "bytes": 13937
+    },
+    "fixture-fx-delay--mix-0.job.json": {
+      "sha256": "efeedb1f6466756772674dd9acf9a05f93588f21d7aa0f20801a6e8b18a1415d",
+      "bytes": 2886
+    },
+    "fixture-fx-delay--mix-0.ref.json": {
+      "sha256": "db50b71c255cdbb7c4885eeae2a699e17320e29b00aa9a9a2ae8f8e37ccf1b8b",
+      "bytes": 24688
+    },
+    "fixture-fx-mod--mix-0.job.json": {
+      "sha256": "07d7726951f05c29112d629708557cc61d147e27d7f919ca57cf1db54e4ee707",
+      "bytes": 5792
+    },
+    "fixture-fx-mod--mix-0.ref.json": {
+      "sha256": "4a6f91ca737a978023a1169ae296f95318defa7b705023932e4e0c97c54965f7",
+      "bytes": 26518
+    },
+    "fixture-fx-native--mix-0.job.json": {
+      "sha256": "11dcc7fd7eb71d53accd599bbad0938e9dd6094aa4cfd388772689cde867162e",
+      "bytes": 7544
+    },
+    "fixture-fx-native--mix-0.ref.json": {
+      "sha256": "2c07343b1629ff61a2b2ca172b9157092c1acb311dd7921bdec79ff9d1ad0285",
+      "bytes": 22110
+    },
+    "fixture-fx-room--mix-0.job.json": {
+      "sha256": "648c0864a09f798a460271020d7015711fb95f686aea1c063908a96291fc7d1b",
+      "bytes": 4244
+    },
+    "fixture-fx-room--mix-0.ref.json": {
+      "sha256": "d4653e734b7ef1ca05951d5cb96f8cfdf5617b22fdd4ab18bc07b8981664ed00",
+      "bytes": 22155
+    },
+    "fixture-host-shims--mix-0.job.json": {
+      "sha256": "560468806e5a183a9d0ce69c69109aca81ca2c65adc89d458d6623b509f2b7d7",
+      "bytes": 4551
+    },
+    "fixture-host-shims--mix-0.ref.json": {
+      "sha256": "00b804d1365a443710dc4af9fc6cf0a5f213eb611f667b6519d79831833731d6",
+      "bytes": 11112
+    },
+    "fixture-late-feedback--mix-0.job.json": {
+      "sha256": "459b662f31ec2bea01edcb6210fb94cb4a20873d71f80f9ae2eb4a2d9f903d1a",
+      "bytes": 57146
+    },
+    "fixture-late-feedback--mix-0.ref.json": {
+      "sha256": "b32d9ae1f6d004743930933a672833ff4db47f4186d891a515f2a00beba75727",
+      "bytes": 24810
+    },
+    "fixture-late-feedback--mix-1.job.json": {
+      "sha256": "007b045fe3f79c056297a3987a38dc6b4c7b9c82332f64a2d8a7a38deb9e283f",
+      "bytes": 57146
+    },
+    "fixture-late-feedback--mix-1.ref.json": {
+      "sha256": "a54e4a627668ff97b81eb33ecc1f8da74264a4086b8c4069831630834b2e36b7",
+      "bytes": 24808
+    },
+    "fixture-late-feedback--mix-2.job.json": {
+      "sha256": "3bba47c0aa704afdbc6c5c587caac1ca4425fe4f22922521de078c99a3d0f02e",
+      "bytes": 52494
+    },
+    "fixture-late-feedback--mix-2.ref.json": {
+      "sha256": "fae06253233c6ff21a8fea96ccbd30c945d0d3a130937c7839d755aff96b373a",
+      "bytes": 22768
+    },
+    "fixture-late-feedback--stems-0.job.json": {
+      "sha256": "a352b0ade33663fa5c0ed91948e3af1a615af60ce358a55b79c5330535a4068c",
+      "bytes": 52498
+    },
+    "fixture-late-feedback--stems-0.ref.json": {
+      "sha256": "bf518af8fde10d124043a90109c41dae340a835f64ec58ccc1eed55f9256bf69",
+      "bytes": 149110
+    },
+    "fixture-late-feedback--stems-1.job.json": {
+      "sha256": "adcfedc789d158d908b4a66ecac5e7c8fdfa7faa4d35378583e093730d1d6335",
+      "bytes": 52498
+    },
+    "fixture-late-feedback--stems-1.ref.json": {
+      "sha256": "6574ae3f83e864811d1058d989e55354c4bb303aed936ab2be7b7aff8b6bf634",
+      "bytes": 149131
+    },
+    "fixture-late-feedback--stems-2.job.json": {
+      "sha256": "8a762e1f960ab1181ffe4d07f740b9f04734eac7e97553099f26f36a75b90b1f",
+      "bytes": 52498
+    },
+    "fixture-late-feedback--stems-2.ref.json": {
+      "sha256": "1e0f26fc1f34330215435a9a83a2262d9d9b83d63c78c946f74c390e0a567de7",
+      "bytes": 149115
+    },
+    "fixture-noise-seed--mix-0.job.json": {
+      "sha256": "194694ea3ef4a4a0337803a07bc0e5f728781e246b377c33ac94d73bffc580d6",
+      "bytes": 3593
+    },
+    "fixture-noise-seed--mix-0.ref.json": {
+      "sha256": "c3a36a8912588e9a393c2d0a6782e45198eac5745684686cee558535963314b3",
+      "bytes": 22086
+    },
+    "fixture-odd-meter--mix-0.job.json": {
+      "sha256": "f2fd01781807136a80d1f869cba3e07f4bceafe61db0f4995f6bbf7c3fc46dea",
+      "bytes": 8480
+    },
+    "fixture-odd-meter--mix-0.ref.json": {
+      "sha256": "b2548303682f288364fca66f5718d3d4cb1cab00b8540c018cf96703cf03b786",
+      "bytes": 14856
+    },
+    "fixture-pad-seam--mix-0.job.json": {
+      "sha256": "e8bd2f7c7a196bd6320d102c9be9f645feeee21c95ab06dee10309cee1aa8cbb",
+      "bytes": 2184
+    },
+    "fixture-pad-seam--mix-0.ref.json": {
+      "sha256": "c257df1b5e92734dcb0d40f2f1fe63613022e2fe99d075b0d03dc647cf161917",
+      "bytes": 27677
+    },
+    "fixture-pad-seam--mix-1.job.json": {
+      "sha256": "207a675479b34813caff2ab61fe78f499dc688c2c1cc34473879189396015db5",
+      "bytes": 2821
+    },
+    "fixture-pad-seam--mix-1.ref.json": {
+      "sha256": "52516c7918a602cbd1a24ef4bcb8790c27101193f6acd1fc2ae1d4e8d367bfdc",
+      "bytes": 44226
+    },
+    "fixture-pad-seam--mix-2.job.json": {
+      "sha256": "b0eb35394526847fa5a8fff9341592cbac39e39bf830af20dd036dd6072df7d8",
+      "bytes": 1989
+    },
+    "fixture-pad-seam--mix-2.ref.json": {
+      "sha256": "9a58cd8766c4ced8b313d694013858664974262e782751bfc7cd9085e0fba636",
+      "bytes": 22166
+    },
+    "fixture-reverb-change--mix-0.job.json": {
+      "sha256": "39540a7e419ec3144e84ac48de35954d61209532ed1c3d32f97413076b007ce0",
+      "bytes": 5311
+    },
+    "fixture-reverb-change--mix-0.ref.json": {
+      "sha256": "b218add81baaf09886def99a01c8b6d627b3805818e70d7acc6e6d2f7cacf5a1",
+      "bytes": 44248
+    },
+    "fixture-reverb-change--mix-1.job.json": {
+      "sha256": "3b47803c279cce5dc7c2a171a4f4fb11dddfb6626279facbf3e2183f7f11a4b4",
+      "bytes": 4080
+    },
+    "fixture-reverb-change--mix-1.ref.json": {
+      "sha256": "f0b331e309fe6f00c034b2cfcde0b84e65d967d21402a62a44c15c766b826f91",
+      "bytes": 30411
+    },
+    "fixture-reverb-long--mix-0.job.json": {
+      "sha256": "a3c72a4ac5b2c03b66a8cc59b268fe90ddbaabc8dfb8a6422d58b6a5e50114d8",
+      "bytes": 3039
+    },
+    "fixture-reverb-long--mix-0.ref.json": {
+      "sha256": "f49521337f1d3ed095864975d439ca5bbfa6bec42f344ea4262e6e3867f9d240",
+      "bytes": 49612
+    },
+    "fixture-reverb-long--mix-1.job.json": {
+      "sha256": "cd2740cf7ada37b89dfb4fc2b64afad0216f0274c48e8025539715b6c58e4e8d",
+      "bytes": 3049
+    },
+    "fixture-reverb-long--mix-1.ref.json": {
+      "sha256": "f49521337f1d3ed095864975d439ca5bbfa6bec42f344ea4262e6e3867f9d240",
+      "bytes": 49612
+    },
+    "fixture-silence-entry-pad--mix-0.job.json": {
+      "sha256": "c2fc97adcf26d9805c371e5f36dcda45a313e5cfa5528386d2cc5de8d55ae8d9",
+      "bytes": 915
+    },
+    "fixture-silence-entry-pad--mix-0.ref.json": {
+      "sha256": "ca9eb6e2224cf15efeb0a8296bc38c17c75a36e956b08cc702e9eb1f48ad4a4e",
+      "bytes": 10380
+    },
+    "fixture-silence-entry-perc--mix-0.job.json": {
+      "sha256": "8f90df6c40298018b7b40886932f5f0472c9af3d008e727b22cde45d361426b8",
+      "bytes": 852
+    },
+    "fixture-silence-entry-perc--mix-0.ref.json": {
+      "sha256": "343651b25b61d55d2483d1304772a46a7b6892efdc945a4265856f3b28407709",
+      "bytes": 8230
+    },
+    "fixture-sine-basic--mix-0.job.json": {
+      "sha256": "58c3eb1b8b6747ea849e56b625cc1ba63fdab8d7c3587d7857fbc52f7a72e990",
+      "bytes": 2008
+    },
+    "fixture-sine-basic--mix-0.ref.json": {
+      "sha256": "776f12a26d91c66ec782d91b227d5c6dd5d68dc7bdcf669772a1ba2d239b3424",
+      "bytes": 11082
+    },
+    "fixture-song-clip--mix-0.job.json": {
+      "sha256": "f8f052e97fa418a7aebc4b2de432b96688dc528577914a94aaab4f78b97fd033",
+      "bytes": 2968
+    },
+    "fixture-song-clip--mix-0.ref.json": {
+      "sha256": "760d1027113b90b00ece473a3adfde22753f9cd17e6642438413a4b9366eabe7",
+      "bytes": 24950
+    },
+    "fixture-song-clip--mix-1.job.json": {
+      "sha256": "8898c15fdc63b5dc2fcb518b9c5cd70d54029656d3caaaa776859ffc81dd0feb",
+      "bytes": 2069
+    },
+    "fixture-song-clip--mix-1.ref.json": {
+      "sha256": "72fb5d17a2b79d9171b9d41de35ac4bd839b9ce3c46dbf5bf0d0dc9d48248b44",
+      "bytes": 19397
+    },
+    "fixture-song-linear--mix-0.job.json": {
+      "sha256": "8702847ca70582e5d28535655a831bf44ee01e3f26d44a543aaa0e166a171571",
+      "bytes": 2429
+    },
+    "fixture-song-linear--mix-0.ref.json": {
+      "sha256": "738b9a6227a07bda481f2aa51ea6b9fe1e900dcc611ffbcad2d5076b556b0f59",
+      "bytes": 22185
+    },
+    "fixture-stems-5--mix-0.job.json": {
+      "sha256": "96d8b2709235c42aa2e23e0e20fe17ad136b8382dd0e1c32616ec51479f8a14d",
+      "bytes": 9900
+    },
+    "fixture-stems-5--mix-0.ref.json": {
+      "sha256": "7b225fa9e1d88d5085d834b02ea5a66bcd48b4104e2402117585f6ed2767b9f4",
+      "bytes": 22054
+    },
+    "fixture-stems-5--stems-0.job.json": {
+      "sha256": "8935774c30a153918f2f7f4adbd59478bf302112685ee9162d9773ff46bac48a",
+      "bytes": 9902
+    },
+    "fixture-stems-5--stems-0.ref.json": {
+      "sha256": "92fa20951cf55a7c5c1bd02bed3a7baaef5b733f7aa15549364dd72baefb994e",
+      "bytes": 106925
+    },
+    "fixture-stems-shared--mix-0.job.json": {
+      "sha256": "0f8ac678186e77441512f2706c1992f0b695c9dd8078bbe6e2ea645c3f80543e",
+      "bytes": 1627
+    },
+    "fixture-stems-shared--mix-0.ref.json": {
+      "sha256": "2d70129f9d37cb21a51a0a3fecac3eaec039da0e71214c049da88d1709565ae7",
+      "bytes": 8774
+    },
+    "fixture-stems-shared--stems-0.job.json": {
+      "sha256": "a3a8bef873f35fe5c4fa1e0287f36963582c06bd2dc465e942598f0131346ed4",
+      "bytes": 1626
+    },
+    "fixture-stems-shared--stems-0.ref.json": {
+      "sha256": "2d70129f9d37cb21a51a0a3fecac3eaec039da0e71214c049da88d1709565ae7",
+      "bytes": 8774
+    },
+    "fixture-voice-filter--mix-0.job.json": {
+      "sha256": "99ee36122296921e05c146b2a533e61e63f30a6034dcc09e90e3e9d8eee912df",
+      "bytes": 6939
+    },
+    "fixture-voice-filter--mix-0.ref.json": {
+      "sha256": "4ae23c66c09a95631e4c98cd482aed5fe615d856374254389100f04b6b01a99e",
+      "bytes": 22124
+    },
+    "fixture-voice-level--mix-0.job.json": {
+      "sha256": "cab1a46adbe8d9102e1d6898fed02e1ed01f691ee76dd7fd9ee7ae10ea6394d2",
+      "bytes": 8868
+    },
+    "fixture-voice-level--mix-0.ref.json": {
+      "sha256": "43a7832222c85f67b9373ed7791624410beee09ebeb9394502b61a00d6d97f2c",
+      "bytes": 22168
+    },
+    "fixture-voice-mod--mix-0.job.json": {
+      "sha256": "ad7083a0730841d67dd9ea92cad16b57ab88fb8c4843ad83c8c4e282118418d7",
+      "bytes": 5448
+    },
+    "fixture-voice-mod--mix-0.ref.json": {
+      "sha256": "aea2fe25736ed180f07e313e7a78c71740185ecb75cefee7ac3ba7e765271c30",
+      "bytes": 21074
+    },
+    "fixture-voice-noise--mix-0.job.json": {
+      "sha256": "bd368f69129e7f6fbe635762c73d0b6dea4cabc5a05ef4ac52f58d16fd7569c5",
+      "bytes": 3790
+    },
+    "fixture-voice-noise--mix-0.ref.json": {
+      "sha256": "8d321555be5ab228cabb2aa4a119089544839bf9e530c0e880994fcf82120bac",
+      "bytes": 20848
+    },
+    "fixture-voice-osc--mix-0.job.json": {
+      "sha256": "d80e0d363bd01170712ca0f80e6c81032538b3a9809e0771d5b8567c248a9e00",
+      "bytes": 8742
+    },
+    "fixture-voice-osc--mix-0.ref.json": {
+      "sha256": "3df18ebc53236b13b501f36267ed2591ecd4c25b48743344c42b1076679b8102",
+      "bytes": 22162
+    },
+    "fixture-voice-worklets--mix-0.job.json": {
+      "sha256": "044ecfd33d0b8c38a2d8572aba64c20a4eba7807009bc1de4540e2a852c174bd",
+      "bytes": 13345
+    },
+    "fixture-voice-worklets--mix-0.ref.json": {
+      "sha256": "0b7a21024a7e29ff5378f93de716fd72524a1aec3e37928bfe87a56ddaec3ea5",
+      "bytes": 22108
+    },
+    "fixture-worklets--mix-0.job.json": {
+      "sha256": "080b8da40bfa39f84fb8faec4613df2a5d84a634549f047f4f1fa5ff073c9f34",
+      "bytes": 9447
+    },
+    "fixture-worklets--mix-0.ref.json": {
+      "sha256": "d5aecd650a9dbc4ef09b7cd8cbbe883229ccb671a93b2adb2a4d0de85c31e22d",
+      "bytes": 22104
+    },
+    "fm-chain-env.job.json": {
+      "sha256": "8be35d3d88c487396c159780422fecb236614a2d7c82380f248a25607da46832",
+      "bytes": 936
+    },
+    "fm-chain-env.wav": {
+      "sha256": "041487924028dff82ddec6138b66424b66baff5dbb0c240d14b5982fb82e9504",
+      "bytes": 176444
+    },
+    "fm-noise-wave.job.json": {
+      "sha256": "5493e7953c540d5c48c4a8cc3de4e935eda983f39066eeea2d4ce49bc0e3258d",
+      "bytes": 968
+    },
+    "fm-noise-wave.wav": {
+      "sha256": "d1af973421a8c76bd417b29ae2191507bb83e83142ffe68f90c3233ef63d6f95",
+      "bytes": 176444
+    },
+    "fm-pair.job.json": {
+      "sha256": "411be6d25012a7e2b93f3701a64bcaba892c0072c40465508bc3738828d607cf",
+      "bytes": 1019
+    },
+    "fm-pair.wav": {
+      "sha256": "f32636ad0472de15e624a41b676f51ea597e6cc2ecc14cc648a06e58c4a6015a",
+      "bytes": 176444
+    },
+    "fx-chain-delay.job.json": {
+      "sha256": "f5403fe8c75ace17e5d5375edd4dfed20277b78207c956041ad9d03e71e6396d",
+      "bytes": 945
+    },
+    "fx-chain-delay.wav": {
+      "sha256": "34c6aa9e6167f70f308bde1e5e1a80311935d72042ed825b2b0668fcc20e8fb8",
+      "bytes": 529244
+    },
+    "fx-chain-gain.job.json": {
+      "sha256": "623a141a3d8bce851e18e49a5975a100ec14c81484ccad66a96cd98de309a305",
+      "bytes": 840
+    },
+    "fx-chain-gain.wav": {
+      "sha256": "c9007696291bba396a840d44c1b8310bf5c65f410e21afa48b364860f6892d0e",
+      "bytes": 176444
+    },
+    "fx-chain-mod.job.json": {
+      "sha256": "654056dbe78ea2d255e4ff373b8b9076b8dda52ce0d5506dc4c7ad48e8ea29ad",
+      "bytes": 932
+    },
+    "fx-chain-mod.wav": {
+      "sha256": "d063ddd2924014934052c272b73ca56befdbb6b917cf438f09d6d23bf8ed32dd",
+      "bytes": 176444
+    },
+    "fx-chain-room.job.json": {
+      "sha256": "9e5aa9a11d66b56f313df8f07e7f19f5f59cf2580e51f4e95eedf0c6c5a5d42e",
+      "bytes": 923
+    },
+    "fx-chain-room.wav": {
+      "sha256": "fa21ea6056ffa68d344ba29384250205e605cbd92b0db00fe1db7e75fc6bfcbe",
+      "bytes": 529244
+    },
+    "fxrelease-fade.job.json": {
+      "sha256": "4e76f13893fda70263ede9d4eec25d4c8eeb55495326a920ed28fd1aa0b6ebd7",
+      "bytes": 899
+    },
+    "fxrelease-fade.wav": {
+      "sha256": "737ba5405b4258026829e82c19756a50b29901dae8ac9edc518deb1c440768c2",
+      "bytes": 176444
+    },
+    "ladder-const.job.json": {
+      "sha256": "9bdf8821c68af7f4753b84f42b990f5e1f67b1385fed2d8c84ce4d1c6b873d43",
+      "bytes": 897
+    },
+    "ladder-const.wav": {
+      "sha256": "d713acc80390cf28dc895f9d70823b4b0eca46736b1ed5cc05fa72f6989cc2d6",
+      "bytes": 176444
+    },
+    "ladder-drive.job.json": {
+      "sha256": "f0a1cca212d8c3d14599c51e978d2cdc34ee9cd092fdd1fd24fc07ffbf7f254d",
+      "bytes": 917
+    },
+    "ladder-drive.wav": {
+      "sha256": "4459a94362c6e90f3e8e8c767757465bbe5b9991f6175b8fae060a90184325f9",
+      "bytes": 176444
+    },
+    "ladder-env.job.json": {
+      "sha256": "68a53404fbaa5cc0323fe6340233f0750acaa86128196a15929d9388ed9cb3ca",
+      "bytes": 949
+    },
+    "ladder-env.wav": {
+      "sha256": "2c7bec5c852a8a77f7c24f0ced53daabe8eef1795fe1539aa9d7954a6b5fee45",
+      "bytes": 176444
+    },
+    "ladder-hpf.job.json": {
+      "sha256": "225a8efd0b73e3cbe84dbffc7988eab51bebfdee9fafe2a6f1205148dd9d4c59",
+      "bytes": 841
+    },
+    "ladder-hpf.wav": {
+      "sha256": "7d11bc2f51ed0271c863fb612294f3553a81c409971237e99abbe05627496008",
+      "bytes": 176444
+    },
+    "level-gain-velocity.job.json": {
+      "sha256": "1d6423e7d335317762dcb466f5520e6dff31465f18bb03e02ddbdadc0f88c68d",
+      "bytes": 1145
+    },
+    "level-gain-velocity.wav": {
+      "sha256": "e8d074f43b5c04660fb663a701595bf26c28f71d61311838e120c6a865d924a3",
+      "bytes": 176444
+    },
+    "level-postgain-dry.job.json": {
+      "sha256": "d42ddf8c5e4b55e8ba29502ce019db94add9e0a7a13eb1988b5d700724b1fa9e",
+      "bytes": 944
+    },
+    "level-postgain-dry.wav": {
+      "sha256": "bf031ed385c139eae83d70fdc8fb50a4eb8a12895f96c85bd3b94159c6b52112",
+      "bytes": 176444
+    },
+    "lfo-shapes.job.json": {
+      "sha256": "5fe8131fc01d660282ba9c85c1f79aefe6a842e4a058bfb87b42fc403187a738",
+      "bytes": 1257
+    },
+    "lfo-shapes.wav": {
+      "sha256": "313f4bd342ac8dbdbaac408f6edb6deba3e5a57d5de6ce870bad09fb4a5ee579",
+      "bytes": 176444
+    },
+    "measure-feedback-echo.job.json": {
+      "sha256": "bc8b85b36671f3d70eb3d47390b44dac6eae35182b37094ec5f99839a006d3a6",
+      "bytes": 755
+    },
+    "measure-feedback-echo.wav": {
+      "sha256": "840c7efd8546abeb857befdf268bb76aeb76d8a37aeb8e029ff854104005f0ae",
+      "bytes": 105884
+    },
+    "measure-suspend-quantization.job.json": {
+      "sha256": "6f3bf587adb0b60b9c7b3fcb71aee95c1fec0df81b79704b72eb65ebba928e37",
+      "bytes": 1305
+    },
+    "measure-suspend-quantization.wav": {
+      "sha256": "d2761450379f05f6c157c9d034354a3826f85e7e20da0ec1a6709ed8caca645c",
+      "bytes": 514244
+    },
+    "measure-worklet-start.job.json": {
+      "sha256": "f0269c5d2d43c7d1220b8cc391352f7aa9cda0eae7390d4726aa93b8aba5829e",
+      "bytes": 1118
+    },
+    "measure-worklet-start.wav": {
+      "sha256": "dd66c2c45a2d6723d436471565ed05c4ccd3330594720c67df3429213da9cb3d",
+      "bytes": 705644
+    },
+    "measure-worklet-teardown.job.json": {
+      "sha256": "edec839565aff8594919afbef1b88a8684a575a177d9e02e5192843384863c8c",
+      "bytes": 766
+    },
+    "measure-worklet-teardown.wav": {
+      "sha256": "21eef64709d3d82a9e60caa6075fb92f46bdcccc7107b4dc339570a1cdd91250",
+      "bytes": 352844
+    },
+    "mod-env-cutoff.job.json": {
+      "sha256": "3bfb031ae51efe2e053720b902ac03ec5ead352803e6449cf9a8081476ccb080",
+      "bytes": 817
+    },
+    "mod-env-cutoff.wav": {
+      "sha256": "bca76fe3f086e20e385438ba6b1623d26d613d55bc9dfb2276ad6dcc31b89d8d",
+      "bytes": 176444
+    },
+    "mod-lfo-cutoff-24db.job.json": {
+      "sha256": "e06b34f12d5fa7014e61a49338ade6b9cb5903a4668366fa7f41ffef8281d285",
+      "bytes": 985
+    },
+    "mod-lfo-cutoff-24db.wav": {
+      "sha256": "18d99e4eaa6e3ef67210e3b86bfb3c22b719ad5b2d8a8c903bf88ca24b818b88",
+      "bytes": 176444
+    },
+    "mod-lfo-cutoff.job.json": {
+      "sha256": "c7e5c3856f0090e26a5c51253e72184ecf1a9da4820016f75527e232606ab92b",
+      "bytes": 955
+    },
+    "mod-lfo-cutoff.wav": {
+      "sha256": "5ee6f0dd743a099d27bbbefd7e59d6ba02999c77773cc4f70733b19c207d9ce8",
+      "bytes": 176444
+    },
+    "mod-lfo-gain.job.json": {
+      "sha256": "4f30cd12bc266eb2e0dfbe2e928490c4e0a2d4f6cd2c274cd7c627151cc161a7",
+      "bytes": 915
+    },
+    "mod-lfo-gain.wav": {
+      "sha256": "9ff39db0d9b8bd5061dbce559ae117b55b632703bdb859d17e3619b8decbcf53",
+      "bytes": 176444
+    },
+    "mod-lfo-note.job.json": {
+      "sha256": "050e5ad1d3dd416212599b746d048c04485e7202c96a52083a8a1fde06b411e5",
+      "bytes": 801
+    },
+    "mod-lfo-note.wav": {
+      "sha256": "2bc6bbdc205ffe3b787e4f901293739fd0c05e0cb48985619a1daf28c5667aba",
+      "bytes": 176444
+    },
+    "mod-lfo-of-lfo.job.json": {
+      "sha256": "a1d965ab4c63cd2208a49cdc2eafc66e4d91c979a6286ca216a10764277d3f6b",
+      "bytes": 820
+    },
+    "mod-lfo-of-lfo.wav": {
+      "sha256": "bf497957099cb732dfef1d4851bf49b2795d1a2fd3e77ba246175ed1177df7c8",
+      "bytes": 176444
+    },
+    "mod-lfo-pan.job.json": {
+      "sha256": "27c2a227c3b8c87774f4459d498c04d869f348817448c0b2333c4403aed88d71",
+      "bytes": 901
+    },
+    "mod-lfo-pan.wav": {
+      "sha256": "d9c77ee589d1cbca8dcf9b8c41da0c09338fddafb25e43b2541de24dc41980c6",
+      "bytes": 176444
+    },
+    "mod-lfo-retrig-sync.job.json": {
+      "sha256": "10cfef96b0938e3966852da95e92c574f67c016cda205a803d77f689c5e3f682",
+      "bytes": 1348
+    },
+    "mod-lfo-retrig-sync.wav": {
+      "sha256": "d95cf4c6c74431ec84a90b582b29c28e8a0a7cfb9f61eb756bc04092e002c3c2",
+      "bytes": 176444
+    },
+    "mod-lfo-source-param.job.json": {
+      "sha256": "33123fb20a646260189b35eb1e9c2575658eda0d6c98ab709515d32518c5bab5",
+      "bytes": 1143
+    },
+    "mod-lfo-source-param.wav": {
+      "sha256": "333122f6fce5fb384b8bd61db9e93a0e07c214d6cc4f55fa605c67c937a7171f",
+      "bytes": 176444
+    },
+    "mod-orbit-delaytime.job.json": {
+      "sha256": "1f45eb8244424ed716a49f87a5300d1ecb5adafb544968ff906a8bb0927c48f6",
+      "bytes": 1355
+    },
+    "mod-orbit-delaytime.wav": {
+      "sha256": "85eefe792465220262019e65b3c7ce4c8cd910fe84a9f8b9ba0014e46d431890",
+      "bytes": 529244
+    },
+    "mod-orbit-djf.job.json": {
+      "sha256": "7ac90d460cabfffa1848c39708b14e7cabeb18cbcfc63d39edebd468c7adeb6f",
+      "bytes": 1204
+    },
+    "mod-orbit-djf.wav": {
+      "sha256": "5642a6a1a9fcce74c1ff1b07b1bf7762a07a11979d96dce62366bc81f16ae445",
+      "bytes": 529244
+    },
+    "noise-brown.job.json": {
+      "sha256": "167f0989baf7b10e029eb6fa07e0c0744282af970ea1d986e848c578385322e4",
+      "bytes": 772
+    },
+    "noise-brown.wav": {
+      "sha256": "f01e5daacbfb2434c2a54a5abefa962810e6a48b51e9a61dbcf1d9b4d1fb4782",
+      "bytes": 176444
+    },
+    "noise-crackle.job.json": {
+      "sha256": "ceb5093ab8635e2453d0784c6fc254f8a1d4432d1fab26a82203208d87c19967",
+      "bytes": 896
+    },
+    "noise-crackle.wav": {
+      "sha256": "fd9345cd72b0570744036e35344989ef99b3aa24f45deae45e483303632b2d4b",
+      "bytes": 176444
+    },
+    "noise-mix.job.json": {
+      "sha256": "7b5e6b88f13eef2b8efc929bc1bb6b7194736d588cac3073be2d7f9c88788a80",
+      "bytes": 974
+    },
+    "noise-mix.wav": {
+      "sha256": "0cbe0679eb24d7d389b4b42757af4e753983920b0e3e5140be0dc53c14285b0e",
+      "bytes": 176444
+    },
+    "noise-pink.job.json": {
+      "sha256": "f5f801aea665e3bffc89ed50979bb29fd29d51b50ca6b6de5d68136d978fe54b",
+      "bytes": 767
+    },
+    "noise-pink.wav": {
+      "sha256": "d45ee41f44e44f869a86c168fbf6fb2c3705e4705032ec49bd6a10b7a7c80505",
+      "bytes": 176444
+    },
+    "noise-start-roundup.job.json": {
+      "sha256": "5d3b3cbf17af0d84d6e76b9af3835138fbf1bb3019da493a7297a2e7f7d7e801",
+      "bytes": 1072
+    },
+    "noise-start-roundup.wav": {
+      "sha256": "4f3d1cf91e24b206d0accd8f707d82c2e7149149383e0b6146896a9b69c7eda8",
+      "bytes": 176444
+    },
+    "noise-white.job.json": {
+      "sha256": "2b2d0ca62a0b02d62e620519622bd2a4e84a283b607ab26cd106404cde48a4f1",
+      "bytes": 822
+    },
+    "noise-white.wav": {
+      "sha256": "0e4a201a03897e1ab8c74fb4f9bc46b1ef08a62a7cee585e83b371dbe13768e5",
+      "bytes": 176444
+    },
+    "orbit-mix-two.job.json": {
+      "sha256": "3c9ae569a10d417ca11242a80574f847a9916d48e239316e6d666765bb8337ef",
+      "bytes": 1155
+    },
+    "orbit-mix-two.wav": {
+      "sha256": "9adaa8c18aab7775f6e25f0fa091bc4f5b6b35ad59253664d007790f000bc028",
+      "bytes": 176444
+    },
+    "osc-arate-start.job.json": {
+      "sha256": "68cc5735d57442c63004be9843799fcb3fe8293811c71589abfcacad403ab58c",
+      "bytes": 801
+    },
+    "osc-arate-start.wav": {
+      "sha256": "288b16a724cf989621db76f5218ccc19989f77ba9cb03227cb437baba2674eb6",
+      "bytes": 176444
+    },
+    "osc-one.job.json": {
+      "sha256": "644eb29c8f8de8e1bd5ac004bd897742e6046276561fb951245708f9cf7dd01c",
+      "bytes": 768
+    },
+    "osc-one.wav": {
+      "sha256": "247f4d3d3317f9fe3cd31a7245cd8cb08e5d387798d06420e54ac544ec8be62c",
+      "bytes": 176444
+    },
+    "osc-partials.job.json": {
+      "sha256": "f6c43dbf76e04828fbb6f28015ed8e7d590873856aea38a8f135317e26db48f4",
+      "bytes": 1025
+    },
+    "osc-partials.wav": {
+      "sha256": "0be4988c85213264e2826524831b9f549c9a13409a9a877d8357ad96aa54fa16",
+      "bytes": 176444
+    },
+    "osc-phases.job.json": {
+      "sha256": "82bee0b56a867edef7f1c445d54ce42cba86943855ad6eb7c38b42258d82206a",
+      "bytes": 889
+    },
+    "osc-phases.wav": {
+      "sha256": "85d85f1deaa3d7e1bcb29ac50068447beec7e6e686177dc1ee14ff7850dd2f44",
+      "bytes": 176444
+    },
+    "osc-sawtooth.job.json": {
+      "sha256": "ecdfb6c30d9802f49c1b29b0147a3b7f68606ebcf943d725438373f07d5df55d",
+      "bytes": 967
+    },
+    "osc-sawtooth.wav": {
+      "sha256": "fe07abc99d438063ab70fd1609326e088413a4bdc56ae561fb7f682b1e94559d",
+      "bytes": 176444
+    },
+    "osc-sine.job.json": {
+      "sha256": "e9c71a78907e8e02c12773258a10b1b2dd5a1811ad66529eae39582f63ee973e",
+      "bytes": 955
+    },
+    "osc-sine.wav": {
+      "sha256": "fdca644bece08f550990d6e337220b9d8faa9487bbb3e64d418d759f9360d278",
+      "bytes": 176444
+    },
+    "osc-square.job.json": {
+      "sha256": "5daa78f069f3437a263d7947301414baa01532a2d4837afeb025e4d8dcb49f4d",
+      "bytes": 961
+    },
+    "osc-square.wav": {
+      "sha256": "74beec4827d71d3af56f158bc4b6189ca012e26a236988af894efd9f3e6198ae",
+      "bytes": 176444
+    },
+    "osc-subsample-start.job.json": {
+      "sha256": "f95495757fd9952e4c59a7c5783649991c72f806bbea24557a0f5ca2e8ac369f",
+      "bytes": 1050
+    },
+    "osc-subsample-start.wav": {
+      "sha256": "cec81f148dd96f6e9148483771245fe29bb8b7f96f03a46d0972d741d8b3c614",
+      "bytes": 176444
+    },
+    "osc-triangle.job.json": {
+      "sha256": "f5af99f7a9f13cc08a7c22438cb89f0e25f0f3b29497a740a7b9b9ebaae211af",
+      "bytes": 967
+    },
+    "osc-triangle.wav": {
+      "sha256": "283d3543f282f1175d547de88f84c8237f0ff46c7a610e35c3cb7c1a2e661a7e",
+      "bytes": 176444
+    },
+    "osc-user.job.json": {
+      "sha256": "7c048fcd38c15ce3d20f7663032f366d51f1c837bdbad593e034860b380aa259",
+      "bytes": 914
+    },
+    "osc-user.wav": {
+      "sha256": "c961480d56b65d6fa3c5134017f1857820a838d5923c50c44c918b8dadddf5fc",
+      "bytes": 176444
+    },
+    "osc-vibrato.job.json": {
+      "sha256": "aba969160dc9a71fe3164ad8b902e6a6405dee7579614ade43914c9462c2421b",
+      "bytes": 817
+    },
+    "osc-vibrato.wav": {
+      "sha256": "177c4bab979ca2aa2062a27b9e683e5324a3fc8d0c5bb7d46e5f62f44f18989c",
+      "bytes": 176444
+    },
+    "pan-mono-center.job.json": {
+      "sha256": "8b9744df1750d89c8e0557175d1ab9fac5d2b4f2cd3052e34b6794b77cf68455",
+      "bytes": 1080
+    },
+    "pan-mono-center.wav": {
+      "sha256": "4e42b5b5a61a22d04c5006561d05686b968110fa20afb30a6159dfbe4e4ada36",
+      "bytes": 176444
+    },
+    "pan-orbit-stems.job.json": {
+      "sha256": "d5726d8862b1b805c582c315db993230a1a86f365d43b204884d740c4b6434d3",
+      "bytes": 1126
+    },
+    "pan-orbit-stems.wav": {
+      "sha256": "a3fd5c6498571fad3be0bbfb64629551fb6245aa4536f6a5b02536ea71a0b1de",
+      "bytes": 176444
+    },
+    "pan-sweep.job.json": {
+      "sha256": "9e3b127274fce9190463cafde9214ef5dac71aba2a93782f664d07d27dd2d4e1",
+      "bytes": 1399
+    },
+    "pan-sweep.wav": {
+      "sha256": "ab26d8d8078e44ae9c8bc8dd150cf202b558af6f4e7da0e8a17a27b8f254caa5",
+      "bytes": 176444
+    },
+    "param-exp-held.job.json": {
+      "sha256": "ddebfdbbcac35c78564d1b7f9c0afe815bb6f7450e404afd68398d1c86a15505",
+      "bytes": 877
+    },
+    "param-exp-held.wav": {
+      "sha256": "92be97e830b2108bd9c34c0fd504923a7cd5557521fd9e2ec973afb7c966a1f8",
+      "bytes": 176444
+    },
+    "param-exp-ramp.job.json": {
+      "sha256": "c034cbdec659ded6161ae2608e3057ae59b5ed66e390b0b24ad6aeb5ed6ff365",
+      "bytes": 923
+    },
+    "param-exp-ramp.wav": {
+      "sha256": "b9267d1179f7a9b83dd1fa03150edb6792d569b398946e3c87cc959b9a23e220",
+      "bytes": 176444
+    },
+    "param-linear-ramp.job.json": {
+      "sha256": "779278f2326c5e0112e12bd635be98f7127547c46ebf1da07ea128c79ae7ba7b",
+      "bytes": 808
+    },
+    "param-linear-ramp.wav": {
+      "sha256": "a8da39d83cc29d96a66a6de9bf813571290705eaa5c6a18f320c1ea38b039652",
+      "bytes": 176444
+    },
+    "phaser-notch.job.json": {
+      "sha256": "0941c6f5a43c57f878343e7296c6b0f7ce0a1310300d13c816b4289e89b9e4fc",
+      "bytes": 716
+    },
+    "phaser-notch.wav": {
+      "sha256": "09030f4b83aa40622c6d5004e8069920ca053d3953dc361732628f2c6a4581eb",
+      "bytes": 176444
+    },
+    "phaser-params.job.json": {
+      "sha256": "5b0fd2028000e3527e526a200864dc18d5aa295577c41686efaaa60faf1fa773",
+      "bytes": 1272
+    },
+    "phaser-params.wav": {
+      "sha256": "db5b59158e997881d8aa4a5ab645c6eeadd369db29c7f5ee7c1c2bcaf52e2398",
+      "bytes": 176444
+    },
+    "pitch-env-exp-negative.job.json": {
+      "sha256": "95c723d36967d1f07b59bb3ba45c736c7210addaf646103b710ccf3e1cb1935b",
+      "bytes": 873
+    },
+    "pitch-env-exp-negative.wav": {
+      "sha256": "99a8906f7686e653b3d2942478f9fe10859cd6e126117563cb209cd714453b63",
+      "bytes": 176444
+    },
+    "pitch-env-linear.job.json": {
+      "sha256": "64ab46da258656e2b10c2b81359f6379dca8508de069163ec65e05ffd2bcd7a0",
+      "bytes": 917
+    },
+    "pitch-env-linear.wav": {
+      "sha256": "f84145a33f938077225b3e9e31441440f6430b5783ca49589771cf0f12273e06",
+      "bytes": 176444
+    },
+    "pulse-basic.job.json": {
+      "sha256": "fbdc7229c7a108aeedf1aedeb48b493a5ff4e73be0524d374fb298342420c884",
+      "bytes": 773
+    },
+    "pulse-basic.wav": {
+      "sha256": "79a8ba88669612bcc0b669e25ce3f631006bd98c7aeb1b254a86474afc9eb925",
+      "bytes": 176444
+    },
+    "pulse-fm-vibrato.job.json": {
+      "sha256": "49ab02810b339a8038d599468456c5f3af6990344df6fb0a32de2ce6da82fb17",
+      "bytes": 749
+    },
+    "pulse-fm-vibrato.wav": {
+      "sha256": "e6f49240d9a37495ea860acc881681666293575f99a37456690ef614550c4b2f",
+      "bytes": 176444
+    },
+    "pulse-pan-center.job.json": {
+      "sha256": "9e8cbd386ffad20e3e22cfb3ac4d97c4962f6098714f274b401604092ee3004b",
+      "bytes": 796
+    },
+    "pulse-pan-center.wav": {
+      "sha256": "2ab043a9c385b85f2fee59fa74a3253822b4c236804434b9cf523da5c2a49dd8",
+      "bytes": 176444
+    },
+    "pulse-pw.job.json": {
+      "sha256": "dcfac0a263b52325eadfdd792e9b5abbe2c0b10c273ebedd795033d2282f3ec9",
+      "bytes": 791
+    },
+    "pulse-pw.wav": {
+      "sha256": "f217ee1d98bc2ab1d3cb90422a35043a88fb09482942baac4fe7ebf148ba81b0",
+      "bytes": 176444
+    },
+    "pulse-pwm.job.json": {
+      "sha256": "5215594f1cc9ea5d275a51df58ca9747726ec10fbbe7d1b8f094ee863517325f",
+      "bytes": 716
+    },
+    "pulse-pwm.wav": {
+      "sha256": "5b2e74cc5b4544cd34ac96b512763928866d478aea41de19b463e6339626d58d",
+      "bytes": 176444
+    },
+    "reverb-ir-lowpass.job.json": {
+      "sha256": "a6fb213b5fc7ec214b41a95a01897d21f815bfde1fc36c338b86ff1634886d88",
+      "bytes": 792
+    },
+    "reverb-ir-lowpass.wav": {
+      "sha256": "54d1141405a308f07727b2ce01473476c17af09c5e10b2d600045d57f2fca7b2",
+      "bytes": 176444
+    },
+    "reverb-ir-nolowpass.job.json": {
+      "sha256": "dceda63367f114b04430666166dff156e9ae0f68bb5305ed7d25e6eebb06b3ac",
+      "bytes": 759
+    },
+    "reverb-ir-nolowpass.wav": {
+      "sha256": "914a89992e424bd71d323fd7e775d9be0c0a06871d1f1144a5d0ad7b6dd5b8d5",
+      "bytes": 176444
+    },
+    "reverb-ir-swap.job.json": {
+      "sha256": "e449a47e0d4072064397981b3d9e02e2e850b20d56be34a709cd03578f2efcb0",
+      "bytes": 1274
+    },
+    "reverb-ir-swap.wav": {
+      "sha256": "33e48a63441782adbd1f5a209cb32cd63ab0a0b49656c399728341dafc2b8093",
+      "bytes": 352844
+    },
+    "reverb-room-send.job.json": {
+      "sha256": "05050eee2bc03d64829868ed735c486ffc8b866d9b7c99887ebd2adf171d5262",
+      "bytes": 1218
+    },
+    "reverb-room-send.wav": {
+      "sha256": "9adc3e46c9f2ee333d381eb55667eab26fcdd1d0a4890f24da2e608d59817249",
+      "bytes": 176444
+    },
+    "reverb-roomsize-zero.job.json": {
+      "sha256": "910a3cacd1886591467d014f9082a067fc920d266c5352fc3f5718922cacfc36",
+      "bytes": 966
+    },
+    "reverb-roomsize-zero.wav": {
+      "sha256": "c05808025d062e8e6e28712f4652b30f46e8907c413bba3cbb1ff759dc4b4e9f",
+      "bytes": 176444
+    },
+    "shape-basic.job.json": {
+      "sha256": "c0cda8df7929f56dec5f1588f134b29896d41744e031021fa602ad769ccc2395",
+      "bytes": 721
+    },
+    "shape-basic.wav": {
+      "sha256": "72203f8037a2de6cb2defb63a34f6a11780d2cb6ceb63d48646ccb57b66ad78d",
+      "bytes": 176444
+    },
+    "shape-one.job.json": {
+      "sha256": "f0b4031f5ccfac08002a36743352eb2e514bdea9ea9dc44ecc8ff59dd3a0ca55",
+      "bytes": 704
+    },
+    "shape-one.wav": {
+      "sha256": "1e53b2f4a497c1d3c29bb2078f7f0119dcfc65445626c7255b68c768a9f3a1b2",
+      "bytes": 176444
+    },
+    "supersaw-boundary.job.json": {
+      "sha256": "84d84954389a32da74782913be2daf7ff5400c40eb22da048e5c784475babdb2",
+      "bytes": 881
+    },
+    "supersaw-boundary.wav": {
+      "sha256": "0c8ad743b058867d6c7f9259305d3002753e11499bd89d212c462f9547b65d6e",
+      "bytes": 176444
+    },
+    "supersaw-frac-unison.job.json": {
+      "sha256": "c75645a77993c800a27736e8e5f86a8565f13c34c3a86cd93e57cc603b688791",
+      "bytes": 707
+    },
+    "supersaw-frac-unison.wav": {
+      "sha256": "da37868f1c7334923d3247c0fa3c04b2c0b8ec8d0340602d155d16839b2d6efe",
+      "bytes": 176444
+    },
+    "supersaw-pitch-env.job.json": {
+      "sha256": "86786ece30efd65e04189e789a8351c556a16337652b74cc8246e0a7a17ebc6c",
+      "bytes": 718
+    },
+    "supersaw-pitch-env.wav": {
+      "sha256": "7415e1159479eeef28726f23d7a3de99da3b58d2c177a97ff59008141ecc6b28",
+      "bytes": 176444
+    },
+    "supersaw-unison1.job.json": {
+      "sha256": "f3f258b79e15562e7968ef5afbd8900d3a3c8b429acb1ca9f408a019e131753c",
+      "bytes": 801
+    },
+    "supersaw-unison1.wav": {
+      "sha256": "be2d9041e6befbcb76e97abe610f44f39f53ea4b6c59cb999014fed7bf9c9d8d",
+      "bytes": 176444
+    },
+    "supersaw-unison5.job.json": {
+      "sha256": "086cc2c484403eac4da530b7db8a68cb612ec446aa2fa3c45ce7bd869ccaad9a",
+      "bytes": 731
+    },
+    "supersaw-unison5.wav": {
+      "sha256": "894df6cd65db019148b7e6ca32af2856265a3e42117e8cbc50a4806354a6f994",
+      "bytes": 176444
+    },
+    "supersaw-vibrato.job.json": {
+      "sha256": "1e423cce817e017314ec02677cad3e741043f3bd6198092539a9d57725d87578",
+      "bytes": 713
+    },
+    "supersaw-vibrato.wav": {
+      "sha256": "2ee276026a144835f769f98a3313beb82084ae95e809eb87d245999dd132bea3",
+      "bytes": 176444
+    },
+    "transient-attack.job.json": {
+      "sha256": "7fb771b229e4920ca74ecb26259eb522785b40d91bd315517d08fe089b61a5a6",
+      "bytes": 721
+    },
+    "transient-attack.wav": {
+      "sha256": "ce4c8dcf99b9c97882aa2dedde6f4595797cbf4d9bdcbaddcf7deba38336d083",
+      "bytes": 176444
+    },
+    "transient-stereo.job.json": {
+      "sha256": "054a04bbc0affd0fdec489bcc436e757aa3fdf9592d91f737a174a80d0497949",
+      "bytes": 707
+    },
+    "transient-stereo.wav": {
+      "sha256": "ad7d3f92431f1ab3e479cb4aad507bd645507a199a8915e5f54058035bbc5c9e",
+      "bytes": 176444
+    },
+    "transient-sustain.job.json": {
+      "sha256": "d8c82d34b4c0adefb397ee60be3daa3109da442ba3f120360eb411d5eeff75fc",
+      "bytes": 728
+    },
+    "transient-sustain.wav": {
+      "sha256": "b6cc56a451731260099f0f4e05653f7493513f998ee479d814bcd206188ef830",
+      "bytes": 176444
+    },
+    "tremolo-depth-edges.job.json": {
+      "sha256": "651629d7ce3dfe148fe804e97f22a07819e99ac83126de3df63c9be3f4ee0246",
+      "bytes": 1058
+    },
+    "tremolo-depth-edges.wav": {
+      "sha256": "9fe978ec58ff2db31ca5ee379a4d7090734b23a165093f98a563e64200dc3db0",
+      "bytes": 176444
+    },
+    "tremolo-sum.job.json": {
+      "sha256": "1a68950342947dd849dc39ef1c66441a8926cbf3d377da612e5ea0d7ebf42c4d",
+      "bytes": 1072
+    },
+    "tremolo-sum.wav": {
+      "sha256": "0d7c2fee7e4ecec7bb11a9e6dab852d83d57dd06c955d353c2362ff7e15b3679",
+      "bytes": 176444
+    },
+    "v8-math.json": {
+      "sha256": "cc0cfbe09467339952b9bb4f60bf01eeef83818b404444acb8568987b1ede39b",
+      "bytes": 1011279
+    },
+    "vowel-formants.job.json": {
+      "sha256": "5d31f97114b99b4b661f84b644494d5004c737a9b306066a2cc7efd9515c0aee",
+      "bytes": 815
+    },
+    "vowel-formants.wav": {
+      "sha256": "9f485a55491dffd41bae6022227db86121cfa257f9928d358bb49b460644b01a",
+      "bytes": 176444
+    },
+    "vowel-unknown.job.json": {
+      "sha256": "fae56237eb4e48838165ae76ae1fc1e1794fbf9f5b8e3794cfce53f75a926ee8",
+      "bytes": 850
+    },
+    "vowel-unknown.wav": {
+      "sha256": "863956fb56bee3282c020f03a982355cf6cd44f2c61a12614d1a0157f939d4cd",
+      "bytes": 176444
+    }
+  },
+  "cases": {
+    "adsr-attack-only": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "293a6bce492769b1bd8bf3624eb1a525e8ae9685eba89b049a570603e3b9fea5",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "adsr-attack-only.job.json"
+      ],
+      "envelopes": null,
+      "wav": "adsr-attack-only.wav",
+      "data": null
+    },
+    "adsr-decay-only": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d1acc1cbf963036f4d612b40ce4396d253af47616cfa6a9dcb623bf38840bd92",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "adsr-decay-only.job.json"
+      ],
+      "envelopes": null,
+      "wav": "adsr-decay-only.wav",
+      "data": null
+    },
+    "adsr-defaults": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1e7a381e4e87545b776bee02a261749108d241c60325966dbb16512fe3a8e504",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "adsr-defaults.job.json"
+      ],
+      "envelopes": null,
+      "wav": "adsr-defaults.wav",
+      "data": null
+    },
+    "adsr-long-attack": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d82eed2111490f87cff5e9d57a1c8959c1617c9a8c6b953ea6bb13034c834673",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "adsr-long-attack.job.json"
+      ],
+      "envelopes": null,
+      "wav": "adsr-long-attack.wav",
+      "data": null
+    },
+    "adsr-short-hap": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "67f5c3fc2fdf51b65eeddf1f619aabf1c7dd385407e3401fdcaa852950528046",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "adsr-short-hap.job.json"
+      ],
+      "envelopes": null,
+      "wav": "adsr-short-hap.wav",
+      "data": null
+    },
+    "adsr-sustain-only": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "08379160ef8510ddd727426cf02478fc1baef08de16c4cfbc0b7067da3081112",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "adsr-sustain-only.job.json"
+      ],
+      "envelopes": null,
+      "wav": "adsr-sustain-only.wav",
+      "data": null
+    },
+    "bus-bmod": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3ecca5c81e779306d890077774c23a5f7f77a8ff66e015c1e31b3f1eac486146",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "bus-bmod.job.json"
+      ],
+      "envelopes": null,
+      "wav": "bus-bmod.wav",
+      "data": null
+    },
+    "bus-sound": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "0fcc13031f62f6eaf5b309a9b0ab93be0a2f2c93de798d4bd042c7a5233a40fe",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "bus-sound.job.json"
+      ],
+      "envelopes": null,
+      "wav": "bus-sound.wav",
+      "data": null
+    },
+    "coarse-3": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "37abb04616aef6464baaf1f06e7df6df8a0aac7f12d0192385a5801392311096",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "coarse-3.job.json"
+      ],
+      "envelopes": null,
+      "wav": "coarse-3.wav",
+      "data": null
+    },
+    "coarse-8": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "85ce158c7ff1ab937dfbb5fb0f884a084d8fe5609d1f401a97953fcd008c9cd2",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "coarse-8.job.json"
+      ],
+      "envelopes": null,
+      "wav": "coarse-8.wav",
+      "data": null
+    },
+    "compressor-fresh": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "de8896a8c6687acfec75689f071d4a8146b5de13edc6b708ec54c432b7b2051d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "compressor-fresh.job.json"
+      ],
+      "envelopes": null,
+      "wav": "compressor-fresh.wav",
+      "data": null
+    },
+    "compressor-params": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1f28f7c6a45222500cccf37e1f9243dc0575e899a8a9421e0fbcfba71391563b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "compressor-params.job.json"
+      ],
+      "envelopes": null,
+      "wav": "compressor-params.wav",
+      "data": null
+    },
+    "compressor-stereo": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "e335981989bc423707238f58595bf7f50b066c82f093398c8c18efa70cce8e2c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "compressor-stereo.job.json"
+      ],
+      "envelopes": null,
+      "wav": "compressor-stereo.wav",
+      "data": null
+    },
+    "compressor-warmup": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3700c62f8ed0211bb908ade8fb77906440a9c934bd88da26f1dab6bb30047236",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "compressor-warmup.job.json"
+      ],
+      "envelopes": null,
+      "wav": "compressor-warmup.wav",
+      "data": null
+    },
+    "crush-frac": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "441d590feb5a066a8525d2253cb725a23e067241cbc368bce9aea47463f490a9",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "crush-frac.job.json"
+      ],
+      "envelopes": null,
+      "wav": "crush-frac.wav",
+      "data": null
+    },
+    "crush-int": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "30513f2fb966f7d26597c60b1d9ced8bcba5b1c15706de2864ca77debc6802df",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "crush-int.job.json"
+      ],
+      "envelopes": null,
+      "wav": "crush-int.wav",
+      "data": null
+    },
+    "delay-guard-f32exact": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "23ae7e168fbd19a8f8734b126f21891ea1e23f8530a1dc2eef827be9d41a67e2",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "delay-guard-f32exact.job.json"
+      ],
+      "envelopes": null,
+      "wav": "delay-guard-f32exact.wav",
+      "data": null
+    },
+    "delay-guard-nonexact": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "a6309d5bf0988a323f877a8db32d449442bd14a5677391ce16cb3ee72218f84b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "delay-guard-nonexact.job.json"
+      ],
+      "envelopes": null,
+      "wav": "delay-guard-nonexact.wav",
+      "data": null
+    },
+    "delay-impulse-echoes": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "b5a93fda2c958d7934a27a875c4bf765a428d178533bf5fe7b9c1e65909fc772",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "delay-impulse-echoes.job.json"
+      ],
+      "envelopes": null,
+      "wav": "delay-impulse-echoes.wav",
+      "data": null
+    },
+    "delay-mono-to-stereo": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "cfecde1d97efcb06e7a1c9935d2430f7bff8cdee4545fbcda438bc0aabb7b920",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "delay-mono-to-stereo.job.json"
+      ],
+      "envelopes": null,
+      "wav": "delay-mono-to-stereo.wav",
+      "data": null
+    },
+    "delay-time-change": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "68d917e93dd9bcbf562230dcf22ef1273fa75727e6bc83b99b1d25a67d019718",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "delay-time-change.job.json"
+      ],
+      "envelopes": null,
+      "wav": "delay-time-change.wav",
+      "data": null
+    },
+    "delay-time-over-max": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "eac8ee33af1b167964eaf631e2d7159b0f7a2b45c47504f9fe6f3ec476a004c1",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "delay-time-over-max.job.json"
+      ],
+      "envelopes": null,
+      "wav": "delay-time-over-max.wav",
+      "data": null
+    },
+    "distort-diode": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "38d2f085365f8433373dcea02b1232c0ac7c9069d981d0a4e081cd145fe59e6b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "distort-diode.job.json"
+      ],
+      "envelopes": null,
+      "wav": "distort-diode.wav",
+      "data": null
+    },
+    "distort-rational": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "eec5b1ea3a45a7d004dd1b6708694b344938ec89a7d62b9cf1e92361b0d09102",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "distort-rational.job.json"
+      ],
+      "envelopes": null,
+      "wav": "distort-rational.wav",
+      "data": null
+    },
+    "distort-sine-cheb": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "6088395b03afb92df30fb341ca537b378a7e4c95d18d5523b43c7ddac253f7f1",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "distort-sine-cheb.job.json"
+      ],
+      "envelopes": null,
+      "wav": "distort-sine-cheb.wav",
+      "data": null
+    },
+    "distort-tanh": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "312c090d3b91cb6df6f2e6469940d368ac78d3fc945c9c05aae4a5a6dbbe615b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "distort-tanh.job.json"
+      ],
+      "envelopes": null,
+      "wav": "distort-tanh.wav",
+      "data": null
+    },
+    "distort-vol": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "80537c496c0344750a912777d9a0ec1b9a313960718276f7804f5aecdfa6f708",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "distort-vol.job.json"
+      ],
+      "envelopes": null,
+      "wav": "distort-vol.wav",
+      "data": null
+    },
+    "djf-insert-persist": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f62f1a26ee36c7373b1e647210851c469377e38289e0a9e639b90ae43fcd0d9d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "djf-insert-persist.job.json"
+      ],
+      "envelopes": null,
+      "wav": "djf-insert-persist.wav",
+      "data": null
+    },
+    "djf-lp-hp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9943486d4cb08f18c7559777e05e3dfd33cbd943ac770562e5f593f8128276dc",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "djf-lp-hp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "djf-lp-hp.wav",
+      "data": null
+    },
+    "djf-none": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "df2c7523033896e37f054d767e369d3fa5a704de9a446120b80a4a46c8af6186",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "djf-none.job.json"
+      ],
+      "envelopes": null,
+      "wav": "djf-none.wav",
+      "data": null
+    },
+    "djf-returns": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f63aebcb4844780a4458f648229b8d255fc18172f57648bce34e8a88ee224ce6",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "djf-returns.job.json"
+      ],
+      "envelopes": null,
+      "wav": "djf-returns.wav",
+      "data": null
+    },
+    "duck-across-pause": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "bf2b22131ae7a14b30399b6aa57d634b586a8af227701da1e091ad1c71641916",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "duck-across-pause.job.json"
+      ],
+      "envelopes": null,
+      "wav": "duck-across-pause.wav",
+      "data": null
+    },
+    "duck-call-order": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "b2af851a3d068ec6c835343f7ce400e53996649d42e8fd0a2bb0004130d81b64",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "duck-call-order.job.json"
+      ],
+      "envelopes": null,
+      "wav": "duck-call-order.wav",
+      "data": null
+    },
+    "duck-cancel-hold": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3e3122944b1277aaf743e8c4869c8f3c78851431eeb66fb7f194c8c95f78467e",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "duck-cancel-hold.job.json"
+      ],
+      "envelopes": null,
+      "wav": "duck-cancel-hold.wav",
+      "data": null
+    },
+    "duck-first-ramp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "727253b06072e78120ba38e8efafcd3429a7c535c1e5d9bbe528207c49d4d89a",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "duck-first-ramp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "duck-first-ramp.wav",
+      "data": null
+    },
+    "duck-gap-ramp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d189f4184cc0bde84fccd5bc7f23d24298781c2dc4e2004a4ff39934dd32a2d6",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "duck-gap-ramp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "duck-gap-ramp.wav",
+      "data": null
+    },
+    "duck-multi-target": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "e8a2380548ca6d79bb355134d55ab5cdac3dbe4e0dcfb24bcc7a61be0d55a1fe",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "duck-multi-target.job.json"
+      ],
+      "envelopes": null,
+      "wav": "duck-multi-target.wav",
+      "data": null
+    },
+    "env-staircase": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "c2390d41afbacc1176c208cae6f405e33c181da716d0e2705c61d116f19fd53d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "env-staircase.job.json"
+      ],
+      "envelopes": null,
+      "wav": "env-staircase.wav",
+      "data": null
+    },
+    "filter-24db": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1e36f4e9fd771d6ea70a671461335e838d2cd75bf9358e9fed8af96d576e8877",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-24db.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-24db.wav",
+      "data": null
+    },
+    "filter-bp-const": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "354f8df6f1efcc6b3ee8df1b4ef93fa3096305dff84569ec1d464c7a1ea8d4be",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-bp-const.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-bp-const.wav",
+      "data": null
+    },
+    "filter-bp-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "faf84cf69bbf4bd2adcead867782c6d22c19226f79dad6c00ee03267021ebd8d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-bp-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-bp-env.wav",
+      "data": null
+    },
+    "filter-ftype-numeric": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "dfc28aaea5d9ebcdcf2a385862b02a9ee0f3b12514b02e688342c36c01d69592",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-ftype-numeric.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-ftype-numeric.wav",
+      "data": null
+    },
+    "filter-hp-const": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "02e9dfc38695d8ffb6dd427c45e455c5db2f4d71329a4a8c942de0781a332eed",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-hp-const.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-hp-const.wav",
+      "data": null
+    },
+    "filter-hp-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "b0706e8c5174f894ae4220e7a3a145998cde8e9fa09f0c8f70c530f2f13994c7",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-hp-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-hp-env.wav",
+      "data": null
+    },
+    "filter-lfo-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f7589b3d07d165534ab0b288bc13a63ab2b59510d96c3a491cf4a8112109a66e",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-lfo-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-lfo-env.wav",
+      "data": null
+    },
+    "filter-lfo-hp-bp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "cc6d92252275738af534f77660bf15b73d44b63fb2db58e842dec3a26fd1c4b8",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-lfo-hp-bp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-lfo-hp-bp.wav",
+      "data": null
+    },
+    "filter-lfo-lp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "aed9225a66ff6b2c3a0bd28348d514d944af8f2c69160011c4447c5d176514d9",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-lfo-lp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-lfo-lp.wav",
+      "data": null
+    },
+    "filter-lfo-sync-shape": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "92daf4243b8595f5e94a0e80807bacfd15fa7a53f14581e92d56ccc988d95113",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-lfo-sync-shape.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-lfo-sync-shape.wav",
+      "data": null
+    },
+    "filter-lp-const": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "182b049170f3d945aacb9ee2e578a023e820b7463fc4475aa98725e04214cd17",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-lp-const.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-lp-const.wav",
+      "data": null
+    },
+    "filter-lp-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9695b6892629ff3cffbbc81187f5f7f70dfd2756661f53f96854365d5a73a274",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-lp-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-lp-env.wav",
+      "data": null
+    },
+    "filter-tail-resonant": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "af226e03472bccc929e7d4b3cfbe506e58cf37ad99978b844d8fe85366f648da",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "filter-tail-resonant.job.json"
+      ],
+      "envelopes": null,
+      "wav": "filter-tail-resonant.wav",
+      "data": null
+    },
+    "fixture-asymmetric-delay": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "80418b39d147e94806ed83fd92977aa1557ca4906702767e6471e29877cb70ce",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-asymmetric-delay--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-asymmetric-delay--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-bass-line": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "975a4a1daa2f80172e4d9487d75863b1b95e09bf63c6680850d09671a8d0233a",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-bass-line--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-bass-line--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-clipping": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "b12af1f92321bced39ddc874c87ce2905f8e4d4184fc79fe717f680a6cde2e7c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-clipping--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-clipping--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-crowded-bass": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "64e49f7b6b16cfb980469f73ffd51c348d9cc98b147371a146ca610c9ef88d97",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-crowded-bass--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-crowded-bass--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-duck": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "badbbd57c653b44be874d32eac8ecb06b7a15a84327a1f3faea8457d9af3449c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-duck--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-duck--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-filtered-opening": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1eee007075aa472287d6345b13dab53942baa58b92240eede0629a1e6468b3e0",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-filtered-opening--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-filtered-opening--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-fx-bus": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3c07dfeba8d3654bdcd6a5bdeaab6a732f0029a9e3e0613006a5c06d70675545",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-fx-bus--mix-0.job.json",
+        "fixture-fx-bus--mix-1.job.json"
+      ],
+      "envelopes": [
+        "fixture-fx-bus--mix-0.ref.json",
+        "fixture-fx-bus--mix-1.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-fx-chain": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "72740a14b7b0aaf89589702b72060265a3ccaf93b9d8403cc71bbc953dd92113",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-fx-chain--mix-0.job.json",
+        "fixture-fx-chain--mix-1.job.json"
+      ],
+      "envelopes": [
+        "fixture-fx-chain--mix-0.ref.json",
+        "fixture-fx-chain--mix-1.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-fx-delay": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "14ba2f0f211f655259e986f32f803b10599930c9f0bf6b3670c3c86886399f62",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-fx-delay--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-fx-delay--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-fx-mod": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "5785fe56df74f29e5d041d41e9255d31fc85306bdd1ad74a85e37bd5583cae81",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-fx-mod--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-fx-mod--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-fx-native": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "92bc4a54afb1fe65976313b5092ce26f38c86296ad249395fb2f5b1e1b07cd1b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-fx-native--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-fx-native--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-fx-room": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "2bb686e60f3faf5c26880bf56ea5713999842f4084d0d6500ae9912cb7da2cf9",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-fx-room--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-fx-room--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-host-shims": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "4b4a7dc8298b03b156b50f820961b70137960d36429a41b59fa2f0018103dd3b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-host-shims--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-host-shims--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-late-feedback": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "656f653c212bad3667c7d871ee1179abc2a68df76522435fb71a2a1639231590",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-late-feedback--mix-0.job.json",
+        "fixture-late-feedback--mix-1.job.json",
+        "fixture-late-feedback--mix-2.job.json",
+        "fixture-late-feedback--stems-0.job.json",
+        "fixture-late-feedback--stems-1.job.json",
+        "fixture-late-feedback--stems-2.job.json"
+      ],
+      "envelopes": [
+        "fixture-late-feedback--mix-0.ref.json",
+        "fixture-late-feedback--mix-1.ref.json",
+        "fixture-late-feedback--mix-2.ref.json",
+        "fixture-late-feedback--stems-0.ref.json",
+        "fixture-late-feedback--stems-1.ref.json",
+        "fixture-late-feedback--stems-2.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-noise-seed": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "e232c96d3a81b89f82cbbe01242b12562c5967f21dead5e0dfd6758b3d0ae8e5",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-noise-seed--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-noise-seed--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-odd-meter": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "6cb925fecd1caaada685321d15521682465082866d095fa9fd0d189eae159e00",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-odd-meter--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-odd-meter--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-pad-seam": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "e4f481c50f8e20f4a884a609066764308bee3da50f6bce6d0100dd9d8ea5bc09",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-pad-seam--mix-0.job.json",
+        "fixture-pad-seam--mix-1.job.json",
+        "fixture-pad-seam--mix-2.job.json"
+      ],
+      "envelopes": [
+        "fixture-pad-seam--mix-0.ref.json",
+        "fixture-pad-seam--mix-1.ref.json",
+        "fixture-pad-seam--mix-2.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-reverb-change": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "4c50e612cd1b0eab9c6b22af8309f7666aaaae5634af920160321def05626f8d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-reverb-change--mix-0.job.json",
+        "fixture-reverb-change--mix-1.job.json"
+      ],
+      "envelopes": [
+        "fixture-reverb-change--mix-0.ref.json",
+        "fixture-reverb-change--mix-1.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-reverb-long": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3a3c0d0cd1e00f31e16cb1241b8be162c5e4be47d4184cefdfe49b40eb46b4d5",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-reverb-long--mix-0.job.json",
+        "fixture-reverb-long--mix-1.job.json"
+      ],
+      "envelopes": [
+        "fixture-reverb-long--mix-0.ref.json",
+        "fixture-reverb-long--mix-1.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-silence-entry-pad": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "01a9b4739570f012d883b8a7570acddc814847ab15893ac6faefd213d4ed0fe3",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-silence-entry-pad--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-silence-entry-pad--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-silence-entry-perc": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "ff8a17024e010caa65109d47f694dab14efd1a46dfd4d44d5524855dbae1a075",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-silence-entry-perc--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-silence-entry-perc--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-sine-basic": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "af9dc87fbeb5a7c478e553309df85034e4df14a114a5f10b3ed064496c45ea3d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-sine-basic--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-sine-basic--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-song-clip": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d1f57ebf47619b71567cecd8bef8e12eec4ee29414ebf3c3cb700fa42b7f29b9",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-song-clip--mix-0.job.json",
+        "fixture-song-clip--mix-1.job.json"
+      ],
+      "envelopes": [
+        "fixture-song-clip--mix-0.ref.json",
+        "fixture-song-clip--mix-1.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-song-linear": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "e997ca1b9ff0d28e0baa0936648fdfb81a9658034f2d2003bc42649ea53b679e",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-song-linear--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-song-linear--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-stems-5": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "aafd7ef164f5188a5189a67d9b446bedabbdd051bcf24707514a78b3cf29c129",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-stems-5--mix-0.job.json",
+        "fixture-stems-5--stems-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-stems-5--mix-0.ref.json",
+        "fixture-stems-5--stems-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-stems-shared": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "51181583d5f3092aa22826bfb201236e8802f9708bfa474026a4a75541a8452c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-stems-shared--mix-0.job.json",
+        "fixture-stems-shared--stems-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-stems-shared--mix-0.ref.json",
+        "fixture-stems-shared--stems-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-voice-filter": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "c6ca9c3760201938ae756d7a43e9f98599e527299bbec9c58f604c414d891226",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-voice-filter--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-voice-filter--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-voice-level": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "ddff0ac34eebc6456f63aec4bce47cc0fdd3ef26f34e2cd7a03f6ccce1cf4c99",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-voice-level--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-voice-level--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-voice-mod": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "cb9cf82e8afa2116e07f9dc509714d656f53f7b2c1f830aee4683b894356562a",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-voice-mod--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-voice-mod--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-voice-noise": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f358193f57aa1cf6998ff5718f033deb0c8cc84675e86bc063016b1a14e425d4",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-voice-noise--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-voice-noise--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-voice-osc": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "37cf08e097d1ecdb93a8cc49043cc1a15bc6601a6553ff0c9f030db69f1d8996",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-voice-osc--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-voice-osc--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-voice-worklets": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "00819017ec3c275073f60fd8cf4446281d3a509b4e9e594f9fe87027360c259b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-voice-worklets--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-voice-worklets--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fixture-worklets": {
+      "kind": "fixture",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "aea16dcf9c4a6f08c732a4dd673028a5654df2c38fa04f85a6e45b55008aa51b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fixture-worklets--mix-0.job.json"
+      ],
+      "envelopes": [
+        "fixture-worklets--mix-0.ref.json"
+      ],
+      "wav": null,
+      "data": null
+    },
+    "fm-chain-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "6ecfba4a9f424c65d1ef53fefd1aee458ef28cbfde478c0fcc389023cbd372a3",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fm-chain-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fm-chain-env.wav",
+      "data": null
+    },
+    "fm-noise-wave": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9da8805d8a3f715dd7a6546dd6e83d2ad7ff19ecaa228a6100991c6b8b0b2e28",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fm-noise-wave.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fm-noise-wave.wav",
+      "data": null
+    },
+    "fm-pair": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1034ed2d2151321d208352f548d5ee030763a196f6aaf4f43d62e4d52dab72a4",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fm-pair.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fm-pair.wav",
+      "data": null
+    },
+    "fx-chain-delay": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d5d52f92558898c4e9825e447bbdee66dd953a07c4ddd3464f8ac1bce7c8b8fb",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fx-chain-delay.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fx-chain-delay.wav",
+      "data": null
+    },
+    "fx-chain-gain": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9ce65b3d08b86ab8da00b800f3d2bdee9cb54af2fd7b0e9ff320eaff51f48297",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fx-chain-gain.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fx-chain-gain.wav",
+      "data": null
+    },
+    "fx-chain-mod": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d56d1be3bba671c4e5ab11f603e8459691425934a17eec7e7362e658f0554f5f",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fx-chain-mod.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fx-chain-mod.wav",
+      "data": null
+    },
+    "fx-chain-room": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "ea1f522acf10ace8741b991709ba598baeaf286f1b48ed83bae5be083a87829d",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fx-chain-room.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fx-chain-room.wav",
+      "data": null
+    },
+    "fxrelease-fade": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "924c091cbf44b81d373b7fabf84e14adfef616b16989f8607b95a61e3761e52b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "fxrelease-fade.job.json"
+      ],
+      "envelopes": null,
+      "wav": "fxrelease-fade.wav",
+      "data": null
+    },
+    "ladder-const": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "7a14e2305d10b4fc055b423f012e27227176f48cb6f9e3abc46222d350b945e3",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "ladder-const.job.json"
+      ],
+      "envelopes": null,
+      "wav": "ladder-const.wav",
+      "data": null
+    },
+    "ladder-drive": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "b526c7304cbd455375349a381732ac712697eff20b7aa7c24a1164f82669a0c4",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "ladder-drive.job.json"
+      ],
+      "envelopes": null,
+      "wav": "ladder-drive.wav",
+      "data": null
+    },
+    "ladder-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "8eedbf49ac81c8f6cf1077a23084672be9fc3ba6939018137eb2e5bc56071119",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "ladder-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "ladder-env.wav",
+      "data": null
+    },
+    "ladder-hpf": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9a03dabcddc52a39bdd2316e6d45f73bc59c43724ea17d168087e19b2fda0a54",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "ladder-hpf.job.json"
+      ],
+      "envelopes": null,
+      "wav": "ladder-hpf.wav",
+      "data": null
+    },
+    "level-gain-velocity": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "171b9604f1e5473a7267a7440522ab2370dfe7d5f7b5b212bcfe20bb088e8f87",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "level-gain-velocity.job.json"
+      ],
+      "envelopes": null,
+      "wav": "level-gain-velocity.wav",
+      "data": null
+    },
+    "level-postgain-dry": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f86e446bdc1a9ed0ea27a12a04400df09b1a4b47067b1f899b03dc3962e242be",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "level-postgain-dry.job.json"
+      ],
+      "envelopes": null,
+      "wav": "level-postgain-dry.wav",
+      "data": null
+    },
+    "lfo-shapes": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "8941191d547710990f9eed50ea7978799022fcce046fb55039d13e92f1e36d95",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "lfo-shapes.job.json"
+      ],
+      "envelopes": null,
+      "wav": "lfo-shapes.wav",
+      "data": null
+    },
+    "measure-feedback-echo": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "55ae9abfb23fd0dc2619d90dbe0bc1f5d4f31f6637e12f07ba379020985ab815",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "measure-feedback-echo.job.json"
+      ],
+      "envelopes": null,
+      "wav": "measure-feedback-echo.wav",
+      "data": null
+    },
+    "measure-suspend-quantization": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "157b98bbe147b45b0593d3779cb44e131d9362817c072cec132baaffe65ed9c9",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "measure-suspend-quantization.job.json"
+      ],
+      "envelopes": null,
+      "wav": "measure-suspend-quantization.wav",
+      "data": null
+    },
+    "measure-worklet-start": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "794664b69d1ce5317398d497ef81b6e8ef86b8bfa3482737b4a6cafb8b4f25f0",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "measure-worklet-start.job.json"
+      ],
+      "envelopes": null,
+      "wav": "measure-worklet-start.wav",
+      "data": null
+    },
+    "measure-worklet-teardown": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "5f842685bc947636ab36a3c4d91a57591db484d5fb26d03cf32b8936018dbe24",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "measure-worklet-teardown.job.json"
+      ],
+      "envelopes": null,
+      "wav": "measure-worklet-teardown.wav",
+      "data": null
+    },
+    "mod-env-cutoff": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "8300a70f71777d59b669ca700fdb2c12be63a05abe43355b2391e8644bd7cc43",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-env-cutoff.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-env-cutoff.wav",
+      "data": null
+    },
+    "mod-lfo-cutoff": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "2fa08a7346558a23c2276b02fda70106078387addd55eac93dadd9d8bc8e2214",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-cutoff.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-cutoff.wav",
+      "data": null
+    },
+    "mod-lfo-cutoff-24db": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "ff3e9232c6196f8faa3c859774b4a074a2ef80c31e178abaef1ec6d263ec7107",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-cutoff-24db.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-cutoff-24db.wav",
+      "data": null
+    },
+    "mod-lfo-gain": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "ef32713a8081d90c051db32d7e1ad1cf39c6d6236f56c3c3ed6183c3d5798f7e",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-gain.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-gain.wav",
+      "data": null
+    },
+    "mod-lfo-note": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9d74c4c75d0545f63604b97eea01190e7058386f2e818d07ef2b4ad9855bd300",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-note.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-note.wav",
+      "data": null,
+      "floorDb": -130.48
+    },
+    "mod-lfo-of-lfo": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "0703137bba65b056cf45f76ef3b37c951005b191b42d9aec3fbcc36cf286746f",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-of-lfo.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-of-lfo.wav",
+      "data": null
+    },
+    "mod-lfo-pan": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "6ea0ebeee48357221857dd1e05d1a59f6e629594b358617b4629d5f1bc63f07f",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-pan.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-pan.wav",
+      "data": null
+    },
+    "mod-lfo-retrig-sync": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "80d3e054d54cd9322cd2f03460c8444a4073cace86f8e26e61a601cec0ca9d62",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-retrig-sync.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-retrig-sync.wav",
+      "data": null
+    },
+    "mod-lfo-source-param": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "318b02d746480b82bbd6910de32a5056c4d77a930dc3fbccfe951c8d9cb63374",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-lfo-source-param.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-lfo-source-param.wav",
+      "data": null
+    },
+    "mod-orbit-delaytime": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "4d804d5db183f07285e346a8da463be09d24584e878aee0d6427cf7993f692c4",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-orbit-delaytime.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-orbit-delaytime.wav",
+      "data": null
+    },
+    "mod-orbit-djf": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1391bb24832d882c9ac3d09690e738902725c7674393905a4e3be1d7c2cdd523",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "mod-orbit-djf.job.json"
+      ],
+      "envelopes": null,
+      "wav": "mod-orbit-djf.wav",
+      "data": null
+    },
+    "noise-brown": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "77dbb13b2ba3e2029fe3886f9b47dbe7e711c938ca86af790f474ad9d1b2a076",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "noise-brown.job.json"
+      ],
+      "envelopes": null,
+      "wav": "noise-brown.wav",
+      "data": null
+    },
+    "noise-crackle": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "63d722dd611e80a9b4fe81e67dad8b0b831e3f357c181c270202853dcfdeafa2",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "noise-crackle.job.json"
+      ],
+      "envelopes": null,
+      "wav": "noise-crackle.wav",
+      "data": null
+    },
+    "noise-mix": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f1168d0a49f16a7cb4c25002e337878bd3b2aa4d7f639dda35dcd4584deb439f",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "noise-mix.job.json"
+      ],
+      "envelopes": null,
+      "wav": "noise-mix.wav",
+      "data": null
+    },
+    "noise-pink": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "00edff6dc094e6bc06d22307250d4fbab18884628ad7560c0e45d750717c4a37",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "noise-pink.job.json"
+      ],
+      "envelopes": null,
+      "wav": "noise-pink.wav",
+      "data": null
+    },
+    "noise-start-roundup": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "940deb5a292164c82837a57692e4733133efdd351a64947a270a35bd23c4b875",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "noise-start-roundup.job.json"
+      ],
+      "envelopes": null,
+      "wav": "noise-start-roundup.wav",
+      "data": null
+    },
+    "noise-white": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "0046fa9a26e9ed6b96daaa44933254c65bfe2fe75bbbee7a139fb32a3543f523",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "noise-white.job.json"
+      ],
+      "envelopes": null,
+      "wav": "noise-white.wav",
+      "data": null
+    },
+    "orbit-mix-two": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "01f1cf7d0d53d700df2c0e8b4446619f7fe8998eee6172dcf91b37672fed3aaf",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "orbit-mix-two.job.json"
+      ],
+      "envelopes": null,
+      "wav": "orbit-mix-two.wav",
+      "data": null
+    },
+    "osc-arate-start": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "95a437837a86e13abe898a105e491d6279a30ef22140de4954dc5f2e232e5d06",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-arate-start.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-arate-start.wav",
+      "data": null
+    },
+    "osc-one": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "bedfd0c50b059d0b5ae351228a57f5791c8e2d3f9ad39816836cd3c509fb41f8",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-one.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-one.wav",
+      "data": null
+    },
+    "osc-partials": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "05533f15209cf88a0944c89697107753dd714553000cbe951aef107ef7a2cefc",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-partials.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-partials.wav",
+      "data": null
+    },
+    "osc-phases": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "43fc18cfae6ce38573ef86108e4d77ed0d6f65294dc7480001dd9e87726f7c84",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-phases.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-phases.wav",
+      "data": null
+    },
+    "osc-sawtooth": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "1176885918b12a07be8ef110ea9e10a5f40f0da6b2b6eb3c65c3f06cb6f28f66",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-sawtooth.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-sawtooth.wav",
+      "data": null
+    },
+    "osc-sine": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "78db5153944bf52552caebddcea66c06a6f7298f9d2c9708f706fbfb7c3d8fe7",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-sine.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-sine.wav",
+      "data": null
+    },
+    "osc-square": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9471447f00e551a4b0989989277f6cdb36ff55304250a4c9c337084e9900e431",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-square.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-square.wav",
+      "data": null
+    },
+    "osc-subsample-start": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "521da50da4e8b031192f627ed831a86bc511a45d5105622d0c2431b2a994de40",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-subsample-start.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-subsample-start.wav",
+      "data": null
+    },
+    "osc-triangle": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "582c607df5458faf093f3b547639cda8a068d1b8d4586401f402118df62341a3",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-triangle.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-triangle.wav",
+      "data": null
+    },
+    "osc-user": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d1e277a09d783351ea146584e3fefd3ec67858ded2d0b5b6f58f4ea16da1892c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-user.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-user.wav",
+      "data": null
+    },
+    "osc-vibrato": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "dbde6f25f1349177a94c08689576a4c1d9ddae654d0e7e8c2bd9056c11d4d895",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "osc-vibrato.job.json"
+      ],
+      "envelopes": null,
+      "wav": "osc-vibrato.wav",
+      "data": null
+    },
+    "pan-mono-center": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "033f52c465cb097ad5b79dc3e9c559b2f1b4f574962f4f65b48b2c73064c0cf3",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pan-mono-center.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pan-mono-center.wav",
+      "data": null
+    },
+    "pan-orbit-stems": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "cfc9654d89f9be88834780c1eda42059672eeba77bd341f978093bb52a852e49",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pan-orbit-stems.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pan-orbit-stems.wav",
+      "data": null
+    },
+    "pan-sweep": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "9b66c648bfa4886bc47ea3607985d3664691433270fc5635c166e30e0d2d2754",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pan-sweep.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pan-sweep.wav",
+      "data": null
+    },
+    "param-exp-held": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "363311d0aa1fb2830f0e26085f41fdb414df9d33ece1d2563c641fce2cf389b6",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "param-exp-held.job.json"
+      ],
+      "envelopes": null,
+      "wav": "param-exp-held.wav",
+      "data": null
+    },
+    "param-exp-ramp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "d6887842f4d50cad405879ad32eca04d20a718a58204e6d39c6795c399bc077c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "param-exp-ramp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "param-exp-ramp.wav",
+      "data": null
+    },
+    "param-linear-ramp": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "ac740d67659e4c01846709cc2ca56e5e501cdde59add2a12c1ac9a4d8f224baf",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "param-linear-ramp.job.json"
+      ],
+      "envelopes": null,
+      "wav": "param-linear-ramp.wav",
+      "data": null
+    },
+    "phaser-notch": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "35ca4203fd4c159f5e31691e2b0705cd51625f0b7568a166d872e543c35cd541",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "phaser-notch.job.json"
+      ],
+      "envelopes": null,
+      "wav": "phaser-notch.wav",
+      "data": null
+    },
+    "phaser-params": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f97dfea4faee4c803333d635df7dcd4d94a1d8e81e05f22e543d0ba757464f3f",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "phaser-params.job.json"
+      ],
+      "envelopes": null,
+      "wav": "phaser-params.wav",
+      "data": null
+    },
+    "pitch-env-exp-negative": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "f254b26b710931eee175039691b262b404361bed867780db1926d7f665c9e0bb",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pitch-env-exp-negative.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pitch-env-exp-negative.wav",
+      "data": null
+    },
+    "pitch-env-linear": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "4d645657921fb368feb4cb9759e64ec9567d235e77833937ec01d63e38ea7a79",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pitch-env-linear.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pitch-env-linear.wav",
+      "data": null
+    },
+    "pulse-basic": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "82b25d8ec3e710dbe9d2c6cc28ad8c5fa841c98903a99b0a2336146a4194d427",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pulse-basic.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pulse-basic.wav",
+      "data": null
+    },
+    "pulse-fm-vibrato": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "aef88a7ec68b482a3f186639e325ed42faa1d13f61d1594d45a851c59933c5dd",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pulse-fm-vibrato.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pulse-fm-vibrato.wav",
+      "data": null
+    },
+    "pulse-pan-center": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "4479743a8f5d54d9e7e6ff982297f991edf0cb047edc5f39f9fc237429371b97",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pulse-pan-center.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pulse-pan-center.wav",
+      "data": null
+    },
+    "pulse-pw": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3c89995b00924f3881e32df472e16a64aca062dbd18afae82bec52fbc46f7656",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pulse-pw.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pulse-pw.wav",
+      "data": null
+    },
+    "pulse-pwm": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "18cc572a48528acde48f0106e4664c0241bae5aca8c9408b88bf92cb8e1e7412",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "pulse-pwm.job.json"
+      ],
+      "envelopes": null,
+      "wav": "pulse-pwm.wav",
+      "data": null
+    },
+    "reverb-ir-lowpass": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "5c2936809c9baa8a8ab077cdcc5da23e9a4484acb7542a40bd5ca0c78f6ece48",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "reverb-ir-lowpass.job.json"
+      ],
+      "envelopes": null,
+      "wav": "reverb-ir-lowpass.wav",
+      "data": null
+    },
+    "reverb-ir-nolowpass": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "16369a72a9d910331b3afd4c919fdb95982251f804777f50c7c4a63fa7839ad8",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "reverb-ir-nolowpass.job.json"
+      ],
+      "envelopes": null,
+      "wav": "reverb-ir-nolowpass.wav",
+      "data": null
+    },
+    "reverb-ir-swap": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "5a52f97c9e8a839d7ee750d8b8ee71196a62c5f2d75d0381202ac3e538b8b955",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "reverb-ir-swap.job.json"
+      ],
+      "envelopes": null,
+      "wav": "reverb-ir-swap.wav",
+      "data": null
+    },
+    "reverb-room-send": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "5313c91b2f7350057c422d5cbe0f65a0dcdb5a92620ea745a801b4a0a651fd99",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "reverb-room-send.job.json"
+      ],
+      "envelopes": null,
+      "wav": "reverb-room-send.wav",
+      "data": null
+    },
+    "reverb-roomsize-zero": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "3df46faeb5dd63f6f5402a91c58d110dfee0ed8253bdf26a1d02cb6915a1968c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "reverb-roomsize-zero.job.json"
+      ],
+      "envelopes": null,
+      "wav": "reverb-roomsize-zero.wav",
+      "data": null
+    },
+    "shape-basic": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "922cd6ccf5230b3819cb017eae7bbc99e2be5477bd80a9d332fc200dfbc1f756",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "shape-basic.job.json"
+      ],
+      "envelopes": null,
+      "wav": "shape-basic.wav",
+      "data": null
+    },
+    "shape-one": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "28981de3329c8fa5a54074d7e9d7a68438f9517b06dca208c3f2ddef61d45892",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "shape-one.job.json"
+      ],
+      "envelopes": null,
+      "wav": "shape-one.wav",
+      "data": null
+    },
+    "supersaw-boundary": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "50ea13682a91641ad1b32c707ecc66bf9748e65c240d844fde634e446ceb5f01",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "supersaw-boundary.job.json"
+      ],
+      "envelopes": null,
+      "wav": "supersaw-boundary.wav",
+      "data": null
+    },
+    "supersaw-frac-unison": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "dc03830168080bdce557eabd5780a55c8b3c5bb3db1916d4702d760e21873409",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "supersaw-frac-unison.job.json"
+      ],
+      "envelopes": null,
+      "wav": "supersaw-frac-unison.wav",
+      "data": null
+    },
+    "supersaw-pitch-env": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "0e8caa7ae87557f2c58de25519a9b1d854bd41020e75de29ffa9a660975f25fc",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "supersaw-pitch-env.job.json"
+      ],
+      "envelopes": null,
+      "wav": "supersaw-pitch-env.wav",
+      "data": null
+    },
+    "supersaw-unison1": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "a1faf51e363f27930ade7175d54162a311caadc6014be617ed64e8134a864845",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "supersaw-unison1.job.json"
+      ],
+      "envelopes": null,
+      "wav": "supersaw-unison1.wav",
+      "data": null
+    },
+    "supersaw-unison5": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "a826a472ecb5e8f5969cce8be083ea08612e995531d7ec09c253b817760e57a5",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "supersaw-unison5.job.json"
+      ],
+      "envelopes": null,
+      "wav": "supersaw-unison5.wav",
+      "data": null
+    },
+    "supersaw-vibrato": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "8f0ef767b29dda7a432153b6caaafd3365917cd733d3d4b6630836653cd906e2",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "supersaw-vibrato.job.json"
+      ],
+      "envelopes": null,
+      "wav": "supersaw-vibrato.wav",
+      "data": null
+    },
+    "transient-attack": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "24f3c8247903a2bf28cf0b1e8540832bb0e83513bf1081b09540a1699cd27459",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "transient-attack.job.json"
+      ],
+      "envelopes": null,
+      "wav": "transient-attack.wav",
+      "data": null
+    },
+    "transient-stereo": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "dad470ae6cbb6caea3efcc0d2dd2a88e4dba509e06b3cec78905138155e5758c",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "transient-stereo.job.json"
+      ],
+      "envelopes": null,
+      "wav": "transient-stereo.wav",
+      "data": null
+    },
+    "transient-sustain": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "c0f1611bf122fb1fd613ea01dcb534ef0372eaaa61f698486ca404f31646c248",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "transient-sustain.job.json"
+      ],
+      "envelopes": null,
+      "wav": "transient-sustain.wav",
+      "data": null
+    },
+    "tremolo-depth-edges": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "c3c3f68dec70ecd244511c4866258d2c27c43473f6ae52343178f323ec3c0623",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "tremolo-depth-edges.job.json"
+      ],
+      "envelopes": null,
+      "wav": "tremolo-depth-edges.wav",
+      "data": null
+    },
+    "tremolo-sum": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "2dc87530cff98fd2effbb8ff5b2744ed679fdfaaab0439b247d42b2d035cd45a",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "tremolo-sum.job.json"
+      ],
+      "envelopes": null,
+      "wav": "tremolo-sum.wav",
+      "data": null
+    },
+    "v8-math": {
+      "kind": "math",
+      "provenance": {
+        "schema": 1,
+        "inputsSha256": "aeb218f2908896ab8f73c460adef969dc040a7cfb73a924aceb1215c607bf7d2",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [],
+      "envelopes": null,
+      "wav": null,
+      "data": "v8-math.json"
+    },
+    "vowel-formants": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "6111239b33bcf33612b1621dafdcccdfaa1e5562dff854a9758dfae88c07628b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "vowel-formants.job.json"
+      ],
+      "envelopes": null,
+      "wav": "vowel-formants.wav",
+      "data": null,
+      "floorDb": -145.51
+    },
+    "vowel-unknown": {
+      "kind": "micro",
+      "provenance": {
+        "schema": 2,
+        "sourceSha256": "679c26e58c92afa90eda1bb7acb8616345dbd0091b687420344b1eb7c64a605b",
+        "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+        "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+        "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+        "playwright": "1.64.1",
+        "chromium": "156.0.8078.4",
+        "platform": "darwin-arm64"
+      },
+      "jobs": [
+        "vowel-unknown.job.json"
+      ],
+      "envelopes": null,
+      "wav": "vowel-unknown.wav",
+      "data": null
+    }
+  }
+}

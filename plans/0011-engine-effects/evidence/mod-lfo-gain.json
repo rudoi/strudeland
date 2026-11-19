@@ -1,0 +1,24 @@
+{
+  "item": "the LFO start quantum of a connected lfo modulator (05 \"(measure) captures\" 1)",
+  "cases": ["mod-lfo-gain", "mod-lfo-pan", "bus-bmod"],
+  "candidates": [
+    {
+      "candidate": "a",
+      "description": "the shared worklet rule (worklet.rs, stage 7): the lfo, connected at the pause frame, runs process() from the first quantum whose currentTime is strictly past the float32 begin (worklet::started), its phase set there from ffrac(time * frequency + phaseoffset); the connected gain or pan takes the sample-accurate path from the pause frame",
+      "residualDb": { "mod-lfo-gain": "-inf", "mod-lfo-pan": "-inf", "bus-bmod": "-inf" }
+    },
+    {
+      "candidate": "b-earlier",
+      "description": "the lfo starts one quantum earlier (started(currentTime + 128 / sr, begin)), everything else unchanged",
+      "residualDb": { "mod-lfo-gain": -22.14, "mod-lfo-pan": -26.01, "bus-bmod": "-inf" }
+    },
+    {
+      "candidate": "b-later",
+      "description": "the lfo starts one quantum later (started(currentTime - 128 / sr, begin))",
+      "residualDb": { "mod-lfo-gain": -20.5, "mod-lfo-pan": -30.57, "bus-bmod": "-inf" }
+    }
+  ],
+  "outcome": "outcome (a): the shared rule nulls every case bit for bit; worklet.rs is unchanged and no worklet micro case is re-checked. The Chromium refs were generated once (engine:refs --write); bus-bmod has no lfo (its candidates only move the other cases)",
+  "choice": "a",
+  "method": "the candidates were measured by patching lfo.rs's start test in a scratch build and running micro.rs against the committed refs; the patch is not committed"
+}

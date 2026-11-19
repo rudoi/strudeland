@@ -1,0 +1,518 @@
+[
+  {
+    "name": "a supported sine",
+    "values": [{ "s": "sine", "note": 60, "gain": 0.5 }],
+    "expected": []
+  },
+  {
+    "name": "no s defaults to triangle",
+    "values": [{ "note": 60 }],
+    "expected": []
+  },
+  {
+    "name": "an unknown sound",
+    "values": [{ "s": "bytebeat", "note": 60 }],
+    "expected": [{ "s": "bytebeat", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "the synth worklets are supported",
+    "values": [
+      { "s": "supersaw", "note": 45, "unison": 3, "spread": 0.5, "detune": 0.2 },
+      { "s": "pulse", "note": 45, "pw": 0.3 }
+    ],
+    "expected": []
+  },
+  {
+    "name": "pulse width modulation, tremolo and the filter LFOs are supported",
+    "values": [
+      { "s": "pulse", "pwrate": 2 },
+      { "s": "pulse", "pwsweep": 0.5 },
+      { "s": "sine", "tremolo": 4, "tremolodepth": 0.5, "tremoloshape": "sine" },
+      { "s": "sine", "tremolosync": 2, "tremoloskew": 0.2, "tremolophase": 0.5 },
+      { "s": "sawtooth", "cutoff": 800, "lprate": 2, "lpdepth": 0.5, "lpshape": "saw" },
+      { "s": "sawtooth", "hcutoff": 300, "hpsync": 1, "hpdc": 0, "hpskew": 0.2 },
+      { "s": "sawtooth", "bandf": 900, "bpdepthfrequency": 200, "ftype": "ladder" }
+    ],
+    "expected": []
+  },
+  {
+    "name": "an unknown key",
+    "values": [{ "s": "sine", "ir": "x" }],
+    "expected": [{ "s": "sine", "keys": ["ir"], "firstBar": 0 }]
+  },
+  {
+    "name": "keys are sorted and unique",
+    "values": [{ "stretch": 1, "s": "sine", "irspeed": 2, "ir": "x" }],
+    "expected": [{ "s": "sine", "keys": ["ir", "irspeed", "stretch"], "firstBar": 0 }]
+  },
+  {
+    "name": "a truthy bank prefixes s",
+    "values": [{ "s": "bd", "bank": "RolandTR909" }],
+    "expected": [{ "s": "RolandTR909_bd", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "a bank on a synth makes it unknown",
+    "values": [{ "s": "sine", "bank": "x" }],
+    "expected": [{ "s": "x_sine", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "falsy banks are ignored",
+    "values": [
+      { "s": "sine", "bank": "" },
+      { "s": "sine", "bank": 0 },
+      { "s": "sine", "bank": null },
+      { "s": "sine", "bank": false },
+      { "s": "sine", "bank": { "$num": "NaN" } }
+    ],
+    "expected": []
+  },
+  {
+    "name": "a numeric bank is stringified",
+    "values": [{ "s": "sine", "bank": 2.5 }],
+    "expected": [{ "s": "2.5_sine", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "an empty s is not prefixed",
+    "values": [{ "s": "", "bank": "x" }],
+    "expected": [{ "s": "", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "a null s stays null",
+    "values": [{ "s": null }],
+    "expected": [{ "s": "null", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "a numeric s",
+    "values": [{ "s": 5 }],
+    "expected": [{ "s": "5", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "an array s is joined",
+    "values": [{ "s": ["sine", null, 2] }],
+    "expected": [{ "s": "sine,,2", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "silence markers are skipped",
+    "values": [{ "s": "~", "ir": "x" }, { "s": "-", "stretch": 1 }, { "s": "_" }],
+    "expected": []
+  },
+  {
+    "name": "other ftype values are supported",
+    "values": [
+      { "s": "sawtooth", "ftype": "24db", "cutoff": 500 },
+      { "s": "sawtooth", "ftype": 1, "cutoff": 500 },
+      { "s": "sawtooth", "ftype": "Ladder", "cutoff": 500 },
+      { "s": "sawtooth", "ftype": "ladder", "cutoff": 500, "drive": 3 },
+      { "s": "sawtooth", "djf": 0.2 }
+    ],
+    "expected": []
+  },
+  {
+    "name": "an $unsupported member names its key",
+    "values": [{ "s": "sine", "gain": { "$unsupported": "function" } }],
+    "expected": [{ "s": "sine", "keys": ["gain"], "firstBar": 0 }]
+  },
+  {
+    "name": "a nested $unsupported member names its key",
+    "values": [{ "s": "sine", "note": [1, { "a": { "$unsupported": "Fraction" } }] }],
+    "expected": [{ "s": "sine", "keys": ["note"], "firstBar": 0 }]
+  },
+  {
+    "name": "an unknown key holding $unsupported is listed once",
+    "values": [{ "s": "sine", "foo": { "$unsupported": "symbol" } }],
+    "expected": [{ "s": "sine", "keys": ["foo"], "firstBar": 0 }]
+  },
+  {
+    "name": "$num members are plain numbers",
+    "values": [{ "s": "sine", "gain": { "$num": "NaN" }, "note": { "$num": "-0" } }],
+    "expected": []
+  },
+  {
+    "name": "distinct signatures keep the bar of their first hap",
+    "values": [
+      { "s": "sine", "ir": 1 },
+      { "s": "sine" },
+      { "s": "sine", "ir": 2 },
+      { "s": "sine", "ir": 1, "stretch": "a" },
+      { "s": "saw", "ir": 2 },
+      { "s": "bytebeat" },
+      { "s": "bytebeat", "note": 40 }
+    ],
+    "expected": [
+      { "s": "sine", "keys": ["ir"], "firstBar": 0 },
+      { "s": "sine", "keys": ["ir", "stretch"], "firstBar": 3 },
+      { "s": "saw", "keys": ["ir"], "firstBar": 4 },
+      { "s": "bytebeat", "keys": [], "firstBar": 5 }
+    ]
+  },
+  {
+    "name": "ir is a sample IR (#18)",
+    "values": [{ "s": "sine", "ir": "x" }],
+    "expected": [{ "s": "sine", "keys": ["ir"], "firstBar": 0 }]
+  },
+  {
+    "name": "irspeed and irbegin (#18)",
+    "values": [{ "s": "sine", "irspeed": 2, "irbegin": 0.5 }],
+    "expected": [{ "s": "sine", "keys": ["irbegin", "irspeed"], "firstBar": 0 }]
+  },
+  {
+    "name": "stretch (#18)",
+    "values": [{ "s": "sine", "stretch": 2 }],
+    "expected": [{ "s": "sine", "keys": ["stretch"], "firstBar": 0 }]
+  },
+  {
+    "name": "worklet source keys (#55)",
+    "values": [{ "s": "sine", "workletSrc": "x", "workletInputs": [] }],
+    "expected": [{ "s": "sine", "keys": ["workletInputs", "workletSrc"], "firstBar": 0 }]
+  },
+  {
+    "name": "source function (#55)",
+    "values": [{ "s": "sine", "source": { "$unsupported": "function" } }],
+    "expected": [{ "s": "sine", "keys": ["source"], "firstBar": 0 }]
+  },
+  {
+    "name": "bytebeat (#55)",
+    "values": [{ "s": "bytebeat" }],
+    "expected": [{ "s": "bytebeat", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "a wavetable sound (#18)",
+    "values": [{ "s": "wt_flute" }],
+    "expected": [{ "s": "wt_flute", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "a sample name (#18)",
+    "values": [{ "s": "kick", "n": 1 }],
+    "expected": [{ "s": "kick", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "a soundfont (#18)",
+    "values": [{ "s": "gm_piano" }],
+    "expected": [{ "s": "gm_piano", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "zzfx noise (#53)",
+    "values": [{ "s": "z_noise" }],
+    "expected": [{ "s": "z_noise", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "zzfx (#53)",
+    "values": [{ "s": "zzfx" }],
+    "expected": [{ "s": "zzfx", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "sbd (#56)",
+    "values": [{ "s": "sbd" }],
+    "expected": [{ "s": "sbd", "keys": [], "firstBar": 0 }]
+  },
+  {
+    "name": "an array distorttype is unsupported",
+    "values": [{ "s": "sawtooth", "distorttype": [3] }],
+    "expected": [{ "s": "sawtooth", "keys": ["distorttype"], "firstBar": 0 }]
+  },
+  {
+    "name": "a named distorttype is supported",
+    "values": [{ "s": "sawtooth", "distorttype": "fold" }],
+    "expected": []
+  },
+  {
+    "name": "a bus self-loop",
+    "values": [{ "s": "bus", "n": 1, "bus": 1 }],
+    "expected": [{ "s": "bus", "keys": ["bus-cycle"], "firstBar": 0 }]
+  },
+  {
+    "name": "a two-bus cycle",
+    "values": [
+      { "s": "bus", "n": 1, "bus": 2 },
+      { "s": "bus", "n": 2, "bus": 1 }
+    ],
+    "expected": [{ "s": "bus", "keys": ["bus-cycle"], "firstBar": 0 }]
+  },
+  {
+    "name": "a feeder and a reader are not a cycle",
+    "values": [{ "s": "sine", "bus": 1 }, { "s": "bus", "n": 1 }],
+    "expected": []
+  },
+  {
+    "name": "a bus chain is not a cycle",
+    "values": [
+      { "s": "sine", "bus": 1 },
+      { "s": "bus", "n": 1, "bus": 2 },
+      { "s": "bus", "n": 2 }
+    ],
+    "expected": []
+  },
+  {
+    "name": "a bus cycle first heard in bar 1, with another bad key",
+    "values": [
+      { "s": "sine", "bus": 1, "busgain": 0.5 },
+      { "s": "bus", "n": "1", "bus": 1, "ir": "x" }
+    ],
+    "expected": [{ "s": "bus", "keys": ["bus-cycle", "ir"], "firstBar": 1 }]
+  },
+  {
+    "name": "a bmod read of the voice's own send bus is a cycle",
+    "values": [
+      {
+        "s": "sine",
+        "bus": 3,
+        "bmod": { "__ids": { "$set": [0] }, "0": { "control": "gain", "bus": 3 } }
+      }
+    ],
+    "expected": [{ "s": "sine", "keys": ["bus-cycle"], "firstBar": 0 }]
+  },
+  {
+    "name": "lfo without ids",
+    "values": [{ "s": "sine", "lfo": { "0": { "control": "gain" } } }],
+    "expected": [{ "s": "sine", "keys": ["lfo"], "firstBar": 0 }]
+  },
+  {
+    "name": "lfo not an object",
+    "values": [{ "s": "sine", "lfo": 3 }],
+    "expected": [{ "s": "sine", "keys": ["lfo"], "firstBar": 0 }]
+  },
+  {
+    "name": "lfo on a noise source",
+    "values": [{ "s": "white", "lfo": { "__ids": { "$set": [0] }, "0": { "control": "note" } } }],
+    "expected": [{ "s": "white", "keys": ["lfo:note"], "firstBar": 0 }]
+  },
+  {
+    "name": "a supported lfo target",
+    "values": [{ "s": "sine", "lfo": { "__ids": { "$set": [0] }, "0": { "control": "gain" } } }],
+    "expected": []
+  },
+  {
+    "name": "env on a noise modulator",
+    "values": [
+      {
+        "s": "sine",
+        "fmi": 1,
+        "fmwave": "white",
+        "env": { "__ids": { "$set": [0] }, "0": { "control": "fmh" } }
+      }
+    ],
+    "expected": [{ "s": "sine", "keys": ["env:fmh"], "firstBar": 0 }]
+  },
+  {
+    "name": "bmod on a noise note",
+    "values": [
+      {
+        "s": "pink",
+        "note": 60,
+        "bmod": { "__ids": { "$set": [0] }, "0": { "control": "note", "bus": 1 } }
+      }
+    ],
+    "expected": [{ "s": "pink", "keys": ["bmod:note"], "firstBar": 0 }]
+  },
+  {
+    "name": "throws are supported: an lfo on lprate",
+    "values": [
+      {
+        "s": "sine",
+        "cutoff": 500,
+        "lfo": { "__ids": { "$set": [0] }, "0": { "control": "lprate" } }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "throws are supported: an lfo with an attack key",
+    "values": [
+      {
+        "s": "sine",
+        "cutoff": 500,
+        "lfo": { "__ids": { "$set": [0] }, "0": { "control": "cutoff", "attack": 1 } }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "throws are supported: an lfo with fxi 5",
+    "values": [
+      {
+        "s": "sine",
+        "cutoff": 500,
+        "lfo": { "__ids": { "$set": [0] }, "0": { "control": "cutoff", "fxi": 5 } }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "throws are supported: an env without control",
+    "values": [
+      { "s": "sine", "cutoff": 500, "env": { "__ids": { "$set": [0] }, "0": { "attack": 0.1 } } }
+    ],
+    "expected": []
+  },
+  {
+    "name": "a modulator id without an object config",
+    "values": [{ "s": "sine", "lfo": { "__ids": { "$set": [0] }, "0": 1 } }],
+    "expected": [{ "s": "sine", "keys": ["lfo"], "firstBar": 0 }]
+  },
+  {
+    "name": "an env id without a config, and an empty bmod",
+    "values": [
+      {
+        "s": "sine",
+        "env": { "__ids": { "$set": [0, "a"] }, "0": { "control": "gain" } },
+        "bmod": { "__ids": { "$set": [] } }
+      }
+    ],
+    "expected": [{ "s": "sine", "keys": ["env"], "firstBar": 0 }]
+  },
+  {
+    "name": "a noise target after a throwing config is never built",
+    "values": [
+      {
+        "s": "white",
+        "lfo": { "__ids": { "$set": [0, 1] }, "0": { "control": 5 }, "1": { "control": "note" } }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "a noise target with a key the lfo lacks throws first",
+    "values": [
+      {
+        "s": "white",
+        "lfo": { "__ids": { "$set": [0] }, "0": { "control": "note", "attack": 1 } }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "a skipped modulator is superdough's log, not a signature",
+    "values": [{ "s": "white", "lfo": { "__ids": { "$set": [0] }, "0": { "control": "nope" } } }],
+    "expected": []
+  },
+  {
+    "name": "fmi on a noise modulator is supported",
+    "values": [
+      {
+        "s": "sine",
+        "fmi": 1,
+        "fmwave": "white",
+        "lfo": { "__ids": { "$set": [0] }, "0": { "control": "fmi" } }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "noise targets of two types, listed once each",
+    "values": [
+      {
+        "s": "brown",
+        "lfo": { "__ids": { "$set": [0, 1] }, "0": { "control": "note" }, "1": { "control": "note" } },
+        "env": { "__ids": { "$set": ["x"] }, "x": { "control": "s" } }
+      },
+      { "s": "brown", "lfo": { "__ids": { "$set": [0] }, "0": { "control": "note" } }, "gain": 1 }
+    ],
+    "expected": [
+      { "s": "brown", "keys": ["env:s", "lfo:note"], "firstBar": 0 },
+      { "s": "brown", "keys": ["lfo:note"], "firstBar": 1 }
+    ]
+  },
+  {
+    "name": "FX not an array",
+    "values": [{ "s": "sine", "FX": 3 }],
+    "expected": [{ "s": "sine", "keys": ["FX"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX entry not an object",
+    "values": [{ "s": "sine", "FX": [3] }],
+    "expected": [{ "s": "sine", "keys": ["FX"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX null entries and a null FX",
+    "values": [{ "s": "sine", "FX": [null, { "cutoff": 500 }] }, { "s": "sine", "FX": null, "gain": 1 }],
+    "expected": [{ "s": "sine", "keys": ["FX"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX.ir",
+    "values": [{ "s": "sine", "FX": [{ "ir": "x" }] }],
+    "expected": [{ "s": "sine", "keys": ["FX.ir"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX.stretch",
+    "values": [{ "s": "sine", "FX": [{ "stretch": 2 }] }],
+    "expected": [{ "s": "sine", "keys": ["FX.stretch"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX.workletSrc",
+    "values": [{ "s": "sine", "FX": [{ "workletSrc": "x" }] }],
+    "expected": [{ "s": "sine", "keys": ["FX.workletSrc"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX unread keys are ignored",
+    "values": [{ "s": "sine", "FX": [{ "s": "bytebeat", "orbit": 2 }] }],
+    "expected": []
+  },
+  {
+    "name": "FX unread keys holding a marker are ignored, read ones are listed",
+    "values": [
+      {
+        "s": "sine",
+        "FX": [{ "source": { "$unsupported": "function" }, "cutoff": { "$unsupported": "function" } }]
+      }
+    ],
+    "expected": [{ "s": "sine", "keys": ["FX.cutoff"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX entry keys are listed once without an index",
+    "values": [{ "s": "sine", "FX": [{ "ir": "x" }, { "ir": "y", "irspeed": 2 }], "ir": "z" }],
+    "expected": [{ "s": "sine", "keys": ["FX.ir", "FX.irspeed", "ir"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX.distorttype not a scalar",
+    "values": [{ "s": "sine", "FX": [{ "distort": 1, "distorttype": [3] }] }],
+    "expected": [{ "s": "sine", "keys": ["FX.distorttype"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX.lfo of the wrong shape",
+    "values": [{ "s": "sine", "FX": [{ "cutoff": 500, "lfo": 3 }] }],
+    "expected": [{ "s": "sine", "keys": ["FX.lfo"], "firstBar": 0 }]
+  },
+  {
+    "name": "FX.lfo on a noise source",
+    "values": [
+      {
+        "s": "white",
+        "FX": [{ "lfo": { "__ids": { "$set": [0] }, "0": { "control": "note", "fxi": "main" } } }]
+      }
+    ],
+    "expected": [{ "s": "white", "keys": ["FX.lfo:note"], "firstBar": 0 }]
+  },
+  {
+    "name": "lfo inside an FX entry reaching main",
+    "values": [
+      {
+        "s": "white",
+        "FX": [
+          { "cutoff": 500, "lfo": { "__ids": { "$set": [0] }, "0": { "control": "note", "fxi": "main" } } }
+        ]
+      }
+    ],
+    "expected": [{ "s": "white", "keys": ["FX.lfo:note"], "firstBar": 0 }]
+  },
+  {
+    "name": "a chain entry's own note target skips",
+    "values": [
+      {
+        "s": "white",
+        "FX": [{ "cutoff": 500, "lfo": { "__ids": { "$set": [0] }, "0": { "control": "note" } } }]
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "FX chains with local delay and reverb are supported",
+    "values": [
+      {
+        "s": "sawtooth",
+        "FXrelease": 0.5,
+        "FX": [{ "cutoff": 500, "pan": 0.3 }, { "delay": 0.5, "delaytime": 0.1, "room": 0.4, "roomsize": 1 }]
+      }
+    ],
+    "expected": []
+  }
+]

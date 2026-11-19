@@ -1,0 +1,27 @@
+node_modules
+dist
+dist-render
+.render-out
+tests/render/goldens/
+target
+src-tauri
+bun.lock
+LICENSE
+*.md
+plans
+.claude
+WORKFLOW_STATE.json
+crates/strudeland-cli/strudel-docs.json
+vendor
+# Corpus songs: singleQuote would turn mini-notation "..." strings into plain strings
+tests/render/corpus/*.js
+# Micro-case songs (mini-notation "..." strings) and the engine's generated test JSON
+tests/render/engine-micro/*.js
+# Bench songs: singleQuote would turn mini-notation "..." strings into plain strings
+tests/bench/*.js
+crates/strudeland-engine/tests/
+crates/strudeland-host/js/
+# The render crate's generated vectors (bun run render:vectors --write)
+crates/strudeland-render/tests/vectors/
+# The live crate's committed engine job fixture
+crates/strudeland-live/tests/data/

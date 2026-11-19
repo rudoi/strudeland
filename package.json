@@ -1,0 +1,85 @@
+{
+  "name": "strudeland",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "workspaces": {
+    "packages": [
+      "vendor/strudel/packages/*"
+    ],
+    "catalog": {
+      "@codemirror/autocomplete": "6.20.4",
+      "@codemirror/commands": "6.11.1",
+      "@codemirror/lang-javascript": "6.2.5",
+      "@codemirror/language": "6.13.1",
+      "@codemirror/search": "6.7.2",
+      "@codemirror/state": "6.7.6",
+      "@codemirror/view": "6.43.15"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "render:build": "vite build -c vite.render.config.ts",
+    "render:check": "bun scripts/render/check.ts",
+    "engine:refs": "bun scripts/engine/refs.ts",
+    "render:vectors": "bun scripts/render/loudness-vectors.ts",
+    "bench:scheduler": "bun scripts/bench/scheduler.ts",
+    "engine:vectors": "bun --preload ./tests/helpers/audioworklet-plugin.ts scripts/engine/vectors.ts",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
+    "test": "bun test",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "tauri": "tauri",
+    "docs:extract": "bun scripts/extract-strudel-docs.ts",
+    "strudel:sync": "bun scripts/strudel-sync.ts",
+    "host:build": "bun scripts/host/build.ts",
+    "host:parity": "bun scripts/render/host-parity.ts",
+    "app:signed": "bun scripts/app-signed.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource-variable/space-grotesk": "5.3.0",
+    "@kabelsalat/lib": "0.4.1",
+    "@kabelsalat/web": "0.4.1",
+    "@lezer/highlight": "1.2.5",
+    "@replit/codemirror-vim": "6.4.0",
+    "@strudel/codemirror": "workspace:*",
+    "@strudel/core": "workspace:*",
+    "@strudel/draw": "workspace:*",
+    "@strudel/mini": "workspace:*",
+    "@strudel/tonal": "workspace:*",
+    "@strudel/transpiler": "workspace:*",
+    "@strudel/webaudio": "workspace:*",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-opener": "2.7.2",
+    "acorn": "8.19.0",
+    "superdough": "workspace:*"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "21.0.4",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tauri-apps/cli": "2.12.4",
+    "@types/bun": "1.4.4",
+    "playwright": "1.64.1",
+    "prettier": "3.9.10",
+    "prettier-plugin-svelte": "4.1.1",
+    "svelte": "5.57.3",
+    "svelte-check": "4.7.8",
+    "typescript": "6.0.3",
+    "vite": "8.3.7",
+    "vite-plugin-bundle-audioworklet": "workspace:*"
+  },
+  "overrides": {
+    "vite": "8.3.7",
+    "vitest": "4.1.12"
+  }
+}

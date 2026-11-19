@@ -1,0 +1,20 @@
+[
+  { "orbit": 1, "pairs": 1, "pair": 0 },
+  { "orbit": 4, "pairs": 1, "pair": 0 },
+  { "orbit": 0, "pairs": 1, "pair": 0 },
+  { "orbit": -1, "pairs": 1, "pair": 0 },
+  { "orbit": 2, "pairs": 5, "pair": 1 },
+  { "orbit": 5, "pairs": 5, "pair": 4 },
+  { "orbit": 5, "pairs": 3, "pair": 1 },
+  { "orbit": 6, "pairs": 3, "pair": 2 },
+  { "orbit": 7, "pairs": 3, "pair": 0 },
+  { "orbit": 1, "pairs": 16, "pair": 0 },
+  { "orbit": 2, "pairs": 16, "pair": 1 },
+  { "orbit": 16, "pairs": 16, "pair": 15 },
+  { "orbit": 17, "pairs": 16, "pair": 0 },
+  { "orbit": 18, "pairs": 16, "pair": 1 },
+  { "orbit": 33, "pairs": 16, "pair": 0 },
+  { "orbit": 40, "pairs": 16, "pair": 7 },
+  { "orbit": 0, "pairs": 16, "pair": 0 },
+  { "orbit": -3, "pairs": 16, "pair": 0 }
+]

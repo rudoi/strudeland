@@ -1,0 +1,65 @@
+{
+  "what": "Null residuals of the noise sources (noise: superdough's getNoiseBuffer generation, Blink's AudioBufferSourceHandler at rate 1 with loop on), the noise mix and FM (applyFM's matrix, modulators, envelopes and noise waves) against the Chromium micro-case references, the thresholds derived from them, and the measurement behind the buffer-source start correction.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "marginRule": "a bit-exact case (-inf) gets -140 dB, as in engine-null-micro-filters.json",
+  "determinism": "a second `bun run engine:refs` over the nine cases reported 'refs are current' (Chromium rendered them byte-identically twice)",
+  "cases": {
+    "noise-white": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "White noise from meta.seed 0, onsets at frames 0 and 11025 (fast path) and 16537.5 (skip 0.5, interpolated path). Bit-identical."
+    },
+    "noise-pink": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Pink noise from meta.seed 7, two voices on the one cached buffer, onsets 0 and 5512.5. Bit-identical."
+    },
+    "noise-brown": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Brown noise from meta.seed -3, overlapping voices at 2756.25 and 11025+2756.25 frames. Bit-identical."
+    },
+    "noise-crackle": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Crackle per voice seed at densities 0.02, 2, 30 (and 0, silent). Bit-identical."
+    },
+    "noise-mix": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Sawtooths with noise 0.3, 0.8 (orbit 1) and 1.2 (orbit 2): wetfade dry/wet gains, the cached pink buffer started at t. release(8) keeps every voice sounding past the window, and the voices are split over two orbits so no summing junction has more than two sounding inputs. Bit-identical.",
+      "redesign": "The first design (three 0.125 s notes ending inside the window) made Chromium's references fail about half the full engine:refs runs: superdough's teardown of an ended noise-mix voice throws InvalidAccessError (the pink source is released before the drywet disconnect; a superdough bug, not modelled). Rewritten and re-measured: -inf, and three dry runs reported 'refs are current'."
+    },
+    "noise-start-roundup": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Bars of 11025.00023 frames (bpm 239.999995, 1/4): the second bar's onset rounds down onto frame 11025 by the 1/1024 rule (positive offset: no skip, fast path); half-bar onsets at 5512.50011 and 16537.50034 start a frame later and skip about 0.4999 of a frame. Bit-identical."
+    },
+    "fm-pair": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "fmi/fmh pairs on sine and triangle carriers: modfreq = carrier frequency.value * fmh, modulator started at the pause frame but first rendered in the carrier's first playing quantum (Blink renders only pulled nodes), carrier a-rate. Bit-identical."
+    },
+    "fm-chain-env": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "fmi2 chain with a linear FM envelope on modulator 1 and the default exponential one on modulator 2; fmi31 with fmwave3 square. Bit-identical."
+    },
+    "fm-noise-wave": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "White and brown noise modulators into the carrier, crackle (density 2, voice seed) into a sine modulator, and fmi2 into a noise modulator (skipped; the sine modulator still runs unheard). Bit-identical."
+    }
+  },
+  "bufferSourceStart": {
+    "finding": "research/chromium.md said buffer sources have no sub-sample start and play rate 1 on the integer fast path. At 156.0.8078.4, AudioBufferSourceHandler::RenderFromBuffer adds |start_frame_offset| (start_time * sr - start_frame, negative when t lies before the start frame) to the read index in the first playing quantum ('Forward Start Time Adjustment'); the fractional read index then fails the fast-path test (virtual_read_index == floor(...)) for the rest of the source's life, so it interpolates linearly. Ported; research/chromium.md Corrections, 03 section 5 and the module map's decision 4 updated.",
+    "ablation": "with the skip disabled (integer read index, fast path only): noise-white -6.85 dB, noise-pink -13.66, noise-brown -20.77, noise-crackle -14.86, noise-mix -20.93, noise-start-roundup -40.45; FM cases unchanged (-inf: modulators start at pause frames, on a frame). With the port: all -inf."
+  }
+}

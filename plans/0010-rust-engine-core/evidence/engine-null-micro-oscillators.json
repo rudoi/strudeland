@@ -1,0 +1,114 @@
+{
+  "what": "Null residuals of the periodic-wave oscillator (periodic: PeriodicWaveHandler tables built with rustfft as Blink's FFTFrame; osc: OscillatorHandler a-rate and k-rate paths with the arm64 NEON kernels, sub-sample start, ConstantSource), vibrato and the pitch envelope against the Chromium micro-case references, plus the re-measured sine-based cases of the earlier stages, and the thresholds derived from them.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "marginRule": "threshold = measured residual rounded up by about 3 dB; a bit-exact case (-inf) gets -140 dB (far below the -60 dB target, above the level of a stray 1-ulp float difference)",
+  "cases": {
+    "osc-sine": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Built-in sine table (GenerateBasicWaveform, inverse FFT through rustfft 6.4.1 as Chromium's FFTFrame does), 55/440/4186 Hz, on-frame onsets. Bit-identical. Replaces the interim -90 dB threshold."
+    },
+    "osc-sawtooth": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Built-in sawtooth table at 55/440/4186 Hz; k-rate NEON vector kernel with float indices, table selection and blend. Bit-identical."
+    },
+    "osc-square": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Built-in square table at 55/440/4186 Hz. Bit-identical."
+    },
+    "osc-triangle": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Built-in triangle table at 55/440/4186 Hz. Bit-identical."
+    },
+    "osc-partials": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "waveformN custom waves: n(12) on sawtooth (magnitudes 1) and a partials list on square; createPeriodicWave tables, culling per range and range-0 normalization. Bit-identical."
+    },
+    "osc-phases": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "waveformN phase rotation (libm cos/sin in f64, stored f32) on a five-partial sawtooth. Bit-identical (the JS Math.cos/sin of V8 and libm agree on these inputs)."
+    },
+    "osc-user": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "s('user') with a partials list (terms [0, 1]) and without partials (triangle fallback). Bit-identical."
+    },
+    "osc-one": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "ConstantSourceNode(1): starts on TimeToSampleFrame(t, RoundUp) (8268.75 frames -> 8269), no sub-sample phase. Bit-identical."
+    },
+    "osc-subsample-start": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Onsets between frames in quanta after the pause quantum: k-rate first quantum with the sub-sample start phase -offset * frequency * rate_scale. Bit-identical."
+    },
+    "osc-arate-start": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "First quantum on the a-rate path (frequency event at the pause-quantum start; a zero-depth pitch envelope): phase 0 despite the fractional onset. Bit-identical; with the start phase computed from the frequency instead (the k-rate rule) the residual is -23.91 dB, so the case pins the quirk."
+    },
+    "osc-vibrato": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Vibrato: sine oscillator at vib Hz -> Gain(vibmod * 100) -> carrier detune (a connection: the carrier is a-rate every quantum, the vibrato chain is pulled only while the carrier plays). Bit-identical."
+    },
+    "pitch-env-linear": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Linear pitch envelope on detune (penv 12, anchor = psustain): a-rate detune, exp2(d * (1/1200 as f32)) per frame, increments read from the start of the quantum buffer. Bit-identical."
+    },
+    "pitch-env-exp-negative": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Exponential pitch envelope with negative depth (penv -12, pcurve 1: min 1200, max 0 -> 0.001). Bit-identical."
+    },
+    "param-exp-ramp": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "exponentialRampToValueAtTime through a pitch envelope (pcurve 1, panchor 0: 0.001 -> 1200 cents and back): Blink's double accumulator and the snap to the target. Bit-identical. Deferred from the envelope stage."
+    },
+    "param-exp-held": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Exponential ramps with opposite-sign ends (pitch envelope -600 -> 600 cents, pcurve 1, panchor 0.5): Blink holds the start value. Bit-identical. Deferred from the envelope stage."
+    },
+    "measure-suspend-quantization": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Re-measured with the periodic-wave oscillator and its sub-sample start: the interim -29.29 dB (missing sub-sample phase on the five fractional onsets) is gone. Bit-identical; no longer interim."
+    },
+    "adsr-defaults": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Re-measured: the residual floor was the interim libm::sin oscillator (-102.85 dB). Bit-identical with the table sine."
+    },
+    "adsr-attack-only": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Re-measured (was -101.14 dB with the interim sine). Bit-identical."
+    },
+    "adsr-sustain-only": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Re-measured (was -102.45 dB with the interim sine). Bit-identical."
+    },
+    "adsr-decay-only": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Re-measured (was -111.29 dB with the interim sine). Bit-identical."
+    }
+  }
+}

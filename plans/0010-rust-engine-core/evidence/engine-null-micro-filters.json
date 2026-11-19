@@ -1,0 +1,93 @@
+{
+  "what": "Null residuals of the biquad filters (biquad: Blink Biquad coefficients and kernels, BiquadFilterHandler, TailFrame and AudioHandler silence propagation), filter envelopes, the stereo panner and the voice's gain stage, postgain and dry against the Chromium micro-case references, the thresholds derived from them, and the measurements behind the kernel decisions.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "marginRule": "a bit-exact case (-inf) gets -140 dB; so does a case whose only differences are the stray last-bit ones listed under nondeterminism (Chromium itself changes them from run to run), since -140 dB is far below the -60 dB target and above the level of such differences",
+  "cases": {
+    "filter-lp-const": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Constant lowpass with resonance (lpq 5) on sawtooths plus a 3000 Hz square: SA-constant first quantum, then the macOS fast path (vDSP_deq22D, ported as an fma chain). Bit-identical.",
+      "superseded": "before the redesign (three voices sounding at once at a note boundary): -159.65 dB against one Chromium run; that reference changed in the last bit between runs"
+    },
+    "filter-lp-env": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Lowpass envelopes (lpenv 4 with lpattack/lpdecay/lpsustain/lprelease; lpenv -3 with fanchor 0.5): exponential ramps on frequency, per-frame coefficients with the f32-rounded history, the switch back to the fast path. Bit-identical."
+    },
+    "filter-hp-const": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Constant highpass with hpq 8 at three pitches. Bit-identical."
+    },
+    "filter-hp-env": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Highpass envelope (hpenv 3, hpattack, hpdecay, hpsustain). Bit-identical."
+    },
+    "filter-bp-const": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Bandpass with linear Q (bpq 4) and the default Q 1. Bit-identical.",
+      "superseded": "before the redesign (three voices sounding at once at a note boundary): -inf dB against one Chromium run; that reference changed in the last bit between runs"
+    },
+    "filter-bp-env": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Bandpass envelope (bpenv 3 with its ADSR). Bit-identical."
+    },
+    "filter-24db": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "ftype '24db' and ftype 2: two cascaded biquads, each with its own envelope. Bit-identical.",
+      "superseded": "before the redesign (three voices sounding at once at a note boundary): -155.41 dB against one Chromium run; that reference changed in the last bit between runs"
+    },
+    "filter-ftype-numeric": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "ftype 1 and 4 are a plain 12 dB biquad (not the ladder), 0 is 12 dB, 5 is 24 dB. Bit-identical.",
+      "superseded": "before the redesign (ftype order 1 4 5 0): -181.59 dB against one Chromium run, first put down to the summing order; the reference changed between runs at quanta 141-142 (up to 2.6e-8), five quanta after the 24 dB voice's source stop: superdough's disconnect cut its two resonant biquads' ring at a varying quantum (nondeterminism effect 1). The 24 dB voice now comes last, so its ring outlasts the window; five --write runs gave byte-identical WAVs."
+    },
+    "filter-tail-resonant": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Resonant lowpasses (1500 Hz lpq 15, 3000 Hz lpq 20) ringing after the amp envelope reaches 0 and 1 to 2 quanta past the source stop, then exact silence when the biquad propagates silence (input silent for longer than TailFrame's tail time). Bit-identical in 5 of 5 Chromium runs. Ringing truncated at the stop would measure about -128 dB and fail."
+    },
+    "pan-mono-center": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "StereoPanner mono law (pan 0.5, 0, 1, 0.25) plus an unpanned voice. Bit-identical (the pan-0 orbit panner leak of stage 10 is modelled).",
+      "superseded": "before the redesign (three voices sounding at once at a note boundary): -333.4 dB against one Chromium run; that reference changed in the last bit between runs"
+    },
+    "pan-sweep": {
+      "measuredDb": -334.52,
+      "maxResidualDb": -140,
+      "notes": "One pan per hap from -0.5 to 1.5 (clamped), a-rate in the pause quantum, k-rate (float gains) after. Differences only in the orbit pan-0 panner leak (1e-17 level), stage 10."
+    },
+    "level-gain-velocity": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "Gain stage gain * velocity (gain 0 silent; default gain 0.8). Bit-identical.",
+      "superseded": "before the redesign (three voices sounding at once at a note boundary): -165.55 dB against one Chromium run; that reference changed in the last bit between runs"
+    },
+    "level-postgain-dry": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "postgain and dry Gains (with and without pan). Bit-identical.",
+      "superseded": "before the redesign (three voices sounding at once at a note boundary): -161.05 dB against one Chromium run; that reference changed in the last bit between runs"
+    }
+  },
+  "nondeterminism": "Chromium's offline render races superdough's main-thread cleanup: a voice's onended event (the source stop) runs webAudioTimeout, whose own onended calls chain.releaseNodes(), disconnecting the voice. DoOfflineRendering never yields, so the disconnect lands at a quantum that varies from run to run. Two effects: (1) a ringing filter is cut wherever the disconnect lands (the first filter-tail-resonant design, a 300 Hz lpq 40 lowpass with a 0.77 s tail, was cut 21 to 25 quanta after its source stop in 7 runs, -23 dB residual; the case was redesigned so that the tails end by Blink's own tail rule 1 to 2 quanta after the stop); (2) disconnecting a voice reorders the destination's summing inputs, so sums of 3 or more voices differ in the last bit between runs (filter-lp-const: 2 of 6 runs bit-identical to the engine, the others differ by at most 5.96e-8 in quanta 86-92 and 129-136). The engine models neither (decision 20); it keeps a voice until Blink's silence propagation or the 1e-10 floor ends it.",
+  "measurements": {
+    "vDSP_deq22D": "Biquad::ProcessFast on macOS calls Accelerate's vDSP_deq22D. Measured on the reference machine (scratch C harness, one-step prediction from vDSP's own history over 81920 samples, then whole trajectories over 1.57 million samples with random lowpass/highpass/bandpass/arbitrary coefficients, histories and input scales from 1 to 1e-29): every output equals fma(-a2, y2, fma(-a1, y1, fma(b0, x, fma(b2, x2, b1 * x1)))), and none of the 89 other evaluation orders tried matches. biquad.rs ports that order; its macOS-only test compares the kernel with vDSP_deq22D itself.",
+    "vDSP_vsma": "StereoPanner::PanToTargetValue's stereo branch calls vDSP_vsma (dest = src * gain + dest): fused (fmaf) on the reference machine for all of 1013536 samples; vDSP_vsmul is a plain float multiply. panner.rs ports both; its macOS-only test compares them with Accelerate.",
+    "silence propagation": "In the first filter-tail-resonant reference, the 1000 Hz lpq 20 voice went silent at quantum 99 in one run and quantum 101 in 6 later runs; the engine's TailFrame + PropagatesSilence port gives quantum 101 (tail 1189.7 frames after the last non-silent input quantum 90). The quantum-99 run was the disconnect race."
+  },
+  "redesign": "Six cases (filter-lp-const, filter-24db, filter-bp-const, pan-mono-center, level-gain-velocity, level-postgain-dry) originally had three voices sounding at once at a note boundary; their Chromium references changed in the last bit from run to run (summing order, see nondeterminism), so a dry `bun run engine:refs` reported them changed. They were redesigned so that at most two inputs sound at any summing junction (the second pattern's note sits inside a note of the first, clear of its boundaries), the references rewritten with `engine:refs --write`, and re-measured: all six are bit-identical (-inf), and three further dry runs of the seven redesigned cases (with noise-mix) reported 'refs are current'. A full dry run then showed filter-ftype-numeric changing too, from the disconnect race rather than the summing order; it was redesigned as its entry says."
+}

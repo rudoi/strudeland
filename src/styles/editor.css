@@ -1,0 +1,213 @@
+/*
+ * Global editor chrome: CodeMirror's tooltips, the autocomplete list, Strudel's docs markup, the
+ * inline sliders and the Claude-edit lines. Global because CodeMirror renders outside Svelte scope.
+ * The editor itself (text, gutters, cursor, selection, highlighting) is src/lib/editor/theme.ts.
+ * Selectors start at .cm-editor so they outrank CodeMirror's base theme.
+ */
+
+/*
+ * Transparent so the pattern painters' full-window canvas behind the app shows through (see the
+ * #test-canvas rule in base.css). Strudel writes --background onto :root with !important, so this
+ * needs one too (only this file may use !important).
+ */
+.cm-editor {
+  background-color: transparent !important;
+}
+
+/* Tooltips: the autocomplete list, its docs panel and the hover docs. */
+.cm-editor .cm-tooltip {
+  background: var(--surface-2);
+  color: var(--text);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+
+/* The completion list. */
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete {
+  overflow: hidden;
+}
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--space-1);
+}
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  padding: var(--space-0) var(--space-1-5);
+  border-radius: var(--radius-sm);
+  line-height: var(--lh-ui);
+}
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--focus-edge);
+}
+.cm-editor .cm-completionLabel {
+  color: var(--text);
+}
+.cm-editor .cm-completionMatchedText {
+  color: var(--focus);
+  text-decoration: none;
+}
+.cm-editor .cm-completionIcon {
+  color: var(--text-faint);
+}
+.cm-editor .cm-completionDetail {
+  color: var(--text-faint);
+  font-style: normal;
+  margin-left: var(--space-2);
+}
+
+/* The docs panel beside the list. */
+.cm-editor .cm-tooltip.cm-completionInfo {
+  padding: var(--space-3);
+  white-space: normal;
+}
+
+/* Strudel's docs markup (autocomplete.mjs), shared by the completion info and the hover tooltip. */
+.cm-editor .autocomplete-info-container,
+.cm-editor .autocomplete-info-tooltip {
+  max-width: 380px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cm-editor .autocomplete-info-function-name {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--syntax-fn);
+}
+.cm-editor .autocomplete-info-function-synonyms {
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.cm-editor .autocomplete-info-function-description {
+  color: var(--text-dim);
+}
+.cm-editor .autocomplete-info-function-description p {
+  margin: 0 0 var(--space-2);
+}
+.cm-editor .autocomplete-info-function-description code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--well);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.cm-editor .autocomplete-info-params-section,
+.cm-editor .autocomplete-info-examples-section {
+  margin-top: var(--space-3);
+}
+/* The vendored markup holds the literal "Parameters" and "Examples"; labels are lowercase. */
+.cm-editor .autocomplete-info-section-title {
+  margin: 0 0 var(--space-1-5);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-faint);
+  text-transform: lowercase;
+}
+.cm-editor .autocomplete-info-params-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cm-editor .autocomplete-info-param-item {
+  margin-bottom: var(--space-1-5);
+}
+.cm-editor .autocomplete-info-param-name {
+  display: inline-block;
+  margin-right: var(--space-1-5);
+  font-family: var(--font-mono);
+  color: var(--syntax-fn);
+}
+.cm-editor .autocomplete-info-param-type {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+}
+.cm-editor .autocomplete-info-param-desc {
+  color: var(--text-dim);
+}
+.cm-editor .autocomplete-info-example-code {
+  margin: 0 0 var(--space-1-5);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--well);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* The hover docs (tooltip.mjs wraps the same markup in div.strudel-tooltip). */
+.cm-editor .cm-tooltip:has(> .strudel-tooltip) {
+  padding: var(--space-3);
+}
+.cm-editor .strudel-tooltip {
+  white-space: normal;
+}
+.cm-editor .cm-tooltip .cm-tooltip-arrow:before {
+  border-top-color: var(--border-strong);
+  border-bottom-color: var(--border-strong);
+}
+.cm-editor .cm-tooltip .cm-tooltip-arrow:after {
+  border-top-color: var(--surface-2);
+  border-bottom-color: var(--surface-2);
+}
+
+/* Inline sliders (slider.mjs: span.cm-slider > input[type=range]). */
+.cm-editor .cm-slider input {
+  accent-color: var(--accent);
+}
+
+/* Lines changed by Claude (control socket); the class comes from src/lib/editor/claude-mark.ts. */
+.cm-line.cm-claude-edit {
+  background: var(--claude-edit-wash);
+  box-shadow: inset 3px 0 0 var(--claude-edit);
+}
+
+/*
+ * Vim's block cursor (normal and visual mode). codemirror-vim's own theme paints it a fixed colour
+ * and sets each piece's text colour inline, hence the one !important on the focused colour. The
+ * partial pieces (replace mode and a pending operator, drawn at the bottom of the line) keep vim's
+ * inline `color: transparent`, or they would paint a shifted copy of the letter over the text.
+ * Insert mode shows the theme's bar cursor (theme.ts).
+ */
+.cm-editor.cm-focused .cm-scroller .cm-fat-cursor {
+  background: var(--editor-cursor);
+}
+.cm-editor.cm-focused .cm-scroller .cm-fat-cursor:not([style*='transparent']) {
+  color: var(--bg) !important;
+}
+.cm-editor:not(.cm-focused) .cm-scroller .cm-fat-cursor {
+  background: none;
+  outline: 1px solid var(--editor-cursor);
+}
+
+/* Vim's `:` and `/` prompt and its status line: a bottom panel. */
+.cm-editor .cm-panels.cm-panels-bottom:has(> .cm-vim-panel) {
+  background: var(--surface);
+  color: var(--text);
+  border-top: 1px solid var(--border);
+}
+.cm-editor .cm-panels .cm-vim-panel {
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+}
+.cm-editor .cm-panels .cm-vim-panel input {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  caret-color: var(--editor-cursor);
+}

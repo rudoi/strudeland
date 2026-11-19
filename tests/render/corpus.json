@@ -1,0 +1,591 @@
+{
+  "schema": 1,
+  "samples": ["kick.wav", "hat.wav", "tone.wav"],
+  "fixtures": [
+    {
+      "name": "pad-seam",
+      "file": "pad-seam.js",
+      "kind": "targeted",
+      "windowBars": [0, 20],
+      "layout": "linear",
+      "gates": ["seam", "twin", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["seam", "mutation"],
+      "notes": "Sustained pad with a long release across a seam; the seam-lookback-0 mutation target.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "reverb-long",
+      "file": "reverb-long.js",
+      "kind": "targeted",
+      "windowBars": [0, 20],
+      "layout": "linear",
+      "gates": ["seam", "twin", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["seam", "reverb"],
+      "notes": "A roomsize 20 tail across a seam.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "reverb-change",
+      "file": "reverb-change.js",
+      "kind": "targeted",
+      "windowBars": [0, 16],
+      "layout": "linear",
+      "gates": ["seam", "twin", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["seam", "reverb", "ir"],
+      "notes": "room/roomsize change at bar 8 on one orbit regenerates the IR; guards the IR wait.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "worklets",
+      "file": "worklets.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["worklet"],
+      "notes": "shape, crush, coarse, ladder (ftype), distort, djf and supersaw, one orbit each.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "duck",
+      "file": "duck.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["duck"],
+      "notes": "The kick on orbit 1 ducks the pad on orbit 2 from bar 0.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "odd-meter",
+      "file": "odd-meter.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["7/8", "noise"],
+      "notes": "7/8 at 137 bpm, cps 0.6524.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "bass-line",
+      "file": "bass-line.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "bass", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["bass", "mutation"],
+      "notes": "Bass-presence target; the bass-dropped mutation target.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "stems-5",
+      "file": "stems-5.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "stems", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["stems", "mutation"],
+      "notes": "Five single-orbit pairs; the stems-orbit-dropped mutation target.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "stems-shared",
+      "file": "stems-shared.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "stems", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["stems"],
+      "notes": "Orbits 0 and 1 share stem pair 0, so stems is unverifiable.",
+      "expect": {
+        "unverifiable": ["stems"],
+        "clip": false
+      }
+    },
+    {
+      "name": "samples",
+      "file": "samples.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": true,
+      "rust": "unsupported",
+      "tags": ["samples"],
+      "notes": "The committed 22.05 kHz one-shots, resampled by the offline context; speed 1.5 from bar 2. rust: unsupported: sample playback (kick, hat, tone).",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "silence-entry-perc",
+      "file": "silence-entry-perc.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["opening"],
+      "notes": "Percussive entry at bar 2 after silence.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "silence-entry-pad",
+      "file": "silence-entry-pad.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["opening"],
+      "notes": "Soft-attack entry at bar 1 after silence.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "clipping",
+      "file": "clipping.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["clip"],
+      "notes": "Deliberately hot; the mix gate must measure clipping.",
+      "expect": {
+        "unverifiable": [],
+        "clip": true
+      }
+    },
+    {
+      "name": "sine-basic",
+      "file": "sine-basic.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine"],
+      "notes": "Plain sine voices (default envelope, one explicit attack/release): the first fixture measured end to end with the Rust engine.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "host-shims",
+      "file": "host-shims.js",
+      "kind": "targeted",
+      "windowBars": [0, 4],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": true,
+      "rust": "supported",
+      "tags": ["host"],
+      "notes": "The headless host shims (scope, pianoroll, slider, markcss, spectrum, punchcard, samples, aliasBank) and perlin's ** operator on synth sounds.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "noise-seed",
+      "file": "noise-seed.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "unsupported",
+      "tags": ["noise", "seed"],
+      "notes": "Seeded noise, zzfx and a reverb IR under meta.seed 7. rust: unsupported: z_noise (zzfx).",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "song-linear",
+      "file": "song-linear.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["song"],
+      "notes": "song() sections in the linear layout; window = totalBars.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "song-clip",
+      "file": "song-linear.js",
+      "kind": "targeted",
+      "windowBars": [0, 12],
+      "layout": "clip",
+      "gates": ["seam", "twin", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["song", "seam"],
+      "notes": "song-linear.js in the clip layout (loops unrolled); window = clipBars.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "voice-osc",
+      "file": "voice-osc.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "oscillator"],
+      "notes": "The four waves at low/mid/high and near-Nyquist pitch, the three interpolation bands (freq 0.5-5 Hz), partials/n, phases, user, one, octave and freq: Rust-engine oscillator coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "voice-mod",
+      "file": "voice-mod.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "fm"],
+      "notes": "Vibrato, linear/exponential pitch envelopes up and down, FM with fmh, a chained fmi2, fmwave (square and noise waves) and FM envelopes: Rust-engine modulation coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "voice-noise",
+      "file": "voice-noise.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "noise", "seed"],
+      "notes": "White, pink, brown, crackle at two densities and the noise mix, from meta.seed 11: Rust-engine noise coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "voice-filter",
+      "file": "voice-filter.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "filter"],
+      "notes": "lp/hp/bp with resonance, 24db, a numeric ftype, filter envelopes with fanchor and a negative lpenv: Rust-engine filter coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "voice-level",
+      "file": "voice-level.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "pan"],
+      "notes": "A pan sweep, velocity, postgain, dry, clip and the ADSR default rules (attack only, sustain only, decay only): Rust-engine level coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "fx-delay",
+      "file": "fx-delay.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "delay"],
+      "notes": "delaytime, delaysync at cps 100/240, feedback changes inside the tails (f32-exact 0.5/0.25 and non-exact 0.3/0.6), two orbits: Rust-engine delay coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "fx-room",
+      "file": "fx-room.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "reverb", "ir"],
+      "notes": "roomfade, roomlp, roomdim, room parameters changing every bar or two (IR swaps), room with delay on a third orbit: Rust-engine reverb coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "voice-worklets",
+      "file": "voice-worklets.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "worklet"],
+      "notes": "Supersaw defaults, unison/spread/detune, pitch envelope with vibrato, pulse with PWM, transient (two voices), a driven ladder with lpenv, the nine distort types, shape with shapevol, distortvol, coarse and crush: Rust-engine worklet coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "fx-native",
+      "file": "fx-native.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "effects"],
+      "notes": "Vowel, phaser, tremolo shapes, a per-voice compressor, a resonant filter faded by fxr and a sine kick ducking two sawtooth pads (duckorbit 7:8): Rust-engine native effect coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "fx-mod",
+      "file": "fx-mod.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "modulation"],
+      "notes": "At 100 bpm: lfo on gain, cutoff, pan and note, on a 24db filter, an lfo of an lfo, env on the cutoff, the lp/hp/bp filter LFOs and an lfo on the orbit delaytime: Rust-engine modulation coverage.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "fx-bus",
+      "file": "fx-bus.js",
+      "kind": "targeted",
+      "windowBars": [0, 12],
+      "layout": "linear",
+      "gates": ["seam", "twin", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "bus", "seam"],
+      "notes": "Two buses fed from bars 0 and 2 (busgain on the first feeder), bus readers from bars 4 and 6, bmod from bar 6, each beside an ordinary voice on another orbit: Rust-engine bus coverage across a seam.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "fx-chain",
+      "file": "fx-chain.js",
+      "kind": "targeted",
+      "windowBars": [0, 12],
+      "layout": "linear",
+      "gates": ["seam", "twin", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["engine", "chain", "seam"],
+      "notes": "FX chains: two entries, local delay and reverb with fxr, pan in an entry, entry gain and velocity beside a plain voice, and an lfo in an entry: Rust-engine chain coverage across a seam.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "late-feedback",
+      "file": "late-feedback.js",
+      "kind": "targeted",
+      "windowBars": [136, 160],
+      "layout": "linear",
+      "gates": ["seam", "twin", "stems", "bass", "mix"],
+      "expectChunks": 2,
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["9/8", "seam", "mid-song", "duck", "delay", "planning"],
+      "notes": "Dense schedule through bar 160 with feedback, supersaw and ducking across a late seam.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "crowded-bass",
+      "file": "crowded-bass.js",
+      "kind": "targeted",
+      "windowBars": [4, 8],
+      "layout": "linear",
+      "gates": ["twin", "bass", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["6/8", "bass", "orbits"],
+      "notes": "Layered low voices with one phase-cancelled onset alongside 45 quiet upper orbits.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "asymmetric-delay",
+      "file": "asymmetric-delay.js",
+      "kind": "targeted",
+      "windowBars": [0, 8],
+      "layout": "linear",
+      "gates": ["twin", "bass", "mix"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["11/8", "delay"],
+      "notes": "Cross-bar 10/11 figure with a long feedback tail.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    },
+    {
+      "name": "filtered-opening",
+      "file": "filtered-opening.js",
+      "kind": "targeted",
+      "windowBars": [0, 1],
+      "layout": "linear",
+      "gates": ["twin"],
+      "stochastic": false,
+      "usesSamples": false,
+      "rust": "supported",
+      "tags": ["opening", "filter"],
+      "notes": "A weighted-rest cue with a slow filter attack. The mix opening model does not yet account for filter envelopes.",
+      "expect": {
+        "unverifiable": [],
+        "clip": false
+      }
+    }
+  ]
+}

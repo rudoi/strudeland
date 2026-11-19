@@ -1,0 +1,26 @@
+[package]
+name = "strudeland-engine"
+version = "0.1.0"
+description = "strudeland audio engine: renders Strudel haps as superdough does in Chromium"
+authors = ["Andrew Rudoi"]
+edition = "2024"
+rust-version = "1.94"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "strudeland_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "strudeland-engine"
+path = "src/bin/strudeland-engine.rs"
+
+[dependencies]
+libm = "=0.2.16"
+rustfft = "=6.4.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+thiserror = "2.0.21"
+
+[dev-dependencies]
+tempfile = "3.27.0"

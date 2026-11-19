@@ -1,0 +1,57 @@
+{
+  "what": "Null residuals of the engine's amp envelope (param: the Blink AudioParam timeline port; adsr: getADSRValues/getParamADSR) against the Chromium micro-case references, and the thresholds derived from them.",
+  "command": "cargo test -p strudeland-engine --test micro -- --nocapture",
+  "residual": "20*log10(rms(chromium - engine) / rms(chromium)) over every sample of both channels, no alignment search",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "platform": "darwin-arm64"
+  },
+  "marginRule": "threshold = measured residual rounded up by about 3 dB; a bit-exact case (-inf) gets -140 dB (far below the -60 dB target, above the level of a stray 1-ulp float difference)",
+  "cases": {
+    "adsr-long-attack": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "s('one') (constant 1): the envelope itself. a > dur shape. Bit-identical to Chromium."
+    },
+    "adsr-short-hap": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "s('one'), a + d > dur shape, one onset at 2756.25 frames (between frames) and one at 11025. Bit-identical to Chromium."
+    },
+    "param-linear-ramp": {
+      "measuredDb": "-inf",
+      "maxResidualDb": -140,
+      "notes": "s('one'), every ramp end between frames: pins Blink's float k = 1/dt and x = (t - t1) * k rounding, ceil(t * sr) event frames, the gainNode(1) setValueAtTime at the pause time. Bit-identical to Chromium."
+    },
+    "adsr-attack-only": {
+      "measuredDb": -101.14,
+      "maxResidualDb": -98,
+      "notes": "Sine source: the residual is the interim oscillator (analytic libm::sin vs Chromium's table sine, as osc-sine at -93.75 dB), not the envelope, which the s('one') cases show to be exact. Stage 7 (periodic waves) re-measures.",
+      "superseded": "The periodic-wave stage replaced the interim sine and re-measured: evidence/engine-null-micro-oscillators.json (bit-identical, -140 dB)"
+    },
+    "adsr-sustain-only": {
+      "measuredDb": -102.45,
+      "maxResidualDb": -99,
+      "notes": "Sine source; as adsr-attack-only.",
+      "superseded": "The periodic-wave stage replaced the interim sine and re-measured: evidence/engine-null-micro-oscillators.json (bit-identical, -140 dB)"
+    },
+    "adsr-decay-only": {
+      "measuredDb": -111.29,
+      "maxResidualDb": -108,
+      "notes": "Sine source; decay only gives sustain 0.001 (getADSRValues). As adsr-attack-only.",
+      "superseded": "The periodic-wave stage replaced the interim sine and re-measured: evidence/engine-null-micro-oscillators.json (bit-identical, -140 dB)"
+    },
+    "adsr-defaults": {
+      "measuredDb": -102.85,
+      "maxResidualDb": -100,
+      "notes": "Sine source, default envelope [0.001, 0.05, 0.6, 0.01]; unchanged from the interim envelope (-102.85 dB); no longer interim. As adsr-attack-only.",
+      "superseded": "The periodic-wave stage replaced the interim sine and re-measured: evidence/engine-null-micro-oscillators.json (bit-identical, -140 dB)"
+    }
+  },
+  "deferred": {
+    "param-exp-ramp": "No control implemented at this stage schedules an exponential ramp (the amp envelope is always linear; the pitch, filter and FM envelopes are stages 7 to 9). Deferred to stage 7 (pitch envelope with pcurve 1); the exponential ramp is covered by param unit tests and the adsr.json getParamADSR vectors until then. Done: evidence/engine-null-micro-oscillators.json.",
+    "param-exp-held": "Same reason; deferred to stage 7 (a pitch envelope whose exponential ramp crosses or touches 0). Done: evidence/engine-null-micro-oscillators.json."
+  }
+}

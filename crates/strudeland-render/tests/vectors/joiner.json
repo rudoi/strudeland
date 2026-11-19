@@ -1,0 +1,11 @@
+{"schema":1,
+"generator":"scripts/render/loudness-vectors.ts",
+"cases":[
+{"name":"single-chunk","cps":0.5,"window":{"fromBar":0,"toBar":1},"chunks":[{"fromBar":0,"toBar":1,"windowStartFrame":1000,"overlapBars":0}],"frames":88200,"fnv1a64":"445bb94866ec32bb"},
+{"name":"three-equal-chunks","cps":0.5,"window":{"fromBar":0,"toBar":3},"chunks":[{"fromBar":0,"toBar":1,"windowStartFrame":0,"overlapBars":0},{"fromBar":1,"toBar":2,"windowStartFrame":22050,"overlapBars":0},{"fromBar":2,"toBar":3,"windowStartFrame":44100,"overlapBars":0}],"frames":264600,"fnv1a64":"2de3025c13e9d04a"},
+{"name":"cps-7-16","cps":0.4375,"window":{"fromBar":0,"toBar":3},"chunks":[{"fromBar":0,"toBar":1,"windowStartFrame":0,"overlapBars":0},{"fromBar":1,"toBar":2,"windowStartFrame":1234,"overlapBars":0},{"fromBar":2,"toBar":3,"windowStartFrame":5000,"overlapBars":0}],"frames":302400,"fnv1a64":"7640452771a0c7ad"},
+{"name":"fractional-bar","cps":0.4041666666666667,"window":{"fromBar":0,"toBar":4},"chunks":[{"fromBar":0,"toBar":1,"windowStartFrame":0,"overlapBars":0},{"fromBar":1,"toBar":2,"windowStartFrame":777,"overlapBars":0},{"fromBar":2,"toBar":3,"windowStartFrame":3,"overlapBars":0},{"fromBar":3,"toBar":4,"windowStartFrame":60000,"overlapBars":0}],"frames":436454,"fnv1a64":"277be1fb701ad017"},
+{"name":"overlap-tail-dropped","cps":0.5,"window":{"fromBar":0,"toBar":2},"chunks":[{"fromBar":0,"toBar":1,"windowStartFrame":0,"overlapBars":1},{"fromBar":1,"toBar":2,"windowStartFrame":4410,"overlapBars":1}],"frames":176400,"fnv1a64":"20dd41e82adef004"},
+{"name":"from-bar-after-zero","cps":1.3333333333333333,"window":{"fromBar":3,"toBar":7},"chunks":[{"fromBar":3,"toBar":5,"windowStartFrame":100,"overlapBars":0},{"fromBar":5,"toBar":7,"windowStartFrame":33075,"overlapBars":0}],"frames":132300,"fnv1a64":"1183a487b0a0e583"},
+{"name":"uneven-chunks","cps":1.7,"window":{"fromBar":1,"toBar":12},"chunks":[{"fromBar":1,"toBar":2,"windowStartFrame":11,"overlapBars":0},{"fromBar":2,"toBar":9,"windowStartFrame":0,"overlapBars":2},{"fromBar":9,"toBar":12,"windowStartFrame":25941,"overlapBars":0}],"frames":285353,"fnv1a64":"6886f23fa8f9451f"}
+]}

@@ -1,0 +1,54 @@
+{
+  "item": "Superdough capture variation under machine load, including a changed voice-filter reference in 2 of 4 dry engine:refs runs.",
+  "header": {
+    "date": "2026-11-12",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "host": "macOS arm64 (Apple M3 Max, 14 cores), shared with other projects' test runs (load average 9 to 15 during the runs)"
+  },
+  "method": "A scratch probe (not committed; same path as twin-null.probe.ts: chunk 0 of the fixture through SuperdoughRenderer, N renders with P pages at once) compared every render with render 0: differing samples, twinMetrics residual and band maxima, differing spans (seconds from the window start, gaps under 50 ms merged, max |difference| per span) and the engine:refs reference envelope (refs-lib referenceEnvelope: rmsDb to 0.01 dB, peak to 6 decimals). Stem localisation with scripts/render/probes/stem-twin.probe.ts.",
+  "runs": [
+    {
+      "fixture": "voice-filter",
+      "mode": "mix",
+      "renders": 32,
+      "parallel": 4,
+      "residualDb": [
+        -149.76,
+        -120.14
+      ],
+      "maxAbsDiff": 0.000009123,
+      "bandMaxDb": 0,
+      "spans": "at note onsets of the first line (every 0.5 s from 2 s), each 10 to 30 ms long, |diff| 1.5e-8 to 9.1e-6",
+      "envelopeRmsCellsDiffering": "0 in all 38 comparisons",
+      "envelopePeakDiffering": "5 of 31 comparisons (and 0 of 7 in a second run): channel 1 peak 0.429323 against 0.429324"
+    },
+    {
+      "fixture": "fx-native (first draft, vowel without fxr)",
+      "mode": "mix and stems",
+      "renders": "3 mix, 7 stems",
+      "parallel": 4,
+      "residualDb": [
+        -71.49,
+        -43.94
+      ],
+      "maxAbsDiff": 0.02003,
+      "bandMaxDb": 0.045,
+      "localised": "stem of orbit 1 (vowel) only, worst -27.2 dB in the stem; differences start 20 ms after each vowel note's end (0.52, 1.52, 2.53 s, ...)",
+      "fix": "fxr(0.3) on the vowel line; afterwards 5 of 5 stems renders at -145.9 to -148.6 dB (the five-formant summing floor)"
+    }
+  ],
+  "findings": {
+    "voice-filter": "Narrowly explained, a harness issue, not load: superdough's voice-filter render is not bit-exact (residual -120 to -150 dB between renders, known: plans/0047-deterministic-voices twin-null-final.json lists 12 of 23 fixtures as not bit-equal). The differences sit right after each note onset of the legato lpf line: the previous voice's filter ring is cut by superdough's main-thread onended cleanup (releaseNodes) at a run-dependent quantum (#10's known filter-tail difference; 00-module-map 'Main-thread cuts not modelled'). They never move a 0.01 dB RMS cell, but they move the channel peak, rounded to 6 decimals, across a rounding boundary (0.429323 / 0.429324) in about one render in six. engine:refs' dry run compares the regenerated envelope byte for byte, so it reports the fixture ref as changed. The Rust fixture test is unaffected (peak tolerance 0.05 dB; the flip is 2e-5 dB). The stage-13 rate (2 of 4) and this rate (5 of 31, 0 of 7) agree with a per-render probability near 0.15 and no load dependence.",
+    "loadDependence": "The historical runs showed no measurable dependence on CPU load or page concurrency."
+  },
+  "actions": [
+    "No harness default changed (render:check and the probes stay at DEFAULT_CONCURRENCY 4).",
+    "Calibration ran at concurrency 4. The recorded engine profile was identical in both runs despite variation in superdough twin floors.",
+    "New fixtures avoid the mechanism: fx-native's vowel fades with fxr(0.3) (the decision-12 rule: voices that would ring past a main-thread cut use fxr)."
+  ],
+  "followUps": [
+    "engine:refs dry run: compare fixture envelopes with a tolerance (e.g. rmsDb within 0.01 dB, peak within 1e-6) rather than byte equality, or store the peak at fewer decimals, so a superdough render that is not bit-exact cannot flip a rounding digit; out of this stage's scope (refs.ts/refs-lib.ts contract, 07)."
+  ],
+  "archiveNote": "Aggregate decisions reflect the original runs. Individual archived catalog results are omitted."
+}

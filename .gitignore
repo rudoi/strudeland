@@ -1,0 +1,18 @@
+# Claude Code per-machine settings
+.claude/settings.local.json
+
+# Workflow harness per-branch state
+WORKFLOW_STATE.json
+
+.DS_Store
+
+# Agent worktrees
+.claude/worktrees/
+
+# Build output
+node_modules/
+dist/
+dist-render/
+.render-out/
+target/
+src-tauri/gen/schemas/

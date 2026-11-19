@@ -1,0 +1,572 @@
+{
+  "schema": 2,
+  "cases": {
+    "adsr-attack-only": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "adsr-decay-only": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "adsr-defaults": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "adsr-long-attack": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-envelopes.json"
+    },
+    "adsr-short-hap": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-envelopes.json"
+    },
+    "adsr-sustain-only": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "bus-bmod": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "bus-sound": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-buses.json"
+    },
+    "coarse-3": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "coarse-8": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "compressor-fresh": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json",
+      "platform": "macos"
+    },
+    "compressor-params": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json",
+      "platform": "macos"
+    },
+    "compressor-stereo": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json",
+      "platform": "macos"
+    },
+    "compressor-warmup": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json",
+      "platform": "macos"
+    },
+    "crush-frac": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "crush-int": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "delay-guard-f32exact": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "delay-guard-nonexact": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "delay-impulse-echoes": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "delay-mono-to-stereo": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "delay-time-change": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "delay-time-over-max": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "distort-diode": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "distort-rational": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "distort-sine-cheb": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "distort-tanh": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "distort-vol": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "djf-insert-persist": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "djf-lp-hp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "djf-none": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "djf-returns": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "duck-across-pause": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-duck.json"
+    },
+    "duck-call-order": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-duck.json"
+    },
+    "duck-cancel-hold": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-duck.json"
+    },
+    "duck-first-ramp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-duck.json"
+    },
+    "duck-gap-ramp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-duck.json"
+    },
+    "duck-multi-target": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-duck.json"
+    },
+    "env-staircase": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "filter-24db": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-bp-const": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-bp-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-ftype-numeric": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-hp-const": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-hp-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-lfo-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "filter-lfo-hp-bp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "filter-lfo-lp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "filter-lfo-sync-shape": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "filter-lp-const": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-lp-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "filter-tail-resonant": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "fm-chain-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "fm-noise-wave": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "fm-pair": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "fx-chain-delay": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-chains.json"
+    },
+    "fx-chain-gain": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-chains.json"
+    },
+    "fx-chain-mod": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-chains.json"
+    },
+    "fx-chain-room": {
+      "maxResidualDb": -137,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-chains.json"
+    },
+    "fxrelease-fade": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json"
+    },
+    "ladder-const": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "ladder-drive": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "ladder-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "ladder-hpf": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "level-gain-velocity": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "level-postgain-dry": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "lfo-shapes": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "measure-feedback-echo": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-delay.json"
+    },
+    "measure-suspend-quantization": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "measure-worklet-start": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "measure-worklet-teardown": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-ladder-djf.json"
+    },
+    "mod-env-cutoff": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-cutoff": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-cutoff-24db": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-gain": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-note": {
+      "maxResidualDb": -124,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json",
+      "floor": {
+        "runs": 8,
+        "reason": "frequency: oscillator, LFO and FM inputs sum in hash-set order (3 sounding inputs)"
+      }
+    },
+    "mod-lfo-of-lfo": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-pan": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-retrig-sync": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-lfo-source-param": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "mod-orbit-delaytime": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "mod-orbit-djf": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-modulators.json"
+    },
+    "noise-brown": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "noise-crackle": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "noise-mix": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "noise-pink": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "noise-start-roundup": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "noise-white": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-noise-fm.json"
+    },
+    "orbit-mix-two": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-orbit.json"
+    },
+    "osc-arate-start": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-one": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-partials": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-phases": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-sawtooth": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-sine": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-square": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-subsample-start": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-triangle": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-user": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "osc-vibrato": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "pan-mono-center": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "pan-orbit-stems": {
+      "maxResidualDb": -300,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-orbit.json"
+    },
+    "pan-sweep": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-filters.json"
+    },
+    "param-exp-held": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "param-exp-ramp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "param-linear-ramp": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-envelopes.json"
+    },
+    "phaser-notch": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json"
+    },
+    "phaser-params": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json"
+    },
+    "pitch-env-exp-negative": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "pitch-env-linear": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-oscillators.json"
+    },
+    "pulse-basic": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "pulse-fm-vibrato": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "pulse-pan-center": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "pulse-pw": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "pulse-pwm": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "reverb-ir-lowpass": {
+      "maxResidualDb": -137,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-reverb.json"
+    },
+    "reverb-ir-nolowpass": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-reverb.json"
+    },
+    "reverb-ir-swap": {
+      "maxResidualDb": -142,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-reverb.json"
+    },
+    "reverb-room-send": {
+      "maxResidualDb": -148,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-reverb.json"
+    },
+    "reverb-roomsize-zero": {
+      "maxResidualDb": -149,
+      "evidence": "plans/0010-rust-engine-core/evidence/engine-null-micro-reverb.json",
+      "expectErrors": [
+        {
+          "bar": 1,
+          "engineKind": "ir"
+        }
+      ]
+    },
+    "shape-basic": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "shape-one": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "supersaw-boundary": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "supersaw-frac-unison": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "supersaw-pitch-env": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "supersaw-unison1": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "supersaw-unison5": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "supersaw-vibrato": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-synth.json"
+    },
+    "transient-attack": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "transient-stereo": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/pulse-replacement-calibration.md"
+    },
+    "transient-sustain": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-shapers.json"
+    },
+    "tremolo-depth-edges": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "tremolo-sum": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-processors.json"
+    },
+    "vowel-formants": {
+      "maxResidualDb": -139,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json",
+      "floor": {
+        "runs": 8,
+        "reason": "vowel: the five formant bandpass outputs sum into Gain(8) in hash-set order (5 sounding inputs)"
+      }
+    },
+    "vowel-unknown": {
+      "maxResidualDb": -140,
+      "evidence": "plans/0011-engine-effects/evidence/engine-null-micro-native.json",
+      "expectErrors": [
+        {
+          "bar": 0,
+          "engineKind": "hap"
+        }
+      ]
+    }
+  },
+  "fixtures": {
+    "floorDb": -60,
+    "windowMeanDb": 0.05,
+    "windowP95Db": 0.1,
+    "peakDb": 0.05,
+    "evidence": "plans/0010-rust-engine-core/evidence/engine-fixtures-envelope.json"
+  }
+}

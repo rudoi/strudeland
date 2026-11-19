@@ -1,0 +1,116 @@
+{
+  "date": "2026-11-12",
+  "machine": {
+    "os": "macOS 26.3 (Darwin 25.3.0)",
+    "cpu": "Apple M3 Max (14 cores)",
+    "memoryGb": 36
+  },
+  "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+  "versions": {
+    "v8": "15.2.124.1-rusty",
+    "v8Crate": "152.2.0",
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1"
+  },
+  "pins": {
+    "v8": "=152.2.0",
+    "sha2": "=0.10.9",
+    "libc": "=0.2.191"
+  },
+  "build": {
+    "command": "cargo clean -p strudeland-host --release && time cargo build --release -p strudeland-host",
+    "hostCrateSeconds": 17.8,
+    "note": "dependencies (V8 static library, engine) cached; the host crate rebuilt and LTO-linked from clean",
+    "binaryBytes": 44120432
+  },
+  "method": "strudeland-host bench (release), request { layout linear, fromBar 0, toBar B, overlapBars 0, lookbackSec 0, mode mix, sampleRate 44100 }, B = the song length from lengths.json; three runs per song, each on a fresh Host; medians. One process per bench run, songs in file order.",
+  "totals": {
+    "catalog": {
+      "songs": 26,
+      "planMsSum": 14433.2,
+      "bars": 2174
+    },
+    "longestPlanMs": 3336.5,
+    "medianFullSong": 393.3,
+    "medianLoad": 31.5,
+    "medianPlan": 393.3
+  },
+  "budget": {
+    "limits": {
+      "fullSongMaxMs": 2000.0,
+      "fullSongMedianMaxMs": 500.0,
+      "loadMedianMaxMs": 100.0,
+      "snapshotLoadRatio": 0.25
+    },
+    "results": {
+      "fullSongs": 26,
+      "medianFullSongMs": 393.3456455,
+      "medianLoadMs": 31.458125,
+      "medianPlanMs": 393.3456455,
+      "fullSongMaxPassed": false,
+      "fullSongMedianPassed": true,
+      "loadMedianPassed": true,
+      "snapshotTriggered": false,
+      "overFullSongMaxCount": 1
+    },
+    "passed": false
+  },
+  "snapshot": {
+    "exceeded": false,
+    "built": false,
+    "rule": "median loadMs over the benchmark catalog > 100 ms or > 0.25 x median planMs",
+    "before": {
+      "medianLoadMs": 34.5818745,
+      "medianPlanMs": 650.5763955
+    },
+    "after": {
+      "medianLoadMs": 31.458125,
+      "medianPlanMs": 393.3456455,
+      "exceeded": false
+    }
+  },
+  "stringNumber": {
+    "inputs": 200000,
+    "differences": 0
+  },
+  "remeasure": {
+    "date": "2026-11-12",
+    "change": "planJob (src/lib/render/job-plan.ts) reuses the full-schedule selection when the chunk window is [0, c1): one query per full-song plan instead of two. Jobs byte-identical (every jobSha256 matches the run before).",
+    "loadNote": "another project's rustc builds were running throughout and could not be stopped from here",
+    "before": {
+      "totals": {
+        "catalog": {
+          "songs": 26,
+          "planMsSum": 28712.2,
+          "bars": 2174
+        },
+        "longestPlanMs": 7908.9,
+        "medianFullSong": 650.6,
+        "medianLoad": 34.6,
+        "medianPlan": 650.6
+      },
+      "budget": {
+        "limits": {
+          "fullSongMaxMs": 2000,
+          "fullSongMedianMaxMs": 500,
+          "loadMedianMaxMs": 100,
+          "snapshotLoadRatio": 0.25
+        },
+        "results": {
+          "fullSongs": 26,
+          "medianFullSongMs": 650.5763955,
+          "medianLoadMs": 34.5818745,
+          "medianPlanMs": 650.5763955,
+          "fullSongMaxPassed": false,
+          "fullSongMedianPassed": false,
+          "loadMedianPassed": true,
+          "snapshotTriggered": false,
+          "overFullSongMaxCount": 3
+        },
+        "passed": false
+      }
+    },
+    "jobsUnchanged": true
+  },
+  "archiveNote": "Historical budget summary for the original historical catalog catalog. The synthetic corpus supplies the current regression workload."
+}

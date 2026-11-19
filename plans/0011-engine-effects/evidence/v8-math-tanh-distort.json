@@ -1,0 +1,258 @@
+{
+  "groups": {
+    "distort:asym": {
+      "core-math": {
+        "firstMismatches": [
+          "x=7.333333333333334e-1 k=6.38905609893065e0",
+          "x=1.0666666666666669e0 k=6.38905609893065e0"
+        ],
+        "matches": 364,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [
+          "x=-1.9333333333333333e0 k=0e0",
+          "x=-1.7333333333333334e0 k=0e0",
+          "x=-1.6666666666666667e0 k=0e0",
+          "x=-1.6e0 k=0e0",
+          "x=-1.2e0 k=0e0",
+          "x=-1.1333333333333333e0 k=0e0",
+          "x=-9.333333333333333e-1 k=0e0",
+          "x=-8.666666666666667e-1 k=0e0",
+          "x=-8e-1 k=0e0",
+          "x=-7.333333333333334e-1 k=0e0"
+        ],
+        "matches": 264,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:chebyshev": {
+      "core-math": {
+        "firstMismatches": [
+          "x=7.999999999999998e-1 k=2.3532530197109352e1"
+        ],
+        "matches": 365,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [
+          "x=-1.1333333333333333e0 k=0e0",
+          "x=-8.666666666666667e-1 k=0e0",
+          "x=-8e-1 k=0e0",
+          "x=-7.333333333333334e-1 k=0e0",
+          "x=-4.6666666666666656e-1 k=0e0",
+          "x=-3.3333333333333326e-1 k=0e0",
+          "x=-2.666666666666666e-1 k=0e0",
+          "x=-1.9999999999999996e-1 k=0e0",
+          "x=2.666666666666666e-1 k=0e0",
+          "x=4.666666666666668e-1 k=0e0"
+        ],
+        "matches": 326,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:cubic": {
+      "core-math": {
+        "firstMismatches": [
+          "x=-1.8666666666666667e0 k=6.487212707001282e-1",
+          "x=1.8666666666666667e0 k=6.487212707001282e-1"
+        ],
+        "matches": 364,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [
+          "x=-1.1333333333333333e0 k=0e0",
+          "x=-8.666666666666667e-1 k=0e0",
+          "x=-8e-1 k=0e0",
+          "x=-7.333333333333334e-1 k=0e0",
+          "x=-4.6666666666666656e-1 k=0e0",
+          "x=-3.3333333333333326e-1 k=0e0",
+          "x=-2.666666666666666e-1 k=0e0",
+          "x=-1.9999999999999996e-1 k=0e0",
+          "x=2.666666666666666e-1 k=0e0",
+          "x=4.666666666666668e-1 k=0e0"
+        ],
+        "matches": 339,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:diode": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [
+          "x=-1.9333333333333333e0 k=0e0",
+          "x=-1.7333333333333334e0 k=0e0",
+          "x=-1.6666666666666667e0 k=0e0",
+          "x=-1.6e0 k=0e0",
+          "x=-1.2e0 k=0e0",
+          "x=-1.1333333333333333e0 k=0e0",
+          "x=-9.333333333333333e-1 k=0e0",
+          "x=-8.666666666666667e-1 k=0e0",
+          "x=-8e-1 k=0e0",
+          "x=-7.333333333333334e-1 k=0e0"
+        ],
+        "matches": 268,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:fold": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:hard": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:scurve": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:sinefold": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "distort:soft": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      },
+      "libm": {
+        "firstMismatches": [
+          "x=-1.1333333333333333e0 k=0e0",
+          "x=-8.666666666666667e-1 k=0e0",
+          "x=-8e-1 k=0e0",
+          "x=-7.333333333333334e-1 k=0e0",
+          "x=-4.6666666666666656e-1 k=0e0",
+          "x=-3.3333333333333326e-1 k=0e0",
+          "x=-2.666666666666666e-1 k=0e0",
+          "x=-1.9999999999999996e-1 k=0e0",
+          "x=2.666666666666666e-1 k=0e0",
+          "x=4.666666666666668e-1 k=0e0"
+        ],
+        "matches": 342,
+        "samples": 366
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 366,
+        "samples": 366
+      }
+    },
+    "tanh-main": {
+      "core-math": {
+        "firstMismatches": [],
+        "matches": 526,
+        "samples": 526
+      },
+      "libm": {
+        "firstMismatches": [
+          "x=-7.086614173228334e-1 k=NaN",
+          "x=-5.511811023622037e-1 k=NaN",
+          "x=-3.937007874015741e-1 k=NaN",
+          "x=-3.149606299212593e-1 k=NaN",
+          "x=-1.5748031496062964e-1 k=NaN",
+          "x=1.5748031496062964e-1 k=NaN",
+          "x=3.149606299212593e-1 k=NaN",
+          "x=3.937007874015741e-1 k=NaN",
+          "x=5.511811023622037e-1 k=NaN",
+          "x=7.086614173228334e-1 k=NaN"
+        ],
+        "matches": 516,
+        "samples": 526
+      },
+      "std(host)": {
+        "firstMismatches": [],
+        "matches": 526,
+        "samples": 526
+      }
+    }
+  },
+  "host": "macos-aarch64",
+  "provenance": {
+    "chromium": "156.0.8078.4",
+    "inputsSha256": "64e44cc4ca8cbf25a5423207e45488197808ba7b549042a2479620038c926f29",
+    "platform": "darwin-arm64",
+    "playwright": "1.64.1",
+    "schema": 1
+  },
+  "reference": "crates/strudeland-engine/tests/refs/v8-math.json",
+  "what": "V8 math reference groups that call Math.tanh, evaluated with the shaper's distortion curves (jsmath for log1p, cosh, sin, expm1, min, max, clamp) and three tanh candidates"
+}

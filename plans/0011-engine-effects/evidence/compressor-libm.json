@@ -1,0 +1,42 @@
+{
+  "item": "compressor libm spelling (04 \"(measure) captures\" 2, decision 16)",
+  "cases": [
+    "compressor-params",
+    "compressor-fresh",
+    "compressor-warmup",
+    "compressor-stereo"
+  ],
+  "candidates": [
+    {
+      "id": 0,
+      "description": "DecibelsToLinear as 10.0f32.powf(x) with the base through std::hint::black_box (the platform powf); LinearToDecibels as f32::log10 (log10f); f64::exp and f64::sin (exp, sin)",
+      "residualDb": {
+        "compressor-fresh": "-inf",
+        "compressor-warmup": "-inf",
+        "compressor-params": "-inf",
+        "compressor-stereo": "-inf"
+      }
+    },
+    {
+      "id": 1,
+      "description": "DecibelsToLinear as extern __exp10f (tried for the record)",
+      "residualDb": {
+        "compressor-fresh": "-inf",
+        "compressor-warmup": "-inf",
+        "compressor-params": "-inf",
+        "compressor-stereo": "-inf"
+      },
+      "note": "also nulls: on these cases Apple's powf(10, x) and __exp10f agree; candidate 0 is kept as the first that nulls"
+    }
+  ],
+  "swapped": [],
+  "outcome": "candidate 0 nulls at -inf dB on macOS arm64: no function swapped",
+  "choice": 0,
+  "crossCheck": "compressor.rs db_helpers_are_the_platform_libm (macOS): db_to_linear and linear_to_db equal direct powf/log10f calls bit for bit on 1000 values",
+  "provenance": {
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1",
+    "platform": "darwin-arm64",
+    "date": "2026-11-11"
+  }
+}

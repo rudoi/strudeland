@@ -1,0 +1,24 @@
+[package]
+name = "strudeland-record"
+version = "0.1.0"
+description = "strudeland microphone capture: input device, ring buffer, WAV writer, levels, clock anchors"
+authors = ["Andrew Rudoi"]
+edition = "2024"
+rust-version = "1.94"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+cpal = "=0.18.2"
+hound = "3.5.1"
+rtrb = "0.4.1"
+thiserror = "2.0.21"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+mach2 = "0.6"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+strudeland-project = { path = "../strudeland-project" }
+
+[[example]]
+name = "probe"

@@ -1,0 +1,1653 @@
+{
+  "generatedAt": "2026-11-11T05:11:56.019Z",
+  "playwright": "1.64.1",
+  "chromium": "156.0.8078.4",
+  "sweepDb": [
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20,
+    22,
+    24
+  ],
+  "seamT": [
+    0.25,
+    0.5,
+    1,
+    2,
+    3,
+    4,
+    6
+  ],
+  "seam": {
+    "mutation": "seam-lookback-0",
+    "fixture": "pad-seam",
+    "clean": [
+      {
+        "fixture": "pad-seam",
+        "seam": 0,
+        "worstDeficitDb": 0,
+        "twinFloorDb": null
+      },
+      {
+        "fixture": "pad-seam",
+        "seam": 1,
+        "worstDeficitDb": 0,
+        "twinFloorDb": null
+      },
+      {
+        "fixture": "reverb-change",
+        "seam": 0,
+        "worstDeficitDb": 0,
+        "twinFloorDb": null
+      },
+      {
+        "fixture": "reverb-long",
+        "seam": 0,
+        "worstDeficitDb": 0,
+        "twinFloorDb": null
+      },
+      {
+        "fixture": "song-clip",
+        "seam": 0,
+        "worstDeficitDb": 0,
+        "twinFloorDb": null
+      }
+    ],
+    "mutated": [
+      {
+        "fixture": "pad-seam",
+        "seam": 0,
+        "worstDeficitDb": 29.65,
+        "twinFloorDb": 0
+      },
+      {
+        "fixture": "pad-seam",
+        "seam": 1,
+        "worstDeficitDb": 17.81,
+        "twinFloorDb": 0
+      }
+    ],
+    "rows": [
+      {
+        "db": 0.25,
+        "recall": 1,
+        "falseAlarms": 2,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      },
+      {
+        "db": 0.5,
+        "recall": 1,
+        "falseAlarms": 2,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      },
+      {
+        "db": 1,
+        "recall": 1,
+        "falseAlarms": 2,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      },
+      {
+        "db": 2,
+        "recall": 1,
+        "falseAlarms": 1,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      },
+      {
+        "db": 3,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      },
+      {
+        "db": 4,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      },
+      {
+        "db": 6,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 8,
+        "mutatedUnits": 2
+      }
+    ],
+    "choice": {
+      "db": 3,
+      "rule": "clean",
+      "reason": "smallest threshold with 0 false alarms and recall >= 0.9 (recall 1)"
+    },
+    "previous": 3
+  },
+  "stems": {
+    "mutation": "stems-orbit-dropped",
+    "fixture": "stems-5",
+    "cleanFixtures": [
+      "stems-5",
+      "stems-shared"
+    ],
+    "targets": [
+      "4:1",
+      "4:4",
+      "4:6"
+    ],
+    "note": "falseAlarms counts misses in clean renders plus misses outside the dropped orbit-bars in the mutated render",
+    "rows": [
+      {
+        "db": 6,
+        "recall": 1,
+        "falseAlarms": 1,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 8,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 10,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 12,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 14,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 16,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 18,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 20,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 22,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 24,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 107,
+        "mutatedUnits": 3
+      }
+    ],
+    "perFixtureMisses": {
+      "6": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "8": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "10": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "12": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "14": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "16": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "18": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "20": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "22": {
+        "stems-5": [],
+        "stems-shared": []
+      },
+      "24": {
+        "stems-5": [],
+        "stems-shared": []
+      }
+    },
+    "choice": {
+      "db": 8,
+      "rule": "clean",
+      "reason": "smallest threshold with 0 false alarms and recall >= 0.9 (recall 1)"
+    },
+    "previous": 12
+  },
+  "bass": {
+    "mutation": "bass-dropped",
+    "fixture": "bass-line",
+    "cleanFixtures": [
+      "bass-line"
+    ],
+    "targetBars": [
+      3,
+      4,
+      5
+    ],
+    "targets": 3,
+    "note": "falseAlarms counts misses in clean renders plus misses outside the dropped notes in the mutated render",
+    "rows": [
+      {
+        "db": 6,
+        "recall": 1,
+        "falseAlarms": 110,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 8,
+        "recall": 1,
+        "falseAlarms": 56,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 10,
+        "recall": 1,
+        "falseAlarms": 10,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 12,
+        "recall": 1,
+        "falseAlarms": 10,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 14,
+        "recall": 1,
+        "falseAlarms": 2,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 16,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 18,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 20,
+        "recall": 1,
+        "falseAlarms": 0,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 22,
+        "recall": 0.667,
+        "falseAlarms": 0,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      },
+      {
+        "db": 24,
+        "recall": 0.667,
+        "falseAlarms": 0,
+        "cleanUnits": 1374,
+        "mutatedUnits": 3
+      }
+    ],
+    "choice": {
+      "db": 16,
+      "rule": "clean",
+      "reason": "smallest threshold with 0 false alarms and recall >= 0.9 (recall 1)"
+    },
+    "previous": 12,
+    "rule": {
+      "axes": {
+        "clusterMin": [
+          2,
+          3,
+          4
+        ],
+        "clusterSpanBars": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "clusterDeepDb": [
+          16,
+          17,
+          18
+        ],
+        "fractionMax": [
+          0.1,
+          0.15,
+          0.2,
+          0.25,
+          0.3
+        ]
+      },
+      "start": {
+        "clusterMin": 3,
+        "clusterSpanBars": 4,
+        "clusterDeepDb": 15,
+        "fractionMax": 0.2
+      },
+      "combinations": 315,
+      "validCount": 195,
+      "chosen": {
+        "clusterMin": 3,
+        "clusterSpanBars": 4,
+        "clusterDeepDb": 16,
+        "fractionMax": 0.2
+      },
+      "fallback": null,
+      "startJudged": null,
+      "valid": [
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 2,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 2,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 3,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 4,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 5,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 6,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 7,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 16,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 17,
+          "fractionMax": 0.3
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.1
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.15
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.2
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.25
+        },
+        {
+          "clusterMin": 3,
+          "clusterSpanBars": 8,
+          "clusterDeepDb": 18,
+          "fractionMax": 0.3
+        }
+      ]
+    },
+    "atChosen": {
+      "missDb": 16,
+      "rule": {
+        "clusterMin": 3,
+        "clusterSpanBars": 4,
+        "clusterDeepDb": 16,
+        "fractionMax": 0.2
+      },
+      "clean": {
+        "bass-line": {
+          "checked": 8,
+          "misses": [],
+          "verdict": "pass",
+          "reasons": [],
+          "measurements": {
+            "checked": 8,
+            "misses": 0,
+            "deepMisses": 0,
+            "fraction": 0,
+            "referenceRms": 0.134641,
+            "worstRelDb": null,
+            "clusters": []
+          }
+        }
+      },
+      "mutated": {
+        "checked": 8,
+        "misses": [
+          {
+            "tSec": 6,
+            "bar": 3,
+            "hz": 43.7,
+            "orbit": 2,
+            "s": "sine",
+            "relDb": -20.54
+          },
+          {
+            "tSec": 8,
+            "bar": 4,
+            "hz": 65.4,
+            "orbit": 2,
+            "s": "sine",
+            "relDb": -36.18
+          },
+          {
+            "tSec": 10,
+            "bar": 5,
+            "hz": 49,
+            "orbit": 2,
+            "s": "sine",
+            "relDb": -38.71
+          }
+        ],
+        "verdict": "fail",
+        "reasons": [
+          "orbit 2: 3 bass notes missing (<= -16 dB) in bars 3-5 (6.00s-12.00s)"
+        ],
+        "measurements": {
+          "checked": 8,
+          "misses": 3,
+          "deepMisses": 3,
+          "fraction": 0.375,
+          "referenceRms": 0.123811,
+          "worstRelDb": -38.71,
+          "clusters": [
+            {
+              "orbit": 2,
+              "fromBar": 3,
+              "toBar": 5,
+              "count": 3
+            }
+          ]
+        }
+      }
+    }
+  },
+  "archiveNote": "Aggregate decisions reflect the original runs. Individual archived catalog results are omitted."
+}

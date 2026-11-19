@@ -1,0 +1,58 @@
+{
+  "item": "the first-duck ramp from the pause frame (04 \"(measure) captures\" 4)",
+  "cases": [
+    "duck-first-ramp",
+    "duck-gap-ramp",
+    "duck-cancel-hold",
+    "duck-call-order",
+    "duck-multi-target",
+    "duck-across-pause"
+  ],
+  "candidates": [
+    {
+      "candidate": 0,
+      "description": "offlineDuck as ported: on an empty timeline cancelAndHoldAtTime does nothing and the first exponential ramp inserts setValueAtTime(1, pause), so the fall starts at the pause frame (duck-first-ramp: frame 19968, t = 0.75 s); later ducks fall from the previous event; a cancel inside a ramp holds the float ExponentialRampAtTime value, cached lazily",
+      "residualDb": {
+        "duck-first-ramp": "-inf",
+        "duck-gap-ramp": "-inf",
+        "duck-cancel-hold": "-inf",
+        "duck-call-order": "-inf",
+        "duck-multi-target": "-inf",
+        "duck-across-pause": "-inf"
+      }
+    },
+    {
+      "candidate": "a",
+      "description": "the fall starts at t: a setValueAtTime(held, t) before the first duck's ramps (what offlineDuck would do if an event already existed)",
+      "residualDb": {
+        "duck-first-ramp": -9.65,
+        "duck-gap-ramp": -4.32,
+        "duck-cancel-hold": -7.26,
+        "duck-call-order": -7.77,
+        "duck-multi-target": -8.69,
+        "duck-across-pause": -5.24
+      }
+    },
+    {
+      "candidate": "precision probe",
+      "description": "not a rule candidate: ExponentialRampAtTime with the double quotient f64(v2) / f64(v1) instead of the float v2 / v1; the cases see it far below their -140 dB threshold, so the float quotient is pinned by the param.rs unit tests, not by the refs",
+      "residualDb": {
+        "duck-cancel-hold": -165.14,
+        "duck-call-order": "-inf",
+        "duck-across-pause": -154.75
+      }
+    }
+  ],
+  "outcome": "candidate 0 nulls every case bit for bit; the rule is kept (the fall starts at the pause frame via the inserted setValueAtTime(1, pause)). (b) and (c) were not needed",
+  "choice": 0,
+  "caseNotes": [
+    "duck-call-order: the 04 sketch (a later-called hap with an earlier t in the same pause) cannot come from a job: planEngineJob orders haps by onset (selectHaps, ties in query order). The case pins call order with two ducks at the same t (the second call cancels the first's ramps); duck_in_job_order_not_time_order pins the unsorted order on a hand-made job",
+    "duck-multi-target: a target orbit no hap uses cannot be in a micro case: superdough logs 'duck target orbit 7 does not exist' through its error logger and the render page reports it as an 'other' render error, which the engine (decision 14, a silent no-op) does not. The case ducks two existing orbits (arrays, and a scalar duckattack that falls back to attackArr[0]); duck_missing_target_noop pins the no-op"
+  ],
+  "provenance": {
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1",
+    "platform": "darwin-arm64",
+    "date": "2026-11-11"
+  }
+}

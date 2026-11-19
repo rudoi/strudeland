@@ -1,0 +1,25 @@
+[package]
+name = "strudeland-cli"
+version = "0.1.0"
+description = "strudeland command line: drive the running app over its control socket, and render songs to audio files"
+authors = ["Andrew Rudoi"]
+edition = "2024"
+rust-version = "1.94"
+license = "AGPL-3.0-or-later"
+
+[[bin]]
+name = "strudeland"
+path = "src/main.rs"
+
+[dependencies]
+strudeland-ctl = { path = "../strudeland-ctl" }
+strudeland-render = { path = "../strudeland-render" }
+strudeland-project = { path = "../strudeland-project" }
+strudeland-transcribe = { path = "../strudeland-transcribe" }
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+strudeland-transcribe = { path = "../strudeland-transcribe", features = ["eval"] }
+tempfile = "3.27.0"

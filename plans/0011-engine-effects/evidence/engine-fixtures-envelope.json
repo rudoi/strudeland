@@ -1,0 +1,272 @@
+{
+  "what": "The fixture envelope guard of crates/strudeland-engine/tests/fixtures.rs after the effect fixtures: each supported synthetic fixture chunk job rendered by the engine against its superdough reference envelope (*.ref.json: per-channel RMS in dB per 10 ms window, rounded to 0.01 dB, and per-channel peak, rounded to 6 decimals). The archived results exclude the superseded voice-worklets measurement.",
+  "command": "cargo test -p strudeland-engine --test fixtures -- --nocapture (release profile; output copied by hand)",
+  "measure": "per chunk, the worst channel: mean and nearest-rank 95th percentile of |engine dB - reference dB| over the 10 ms windows whose reference RMS is above floorDb, and |peak difference| in dB",
+  "references": {
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "platform": "darwin-arm64"
+  },
+  "chunks": [
+    {
+      "job": "fixture-bass-line--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-clipping--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 1600
+    },
+    {
+      "job": "fixture-duck--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3098
+    },
+    {
+      "job": "fixture-fx-bus--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 1944
+    },
+    {
+      "job": "fixture-fx-bus--mix-1.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 2632
+    },
+    {
+      "job": "fixture-fx-chain--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3600
+    },
+    {
+      "job": "fixture-fx-chain--mix-1.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 2000
+    },
+    {
+      "job": "fixture-fx-delay--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 754
+    },
+    {
+      "job": "fixture-fx-mod--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3840
+    },
+    {
+      "job": "fixture-fx-native--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-fx-room--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 1998
+    },
+    {
+      "job": "fixture-odd-meter--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 1290
+    },
+    {
+      "job": "fixture-pad-seam--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 4000
+    },
+    {
+      "job": "fixture-pad-seam--mix-1.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 6398
+    },
+    {
+      "job": "fixture-pad-seam--mix-2.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-reverb-change--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 6373
+    },
+    {
+      "job": "fixture-reverb-change--mix-1.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 4381
+    },
+    {
+      "job": "fixture-reverb-long--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 7200
+    },
+    {
+      "job": "fixture-reverb-long--mix-1.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 7200
+    },
+    {
+      "job": "fixture-silence-entry-pad--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 1198
+    },
+    {
+      "job": "fixture-silence-entry-perc--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.004,
+      "peakDb": 0.0,
+      "windows": 60
+    },
+    {
+      "job": "fixture-sine-basic--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 1600
+    },
+    {
+      "job": "fixture-song-clip--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3600
+    },
+    {
+      "job": "fixture-song-clip--mix-1.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 2800
+    },
+    {
+      "job": "fixture-song-linear--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-stems-5--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-stems-5--stems-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 5312
+    },
+    {
+      "job": "fixture-stems-shared--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 320
+    },
+    {
+      "job": "fixture-stems-shared--stems-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 320
+    },
+    {
+      "job": "fixture-voice-filter--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-voice-level--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-voice-mod--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 2612
+    },
+    {
+      "job": "fixture-voice-noise--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 2478
+    },
+    {
+      "job": "fixture-voice-osc--mix-0.job.json",
+      "windowMeanDb": 0.002,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    },
+    {
+      "job": "fixture-worklets--mix-0.job.json",
+      "windowMeanDb": 0.003,
+      "windowP95Db": 0.005,
+      "peakDb": 0.0,
+      "windows": 3200
+    }
+  ],
+  "worst": {
+    "windowMeanDb": 0.003,
+    "windowP95Db": 0.005,
+    "peakDb": 0.0
+  },
+  "decision": {
+    "changed": false,
+    "tolerances": {
+      "floorDb": -60,
+      "windowMeanDb": 0.05,
+      "windowP95Db": 0.1,
+      "peakDb": 0.05
+    },
+    "rule": "unchanged: the worst values equal those of plans/0010-rust-engine-core/evidence/engine-fixtures-envelope.json (0.003 / 0.005 / 0.000 dB, the rounding of the stored envelope), so the tolerances of tests/refs/thresholds.json stay as calibrated there and keep citing that file (07: same four tolerances, changed only if the evidence demands)"
+  }
+}

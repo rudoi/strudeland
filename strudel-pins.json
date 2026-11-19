@@ -1,0 +1,20 @@
+{
+  "schema": 2,
+  "strudel": {
+    "repo": "https://codeberg.org/uzu/strudel",
+    "commit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "date": "2026-11-08T02:32:27+01:00"
+  },
+  "npm": {
+    "@kabelsalat/web": {
+      "version": "0.4.1",
+      "file": "dist/index.mjs",
+      "sha256": "35b145b9dec4243d80ebcb2dbc3ad002cffac418709f7d3d3edbbadfb65fe09c"
+    },
+    "@kabelsalat/lib": {
+      "version": "0.4.1",
+      "file": "src/ugens.js",
+      "sha256": "8d6aafc3dfc806488a7d924632d51c70edf781db872c021ba254a258ea6cd39a"
+    }
+  }
+}

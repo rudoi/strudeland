@@ -1,0 +1,62 @@
+{
+  "case": "measure-worklet-start",
+  "rule": "a worklet source with begin = t first runs (and first sounds) in the first quantum q with q * 128 / 44100 > f32(t) (JS !(currentTime <= begin) on the float32 param)",
+  "haps": [
+    {
+      "t": 0.00582766439909297,
+      "tF32": 0.005827664397656918,
+      "tFrames": 257,
+      "offsetInQuantum": 1,
+      "expectedQuantum": 3,
+      "observedQuantum": 3,
+      "agrees": true
+    },
+    {
+      "t": 0.4078004535147392,
+      "tF32": 0.40780046582221985,
+      "tFrames": 17984,
+      "offsetInQuantum": 64,
+      "expectedQuantum": 141,
+      "observedQuantum": 141,
+      "agrees": true
+    },
+    {
+      "t": 0.8097732426303855,
+      "tF32": 0.8097732663154602,
+      "tFrames": 35711,
+      "offsetInQuantum": 127,
+      "expectedQuantum": 279,
+      "observedQuantum": 279,
+      "agrees": true
+    },
+    {
+      "t": 1.2103401360544217,
+      "tF32": 1.210340142250061,
+      "tFrames": 53376,
+      "offsetInQuantum": 0,
+      "expectedQuantum": 418,
+      "observedQuantum": 418,
+      "agrees": true
+    },
+    {
+      "t": 1.607981859410431,
+      "tF32": 1.60798180103302,
+      "tFrames": 70912,
+      "offsetInQuantum": 0,
+      "expectedQuantum": 554,
+      "observedQuantum": 554,
+      "agrees": true
+    }
+  ],
+  "agrees": true,
+  "provenance": {
+    "schema": 2,
+    "sourceSha256": "794664b69d1ce5317398d497ef81b6e8ef86b8bfa3482737b4a6cafb8b4f25f0",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+    "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "platform": "darwin-arm64"
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "header": {
+    "generatedAt": "2026-11-11T20:07:04.838Z",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4"
+  },
+  "variant": "patched",
+  "source": "const meta = { title: 'bmod-twin', bpm: 120, meter: '4/4' };\n$: s(\"sine\").note(\"c2\").gain(0.8).bus(1).dry(0).orbit(2)\n$: s(\"sawtooth\").note(\"<c3 g3>\").lpf(900).bmod({ b: 1, c: 'cutoff', dep: 2 }).orbit(1)\n",
+  "renders": 6,
+  "window": {
+    "fromBar": 0,
+    "toBar": 4
+  },
+  "pairs": [
+    {
+      "pair": [
+        0,
+        1
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        0,
+        2
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        0,
+        3
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        0,
+        4
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        0,
+        5
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        1,
+        2
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        1,
+        3
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        1,
+        4
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        1,
+        5
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        2,
+        3
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        2,
+        4
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        2,
+        5
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        3,
+        4
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        3,
+        5
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    },
+    {
+      "pair": [
+        4,
+        5
+      ],
+      "differingFrames": 0,
+      "firstDiff": null,
+      "residualDb": null
+    }
+  ],
+  "differingPairs": 0,
+  "worstResidualDb": null
+}

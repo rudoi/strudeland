@@ -1,0 +1,1269 @@
+{
+  "generatedAt": "2026-11-11T07:09:35.055Z",
+  "playwright": "1.64.1",
+  "chromium": "156.0.8078.4",
+  "renders": 3,
+  "windowSec": 0.1,
+  "bands": [
+    "sub",
+    "mid",
+    "high"
+  ],
+  "fixtures": [
+    {
+      "name": "pad-seam",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        10
+      ],
+      "frames": 882000,
+      "renderSec": [
+        1.6,
+        1.6,
+        1.6
+      ],
+      "bitEqual": false,
+      "residualDb": -148.1136365728841,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 9.346493320155938e-7
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0.0000010033358760447262
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 9.229353794489222e-7
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 491675,
+          "firstDiff": {
+            "frame": 88203,
+            "channel": 1
+          },
+          "residualDb": -148.1136365728841,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 430176,
+          "firstDiff": {
+            "frame": 176411,
+            "channel": 0
+          },
+          "residualDb": -148.52836687640607,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 493185,
+          "firstDiff": {
+            "frame": 88203,
+            "channel": 1
+          },
+          "residualDb": -148.2041586840362,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        }
+      ]
+    },
+    {
+      "name": "reverb-long",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        15
+      ],
+      "frames": 1587600,
+      "renderSec": [
+        10.8,
+        10.7,
+        10.8
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "reverb-change",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        16
+      ],
+      "frames": 1411200,
+      "renderSec": [
+        5.5,
+        5.5,
+        5.3
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "worklets",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 705600,
+      "renderSec": [
+        1.1,
+        1,
+        1
+      ],
+      "bitEqual": false,
+      "residualDb": -143.7908405562769,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 9.035888524080622e-7
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 7.489375782246114e-7
+        },
+        "high": {
+          "p50": 0,
+          "p95": 5.986514484037841e-7,
+          "max": 0.0000010203372623837399
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 731802,
+          "firstDiff": {
+            "frame": 2,
+            "channel": 0
+          },
+          "residualDb": -145.14435665114647,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 723191,
+          "firstDiff": {
+            "frame": 2,
+            "channel": 0
+          },
+          "residualDb": -144.51570363304774,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 791217,
+          "firstDiff": {
+            "frame": 3,
+            "channel": 0
+          },
+          "residualDb": -143.7908405562769,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        }
+      ]
+    },
+    {
+      "name": "duck",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 682839,
+      "renderSec": [
+        0.7,
+        0.6,
+        0.7
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "odd-meter",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 540788,
+      "renderSec": [
+        0.6,
+        0.5,
+        0.5
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "bass-line",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 705600,
+      "renderSec": [
+        0.5,
+        0.6,
+        0.6
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "stems-5",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 705600,
+      "renderSec": [
+        0.6,
+        0.6,
+        0.6
+      ],
+      "bitEqual": false,
+      "residualDb": -146.53508236883124,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 6.637597258005466e-7
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 7.048868239255545e-7
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 80371,
+          "firstDiff": {
+            "frame": 4,
+            "channel": 0
+          },
+          "residualDb": -148.02982637338778,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 107656,
+          "firstDiff": {
+            "frame": 4,
+            "channel": 0
+          },
+          "residualDb": -146.88827464117801,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 111094,
+          "firstDiff": {
+            "frame": 4,
+            "channel": 0
+          },
+          "residualDb": -146.53508236883124,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        }
+      ]
+    },
+    {
+      "name": "stems-shared",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        4
+      ],
+      "frames": 352800,
+      "renderSec": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "samples",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        4
+      ],
+      "frames": 352800,
+      "renderSec": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "bitEqual": false,
+      "residualDb": -154.2456311056806,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 7666,
+          "firstDiff": {
+            "frame": 22057,
+            "channel": 0
+          },
+          "residualDb": -154.2456311056806,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 6424,
+          "firstDiff": {
+            "frame": 22054,
+            "channel": 0
+          },
+          "residualDb": -154.9248375334685,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 7022,
+          "firstDiff": {
+            "frame": 22054,
+            "channel": 0
+          },
+          "residualDb": -154.6023774100134,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        }
+      ]
+    },
+    {
+      "name": "silence-entry-perc",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        4
+      ],
+      "frames": 352800,
+      "renderSec": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "silence-entry-pad",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        4
+      ],
+      "frames": 352800,
+      "renderSec": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "clipping",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        4
+      ],
+      "frames": 352800,
+      "renderSec": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "bitEqual": false,
+      "residualDb": -161.6053683027879,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 4196,
+          "firstDiff": {
+            "frame": 22055,
+            "channel": 0
+          },
+          "residualDb": -161.78986500146635,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 4388,
+          "firstDiff": {
+            "frame": 22053,
+            "channel": 0
+          },
+          "residualDb": -161.67317584041228,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 4478,
+          "firstDiff": {
+            "frame": 22053,
+            "channel": 0
+          },
+          "residualDb": -161.6053683027879,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": false
+        }
+      ]
+    },
+    {
+      "name": "noise-seed",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 705600,
+      "renderSec": [
+        1.5,
+        1.5,
+        1.5
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "song-linear",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        8
+      ],
+      "frames": 705600,
+      "renderSec": [
+        0.5,
+        0.5,
+        0.6
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    },
+    {
+      "name": "song-clip",
+      "stochastic": false,
+      "chunk0Bars": [
+        0,
+        9
+      ],
+      "frames": 793800,
+      "renderSec": [
+        0.6,
+        0.6,
+        0.6
+      ],
+      "bitEqual": true,
+      "residualDb": -200,
+      "bands": {
+        "sub": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "mid": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "high": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "lufsDelta": 0,
+      "peakDeltaDb": 0,
+      "pairs": [
+        {
+          "pair": [
+            0,
+            1
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            0,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        },
+        {
+          "pair": [
+            1,
+            2
+          ],
+          "differingFrames": 0,
+          "firstDiff": null,
+          "residualDb": -200,
+          "lufsDelta": 0,
+          "peakDeltaDb": 0,
+          "hashEqual": true
+        }
+      ]
+    }
+  ],
+  "decision": {
+    "TWIN_BITEXACT_HOLDS": false,
+    "TWIN_P95_DB": 0.5,
+    "TWIN_MAX_DB": 3,
+    "TWIN_RESIDUAL_DB": -19,
+    "worst": {
+      "p95": 0.3604433834814049,
+      "bandMax": 2.3397661749571834,
+      "residualDb": -22.050222103939383,
+      "lufsDelta": 0.019999999999999574,
+      "peakDeltaDb": 0.22999999999999998
+    },
+    "self": {
+      "bandMeanDb": 0.7208867669628098,
+      "bandP95Db": 1.0813301504442148,
+      "lufsDb": 0.05,
+      "peakDb": 0.45999999999999996
+    },
+    "bitEqual": [
+      "reverb-long",
+      "reverb-change",
+      "duck",
+      "odd-meter",
+      "bass-line",
+      "stems-shared",
+      "silence-entry-perc",
+      "silence-entry-pad",
+      "noise-seed",
+      "song-linear",
+      "song-clip"
+    ],
+    "notBitEqual": [
+      "pad-seam",
+      "worklets",
+      "stems-5",
+      "samples",
+      "clipping"
+    ],
+    "bitEqualCount": 11,
+    "notBitEqualCount": 12
+  },
+  "archiveNote": "Aggregate decisions reflect the original runs. Individual archived catalog results are omitted."
+}

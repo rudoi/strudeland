@@ -1,0 +1,53 @@
+{
+  "case": "measure-feedback-echo",
+  "rule": "echo k of a burst at t0 through a delay of D frames with feedback g lands at t0 + k*D + (k-1)*128 with amplitude g^(k-1) relative to echo 1 (the feedback input reads the delay's output of the previous render quantum)",
+  "delaytime": 0.05,
+  "feedback": 0.5,
+  "delayFrames": 2205,
+  "dryOnsetFrame": 1,
+  "echoes": [
+    {
+      "k": 1,
+      "expectedFrame": 2206,
+      "observedFrame": 2206,
+      "peakRatio": 1,
+      "expectedPeakRatio": 1,
+      "agrees": true
+    },
+    {
+      "k": 2,
+      "expectedFrame": 4539,
+      "observedFrame": 4539,
+      "peakRatio": 0.5,
+      "expectedPeakRatio": 0.5,
+      "agrees": true
+    },
+    {
+      "k": 3,
+      "expectedFrame": 6872,
+      "observedFrame": 6872,
+      "peakRatio": 0.25,
+      "expectedPeakRatio": 0.25,
+      "agrees": true
+    },
+    {
+      "k": 4,
+      "expectedFrame": 9205,
+      "observedFrame": 9205,
+      "peakRatio": 0.125,
+      "expectedPeakRatio": 0.125,
+      "agrees": true
+    }
+  ],
+  "agrees": true,
+  "provenance": {
+    "schema": 2,
+    "sourceSha256": "55ae9abfb23fd0dc2619d90dbe0bc1f5d4f31f6637e12f07ba379020985ab815",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+    "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "platform": "darwin-arm64"
+  }
+}

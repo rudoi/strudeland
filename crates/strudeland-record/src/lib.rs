@@ -1,0 +1,37 @@
+//! strudeland microphone capture: one input channel to a mono 32-bit float WAV at the device's
+//! rate, with levels and clock anchors from frame index to mach host time.
+//!
+//! The [`Recorder`] owns a control thread (the source and all state transitions) and, while
+//! armed, a writer thread (the rings, the WAV, levels). The audio callback only touches atomics
+//! and preallocated lock-free rings. Audio comes through the [`Source`] seam: [`CpalSource`] in
+//! the app, [`testing::FakeSource`] in tests.
+
+mod anchors;
+mod device;
+mod error;
+mod levels;
+mod pipeline;
+mod recorder;
+mod source;
+mod writer;
+
+pub use anchors::{Anchor, frame_at};
+pub use device::{DeviceInfo, find_input_device, host_now_ns, list_input_devices};
+pub use error::RecordError;
+pub use levels::Level;
+pub use pipeline::Capture;
+pub use recorder::{
+    ArmConfig, ArmedInfo, Ended, Event, Recorder, START_TIMEOUT, SourceFactory, TakeResult,
+};
+pub use source::{
+    CaptureTime, CpalSource, DEFAULT_CAPTURE_TIME, Fault, FaultKind, FaultSink, MAX_BLOCK_FRAMES,
+    Running, Source,
+};
+pub use writer::max_frames;
+
+/// The fake source and test limits, for this crate's tests and the app's.
+#[doc(hidden)]
+pub mod testing {
+    pub use crate::recorder::Limits;
+    pub use crate::source::{FakeHandle, FakeSource};
+}

@@ -1,0 +1,97 @@
+{
+  "case": "measure-suspend-quantization",
+  "rule": "pause frame = round_up_128(trunc(suspendSec * 44100)); a hap scheduled in a pause first sounds at its own start frame TimeToSampleFrame(t, RoundUp) (the next frame when t is on a frame), never at the pause frame",
+  "pauses": [
+    {
+      "suspendSec": 0,
+      "truncatedFrame": 0,
+      "pauseFrame": 0,
+      "truncatedIsMultipleOf128": true
+    },
+    {
+      "suspendSec": 0.4358299595141701,
+      "truncatedFrame": 19220,
+      "pauseFrame": 19328,
+      "truncatedIsMultipleOf128": false
+    },
+    {
+      "suspendSec": 0.9216599190283401,
+      "truncatedFrame": 40645,
+      "pauseFrame": 40704,
+      "truncatedIsMultipleOf128": false
+    }
+  ],
+  "haps": [
+    {
+      "pause": 0,
+      "t": 0,
+      "tFrames": 0,
+      "startFrame": 0,
+      "expectedFirstSoundingFrame": 1,
+      "observedFirstSoundingFrame": 1,
+      "afterPauseFrame": true,
+      "agrees": true
+    },
+    {
+      "pause": 0,
+      "t": 0.3036437246963563,
+      "tFrames": 13390.688259109313,
+      "startFrame": 13391,
+      "expectedFirstSoundingFrame": 13391,
+      "observedFirstSoundingFrame": 13391,
+      "afterPauseFrame": true,
+      "agrees": true
+    },
+    {
+      "pause": 1,
+      "t": 0.4858299595141701,
+      "tFrames": 21425.1012145749,
+      "startFrame": 21426,
+      "expectedFirstSoundingFrame": 21426,
+      "observedFirstSoundingFrame": 21426,
+      "afterPauseFrame": true,
+      "agrees": true
+    },
+    {
+      "pause": 1,
+      "t": 0.7894736842105264,
+      "tFrames": 34815.78947368421,
+      "startFrame": 34816,
+      "expectedFirstSoundingFrame": 34816,
+      "observedFirstSoundingFrame": 34816,
+      "afterPauseFrame": true,
+      "agrees": true
+    },
+    {
+      "pause": 2,
+      "t": 0.9716599190283401,
+      "tFrames": 42850.2024291498,
+      "startFrame": 42851,
+      "expectedFirstSoundingFrame": 42851,
+      "observedFirstSoundingFrame": 42851,
+      "afterPauseFrame": true,
+      "agrees": true
+    },
+    {
+      "pause": 2,
+      "t": 1.2753036437246965,
+      "tFrames": 56240.89068825912,
+      "startFrame": 56241,
+      "expectedFirstSoundingFrame": 56241,
+      "observedFirstSoundingFrame": 56241,
+      "afterPauseFrame": true,
+      "agrees": true
+    }
+  ],
+  "agrees": true,
+  "provenance": {
+    "schema": 2,
+    "sourceSha256": "157b98bbe147b45b0593d3779cb44e131d9362817c072cec132baaffe65ed9c9",
+    "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
+    "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
+    "plannerSha256": "66511b8d48e73b83ec87e9ba41673755f25590d737ee4fcef6ca5081f1da6b95",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4",
+    "platform": "darwin-arm64"
+  }
+}

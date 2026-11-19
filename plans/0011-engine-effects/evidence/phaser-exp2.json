@@ -1,0 +1,33 @@
+{
+  "item": "the exp2 overload of NormalizeFrequency (04 \"(measure) captures\" 3)",
+  "cases": [
+    "phaser-notch",
+    "phaser-params"
+  ],
+  "candidates": [
+    {
+      "DETUNE_EXP2_F32": false,
+      "description": "double exp2 of the float quotient detune / 1200 (the previous code)",
+      "residualDb": {
+        "phaser-notch": -135.1,
+        "phaser-params": -135.33
+      }
+    },
+    {
+      "DETUNE_EXP2_F32": true,
+      "description": "float exp2f of the float quotient (libc++'s float overload), widened",
+      "residualDb": {
+        "phaser-notch": "-inf",
+        "phaser-params": "-inf"
+      }
+    }
+  ],
+  "outcome": "(a) exactly one nulls: true. normalize_frequency now uses the float overload; it is reached only with a non-zero detune, and the baseline diff of every committed job (micro and fixture) of the parent commit is empty, so every existing filter case and fixture envelope is byte-identical",
+  "choice": true,
+  "provenance": {
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1",
+    "platform": "darwin-arm64",
+    "date": "2026-11-11"
+  }
+}

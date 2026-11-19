@@ -1,0 +1,2107 @@
+[
+  {
+    "name": "not an object",
+    "rule": "shape",
+    "job": [1, 2]
+  },
+  {
+    "name": "missing frames",
+    "rule": "shape",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "unknown top-level field",
+    "rule": "shape",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ],
+      "extra": 1
+    }
+  },
+  {
+    "name": "unknown hap field",
+    "rule": "shape",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0,
+              "extra": 1
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "channels not an object",
+    "rule": "shape",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": 2,
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema 3",
+    "rule": "schema",
+    "job": {
+      "schema": 3,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "sample rate 48000",
+    "rule": "sampleRate",
+    "job": {
+      "schema": 2,
+      "sampleRate": 48000,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative frames",
+    "rule": "frames",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": -1,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "fractional frames",
+    "rule": "frames",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 1.5,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "frames above 2^31",
+    "rule": "frames",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 2147483649,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "fractional seed",
+    "rule": "seed",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0.5,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "seed above i32",
+    "rule": "seed",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 2147483648,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "seed below i32",
+    "rule": "seed",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": -2147483649,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "cps 0",
+    "rule": "cps",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative cps",
+    "rule": "cps",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": -0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "cps a string",
+    "rule": "cps",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": "0.5",
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "zero channels",
+    "rule": "channels",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 0,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "channels above the WAV limit",
+    "rule": "channels",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 65536,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "channels at u32 max",
+    "rule": "channels",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 4294967295,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "multiChannelOrbits not a boolean",
+    "rule": "channels",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": 1
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "no pauses",
+    "rule": "pauses",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "first pause not at 0",
+    "rule": "pause0",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0.5,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "suspendSec not increasing",
+    "rule": "suspendOrder",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "suspendSec same quantized frame",
+    "rule": "suspendFrames",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 0.00001,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "pause frame at frames",
+    "rule": "suspendRange",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 4,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative hap time",
+    "rule": "hapTime",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": -0.001,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative hap duration",
+    "rule": "hapDuration",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": -1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "hap cycle a string",
+    "rule": "hapCycle",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": "0",
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "value index out of range",
+    "rule": "hapValue",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 1,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative value index",
+    "rule": "hapValue",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": -1,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "orbit not a number",
+    "rule": "orbit",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": null,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "orbit without channels",
+    "rule": "orbitChannels",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": []
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative orbit channel",
+    "rule": "orbitChannels",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [-1, 0]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "value not an object",
+    "rule": "values",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [7]
+    }
+  },
+  {
+    "name": "bad $num payload",
+    "rule": "valueWrapper",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": {
+            "$num": "nan"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "$num with another key",
+    "rule": "valueWrapper",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": {
+            "$num": "NaN",
+            "x": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema 1",
+    "rule": "schema",
+    "job": {
+      "schema": 1,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "$set not an array",
+    "rule": "valueWrapper",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": {
+            "$set": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "$set with another key",
+    "rule": "valueWrapper",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": {
+            "$set": [],
+            "x": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "$unsupported not a string",
+    "rule": "valueWrapper",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 0,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": {
+            "$unsupported": 1
+          },
+          "note": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "hap cycle 1e999",
+    "rule": "hapCycle",
+    "job": {
+      "schema": 2,
+      "sampleRate": 44100,
+      "frames": 176400,
+      "seed": 0,
+      "cps": 0.5,
+      "channels": {
+        "count": 2,
+        "multiChannelOrbits": false
+      },
+      "orbits": [
+        {
+          "orbit": 1,
+          "channels": [0, 1]
+        }
+      ],
+      "pauses": [
+        {
+          "suspendSec": 0,
+          "haps": [
+            {
+              "t": 0,
+              "duration": 1,
+              "cycle": 1e999,
+              "v": 0,
+              "event": 0
+            }
+          ]
+        },
+        {
+          "suspendSec": 1.95,
+          "haps": [
+            {
+              "t": 2,
+              "duration": 1,
+              "cycle": 1,
+              "v": 0,
+              "event": 1
+            }
+          ]
+        }
+      ],
+      "values": [
+        {
+          "s": "sine",
+          "note": 60
+        }
+      ]
+    }
+  }
+]

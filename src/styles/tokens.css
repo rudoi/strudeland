@@ -1,0 +1,171 @@
+/*
+ * Every design token. This is the only file in src/ that may hold colour literals or refer to the
+ * palette layer (tests/theme-tokens.test.ts enforces it). Three layers: palette (private), roles
+ * (what components use), domain sets (syntax, editor, scope). The app is dark only.
+ *
+ * Never define the names Strudel writes onto :root with !important (--background, --foreground,
+ * --caret, --selection, --selectionMatch, --lineHighlight, --gutterBackground, --gutterForeground,
+ * --lineBackground, --muted).
+ */
+:root {
+  /* 1. Palette (private) */
+  --gray-0: #08090b;
+  --gray-1: #0c0d10;
+  --gray-2: #14161b;
+  --gray-3: #1b1e25;
+  --gray-4: #242833;
+  --gray-5: #262a33;
+  --gray-6: #353a46;
+  --gray-dot: #1f232b;
+  --gray-tick: #2c313b;
+  --ink-0: #e6e8ee;
+  --ink-1: #9aa1ae;
+  --ink-2: #8a92a1;
+  --lime: #b8f25c;
+  --cyan: #5cd6f0;
+  --pink: #ff7ac8;
+  --violet: #a796ff;
+  --amber: #ffbe55;
+  --red: #ff6a5c;
+  --syn-violet: #c4a8ff;
+  --syn-mint: #a6e3c8;
+  --syn-peach: #f6b89f;
+  --syn-blue: #8ec5ff;
+  --shadow-color: rgb(0 0 0 / 0.55);
+
+  /* 2. Roles */
+  /* Surfaces */
+  --bg: var(--gray-1);
+  --surface: var(--gray-2);
+  --surface-2: var(--gray-3);
+  --surface-3: var(--gray-4);
+  --well: var(--gray-0);
+  /* Lines */
+  --border: var(--gray-5);
+  --border-strong: var(--gray-6);
+  --grid-dot: var(--gray-dot);
+  /* Text */
+  --text: var(--ink-0);
+  --text-dim: var(--ink-1);
+  --text-faint: var(--ink-2);
+  --text-on-tone: var(--gray-1);
+  --placeholder: var(--text-faint);
+  /* Meanings */
+  --accent: var(--lime);
+  --focus: var(--cyan);
+  --warning: var(--amber);
+  --claude-edit: var(--amber);
+  --danger: var(--red);
+  /* Links */
+  --link: var(--text-dim);
+  --link-hover: var(--focus);
+  /* Categorical ramp */
+  --cat-1: var(--cyan);
+  --cat-2: var(--pink);
+  --cat-3: var(--violet);
+  --cat-4: var(--amber);
+  /* Focus */
+  --focus-ring: 2px solid var(--focus);
+  --focus-offset: 2px;
+  /* Shadow */
+  --shadow-pop: 0 12px 32px var(--shadow-color), 0 0 0 1px var(--border-strong);
+  /* Scrollbars */
+  --scrollbar-thumb: var(--border-strong);
+  --scrollbar-thumb-hover: var(--text-faint);
+
+  /* Derived tints (the tone tints are derived in base.css) */
+  --accent-wash: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-edge: color-mix(in srgb, var(--accent) 35%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 45%, transparent);
+  --focus-wash: color-mix(in srgb, var(--focus) 14%, transparent);
+  --focus-edge: color-mix(in srgb, var(--focus) 35%, transparent);
+  --claude-edit-wash: color-mix(in srgb, var(--claude-edit) 14%, transparent);
+  --state-hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --state-press: color-mix(in srgb, var(--text) 10%, transparent);
+
+  /* 3. Domain sets */
+  /* Syntax (one string colour: Lezer cannot tell "…" from '…') */
+  --syntax-text: var(--text);
+  --syntax-keyword: var(--syn-violet);
+  --syntax-string: var(--syn-mint);
+  --syntax-number: var(--syn-peach);
+  --syntax-fn: var(--syn-blue);
+  --syntax-property: var(--text);
+  --syntax-comment: var(--text-faint);
+  --syntax-punct: var(--text-dim);
+  --syntax-operator: var(--text-dim);
+  /* Editor */
+  --editor-cursor: var(--accent);
+  --editor-selection: var(--focus-wash);
+  --editor-active-line: color-mix(in srgb, var(--text) 3%, transparent);
+  --editor-line-number: var(--text-faint);
+  --editor-line-number-active: var(--text-dim);
+  /* Scope */
+  --scope-tube: var(--well);
+  --scope-grat: var(--grid-dot);
+  --scope-grat-major: var(--gray-tick);
+  --scope-trace: var(--accent);
+  --scope-glow: var(--accent-glow);
+  --scope-rest: var(--accent-edge);
+  --scan-line: var(--accent);
+  --scan-tail: var(--accent-wash);
+  /* Meter (the input level) */
+  --meter-well: var(--well);
+  --meter-rms: var(--accent);
+  --meter-peak: var(--text-dim);
+  --meter-clip: var(--danger);
+
+  /* Type */
+  --font-ui: 'Space Grotesk Variable', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-ui: 13px;
+  --fs-code: 15px;
+  --fs-md: 15px;
+  --fs-xl: 28px;
+  --lh-ui: 1.4;
+  --lh-code: 1.55;
+  --tracking-label: 0.02em;
+
+  /* Space */
+  --space-0: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  /* Radius */
+  --radius-pill: 999px;
+  --radius-md: 10px;
+  --radius-sm: 6px;
+  --radius-xs: 3px;
+
+  /* Sizes */
+  --control-sm: 24px;
+  --control-md: 28px;
+  --toolbar-h: 48px;
+  --statusbar-h: 32px;
+  --ruler-h: 16px;
+  --meter-w: 72px;
+  --master-meter-w: 96px;
+
+  /* z-index */
+  --z-canvas: 0;
+  --z-app: 1;
+  --z-playhead: 2;
+  --z-pop: 10;
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+  }
+}

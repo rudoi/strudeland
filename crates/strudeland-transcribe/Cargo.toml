@@ -1,0 +1,37 @@
+[package]
+name = "strudeland-transcribe"
+version = "0.1.0"
+description = "strudeland melody transcription: pYIN pitch tracking, segmentation, grid, quantizing and key detection for a monophonic voice"
+authors = ["Andrew Rudoi"]
+edition = "2024"
+rust-version = "1.94"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+hound = "=3.5.1"
+rubato = "=5.1.0"
+rustfft = "=6.4.1"
+realfft = "=3.5.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+thiserror = "=2.0.21"
+
+[features]
+# The evaluation support (`eval`: synthetic melodies, the scorer, the evaluation set) for tests, the
+# example and other crates' tests; off by default, so the shipped binary does not carry it.
+eval = []
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[[example]]
+name = "eval"
+required-features = ["eval"]
+
+[[test]]
+name = "eval"
+required-features = ["eval"]
+
+[[test]]
+name = "perf_budget"
+required-features = ["eval"]
