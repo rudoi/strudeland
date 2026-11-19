@@ -281,11 +281,13 @@ nothing):
 
 - micro cases (`tests/render/engine-micro/<name>.js`, one DSP rule each): `<name>.job.json` (the
   job, with `provenance`) and `<name>.wav` (superdough's render in Chromium). `tests/micro.rs`
-  renders each job and requires the null residual `20*log10(rms(chromium - engine) /
+  renders each job. On the reference Chromium OS and architecture it requires the null residual `20*log10(rms(chromium - engine) /
   rms(chromium))` to stay below the case's `maxResidualDb` in `tests/refs/thresholds.json`, which
   cites its evidence under `plans/0010-rust-engine-core/evidence/` or
   `plans/0011-engine-effects/evidence/`. A case with `platform: "macos"` (the four `compressor-*`
-  cases, whose kernel calls the platform's libm) is judged on macOS only. A measured-floor case
+  cases, whose kernel calls the platform's libm) is null-tested on macOS. On other platforms,
+  the micro tests check shape, silent channels, finite samples, error contracts and exact
+  same-host repeatability. The fixture-envelope tests still run across platforms. A measured-floor case
   (`floor` in `thresholds.json`, one of `FLOOR_CASES` in `scripts/engine/refs-lib.ts`:
   `vowel-formants`, `mod-lfo-note`) has a junction of three or more sounding inputs that Chromium
   sums in hash-set order, so its reference varies in the last bit between runs: `engine:refs`
