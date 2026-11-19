@@ -280,8 +280,9 @@ export interface RecordingNotice {
 export function recordingNotices(
   state: RecordingUiState | null,
   player: MemoPlayerState | null = null,
+  platform = globalThis.navigator?.platform ?? '',
 ): RecordingNotice[] {
-  const out = state === null ? [] : takeNotices(state);
+  const out = state === null ? [] : takeNotices(state, platform);
   if (player?.status === 'error') {
     // Playback has stopped by now, so every one is dismissable.
     const { kind } = player;
@@ -295,19 +296,25 @@ export function recordingNotices(
   return out;
 }
 
-function takeNotices(state: RecordingUiState): RecordingNotice[] {
+function takeNotices(state: RecordingUiState, platform: string): RecordingNotice[] {
   const out: RecordingNotice[] = [];
   const e = state.error;
   if (e) {
     switch (e.kind) {
-      case 'permissionDenied':
+      case 'permissionDenied': {
+        const href = platform.includes('Mac')
+          ? MIC_SETTINGS_URL
+          : platform.startsWith('Win')
+            ? 'ms-settings:privacy-microphone'
+            : null;
         out.push({
           id: 'permission',
           tone: 'danger',
-          text: 'microphone access denied',
-          action: { kind: 'link', label: 'open settings', href: MIC_SETTINGS_URL },
+          text: href ? e.message : e.message + ' · check the input device in sound settings',
+          ...(href ? { action: { kind: 'link' as const, label: 'open settings', href } } : {}),
         });
         break;
+      }
       case 'noDevice':
         out.push({ id: 'no-device', tone: 'warning', text: 'no input device found' });
         break;

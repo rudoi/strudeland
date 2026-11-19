@@ -217,7 +217,10 @@ export function createRustBackend(
       session = s;
       if (limiter) api.setLimiter(s, true).catch(failed(gen));
     }
-    return waitForAnchor();
+    const opened = session;
+    const valid = await waitForAnchor();
+    if (!valid && session === opened) await stop();
+    return valid;
   };
 
   const flush = () => {

@@ -20,9 +20,14 @@ anchors, stats and scope frames back as `Event`s. No Tauri dependency.
 - `resample`: `QuantumResampler`, 44.1 kHz engine quanta to the device rate (rubato sinc,
   fixed 128-frame input); the identity at 44100 Hz.
 - `output`: the `Output` trait and its types. `cpal_output`: `CpalOutput`, the default device,
-  stereo `f32`, the stream owned by its own thread (re-queried on every start, so a default-device
+  negotiated floating-point or integer PCM with a mono downmix or stereo on channels 1 and 2, the stream owned by its own thread (re-queried on every start, so a default-device
   change is followed). `fake`: `testing::FakeOutput` with a virtual clock and `Pace::RealTime` or
   `Pace::AsFastAsPossible` (its `pulled()` keeps the first 2^24 samples).
+
+  A device period must fit in the 2048 device frames the engine keeps ready. On Linux and
+  Windows the backend requests a supported fixed period when the advertised range could
+  exceed that limit. A device that requires a larger period reports an unsupported-output
+  error at startup.
 
 ## Threads
 
@@ -84,8 +89,7 @@ thread sends `Event::Anchor { frame, host_ns }` with
 frame = max(0, round(base_frame + consumed * 44100 / device_rate - resampler_delay_frames - MASTER_DELAY_FRAMES))
 ```
 
-`host_ns` is when the callback's first frame is heard (cpal's `timestamp().playback`, mach host
-time on macOS), `base_frame` the engine's render head when the stream started (0 for the first),
+`host_ns` is when the callback's first frame is heard (CPAL playout time mapped to the shared host clock in `strudeland-record::clock`), `base_frame` the engine's render head when the stream started (0 for the first),
 `resampler_delay_frames` rubato's `output_delay()` in 44.1 kHz frames (0 at 44100 Hz), `MASTER_DELAY_FRAMES` (66) the master stage's lookahead delay. So `frame`
 is the engine frame heard at `host_ns`; anchors carry no cps. The offset is signed: a restarted
 stream's first anchor (consumed 0) reports a frame before `base_frame`, on the same line as its

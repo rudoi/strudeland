@@ -16,7 +16,7 @@ use crate::pipeline::{Capture, Shared};
 use crate::source::{Fault, FaultKind, FaultSink, Running, Source};
 use crate::writer::{TakeData, WriterHandle, WriterMsg, max_frames, spawn_writer};
 
-/// How long `start` waits for the take's first anchor.
+/// How long `start` waits for the first written sample.
 pub const START_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// What to arm: a device (`None` is the default input) and its 0-based channel.
@@ -67,8 +67,8 @@ pub enum Event {
     Armed(ArmedInfo),
     /// About 30 Hz while armed.
     Level(Level),
-    /// The take's first anchor.
-    TakeStarted(Anchor),
+    /// The writer received audio for the take.
+    TakeStarted,
     /// Exactly once per take, after the file is finalized.
     TakeEnded(TakeResult),
     Disarmed,
@@ -105,7 +105,7 @@ type Reply<T> = SyncSender<Result<T, RecordError>>;
 
 pub(crate) enum Command {
     Arm(ArmConfig, Reply<(u64, ArmedInfo)>),
-    Start(PathBuf, Reply<Anchor>),
+    Start(PathBuf, Reply<()>),
     Stop(Reply<TakeResult>),
     Disarm(SyncSender<()>),
     Shutdown,
@@ -195,9 +195,9 @@ impl Recorder {
         self.call(|r| Command::Arm(config, r))
     }
 
-    /// Creates `path` (never replacing a file) and starts a take; returns its first anchor, or
+    /// Creates `path` (never replacing a file) and starts a take; returns after the first samples are written, or
     /// `StartTimeout` (the file removed) when none arrives in 2 s.
-    pub fn start(&self, path: &Path) -> Result<Anchor, RecordError> {
+    pub fn start(&self, path: &Path) -> Result<(), RecordError> {
         let path = path.to_path_buf();
         self.call(|r| Command::Start(path, r))
     }
@@ -343,7 +343,7 @@ impl Control {
         Ok((arm_id, info))
     }
 
-    fn start(&mut self, path: PathBuf) -> Result<Anchor, RecordError> {
+    fn start(&mut self, path: PathBuf) -> Result<(), RecordError> {
         let Some(armed) = &mut self.armed else {
             return Err(RecordError::NotArmed);
         };
@@ -363,7 +363,7 @@ impl Control {
             path: path.clone(),
             sample_rate,
             max_frames: cap,
-            first_anchor: first_tx,
+            first_samples: first_tx,
             reply,
         });
         match opened {
@@ -377,14 +377,14 @@ impl Control {
         armed.shared.take_gen.fetch_add(1, Ordering::AcqRel);
         armed.shared.recording.store(true, Ordering::Release);
         match first_rx.recv_timeout(self.limits.start_timeout) {
-            Ok(anchor) => {
+            Ok(()) => {
                 armed.take = Some(Take {
                     id,
                     path,
                     suspect_at_start,
                 });
-                let _ = self.events.send(Event::TakeStarted(anchor));
-                Ok(anchor)
+                let _ = self.events.send(Event::TakeStarted);
+                Ok(())
             }
             Err(_) => {
                 armed.shared.recording.store(false, Ordering::Release);
@@ -420,7 +420,13 @@ impl Control {
             frames: data.frames,
             sample_rate: armed.info.sample_rate,
             channel: armed.info.channel,
-            anchors: data.anchors,
+            anchors: if armed.shared.invalid_timing_gen.load(Ordering::Acquire)
+                == armed.shared.take_gen.load(Ordering::Acquire)
+            {
+                Vec::new()
+            } else {
+                data.anchors
+            },
             xruns: armed
                 .shared
                 .suspect_blocks()

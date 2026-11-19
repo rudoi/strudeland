@@ -1,6 +1,7 @@
 //! Where the control socket lives. The app and every client compute it with this one helper.
 
 use std::ffi::OsStr;
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -11,17 +12,24 @@ pub const APP_IDENTIFIER: &str = "com.rudoi.strudeland";
 pub const SOCKET_ENV: &str = "STRUDELAND_SOCKET";
 
 /// The socket's file name inside the app-data directory.
+#[cfg(unix)]
 pub(crate) const SOCKET_FILE: &str = "ctl.sock";
 
-/// The longest socket path macOS accepts (`sun_path` is 104 bytes, NUL included).
-pub(crate) const MAX_SOCKET_PATH_BYTES: usize = 103;
+// The pathname must leave space for a NUL in sockaddr_un.
+#[cfg(all(unix, not(target_os = "linux")))]
+const MAX_SOCKET_PATH_BYTES: usize = 103;
+#[cfg(target_os = "linux")]
+const MAX_SOCKET_PATH_BYTES: usize = 107;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PathError {
     #[error("HOME is not set; set {SOCKET_ENV} to choose the control socket path")]
     NoHome,
-    #[error("socket path is {len} bytes; macOS allows at most {MAX_SOCKET_PATH_BYTES}")]
+    #[cfg(unix)]
+    #[error("socket path is {len} bytes; the platform allows at most {MAX_SOCKET_PATH_BYTES}")]
     TooLong { len: usize },
+    #[error("{0}")]
+    Endpoint(String),
 }
 
 /// The socket path from the process environment: `$STRUDELAND_SOCKET`, else the app-data dir.
@@ -32,37 +40,110 @@ pub fn socket_path() -> Result<PathBuf, PathError> {
 /// The socket path for an explicit `flag` (a client's `--socket`), else as [`socket_path`].
 pub fn socket_path_with(flag: Option<&Path>) -> Result<PathBuf, PathError> {
     let env = std::env::var_os(SOCKET_ENV);
-    socket_path_from(
-        flag.map(Path::as_os_str).or(env.as_deref()),
-        std::env::var_os("HOME").as_deref(),
-    )
+    let selected = flag.map(Path::as_os_str).or(env.as_deref());
+    #[cfg(target_os = "linux")]
+    let base = std::env::var_os("XDG_RUNTIME_DIR");
+    #[cfg(not(target_os = "linux"))]
+    let base = std::env::var_os("HOME");
+    socket_path_from(selected, base.as_deref())
 }
 
-/// The socket path for a given override and `HOME`. A non-empty override is used as given (not
-/// canonicalized); otherwise `$HOME/Library/Application Support/<id>/ctl.sock`. Either way the
-/// result must fit in [`MAX_SOCKET_PATH_BYTES`].
+/// The endpoint for an override, or the platform default using the supplied runtime base.
 pub fn socket_path_from(
     env_override: Option<&OsStr>,
-    home: Option<&OsStr>,
+    base: Option<&OsStr>,
 ) -> Result<PathBuf, PathError> {
-    let path = match env_override.filter(|s| !s.is_empty()) {
-        Some(p) => PathBuf::from(p),
-        None => {
-            let home = home.filter(|s| !s.is_empty()).ok_or(PathError::NoHome)?;
-            PathBuf::from(home)
-                .join("Library/Application Support")
-                .join(APP_IDENTIFIER)
-                .join(SOCKET_FILE)
+    let path = env_override
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .map_or_else(|| default_endpoint(base), Ok)?;
+    #[cfg(unix)]
+    {
+        let len = path.as_os_str().as_bytes().len();
+        if len > MAX_SOCKET_PATH_BYTES {
+            return Err(PathError::TooLong { len });
         }
-    };
-    let len = path.as_os_str().as_bytes().len();
-    if len > MAX_SOCKET_PATH_BYTES {
-        return Err(PathError::TooLong { len });
     }
+    #[cfg(windows)]
+    crate::windows_pipe::validate_path(&path).map_err(|e| PathError::Endpoint(e.to_string()))?;
     Ok(path)
 }
 
-#[cfg(test)]
+#[cfg(all(unix, not(target_os = "linux")))]
+fn default_endpoint(home: Option<&OsStr>) -> Result<PathBuf, PathError> {
+    let home = home.filter(|s| !s.is_empty()).ok_or(PathError::NoHome)?;
+    Ok(PathBuf::from(home)
+        .join("Library/Application Support")
+        .join(APP_IDENTIFIER)
+        .join(SOCKET_FILE))
+}
+
+#[cfg(target_os = "linux")]
+fn default_endpoint(runtime: Option<&OsStr>) -> Result<PathBuf, PathError> {
+    let runtime = runtime.map(Path::new).filter(|p| p.is_absolute())
+        .ok_or_else(|| PathError::Endpoint(format!(
+            "XDG_RUNTIME_DIR must be an absolute private directory; set {SOCKET_ENV} to override"
+        )))?;
+    check_private_dir(runtime).map_err(|e| PathError::Endpoint(e.to_string()))?;
+    Ok(runtime.join(APP_IDENTIFIER).join(SOCKET_FILE))
+}
+
+#[cfg(target_os = "linux")]
+pub fn check_private_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path)?;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::geteuid() };
+    if meta.is_dir() && meta.uid() == uid && meta.mode() & 0o777 == 0o700 {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "{} must be an owned private directory (0700)",
+                path.display()
+            ),
+        ))
+    }
+}
+
+/// Authenticate the connected Unix peer independently of the pathname.
+#[cfg(target_os = "linux")]
+pub fn check_peer(socket: &impl std::os::fd::AsRawFd) -> std::io::Result<()> {
+    let mut creds = std::mem::MaybeUninit::<libc::ucred>::uninit();
+    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: the descriptor is borrowed for this call and the kernel can write len bytes.
+    let rc = unsafe {
+        libc::getsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            creds.as_mut_ptr().cast(),
+            &mut len,
+        )
+    };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: confirm the kernel supplied the whole structure before reading it.
+    if len == size_of::<libc::ucred>() as libc::socklen_t
+        && unsafe { creds.assume_init().uid == libc::geteuid() }
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "unexpected control socket peer",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn default_endpoint(_: Option<&OsStr>) -> Result<PathBuf, PathError> {
+    crate::windows_pipe::default_path().map_err(|e| PathError::Endpoint(e.to_string()))
+}
+
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
     use std::ffi::OsString;
@@ -144,7 +225,7 @@ mod tests {
     fn too_long_message() {
         assert_eq!(
             PathError::TooLong { len: 120 }.to_string(),
-            "socket path is 120 bytes; macOS allows at most 103"
+            "socket path is 120 bytes; the platform allows at most 103"
         );
     }
 
@@ -165,5 +246,45 @@ mod tests {
         let flag = Path::new("/tmp/flag.sock");
         assert_eq!(socket_path_with(Some(flag)), Ok(flag.to_path_buf()));
         assert_eq!(socket_path_with(None), socket_path());
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    use std::fs::{Permissions, set_permissions};
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn runtime_directory_must_be_owned_private_and_real() {
+        let temp = tempfile::Builder::new()
+            .permissions(Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
+        let path = temp.path();
+        assert_eq!(
+            socket_path_from(None, Some(path.as_os_str())).unwrap(),
+            path.join(APP_IDENTIFIER).join(SOCKET_FILE)
+        );
+        let alias = path.join("alias");
+        symlink(path, &alias).unwrap();
+        assert!(check_private_dir(&alias).is_err());
+        set_permissions(path, Permissions::from_mode(0o755)).unwrap();
+        assert!(socket_path_from(None, Some(path.as_os_str())).is_err());
+        assert!(socket_path_from(None, None).is_err());
+    }
+
+    #[test]
+    fn linux_has_its_own_limit_and_honors_explicit_override() {
+        let at_limit = format!("/{}", "w".repeat(106));
+        assert_eq!(
+            socket_path_from(Some(OsStr::new(&at_limit)), None),
+            Ok(PathBuf::from(&at_limit))
+        );
+        let too_long = at_limit + "w";
+        assert_eq!(
+            socket_path_from(Some(OsStr::new(&too_long)), None),
+            Err(PathError::TooLong { len: 108 })
+        );
     }
 }

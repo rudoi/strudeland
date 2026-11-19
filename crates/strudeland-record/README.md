@@ -1,7 +1,7 @@
 # strudeland-record
 
 Microphone capture for voice memos: one input channel written to a mono 32-bit float WAV at the
-device's own rate, with level readings and clock anchors (frame index to mach host time). No Tauri
+device's own rate, with level readings and clock anchors (frame index to host time). No Tauri
 dependency. The app wiring is `src-tauri/src/recording.rs`; the sidecar and file naming live in
 `strudeland-project`.
 
@@ -26,7 +26,7 @@ the last flush, which is what repairs a crashed take. The cap is two hours, or 1
 ## Timing
 
 Each callback block yields an `Anchor { frame, host_ns }`: the index of its first frame and its
-capture time on the mach host clock, the same clock as `host_now_ns()`. `frame_at` interpolates
+capture time on the clock of `host_now_ns()`. CoreAudio supplies mach time directly. WASAPI supplies QPC time in 100 ns units. ALSA timestamps are stream-relative. After playing each new ALSA stream, the owner samples its clock across advancing periods and maps its event timestamps to process time. Where those samples are unavailable, advancing callbacks estimate the offset from observed host time. A discontinuity or an invalid stamp during a take leaves the WAV playable with no bar-1 grid. `frame_at` interpolates
 between anchors (extrapolating at the nominal rate outside them) to find the frame at a host time,
 which is how the app computes the memo's `bar1Frame`.
 
@@ -50,7 +50,7 @@ cargo run -p strudeland-record --example probe -- [--list] [--device ID] [--seco
 ## Known differences
 
 - Input only, one channel (0-based, chosen in the app), default input config. No resampling.
-- macOS only for host time (`mach2`); other platforms are not supported.
+- Capture accepts f32, i16, i24, i32 and u16 configurations. The writer acknowledges its first samples even on a device without usable clock timestamps.
 
 ## Licences
 

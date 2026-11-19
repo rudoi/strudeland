@@ -2,7 +2,6 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -67,44 +66,114 @@ pub(crate) enum Placed {
     Moved,
 }
 
-/// Gives `from` the new name `to` without ever replacing an existing file: a hard link, or on a
-/// filesystem without hard links (exFAT, some SMB mounts) a rename after an existence check.
-/// An existing `to` is the error `exists` builds.
+/// Tries a hard link first, then an exclusive move on filesystems without hard links.
 pub(crate) fn link_noclobber(
     from: &Path,
     to: &Path,
     link: &impl Fn(&Path, &Path) -> io::Result<()>,
     exists: impl FnOnce() -> ProjectError,
 ) -> Result<Placed, ProjectError> {
-    match link(from, to) {
-        Ok(()) => Ok(Placed::Linked),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(exists()),
-        Err(_) => {
-            // Racy only against another process creating the same name at the same instant.
-            if fs::symlink_metadata(to).is_ok() {
-                return Err(exists());
-            }
-            fs::rename(from, to).map_err(|e| ProjectError::io(from, e))?;
-            Ok(Placed::Moved)
+    let result = match link(from, to) {
+        Ok(()) => return Ok(Placed::Linked),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
+        Err(_) => move_noreplace(from, to),
+    };
+    result.map(|()| Placed::Moved).map_err(|e| {
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            exists()
+        } else {
+            ProjectError::io(from, e)
         }
-    }
+    })
 }
 
-/// Whether renaming `old_name` (whose metadata is `old_meta`) to `new_name` at `new` is a
-/// case-only rename on a case-insensitive volume: the same device and inode under a name equal
-/// ignoring case. A hard link would fail with `AlreadyExists` there, so the caller renames in
-/// place. The same inode under another name is a second hard link, an existing file.
-pub(crate) fn is_case_only_rename(
-    old_meta: &fs::Metadata,
-    new: &Path,
-    old_name: &str,
-    new_name: &str,
-) -> bool {
-    fs::symlink_metadata(new).is_ok_and(|meta| {
-        meta.dev() == old_meta.dev()
-            && meta.ino() == old_meta.ino()
-            && new_name.eq_ignore_ascii_case(old_name)
-    })
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn move_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE).map_err(io::Error::from)
+}
+
+#[cfg(windows)]
+pub(crate) fn move_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |path: &Path| -> io::Result<Vec<u16>> {
+        let mut units: Vec<_> = path.as_os_str().encode_wide().collect();
+        if units.contains(&0) {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        units.push(0);
+        Ok(units)
+    };
+    let from = wide(from)?;
+    let to = wide(to)?;
+    // SAFETY: both buffers are live and NUL-terminated. Zero flags means never replace.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+pub(crate) fn move_noreplace(_: &Path, _: &Path) -> io::Result<()> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+/// Returns whether the target is another spelling of the same directory entry. Two distinct
+/// directory entries for one inode can themselves differ only in case on case-sensitive volumes.
+pub(crate) fn is_case_only_rename(old: &Path, new: &Path) -> io::Result<bool> {
+    let (Some(old_name), Some(new_name), Some(dir)) =
+        (old.file_name(), new.file_name(), new.parent())
+    else {
+        return Ok(false);
+    };
+    if !old_name.eq_ignore_ascii_case(new_name) || new_name == old_name {
+        return Ok(false);
+    }
+    let new_id = match file_id::get_file_id(new) {
+        Ok(id) => id,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if new_id != file_id::get_file_id(old)? {
+        return Ok(false);
+    }
+    let mut has_old = false;
+    for entry in fs::read_dir(dir)? {
+        let name = entry?.file_name();
+        if name == new_name {
+            return Ok(false);
+        }
+        has_old |= name == old_name;
+    }
+    Ok(has_old)
+}
+
+/// Filesystem lookup may find a different directory entry through case folding or an alias.
+pub(crate) fn has_exact_name(path: &Path) -> Result<bool, ProjectError> {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return Ok(false);
+    };
+    for entry in fs::read_dir(dir).map_err(|e| ProjectError::io(dir, e))? {
+        if entry.map_err(|e| ProjectError::io(dir, e))?.file_name() == name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Junctions, mount points and other Windows reparse points can redirect filesystem operations.
+pub(crate) fn redirects(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        meta.file_type().is_symlink()
+    }
 }
 
 impl Project {
@@ -216,7 +285,7 @@ impl Project {
         if !matches!(ext, "wav" | "mp3" | "ogg" | "opus") {
             return Err(ProjectError::InvalidRenderName(ext.to_string()));
         }
-        if !is_valid_stem(stem) {
+        if !is_new_stem(stem) {
             return Err(ProjectError::InvalidSongName(stem.to_string()));
         }
         let name = match suffix {
@@ -234,7 +303,7 @@ impl Project {
             check_dir(&dir, RENDERS_DIR, &name)?;
         }
         let path = dir.join(&name);
-        if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+        if fs::symlink_metadata(&path).is_ok_and(|m| redirects(&m)) {
             return Err(ProjectError::PathOutsideProject(format!("renders/{name}")));
         }
         Ok(path)
@@ -251,15 +320,19 @@ impl Project {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let outside = || ProjectError::PathOutsideProject(path.display().to_string());
+        #[cfg(windows)]
+        if !windows_file_name(&name) {
+            return Err(outside());
+        }
         if name.is_empty() || path.parent() != Some(dir.as_path()) {
             return Err(outside());
         }
-        if fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        if fs::symlink_metadata(&dir).is_ok_and(|m| redirects(&m)) {
             return Err(outside());
         }
         fs::create_dir_all(&dir).map_err(|e| ProjectError::io(&dir, e))?;
         check_dir(&dir, RENDERS_DIR, &name)?;
-        if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        if fs::symlink_metadata(path).is_ok_and(|m| redirects(&m)) {
             return Err(outside());
         }
         atomic_write_bytes(path, bytes)
@@ -275,6 +348,9 @@ impl Project {
     /// Reads the manifest of the canonical folder `root`.
     fn load(root: PathBuf) -> Result<Project, ProjectError> {
         let manifest_path = root.join(MANIFEST_FILE);
+        if fs::symlink_metadata(&manifest_path).is_ok_and(|m| redirects(&m)) {
+            return Err(ProjectError::PathOutsideProject(MANIFEST_FILE.into()));
+        }
         let text = match fs::read_to_string(&manifest_path) {
             Ok(text) => text,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -307,30 +383,7 @@ impl Project {
     /// Every `songs/*.js` regular file, sorted byte-wise by file name. Directories, symlinks,
     /// dotfiles and names that are not UTF-8 are skipped. A missing `songs/` gives an empty vec.
     pub fn songs(&self) -> Result<Vec<SongEntry>, ProjectError> {
-        let dir = self.root.join(SONGS_DIR);
-        let entries = match fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(ProjectError::io(&dir, e)),
-        };
-        let mut songs = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|e| ProjectError::io(&dir, e))?;
-            let Ok(name) = entry.file_name().into_string() else {
-                continue;
-            };
-            if !is_song_file_name(&name) {
-                continue;
-            }
-            if !is_song_file(&entry.path()) {
-                continue;
-            }
-            songs.push(SongEntry {
-                path: format!("{SONGS_DIR}/{name}"),
-            });
-        }
-        songs.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
-        Ok(songs)
+        list_songs(&self.root)
     }
 
     /// Reads the song at `rel` (`songs/<name>.js`).
@@ -354,20 +407,17 @@ impl Project {
 
     /// Creates `songs/<stem>.js` from [`new_song`] and returns its relative path. Never overwrites.
     pub fn create_song(&self, stem: &str) -> Result<String, ProjectError> {
-        if !is_valid_stem(stem) {
+        if !is_new_stem(stem) {
             return Err(ProjectError::InvalidSongName(stem.to_string()));
         }
         let rel = format!("{SONGS_DIR}/{stem}{SONG_EXT}");
-        let path = self.resolve(&rel)?;
-        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => file,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                return Err(ProjectError::SongExists(rel));
+        let path = self.song_target(&rel, false)?;
+        atomic_create_bytes(&path, new_song(stem).as_bytes()).map_err(|e| match e {
+            ProjectError::Io { source, .. } if source.kind() == io::ErrorKind::AlreadyExists => {
+                ProjectError::SongExists(rel.clone())
             }
-            Err(e) => return Err(ProjectError::io(&path, e)),
-        };
-        file.write_all(new_song(stem).as_bytes())
-            .map_err(|e| ProjectError::io(&path, e))?;
+            other => other,
+        })?;
         Ok(rel)
     }
 
@@ -391,16 +441,16 @@ impl Project {
         link: impl Fn(&Path, &Path) -> io::Result<()>,
         remove: impl Fn(&Path) -> io::Result<()>,
     ) -> Result<String, ProjectError> {
-        if !is_valid_stem(new_stem) {
+        if !is_new_stem(new_stem) {
             return Err(ProjectError::InvalidSongName(new_stem.to_string()));
         }
         // The old name may be any listed song, even one whose stem would not pass validation.
         let old = self.resolve(old_rel)?;
         let new_rel = format!("{SONGS_DIR}/{new_stem}{SONG_EXT}");
-        let new = self.resolve(&new_rel)?;
+        let new = self.song_target(&new_rel, false)?;
 
-        let old_meta = match fs::symlink_metadata(&old) {
-            Ok(meta) if meta.is_file() => meta,
+        match fs::symlink_metadata(&old) {
+            Ok(meta) if meta.is_file() => {}
             Ok(_) => return Err(ProjectError::SongNotFound(old_rel.to_string())),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 return Err(ProjectError::SongNotFound(old_rel.to_string()));
@@ -411,7 +461,7 @@ impl Project {
             return Err(ProjectError::SongExists(new_rel));
         }
 
-        if is_case_only_rename(&old_meta, &new, old_rel, &new_rel) {
+        if is_case_only_rename(&old, &new).map_err(|e| ProjectError::io(&old, e))? {
             fs::rename(&old, &new).map_err(|e| ProjectError::io(&old, e))?;
             return Ok(new_rel);
         }
@@ -443,13 +493,17 @@ impl Project {
     /// must be exactly `songs/<name>.js` (forward slashes, non-empty name, not a dotfile), the
     /// canonical `songs/` must be `root/songs`, and an existing target must not be a symlink.
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, ProjectError> {
+        self.song_target(rel, true)
+    }
+
+    fn song_target(&self, rel: &str, exact: bool) -> Result<PathBuf, ProjectError> {
         let outside = || ProjectError::PathOutsideProject(rel.to_string());
 
         let mut parts = rel.split('/');
         let (Some(SONGS_DIR), Some(name), None) = (parts.next(), parts.next(), parts.next()) else {
             return Err(outside());
         };
-        if !is_song_file_name(name) || name.contains(['\\', '\0']) {
+        if !is_song_file_name(name) {
             return Err(outside());
         }
         // Belt and braces: the split above already rules these out.
@@ -464,15 +518,13 @@ impl Project {
         }
 
         let songs = self.root.join(SONGS_DIR);
-        let canonical = songs
-            .canonicalize()
-            .map_err(|e| ProjectError::io(&songs, e))?;
-        if canonical != songs {
-            return Err(outside());
-        }
+        check_dir(&songs, SONGS_DIR, name)?;
         let target = songs.join(name);
         match fs::symlink_metadata(&target) {
-            Ok(meta) if meta.file_type().is_symlink() => Err(outside()),
+            Ok(meta) if redirects(&meta) => Err(outside()),
+            Ok(_) if exact && !has_exact_name(&target)? => {
+                Err(ProjectError::SongNotFound(rel.into()))
+            }
             Ok(_) => Ok(target),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(target),
             Err(e) => Err(ProjectError::io(&target, e)),
@@ -480,8 +532,42 @@ impl Project {
     }
 }
 
-/// Parses `project.json`: `schema` is checked before `name`, so an unknown schema is reported
-/// even when the rest of the file does not match schema 1.
+/// Lists regular song entries in the checked songs folder of a canonical project root.
+pub fn list_songs(root: &Path) -> Result<Vec<SongEntry>, ProjectError> {
+    let dir = root.join(SONGS_DIR);
+    match check_dir(&dir, SONGS_DIR, "") {
+        Ok(()) => {}
+        Err(ProjectError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(e) => return Err(e),
+    }
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(ProjectError::io(&dir, e)),
+    };
+    let mut songs = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| ProjectError::io(&dir, e))?;
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if !is_song_file_name(&name) {
+            continue;
+        }
+        if !is_song_file(&entry.path()) {
+            continue;
+        }
+        songs.push(SongEntry {
+            path: format!("{SONGS_DIR}/{name}"),
+        });
+    }
+    songs.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
+    Ok(songs)
+}
+
+/// Parses the schema before the name so an unsupported schema is reported first.
 fn parse_manifest(text: &str) -> Result<Manifest, ProjectError> {
     let value: serde_json::Value =
         serde_json::from_str(text).map_err(|e| ProjectError::InvalidManifest(e.to_string()))?;
@@ -521,6 +607,13 @@ fn parse_manifest(text: &str) -> Result<Manifest, ProjectError> {
 
 /// A song file name: `<name>.js` with a non-empty name that is not a dotfile.
 pub fn is_song_file_name(name: &str) -> bool {
+    if name.contains(['/', '\\', '\0']) {
+        return false;
+    }
+    #[cfg(windows)]
+    if !windows_file_name(name) {
+        return false;
+    }
     name.strip_suffix(SONG_EXT)
         .is_some_and(|stem| !stem.is_empty() && !stem.starts_with('.'))
 }
@@ -543,7 +636,7 @@ pub fn song_rel_path(rel: &Path) -> Option<String> {
 /// Whether `path` is a song file as [`Project::songs`] lists it: a regular file, not a symlink
 /// or directory. Any error reading its metadata counts as no.
 pub fn is_song_file(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && !redirects(&m))
 }
 
 /// An existing `<root>/<folder>` (`dir`) must be a real folder inside the project: a symlinked or
@@ -552,7 +645,7 @@ pub fn is_song_file(path: &Path) -> bool {
 pub(crate) fn check_dir(dir: &Path, folder: &str, name: &str) -> Result<(), ProjectError> {
     let outside = || ProjectError::PathOutsideProject(format!("{folder}/{name}"));
     let meta = fs::symlink_metadata(dir).map_err(|e| ProjectError::io(dir, e))?;
-    if meta.file_type().is_symlink() {
+    if redirects(&meta) {
         return Err(outside());
     }
     if !meta.is_dir() {
@@ -568,12 +661,50 @@ pub(crate) fn check_dir(dir: &Path, folder: &str, name: &str) -> Result<(), Proj
 
 /// `[A-Za-z0-9 _-]{1,64}` with no leading or trailing space.
 pub(crate) fn is_valid_stem(stem: &str) -> bool {
-    (1..=MAX_STEM_LEN).contains(&stem.len())
+    (!cfg!(windows) || !device_basename(stem))
+        && (1..=MAX_STEM_LEN).contains(&stem.len())
         && !stem.starts_with(' ')
         && !stem.ends_with(' ')
         && stem
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b' ' | b'_' | b'-'))
+}
+
+/// Windows recognizes the basename as a device even when followed by an extension.
+fn device_basename(name: &str) -> bool {
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_ascii_uppercase();
+    if matches!(
+        base.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
+    }
+    base.strip_prefix("COM")
+        .or_else(|| base.strip_prefix("LPT"))
+        .is_some_and(|n| {
+            matches!(
+                n,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+}
+
+#[cfg(windows)]
+fn windows_file_name(name: &str) -> bool {
+    !name.ends_with([' ', '.'])
+        && !name
+            .chars()
+            .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
+        && !device_basename(name)
+}
+
+pub(crate) fn is_new_stem(stem: &str) -> bool {
+    is_valid_stem(stem) && !device_basename(stem)
 }
 
 /// Writes a file that must not exist yet.
@@ -606,7 +737,7 @@ fn slugify(text: &str) -> String {
 /// Bumped by every [`atomic_write`] so concurrent writes in this process never share a temp file.
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Writes `contents` to `.<name>.tmp-<pid>-<n>` next to `path`, then renames it over `path`, so
+/// Writes `contents` to `.strudeland.tmp-<pid>-<n>` next to `path`, then renames it over `path`, so
 /// a reader never sees a half-written file. `<n>` is unique per call, so concurrent writes of the
 /// same file each get their own temp file and the last rename wins whole. The temp file is
 /// removed if anything fails.
@@ -621,18 +752,32 @@ pub(crate) fn atomic_write(path: &Path, contents: &str) -> Result<(), ProjectErr
 
 /// [`atomic_write`] for bytes. It does not create the parent directory.
 pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
+    write_and_publish(path, bytes, |from, to| fs::rename(from, to))
+}
+
+pub(crate) fn atomic_create_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
+    write_and_publish(path, bytes, move_noreplace)
+}
+
+fn write_and_publish(
+    path: &Path,
+    bytes: &[u8],
+    publish: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> Result<(), ProjectError> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".{name}.tmp-{}-{n}", std::process::id()));
+    let (mut file, tmp) = loop {
+        let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = parent.join(format!(".strudeland.tmp-{}-{n}", std::process::id()));
+        match fs::File::create_new(&tmp) {
+            Ok(file) => break (file, tmp),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(ProjectError::io(path, e)),
+        }
+    };
     let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
         file.write_all(bytes)?;
         drop(file);
-        fs::rename(&tmp, path)
+        publish(&tmp, path)
     })();
     result.map_err(|e| {
         let _ = fs::remove_file(&tmp);
@@ -643,7 +788,7 @@ pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProjectError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use crate::test_symlink;
     use tempfile::TempDir;
 
     fn tempdir() -> TempDir {
@@ -890,7 +1035,7 @@ mod tests {
         assert_eq!(opened.root(), project.root());
 
         let link = tmp.path().join("link");
-        symlink(project.root(), &link).unwrap();
+        test_symlink!(project.root(), &link).unwrap();
         assert_eq!(Project::open(&link).unwrap().root(), project.root());
     }
 
@@ -971,8 +1116,8 @@ mod tests {
         fs::write(songs.join(".hidden.js"), "").unwrap();
         let outside = tmp.path().join("outside.js");
         fs::write(&outside, "").unwrap();
-        symlink(&outside, songs.join("link.js")).unwrap();
-        symlink(songs.join("main.js"), songs.join("inner-link.js")).unwrap();
+        test_symlink!(&outside, songs.join("link.js")).unwrap();
+        test_symlink!(songs.join("main.js"), songs.join("inner-link.js")).unwrap();
         fs::create_dir(songs.join("nested")).unwrap();
         fs::write(songs.join("nested/deep.js"), "").unwrap();
 
@@ -1064,7 +1209,7 @@ mod tests {
         assert!(!is_song_file(&songs.join("dir.js")));
         let outside = tmp.path().join("outside.js");
         fs::write(&outside, "").unwrap();
-        symlink(&outside, songs.join("link.js")).unwrap();
+        test_symlink!(&outside, songs.join("link.js")).unwrap();
         assert!(!is_song_file(&songs.join("link.js")));
     }
 
@@ -1220,7 +1365,7 @@ mod tests {
         let (tmp, project) = new_project();
         let outside = tmp.path().join("secret.js");
         fs::write(&outside, "secret").unwrap();
-        symlink(&outside, project.root().join("songs/evil.js")).unwrap();
+        test_symlink!(&outside, project.root().join("songs/evil.js")).unwrap();
         assert!(matches!(
             project.resolve("songs/evil.js").unwrap_err(),
             ProjectError::PathOutsideProject(_)
@@ -1236,7 +1381,7 @@ mod tests {
     #[test]
     fn resolve_rejects_a_dangling_symlinked_song() {
         let (tmp, project) = new_project();
-        symlink(
+        test_symlink!(
             tmp.path().join("missing.js"),
             project.root().join("songs/d.js"),
         )
@@ -1256,7 +1401,7 @@ mod tests {
         fs::write(elsewhere.join("x.js"), "outside").unwrap();
         let songs = project.root().join("songs");
         fs::remove_dir_all(&songs).unwrap();
-        symlink(&elsewhere, &songs).unwrap();
+        test_symlink!(&elsewhere, &songs).unwrap();
         for rel in ["songs/x.js", "songs/new.js"] {
             assert!(matches!(
                 project.resolve(rel).unwrap_err(),
@@ -1501,6 +1646,199 @@ mod tests {
     }
 
     #[test]
+    fn case_distinct_existing_entries_are_collisions_even_for_hard_links() {
+        let (_tmp, project) = new_project();
+        let old = project.create_song("Verse").unwrap();
+        let source = project.root().join(&old);
+        let target = project.root().join("songs/verse.js");
+        if target.exists() {
+            // The separate rename_song_case_only test covers case-insensitive volumes.
+            assert!(matches!(
+                project.read("songs/verse.js"),
+                Err(ProjectError::SongNotFound(_))
+            ));
+            return;
+        }
+        fs::hard_link(&source, &target).unwrap();
+        assert!(matches!(
+            project.rename_song(&old, "verse"),
+            Err(ProjectError::SongExists(_))
+        ));
+        assert_eq!(
+            song_paths(&project),
+            ["songs/Verse.js", "songs/main.js", "songs/verse.js"]
+        );
+    }
+
+    #[test]
+    fn exclusive_moves_with_competing_publishers_keep_both_payloads() {
+        let tmp = tempdir();
+        let dest = tmp.path().join("winner");
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = ["one", "two"]
+                .into_iter()
+                .map(|name| {
+                    let src = tmp.path().join(name);
+                    fs::write(&src, name).unwrap();
+                    let barrier = &barrier;
+                    let dest = &dest;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        match move_noreplace(&src, dest) {
+                            Ok(()) => {
+                                assert!(!src.exists());
+                                true
+                            }
+                            Err(e) => {
+                                assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+                                assert_eq!(fs::read_to_string(src).unwrap(), name);
+                                false
+                            }
+                        }
+                    })
+                })
+                .collect();
+            assert_eq!(
+                handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap())
+                    .filter(|won| *won)
+                    .count(),
+                1
+            );
+        });
+        assert!(matches!(
+            fs::read_to_string(dest).unwrap().as_str(),
+            "one" | "two"
+        ));
+    }
+
+    #[test]
+    fn canonical_root_round_trips_in_paths_with_unicode_spaces_and_long_components() {
+        let tmp = tempdir();
+        let mut dir = tmp.path().join("作曲 session");
+        for n in 0..5 {
+            dir = dir.join(format!("{}-{n}", "a".repeat(48)));
+        }
+        let p = Project::create(&dir, "作曲").unwrap();
+        let info = p.info().unwrap();
+        let reopened = Project::open(Path::new(&info.root)).unwrap();
+        assert_eq!(reopened.root(), p.root());
+        fs::write(p.root().join("songs/été 1.js"), "content").unwrap();
+        assert_eq!(reopened.read("songs/été 1.js").unwrap(), "content");
+        assert!(
+            reopened
+                .songs()
+                .unwrap()
+                .iter()
+                .any(|s| s.path == "songs/été 1.js")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn blocked_windows_replacement_keeps_the_file_and_removes_the_temp() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+        let tmp = tempdir();
+        let path = tmp.path().join("out.wav");
+        fs::write(&path, "old").unwrap();
+        let other_reader = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&path)
+            .unwrap();
+        assert!(atomic_write_bytes(&path, b"new").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"old");
+        assert_eq!(dir_names(tmp.path()), ["out.wav"]);
+        drop(other_reader);
+        atomic_write_bytes(&path, b"new").unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"new");
+    }
+
+    #[test]
+    fn portable_destinations_reject_device_names() {
+        let (_tmp, p) = new_project();
+        for name in ["CON", "aux", "PRn", "NuL", "COM1", "lpt9"] {
+            assert!(matches!(
+                p.create_song(name),
+                Err(ProjectError::InvalidSongName(_))
+            ));
+            assert!(matches!(
+                p.rename_song("songs/main.js", name),
+                Err(ProjectError::InvalidSongName(_))
+            ));
+            assert!(matches!(
+                p.recording_partial_path(name),
+                Err(ProjectError::InvalidRecordingName(_))
+            ));
+        }
+        assert!(p.create_song("computer").is_ok());
+        assert!(p.create_song("lpt10").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_reserved_files_can_be_read_and_renamed() {
+        let (_tmp, p) = new_project();
+        fs::write(p.root().join("songs/CON.js"), "old").unwrap();
+        assert_eq!(p.read("songs/CON.js").unwrap(), "old");
+        p.rename_song("songs/CON.js", "portable").unwrap();
+        fs::write(p.root().join("recordings/AUX.wav"), "audio").unwrap();
+        assert_eq!(p.recordings().unwrap()[0].stem, "AUX");
+        assert_eq!(p.read_recording_bytes("AUX").unwrap(), b"audio");
+        p.rename_recording("AUX", "portable").unwrap();
+        p.delete_recording("portable").unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_stream_and_device_song_ids() {
+        let (_tmp, p) = new_project();
+        for id in [
+            "songs/host:alternate.js",
+            "songs/C:track.js",
+            "songs/COM¹.js",
+            "songs/AuX.other.js",
+        ] {
+            assert!(matches!(
+                p.resolve(id),
+                Err(ProjectError::PathOutsideProject(_))
+            ));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn junctions_are_neither_listed_nor_written_through() {
+        let (tmp, p) = new_project();
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("external.js"), "protected").unwrap();
+        fs::remove_dir_all(p.root().join("songs")).unwrap();
+        // Unlike a file symlink, mklink /J needs no Developer Mode or administrator privilege.
+        let status = std::process::Command::new("cmd.exe")
+            .current_dir(tmp.path())
+            .args(["/d", "/c", "mklink", "/J", r"p\songs", "outside"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(matches!(
+            p.songs(),
+            Err(ProjectError::PathOutsideProject(_))
+        ));
+        assert!(matches!(
+            p.write("songs/external.js", "new"),
+            Err(ProjectError::PathOutsideProject(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(outside.join("external.js")).unwrap(),
+            "protected"
+        );
+    }
+
+    #[test]
     fn rename_song_onto_a_hard_link_of_itself_is_song_exists() {
         let (_tmp, project) = new_project();
         let rel = project.create_song("intro").unwrap();
@@ -1554,7 +1892,7 @@ mod tests {
         let (tmp, project) = new_project();
         let outside = tmp.path().join("outside.js");
         fs::write(&outside, "x").unwrap();
-        symlink(&outside, project.root().join("songs/link.js")).unwrap();
+        test_symlink!(&outside, project.root().join("songs/link.js")).unwrap();
         for rel in ["songs/link.js", "../outside.js", "songs/a/b.js"] {
             let err = project.delete_song(rel).unwrap_err();
             assert!(matches!(err, ProjectError::PathOutsideProject(_)), "{rel}");
@@ -1582,14 +1920,14 @@ mod tests {
     fn find_follows_a_symlinked_song_to_its_real_location() {
         let (tmp, project) = new_project();
         let link = tmp.path().join("link.js");
-        symlink(project.root().join("songs/main.js"), &link).unwrap();
+        test_symlink!(project.root().join("songs/main.js"), &link).unwrap();
         let (found, stem) = Project::find(&link).unwrap();
         assert_eq!((found.root(), stem.as_str()), (project.root(), "main"));
         // A symlink inside songs/ pointing out of the project resolves outside it.
         let outside = tmp.path().join("other/x.js");
         fs::create_dir_all(outside.parent().unwrap()).unwrap();
         fs::write(&outside, "x").unwrap();
-        symlink(&outside, project.root().join("songs/out.js")).unwrap();
+        test_symlink!(&outside, project.root().join("songs/out.js")).unwrap();
         assert!(Project::find(&project.root().join("songs/out.js")).is_none());
     }
 
@@ -1657,7 +1995,7 @@ mod tests {
             project.root()
         );
         let link = tmp.path().join("link");
-        symlink(project.root().join("songs"), &link).unwrap();
+        test_symlink!(project.root().join("songs"), &link).unwrap();
         let found = Project::find_from_dir(&link).unwrap();
         assert_eq!(found.root(), project.root());
         assert!(found.root().is_absolute());
@@ -1806,18 +2144,21 @@ mod tests {
         fs::create_dir(&outside).unwrap();
         let renders = root.join("renders");
         fs::remove_dir(&renders).unwrap();
-        symlink(&outside, &renders).unwrap();
+        test_symlink!(&outside, &renders).unwrap();
         let err = project
             .write_render(&renders.join("main.wav"), b"x")
             .unwrap_err();
         assert!(matches!(err, ProjectError::PathOutsideProject(_)), "{err}");
         assert!(dir_names(&outside).is_empty());
+        #[cfg(unix)]
         fs::remove_file(&renders).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(&renders).unwrap();
 
         fs::create_dir(&renders).unwrap();
         let target = tmp.path().join("target.wav");
         fs::write(&target, "keep").unwrap();
-        symlink(&target, renders.join("main.wav")).unwrap();
+        test_symlink!(&target, renders.join("main.wav")).unwrap();
         let err = project
             .write_render(&renders.join("main.wav"), b"x")
             .unwrap_err();
@@ -1832,15 +2173,18 @@ mod tests {
         fs::create_dir(&outside).unwrap();
         let renders = project.root().join("renders");
         fs::remove_dir(&renders).unwrap();
-        symlink(&outside, &renders).unwrap();
+        test_symlink!(&outside, &renders).unwrap();
         let err = project.render_path("main", None, "wav").unwrap_err();
         assert!(matches!(err, ProjectError::PathOutsideProject(_)), "{err}");
+        #[cfg(unix)]
         fs::remove_file(&renders).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(&renders).unwrap();
 
         fs::create_dir(&renders).unwrap();
         let target = tmp.path().join("target.wav");
         fs::write(&target, "x").unwrap();
-        symlink(&target, renders.join("main.wav")).unwrap();
+        test_symlink!(&target, renders.join("main.wav")).unwrap();
         let err = project.render_path("main", None, "wav").unwrap_err();
         assert!(matches!(err, ProjectError::PathOutsideProject(_)), "{err}");
         assert!(project.render_path("main", Some("a"), "wav").is_ok());

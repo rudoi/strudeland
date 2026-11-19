@@ -390,8 +390,9 @@ describe('findHostBinary and buildHost', () => {
       path: resolve('/repo', 'target/h'),
       version: `strudeland-host (external: ${resolve('/repo', 'target/h')})`,
     });
-    const abs = await findHostBinary({ STRUDELAND_HOST_BIN: '/x/h' }, runner, '/repo');
-    expect(abs.version).toBe('strudeland-host (external: /x/h)');
+    const exe = resolve('/x/h');
+    const abs = await findHostBinary({ STRUDELAND_HOST_BIN: exe }, runner, '/repo');
+    expect(abs).toEqual({ path: exe, version: `strudeland-host (external: ${exe})` });
     expect(calls).toEqual([]);
   });
 

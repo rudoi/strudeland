@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url';
 import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'bun:test';
 
-const root = new URL('../', import.meta.url).pathname;
+const root = fileURLToPath(new URL('../', import.meta.url));
 
 /** Every package.json under node_modules (the glob does not follow symlinks, so a workspace link
  * itself never shows up), grouped by package name; scanned once. */

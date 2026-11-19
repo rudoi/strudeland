@@ -23,6 +23,8 @@ pub struct Shared {
     pub(crate) recording: AtomicBool,
     /// Incremented by the control thread before it sets `recording` for a new take.
     pub(crate) take_gen: AtomicU32,
+    /// Most recent take which received samples with unusable device timing.
+    pub(crate) invalid_timing_gen: AtomicU32,
     /// cpal `Xrun` errors.
     pub(crate) xruns: AtomicU32,
     /// Blocks dropped because the audio ring was full or the block too large.
@@ -93,7 +95,7 @@ impl Capture {
 
     /// One callback block of the chosen channel, already converted to f32; `host_ns` is the
     /// capture time of `frames[0]`.
-    pub fn push_block(&mut self, frames: &[f32], host_ns: u64) {
+    pub fn push_block(&mut self, frames: &[f32], host_ns: impl Into<Option<u64>>) {
         let n = frames.len();
         if n == 0 {
             return;
@@ -121,6 +123,13 @@ impl Capture {
         chunk.commit_all();
         let frame = self.file_frame;
         self.file_frame += n as u64;
+        let Some(host_ns) = host_ns.into() else {
+            // The sidecar cannot describe a clock discontinuity; keep the full take gridless.
+            self.shared
+                .invalid_timing_gen
+                .store(take_gen, Ordering::Release);
+            return;
+        };
         let due =
             self.need_first_anchor || frame - self.last_anchor_frame >= u64::from(self.sample_rate);
         if due && self.anchors.push(Anchor { frame, host_ns }).is_ok() {

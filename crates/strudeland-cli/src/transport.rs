@@ -50,8 +50,11 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn connect_failure_is_a_call_error() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
             .prefix("t")
             .tempdir_in("/tmp")
             .unwrap();

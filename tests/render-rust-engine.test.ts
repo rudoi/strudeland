@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
   assembleResult,
   bunRunner,
@@ -349,9 +349,10 @@ test('crateVersion', () => {
 describe('findEngineBinary', () => {
   test('STRUDELAND_ENGINE_BIN overrides the build and is reported as external', async () => {
     const { runner, calls } = buildRunner();
-    expect(await findEngineBinary({ STRUDELAND_ENGINE_BIN: '/my/engine' }, runner, '/r')).toEqual({
-      path: '/my/engine',
-      version: 'strudeland-engine (external: /my/engine)',
+    const exe = resolve('/my/engine');
+    expect(await findEngineBinary({ STRUDELAND_ENGINE_BIN: exe }, runner, '/r')).toEqual({
+      path: exe,
+      version: `strudeland-engine (external: ${exe})`,
     });
     // Neither built nor credited to the repo HEAD.
     expect(calls).toHaveLength(0);
@@ -359,14 +360,15 @@ describe('findEngineBinary', () => {
 
   test('a relative STRUDELAND_ENGINE_BIN resolves against the repo root, not outDir', async () => {
     const { runner } = buildRunner();
+    const root = resolve('/repo');
     const env = { STRUDELAND_ENGINE_BIN: 'target/release/strudeland-engine' };
-    const { path } = await findEngineBinary(env, runner, '/repo');
-    expect(path).toBe('/repo/target/release/strudeland-engine');
-    expect((await findEngineBinary(env, runner, '/repo')).version).toBe(
-      'strudeland-engine (external: /repo/target/release/strudeland-engine)',
-    );
-    const up = await findEngineBinary({ STRUDELAND_ENGINE_BIN: '../bin/engine' }, runner, '/repo');
-    expect(up.path).toBe('/bin/engine');
+    const exe = join(root, 'target', 'release', 'strudeland-engine');
+    expect(await findEngineBinary(env, runner, root)).toEqual({
+      path: exe,
+      version: `strudeland-engine (external: ${exe})`,
+    });
+    const up = await findEngineBinary({ STRUDELAND_ENGINE_BIN: '../bin/engine' }, runner, root);
+    expect(up.path).toBe(resolve('/bin/engine'));
   });
 
   test('unset or empty builds', async () => {
@@ -845,10 +847,14 @@ describe('bunRunner', () => {
   test('exit code, stdout, stderr, stdin and cwd', async () => {
     const dir = tmp();
     try {
-      const r = await bunRunner.run('sh', ['-c', 'cat; pwd; echo err >&2; exit 3'], {
-        stdin: 'in\n',
-        cwd: dir,
-      });
+      const r = await bunRunner.run(
+        process.execPath,
+        [
+          '-e',
+          'process.stdout.write(await Bun.stdin.text()); console.log(process.cwd()); console.error("err"); process.exit(3)',
+        ],
+        { stdin: 'in\n', cwd: dir },
+      );
       expect(r.code).toBe(3);
       expect(r.signal).toBeNull();
       const [first, cwd] = r.stdout.trim().split('\n');
@@ -860,16 +866,22 @@ describe('bunRunner', () => {
     }
   });
 
-  test('a signal leaves code null', async () => {
+  test.skipIf(process.platform === 'win32')('a signal leaves code null', async () => {
     const r = await bunRunner.run('sh', ['-c', 'kill -ABRT $$']);
     expect(r.code).toBeNull();
     expect(r.signal).toBe('SIGABRT');
   });
 
   test('a timeout kills the process', async () => {
-    const r = await bunRunner.run('sh', ['-c', 'sleep 5'], { timeoutMs: 50 });
-    expect(r.code).toBeNull();
-    expect(r.signal).toBe('SIGKILL');
+    const r = await bunRunner.run(process.execPath, ['-e', 'await Bun.sleep(5000)'], {
+      timeoutMs: 50,
+    });
+    if (process.platform === 'win32') {
+      expect(r.code).not.toBe(0);
+    } else {
+      expect(r.code).toBeNull();
+      expect(r.signal).toBe('SIGKILL');
+    }
   });
 
   test('a missing executable rejects', async () => {

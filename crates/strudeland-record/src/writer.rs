@@ -56,7 +56,7 @@ struct OpenTake<W: Write + Seek> {
     max_frames: u64,
     anchors: Vec<Anchor>,
     last_flush: Duration,
-    first_anchor: Option<SyncSender<Anchor>>,
+    first_samples: Option<SyncSender<()>>,
     at_cap: bool,
     path: PathBuf,
 }
@@ -94,7 +94,7 @@ impl<W: Write + Seek> WriterCore<W> {
         wav: WavWriter<W>,
         path: PathBuf,
         max_frames: u64,
-        first_anchor: SyncSender<Anchor>,
+        first_samples: SyncSender<()>,
         now: Duration,
     ) {
         let n = self.rings.audio.slots();
@@ -110,7 +110,7 @@ impl<W: Write + Seek> WriterCore<W> {
             max_frames,
             anchors: Vec::new(),
             last_flush: now,
-            first_anchor: Some(first_anchor),
+            first_samples: Some(first_samples),
             at_cap: false,
             path,
         });
@@ -159,6 +159,11 @@ impl<W: Write + Seek> WriterCore<W> {
                 take.wav.write_sample(x).map_err(|e| e.to_string())?;
                 take.written += 1;
             }
+            if take.written > 0
+                && let Some(first) = take.first_samples.take()
+            {
+                let _ = first.try_send(());
+            }
             if take.written >= take.max_frames {
                 take.at_cap = true;
             }
@@ -174,9 +179,6 @@ impl<W: Write + Seek> WriterCore<W> {
             };
             if anchor.frame >= take.max_frames {
                 continue;
-            }
-            if let Some(first) = take.first_anchor.take() {
-                let _ = first.try_send(anchor);
             }
             take.anchors.push(anchor);
         }
@@ -259,7 +261,7 @@ pub(crate) enum WriterMsg {
         path: PathBuf,
         sample_rate: u32,
         max_frames: u64,
-        first_anchor: SyncSender<Anchor>,
+        first_samples: SyncSender<()>,
         reply: SyncSender<Result<(), RecordError>>,
     },
     Close(SyncSender<Option<TakeData>>),
@@ -317,13 +319,13 @@ fn run(
                 path,
                 sample_rate,
                 max_frames,
-                first_anchor,
+                first_samples,
                 reply,
             }) => {
                 let buf = BufWriter::with_capacity(WRITE_BUFFER, file);
                 match WavWriter::new(buf, wav_spec(sample_rate)) {
                     Ok(wav) => {
-                        core.open(id, wav, path, max_frames, first_anchor, clock.now());
+                        core.open(id, wav, path, max_frames, first_samples, clock.now());
                         let _ = reply.send(Ok(()));
                     }
                     Err(e) => {
@@ -372,7 +374,7 @@ mod tests {
         capture: Capture,
         shared: Arc<Shared>,
         events: Receiver<Event>,
-        first: Receiver<Anchor>,
+        first: Receiver<()>,
     }
 
     fn rig<W: Write + Seek>(wav: Option<WavWriter<W>>, max: u64) -> (WriterCore<W>, Rig) {
@@ -478,13 +480,7 @@ mod tests {
             1_000,
         );
         assert_eq!(core.tick(ms(5)), None);
-        assert_eq!(
-            rig.first.try_recv(),
-            Ok(Anchor {
-                frame: 0,
-                host_ns: 1_000
-            })
-        );
+        assert_eq!(rig.first.try_recv(), Ok(()));
         let data = core.close().unwrap();
         assert_eq!(data.frames, 5);
         assert_eq!(data.ended, Ended::User);

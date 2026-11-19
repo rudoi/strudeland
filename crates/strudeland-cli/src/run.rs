@@ -218,7 +218,15 @@ fn execute(
         } => {
             let user = skill::claude_dir(
                 std::env::var_os("CLAUDE_CONFIG_DIR"),
-                std::env::var_os("HOME"),
+                std::env::var_os("HOME")
+                    .filter(|v| !v.is_empty())
+                    .or_else(|| {
+                        if cfg!(windows) {
+                            std::env::var_os("USERPROFILE")
+                        } else {
+                            None
+                        }
+                    }),
             );
             install_skill(project.as_deref(), user.as_deref(), &current_dir, json, env)
         }
@@ -1253,7 +1261,11 @@ mod tests {
                     path: "/s/x.sock".into(),
                 },
                 2,
-                "error: strudeland is not running (no socket at /s/x.sock)\n",
+                if cfg!(windows) {
+                    "error: strudeland is not running (no pipe at /s/x.sock)\n"
+                } else {
+                    "error: strudeland is not running (no socket at /s/x.sock)\n"
+                },
             ),
             (
                 CallError::Timeout,
@@ -1403,24 +1415,16 @@ mod tests {
 
     #[test]
     fn absolute_joins_only_relative_paths() {
-        let cwd = Path::new("/work/dir");
+        let cwd = std::env::temp_dir().join("work/dir");
+        let absolute_path = std::env::temp_dir().join("s.png");
+        assert_eq!(absolute(&absolute_path, &cwd), absolute_path);
+        assert_eq!(absolute(Path::new("s.png"), &cwd), cwd.join("s.png"));
         assert_eq!(
-            absolute(Path::new("/tmp/s.png"), cwd),
-            PathBuf::from("/tmp/s.png")
-        );
-        assert_eq!(
-            absolute(Path::new("s.png"), cwd),
-            PathBuf::from("/work/dir/s.png")
-        );
-        assert_eq!(
-            absolute(Path::new("../shots/s.png"), cwd),
-            PathBuf::from("/work/dir/../shots/s.png"),
+            absolute(Path::new("../shots/s.png"), &cwd),
+            cwd.join("../shots/s.png"),
             "`..` is kept"
         );
-        assert_eq!(
-            absolute(Path::new("./s.png"), cwd),
-            PathBuf::from("/work/dir/s.png")
-        );
+        assert_eq!(absolute(Path::new("./s.png"), &cwd), cwd.join("s.png"));
     }
 
     fn shot(path: &str) -> Value {
@@ -1437,16 +1441,18 @@ mod tests {
         );
         assert_eq!(f.calls, vec![(Method::Screenshot, json!({}))]);
 
-        let mut f = Fake::ok(shot("/tmp/a.png"));
-        go(&["screenshot", "/tmp/a.png"], &mut f, IO);
-        assert_eq!(f.calls[0].1, json!({"path": "/tmp/a.png"}));
+        let path = std::env::temp_dir().join("a.png");
+        let path = path.to_str().unwrap();
+        let mut f = Fake::ok(shot(path));
+        go(&["screenshot", path], &mut f, IO);
+        assert_eq!(f.calls[0].1, json!({"path": path}));
 
         let cwd = std::env::current_dir().unwrap();
         let mut f = Fake::ok(shot("x"));
         go(&["screenshot", "out/s.png"], &mut f, IO);
         assert_eq!(
             f.calls[0].1,
-            json!({"path": cwd.join("out/s.png").to_str().unwrap()})
+            json!({"path": cwd.join("out").join("s.png").to_str().unwrap()})
         );
     }
 
@@ -1543,12 +1549,11 @@ mod tests {
     fn project_open_params_and_output() {
         let opened = json!({"project": {"name": "demo", "root": "/path"}, "alreadyOpen": false});
         let mut f = Fake::ok(opened);
-        let o = go(&["project", "open", "/abs/demo"], &mut f, IO);
+        let path = std::env::temp_dir().join("demo");
+        let path = path.to_str().unwrap();
+        let o = go(&["project", "open", path], &mut f, IO);
         assert_eq!((o.code, o.out()), (0, "opened demo (/path)\n"));
-        assert_eq!(
-            f.calls,
-            vec![(Method::ProjectOpen, json!({"path": "/abs/demo"}))]
-        );
+        assert_eq!(f.calls, vec![(Method::ProjectOpen, json!({"path": path}))]);
 
         let cwd = std::env::current_dir().unwrap();
         let again = json!({"project": {"name": "demo", "root": "/path"}, "alreadyOpen": true});
@@ -1557,7 +1562,7 @@ mod tests {
         assert_eq!(o.out(), "demo is already open\n");
         assert_eq!(
             f.calls[0].1,
-            json!({"path": cwd.join("rel/demo").to_str().unwrap(), "discard": true})
+            json!({"path": cwd.join("rel").join("demo").to_str().unwrap(), "discard": true})
         );
     }
 

@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { jsonText } from '../scripts/json-text';
@@ -351,7 +351,7 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   // Nothing from the machine's git configuration leaks into the fixtures.
   GIT_CONFIG_NOSYSTEM: '1',
-  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_GLOBAL: devNull,
 };
 
 function git(cwd: string, ...args: string[]): string {

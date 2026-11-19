@@ -23,3 +23,6 @@ serde_json = "1.0.154"
 [dev-dependencies]
 strudeland-transcribe = { path = "../strudeland-transcribe", features = ["eval"] }
 tempfile = "3.27.0"
+
+[target.'cfg(windows)'.dev-dependencies]
+tokio = { version = "1.54.1", features = ["net", "io-util", "time", "rt"] }

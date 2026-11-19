@@ -45,7 +45,10 @@ const NOT_ARMED: &str = "the recorder is not armed";
 const NO_TAKE: &str = "no take in progress";
 const NO_AUDIO: &str = "no audio arrived from the input";
 const DENIED: &str = "microphone access denied";
+#[cfg(target_os = "macos")]
 const RESTRICTED: &str = "microphone access is restricted on this mac";
+#[cfg(not(target_os = "macos"))]
+const RESTRICTED: &str = "microphone access is restricted by the system";
 const LIMIT: &str = "recording stopped at the length limit";
 
 // --- errors ---
@@ -120,9 +123,13 @@ impl From<RecordError> for RecordingError {
         match e {
             RecordError::NoDevice => RecordingError::new(K::NoDevice, e.to_string()),
             RecordError::PermissionDenied => RecordingError::new(K::PermissionDenied, DENIED),
-            RecordError::DeviceBusy | RecordError::DeviceLost(_) => {
-                RecordingError::new(K::DeviceLost, e.to_string())
-            }
+            // Keep the existing CoreAudio wire classification. On ALSA and WASAPI a busy
+            // endpoint is common when another client holds it exclusively.
+            #[cfg(target_os = "macos")]
+            RecordError::DeviceBusy => RecordingError::new(K::DeviceLost, e.to_string()),
+            #[cfg(not(target_os = "macos"))]
+            RecordError::DeviceBusy => RecordingError::busy(&e.to_string()),
+            RecordError::DeviceLost(_) => RecordingError::new(K::DeviceLost, e.to_string()),
             RecordError::AlreadyRecording => RecordingError::busy(BUSY),
             RecordError::NotArmed => RecordingError::other(NOT_ARMED),
             RecordError::StartTimeout => RecordingError::other(NO_AUDIO),
@@ -306,6 +313,10 @@ impl StateEvent {
 pub trait Platform: Send + Sync {
     /// The current status; never prompts.
     fn permission(&self) -> Permission;
+    /// Whether the OS offers an in-app prompt for an undetermined permission.
+    fn has_permission_prompt(&self) -> bool {
+        true
+    }
     /// Prompts for access and blocks until the user answered.
     fn request_permission(&self);
     fn devices(&self) -> Result<Vec<DeviceInfo>, RecordError>;
@@ -356,6 +367,7 @@ struct ArmedInput {
 #[derive(Default)]
 struct Inner {
     recorder: Option<Recorder>,
+    stream_denied: bool,
     forwarder: Option<JoinHandle<()>>,
     armed: Option<ArmedInput>,
     take: Option<Take>,
@@ -562,7 +574,7 @@ pub fn resolve_selection<'a>(
     let device = saved
         .or_else(|| devices.iter().find(|d| d.is_default))
         .or_else(|| devices.first())?;
-    let channel = if prefs.channel < device.channels {
+    let channel = if device.channels == 0 || prefs.channel < device.channels {
         prefs.channel
     } else {
         0
@@ -750,6 +762,18 @@ fn project_for(projects: &ProjectState, root: &str) -> Result<Arc<Project>, Reco
 pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
     let permission = core.platform.permission();
     let inner = core.lock();
+    let permission =
+        if permission == Permission::NotDetermined && !core.platform.has_permission_prompt() {
+            if inner.armed.is_some() {
+                Permission::Authorized
+            } else if inner.stream_denied {
+                Permission::Denied
+            } else {
+                permission
+            }
+        } else {
+            permission
+        };
     let (state, stem, elapsed_seconds) = match &inner.take {
         Some(take) => (
             RecState::Recording,
@@ -773,8 +797,22 @@ pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
     }
 }
 
+/// An exclusive input can refuse a second config query while our own stream is open.
+fn input_devices(core: &Core) -> Result<Vec<DeviceInfo>, RecordingError> {
+    let mut list = core.platform.devices()?;
+    if let Some(armed) = &core.lock().armed
+        && let Some(device) = list
+            .iter_mut()
+            .find(|d| d.id == armed.info.device_id && d.channels == 0)
+    {
+        device.channels = armed.info.channels;
+        device.sample_rate = armed.info.sample_rate;
+    }
+    Ok(list)
+}
+
 pub fn devices(core: &Core, prefs_path: &Path) -> Result<DevicesResult, RecordingError> {
-    let list = core.platform.devices()?;
+    let list = input_devices(core)?;
     let prefs = read_prefs(prefs_path);
     let selected = resolve_selection(&list, &prefs).map(|(d, channel)| InputSelection {
         device_id: d.id.clone(),
@@ -799,6 +837,10 @@ impl Drop for Requesting<'_> {
 fn ensure_permission(core: &Core) -> Result<(), RecordingError> {
     let mut permission = core.platform.permission();
     if permission == Permission::NotDetermined {
+        if !core.platform.has_permission_prompt() {
+            // The actual device open will decide and report access.
+            return Ok(());
+        }
         if core.requesting.swap(true, Ordering::AcqRel) {
             return Err(RecordingError::busy(PERMISSION_PENDING));
         }
@@ -833,7 +875,7 @@ pub fn arm(
     }
     ensure_permission(core)?;
     let channel_arg = channel;
-    let list = core.platform.devices()?;
+    let list = input_devices(core)?;
     let prefs = read_prefs(prefs_path);
     let (device, channel) = match device_id.as_deref() {
         Some(id) => {
@@ -841,11 +883,12 @@ pub fn arm(
                 .iter()
                 .find(|d| d.id == id)
                 .ok_or_else(|| RecordingError::from(RecordError::NoDevice))?;
-            let channel = channel.unwrap_or(if prefs.channel < device.channels {
-                prefs.channel
-            } else {
-                0
-            });
+            let channel =
+                channel.unwrap_or(if device.channels == 0 || prefs.channel < device.channels {
+                    prefs.channel
+                } else {
+                    0
+                });
             (device, channel)
         }
         None => {
@@ -854,7 +897,7 @@ pub fn arm(
             (device, channel.unwrap_or(saved))
         }
     };
-    if channel >= device.channels {
+    if device.channels != 0 && channel >= device.channels {
         return Err(RecordingError::other(format!(
             "channel {channel} is out of range for {} channels",
             device.channels
@@ -867,13 +910,31 @@ pub fn arm(
         }
         drop_ended(&mut inner);
         let recorder = ensure_recorder(core, &mut inner);
-        let (arm_id, info) = recorder.arm_with_id(ArmConfig {
+        let result = recorder.arm_with_id(ArmConfig {
             device_id: Some(device.id.clone()),
             channel,
-        })?;
+        });
+        let (arm_id, info) = match result {
+            Ok(opened) => opened,
+            Err(RecordError::PermissionDenied) => {
+                inner.armed = None;
+                inner.stream_denied = true;
+                return Err(RecordError::PermissionDenied.into());
+            }
+            Err(error) => {
+                inner.armed = None;
+                inner.stream_denied = false;
+                return Err(error.into());
+            }
+        };
+        inner.stream_denied = false;
         inner.armed = Some(ArmedInput {
             arm_id,
-            device: InputDevice::from(device),
+            device: InputDevice {
+                channels: info.channels,
+                sample_rate: info.sample_rate,
+                ..InputDevice::from(device)
+            },
             info,
         });
     }
@@ -912,7 +973,7 @@ pub fn disarm(core: &Core, prefs_path: &Path) -> Result<RecordingStatus, Recordi
 }
 
 /// Starts a take named by Rust (`<songStem>-NN` or `memo-NN`) in the project at `root`; returns
-/// once the capture runs (its first anchor exists).
+/// once the writer has received samples.
 pub fn start(
     core: &Core,
     projects: &ProjectState,
@@ -1124,7 +1185,7 @@ pub fn repair_in_background(core: &Arc<Core>, project: &Arc<Project>) {
 
 // --- the app's ports ---
 
-/// The microphone permission from AVFoundation (macOS); elsewhere always authorized.
+/// The desktop microphone policy, where the OS exposes it.
 mod permission {
     use super::Permission;
 
@@ -1168,9 +1229,24 @@ mod permission {
         let _ = rx.recv();
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     pub fn status() -> Permission {
-        Permission::Authorized
+        use windows::Devices::Enumeration::{
+            DeviceAccessInformation, DeviceAccessStatus, DeviceClass,
+        };
+        match DeviceAccessInformation::CreateFromDeviceClass(DeviceClass::AudioCapture)
+            .and_then(|info| info.CurrentStatus())
+        {
+            Ok(DeviceAccessStatus::Allowed) => Permission::Authorized,
+            Ok(DeviceAccessStatus::DeniedByUser) => Permission::Denied,
+            Ok(DeviceAccessStatus::DeniedBySystem) => Permission::Restricted,
+            _ => Permission::NotDetermined,
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    pub fn status() -> Permission {
+        Permission::NotDetermined
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1181,6 +1257,9 @@ mod permission {
 pub struct SystemPlatform;
 
 impl Platform for SystemPlatform {
+    fn has_permission_prompt(&self) -> bool {
+        cfg!(target_os = "macos")
+    }
     fn permission(&self) -> Permission {
         permission::status()
     }
@@ -1376,6 +1455,7 @@ mod tests {
     }
 
     struct FakePlatform {
+        has_prompt: AtomicBool,
         permission: Mutex<Permission>,
         /// The status after a request.
         answer: Mutex<Permission>,
@@ -1386,6 +1466,9 @@ mod tests {
     }
 
     impl Platform for Arc<FakePlatform> {
+        fn has_permission_prompt(&self) -> bool {
+            self.has_prompt.load(Ordering::Acquire)
+        }
         fn permission(&self) -> Permission {
             *self.permission.lock().unwrap()
         }
@@ -1459,6 +1542,7 @@ mod tests {
         let root =
             projects.open_unwatched(Project::create(&tmp.path().join("alpha"), "alpha").unwrap());
         let platform = Arc::new(FakePlatform {
+            has_prompt: AtomicBool::new(true),
             permission: Mutex::new(Permission::Authorized),
             answer: Mutex::new(Permission::Authorized),
             requests: AtomicUsize::new(0),
@@ -1676,11 +1760,14 @@ mod tests {
         let cases = [
             (RecordError::NoDevice, K::NoDevice, "no input device"),
             (RecordError::PermissionDenied, K::PermissionDenied, DENIED),
+            #[cfg(target_os = "macos")]
             (
                 RecordError::DeviceBusy,
                 K::DeviceLost,
                 "the input device is busy",
             ),
+            #[cfg(not(target_os = "macos"))]
+            (RecordError::DeviceBusy, K::Busy, "the input device is busy"),
             (
                 RecordError::DeviceLost("gone".into()),
                 K::DeviceLost,
@@ -1859,7 +1946,7 @@ mod tests {
                 "identifier": "opener:allow-open-url",
                 "allow": [{
                     "url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-                }]
+                }, { "url": "ms-settings:privacy-microphone" }]
             })]
         );
     }
@@ -1962,13 +2049,70 @@ mod tests {
     }
 
     #[test]
-    fn a_busy_device_is_device_lost() {
+    fn on_a_desktop_without_a_prompt_the_stream_decides_access_and_can_be_retried() {
+        let rig = rig();
+        rig.platform.has_prompt.store(false, Ordering::Release);
+        *rig.platform.permission.lock().unwrap() = Permission::NotDetermined;
+        assert_eq!(
+            status(&rig.core, &rig.prefs()).permission,
+            Permission::NotDetermined
+        );
+        *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
+        let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
+        assert_eq!(error.kind, RecordingErrorKind::PermissionDenied);
+        assert_eq!(
+            status(&rig.core, &rig.prefs()).permission,
+            Permission::Denied
+        );
+        let armed = arm(&rig.core, &rig.prefs(), None, None).unwrap();
+        assert_eq!(armed.permission, Permission::Authorized);
+        assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_busy_device_stays_idle_and_reports_the_device_error() {
         let rig = rig();
         *rig.arm_failure.lock().unwrap() = Some(RecordError::DeviceBusy);
         let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
+        #[cfg(target_os = "macos")]
         assert_eq!(error.kind, RecordingErrorKind::DeviceLost);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(error.kind, RecordingErrorKind::Busy);
+        assert_eq!(error.message, "the input device is busy");
         assert_eq!(status(&rig.core, &rig.prefs()).state, RecState::Idle);
         assert!(rig.sink.states().is_empty());
+    }
+
+    #[test]
+    fn a_saved_exclusive_input_keeps_its_identity_and_armed_channel_count() {
+        let rig = rig();
+        let mut busy = usb();
+        busy.channels = 0;
+        busy.sample_rate = 0;
+        *rig.platform.devices.lock().unwrap() = vec![mic(), busy];
+        write_prefs(
+            &rig.prefs(),
+            &Prefs {
+                device_id: Some(usb().id),
+                channel: 2,
+            },
+        )
+        .unwrap();
+
+        // Enumeration could not open the USB endpoint. The stream-open error is authoritative.
+        *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
+        let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
+        assert_eq!(error.kind, RecordingErrorKind::PermissionDenied);
+        let st = arm(&rig.core, &rig.prefs(), None, None).unwrap();
+        assert_eq!(st.device, Some(InputDevice::from(&usb())));
+        assert_eq!(st.channel, 2);
+        rig.next_handle();
+
+        // With the exclusive stream open the picker still exposes the active channels.
+        let list = devices(&rig.core, &rig.prefs()).unwrap();
+        assert!(list.devices.contains(&InputDevice::from(&usb())));
+        let st = arm(&rig.core, &rig.prefs(), Some(usb().id), Some(3)).unwrap();
+        assert_eq!(st.channel, 3);
     }
 
     #[test]
@@ -2243,30 +2387,30 @@ mod tests {
         assert!(second.recordings().unwrap().is_empty());
     }
 
-    /// Makes `recordings/` read-only (`false`) or writable again, so a publish fails or works.
-    fn writable(rig: &Rig, yes: bool) {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = if yes { 0o755 } else { 0o555 };
-        std::fs::set_permissions(rig.recordings_dir(), std::fs::Permissions::from_mode(mode))
-            .unwrap();
+    /// A competing sidecar prevents no-clobber publication on every supported filesystem.
+    fn block_publication(rig: &Rig) -> PathBuf {
+        let path = rig.recordings_dir().join("main-01.json");
+        std::fs::write(&path, b"existing sidecar").unwrap();
+        path
     }
 
     #[test]
     fn a_failed_publish_keeps_the_take_and_a_retry_publishes_it() {
         let rig = rig();
         rig.take();
-        writable(&rig, false);
+        let conflict = block_publication(&rig);
         let error = stop(&rig.core, Some(stop_fields(Some("1500000000")))).unwrap_err();
-        assert_eq!(rig.files(), vec![".main-01.wav.partial"]);
+        assert_eq!(rig.files(), vec![".main-01.wav.partial", "main-01.json"]);
+        assert_eq!(std::fs::read(&conflict).unwrap(), b"existing sidecar");
         let event = rig.sink.last().unwrap();
         assert_eq!(
             (event.state, event.stem.as_deref(), event.error.as_ref()),
             (RecState::Armed, Some("main-01"), Some(&error))
         );
         assert_eq!(status(&rig.core, &rig.prefs()).state, RecState::Armed);
-        // Still unwritable: the take is kept again.
+        // The conflict still exists, and the take remains available for retry.
         assert!(stop(&rig.core, None).is_err());
-        writable(&rig, true);
+        std::fs::remove_file(conflict).unwrap();
         let entry = stop(&rig.core, Some(stop_fields(Some("1500000000")))).unwrap();
         assert_eq!(entry.stem, "main-01");
         assert_eq!(entry.frames, Some(1_000));
@@ -2293,9 +2437,9 @@ mod tests {
         for (settle, name) in settles {
             let rig = rig();
             rig.take();
-            writable(&rig, false);
+            let conflict = block_publication(&rig);
             assert!(stop(&rig.core, None).is_err(), "{name}");
-            writable(&rig, true);
+            std::fs::remove_file(conflict).unwrap();
             settle(&rig);
             assert_eq!(rig.files(), vec!["main-01.json", "main-01.wav"], "{name}");
             assert_eq!(sidecar_of(&rig, "main-01").timing.bar1_host_ns, None);

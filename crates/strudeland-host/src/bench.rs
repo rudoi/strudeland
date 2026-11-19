@@ -149,16 +149,14 @@ pub fn median(values: &[f64]) -> Option<f64> {
 }
 
 /// `ru_maxrss` in bytes: macOS reports bytes, Linux KiB; a negative value is 0.
-pub fn rss_bytes(raw: libc::c_long, macos: bool) -> u64 {
-    let raw = u64::try_from(raw).unwrap_or(0);
+pub fn rss_bytes(raw: impl Into<i64>, macos: bool) -> u64 {
+    let raw = u64::try_from(raw.into()).unwrap_or(0);
     if macos { raw } else { raw.saturating_mul(1024) }
 }
 
-/// This process's peak resident set size in bytes (0 when unavailable).
+/// This process's peak memory use in bytes (0 when unavailable).
 pub fn max_rss_bytes() -> u64 {
-    engine::max_rss_raw()
-        .map(|raw| rss_bytes(raw, cfg!(target_os = "macos")))
-        .unwrap_or(0)
+    engine::max_rss_bytes()
 }
 
 /// One planned song's medians, the input of [`check_budget`].
@@ -654,7 +652,7 @@ mod tests {
         assert_eq!(rss_bytes(123_456, false), 123_456 * 1024);
         assert_eq!(rss_bytes(-1, true), 0);
         assert_eq!(rss_bytes(-1, false), 0);
-        assert_eq!(rss_bytes(libc::c_long::MAX, false), u64::MAX);
+        assert_eq!(rss_bytes(i64::MAX, false), u64::MAX);
         assert!(max_rss_bytes() > 0);
     }
 

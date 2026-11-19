@@ -67,8 +67,8 @@ impl Rig {
         handle: &FakeHandle,
         path: &Path,
         first: &[f32],
-        host_ns: u64,
-    ) -> Result<Anchor, RecordError> {
+        host_ns: impl Into<Option<u64>> + Copy,
+    ) -> Result<(), RecordError> {
         let rec = &self.rec;
         std::thread::scope(|s| {
             let started = s.spawn(move || rec.start(path));
@@ -143,15 +143,8 @@ fn a_take_writes_mono_float_samples_and_anchors() {
     assert!(matches!(rig.next(), Event::Armed(i) if i == info(0)));
     let path = rig.path("take.wav");
     let audio = ramp(3_000, 0);
-    let first = rig.start(&handle, &path, &audio[..100], 1_000_000).unwrap();
-    assert_eq!(
-        first,
-        Anchor {
-            frame: 0,
-            host_ns: 1_000_000
-        }
-    );
-    assert!(matches!(rig.next(), Event::TakeStarted(a) if a == first));
+    rig.start(&handle, &path, &audio[..100], 1_000_000).unwrap();
+    assert!(matches!(rig.next(), Event::TakeStarted));
     for (k, block) in audio[100..].chunks(100).enumerate() {
         let host_ns = 1_000_000 + (k as u64 + 1) * 100_000_000;
         assert!(handle.push(block, host_ns));
@@ -298,7 +291,7 @@ fn a_failing_factory_is_the_arm_error() {
 }
 
 #[test]
-fn no_first_anchor_is_a_start_timeout_and_removes_the_file() {
+fn no_samples_is_a_start_timeout_and_removes_the_file() {
     let rig = rig_with(Limits {
         start_timeout: Duration::from_millis(100),
         ..Limits::default()
@@ -328,7 +321,7 @@ fn the_cap_ends_the_take_at_exactly_max_frames() {
     let path = rig.path("long.wav");
     let audio = ramp(1_550, 0);
     rig.start(&handle, &path, &audio[..50], 0).unwrap();
-    assert!(matches!(rig.next(), Event::TakeStarted(_)));
+    assert!(matches!(rig.next(), Event::TakeStarted));
     for block in audio[50..].chunks(100) {
         handle.push(block, 0);
     }
@@ -351,7 +344,7 @@ fn device_loss_while_recording_finalizes_then_fails() {
     let path = rig.path("lost.wav");
     let audio = ramp(300, 0);
     rig.start(&handle, &path, &audio[..100], 5).unwrap();
-    assert!(matches!(rig.next(), Event::TakeStarted(_)));
+    assert!(matches!(rig.next(), Event::TakeStarted));
     handle.push(&audio[100..], 6);
     assert!(handle.fault(FaultKind::DeviceLost, "unplugged"));
     let ended = take_ended(rig.next());
@@ -414,7 +407,7 @@ fn disarm_mid_take_ends_it_and_does_not_store_it() {
     assert!(matches!(rig.next(), Event::Armed(_)));
     let path = rig.path("d.wav");
     rig.start(&handle, &path, &[0.5; 20], 0).unwrap();
-    assert!(matches!(rig.next(), Event::TakeStarted(_)));
+    assert!(matches!(rig.next(), Event::TakeStarted));
     rig.rec.disarm();
     let ended = take_ended(rig.next());
     assert_eq!((ended.frames, ended.ended), (20, Ended::User));
@@ -438,7 +431,7 @@ fn dropping_the_recorder_mid_take_finalizes_the_file() {
         .filter(|e| !matches!(e, Event::Level(_)))
         .collect();
     assert!(
-        matches!(rest.as_slice(), [Event::Armed(_), Event::TakeStarted(_), Event::TakeEnded(r), Event::Disarmed] if r.frames == 500)
+        matches!(rest.as_slice(), [Event::Armed(_), Event::TakeStarted, Event::TakeEnded(r), Event::Disarmed] if r.frames == 500)
     );
     assert_eq!(samples(&path).1, audio);
 }
@@ -524,4 +517,17 @@ fn each_stream_has_its_own_arm_id_and_failed_carries_it() {
     assert!(matches!(rig.next(), Event::Failed { arm_id, .. } if arm_id == first));
     let (second, _) = rig.rec.arm_with_id(ArmConfig::default()).unwrap();
     assert_ne!(second, first);
+}
+
+#[test]
+fn a_take_without_reliable_timing_keeps_all_samples() {
+    let rig = rig();
+    let handle = rig.arm();
+    let path = rig.path("unclocked.wav");
+    rig.start(&handle, &path, &[0.5; 10], None).unwrap();
+    assert!(handle.push(&[0.25; 10], 100));
+    let result = rig.rec.stop().unwrap();
+    assert_eq!(result.frames, 20);
+    assert!(result.anchors.is_empty());
+    assert_eq!(samples(&path).1, [[0.5; 10], [0.25; 10]].concat());
 }

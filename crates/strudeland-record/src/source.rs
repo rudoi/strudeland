@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{FromSample, InputCallbackInfo, SampleFormat, SizedSample};
 
+use crate::clock::{ClockReader, StreamClock};
 use crate::error::RecordError;
 use crate::pipeline::{Capture, Shared};
 use crate::recorder::{ArmedInfo, Msg};
@@ -183,10 +184,14 @@ pub(crate) fn check_format(
 ) -> Result<(), RecordError> {
     if !matches!(
         format,
-        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::I32
+        SampleFormat::F32
+            | SampleFormat::I16
+            | SampleFormat::I24
+            | SampleFormat::I32
+            | SampleFormat::U16
     ) {
         return Err(RecordError::UnsupportedFormat(format!(
-            "sample format {format} is not f32, i16 or i32"
+            "sample format {format} is not f32, i16, i24, i32 or u16"
         )));
     }
     if channel >= channels {
@@ -214,23 +219,33 @@ impl Source for CpalSource {
         faults: FaultSink,
     ) -> Result<Box<dyn Running>, RecordError> {
         let format = self.config.sample_format();
+        let clock = StreamClock::default();
+        let reader = clock.reader();
         let stream = match format {
-            SampleFormat::F32 => self.build::<f32>(capture, faults)?,
-            SampleFormat::I16 => self.build::<i16>(capture, faults)?,
-            SampleFormat::I32 => self.build::<i32>(capture, faults)?,
+            SampleFormat::F32 => self.build::<f32>(capture, faults, reader)?,
+            SampleFormat::I16 => self.build::<i16>(capture, faults, reader)?,
+            SampleFormat::I32 => self.build::<i32>(capture, faults, reader)?,
+            SampleFormat::I24 => self.build::<cpal::I24>(capture, faults, reader)?,
+            SampleFormat::U16 => self.build::<u16>(capture, faults, reader)?,
             other => {
                 return Err(RecordError::UnsupportedFormat(format!(
-                    "sample format {other} is not f32, i16 or i32"
+                    "sample format {other} is not f32, i16, i24, i32 or u16"
                 )));
             }
         };
         stream.play().map_err(|e| RecordError::from_cpal(&e))?;
+        clock.calibrate(&stream);
         Ok(Box::new(CpalRunning { _stream: stream }))
     }
 }
 
 impl CpalSource {
-    fn build<T>(&self, mut capture: Capture, faults: FaultSink) -> Result<cpal::Stream, RecordError>
+    fn build<T>(
+        &self,
+        mut capture: Capture,
+        faults: FaultSink,
+        mut reader: ClockReader,
+    ) -> Result<cpal::Stream, RecordError>
     where
         T: SizedSample,
         f32: FromSample<T>,
@@ -253,7 +268,9 @@ impl CpalSource {
             let ts = info.timestamp();
             let callback_ns = ts.callback.as_nanos().min(u128::from(u64::MAX)) as u64;
             let capture_ns = ts.capture.as_nanos().min(u128::from(u64::MAX)) as u64;
-            capture.push_block(&buf[..n], mode.host_ns(callback_ns, capture_ns, n, rate));
+            let event = mode.host_ns(callback_ns, capture_ns, n, rate);
+            let time = reader.event(ts.callback, cpal::StreamInstant::from_nanos(event), false);
+            capture.push_block(&buf[..n], time);
         };
         let error = move |e: cpal::Error| faults.cpal_error(&e);
         self.device
@@ -328,7 +345,7 @@ impl FakeHandle {
     }
 
     /// Delivers one block, as a callback would. False when the source is not open.
-    pub fn push(&self, frames: &[f32], host_ns: u64) -> bool {
+    pub fn push(&self, frames: &[f32], host_ns: impl Into<Option<u64>>) -> bool {
         self.with(|capture, _| capture.push_block(frames, host_ns))
             .is_some()
     }
@@ -464,7 +481,7 @@ mod tests {
         else {
             panic!("not UnsupportedFormat");
         };
-        assert_eq!(m, "sample format u8 is not f32, i16 or i32");
+        assert_eq!(m, "sample format u8 is not f32, i16, i24, i32 or u16");
         let RecordError::UnsupportedFormat(m) = check_format(SampleFormat::F32, 2, 2).unwrap_err()
         else {
             panic!("not UnsupportedFormat");

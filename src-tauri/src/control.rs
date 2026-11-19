@@ -1,4 +1,4 @@
-//! The control socket: a Unix listener speaking line-delimited JSON-RPC (see `strudeland-ctl`).
+//! The local control endpoint, speaking line-delimited JSON-RPC (see `strudeland-ctl`).
 //!
 //! Rust does no music logic. `ping` and `screenshot` are answered here; every other known method is
 //! forwarded to the webview as a `control://request` event and answered when the webview calls
@@ -9,9 +9,15 @@
 //! [`bind_socket`], tested on a tempdir path.
 
 use std::collections::HashMap;
-use std::fs::{self, File, TryLockError};
+#[cfg(any(unix, test))]
+use std::fs;
+#[cfg(unix)]
+use std::fs::{File, TryLockError};
+#[cfg(unix)]
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener as StdUnixListener, UnixStream as StdUnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -25,8 +31,16 @@ use strudeland_ctl::{
     ScreenshotResult, codes, encode_response, parse_request,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{
+    self as async_io, AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt,
+    BufReader,
+};
+#[cfg(unix)]
+use tokio::net::UnixListener;
+#[cfg(all(unix, test))]
+use tokio::net::UnixStream;
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::oneshot;
 
 /// The event the webview listens to for requests; its payload is a [`BridgeRequest`].
@@ -119,7 +133,10 @@ pub struct Bridge {
     /// Set once by `start`; `disabled` until then.
     info: Mutex<ControlInfo>,
     /// The socket's lock file, held for the app's lifetime while listening.
+    #[cfg(unix)]
     socket_lock: Mutex<Option<File>>,
+    #[cfg(windows)]
+    server: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 impl Default for Bridge {
@@ -140,7 +157,10 @@ impl Bridge {
             next_id: AtomicU64::new(1),
             attached: AtomicBool::new(false),
             info: Mutex::new(ControlInfo::new(SocketStatus::Disabled, None, None)),
+            #[cfg(unix)]
             socket_lock: Mutex::new(None),
+            #[cfg(windows)]
+            server: Mutex::new(None),
         }
     }
 
@@ -252,7 +272,12 @@ fn default_screenshot_path() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!("strudeland-screenshot-{ms}.png"))
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "strudeland-screenshot-{ms}-{}-{id}.png",
+        std::process::id()
+    ))
 }
 
 /// Validates the `screenshot` params (the one method whose params Rust checks): an object (null is
@@ -352,6 +377,12 @@ pub async fn handle_line(
     if !bridge.attached() {
         return Response::err(id, RpcError::not_ready());
     }
+    if method == Method::ProjectOpen
+        && let Some(path) = request.params.get("path").and_then(Value::as_str)
+        && !Path::new(path).is_absolute()
+    {
+        return Response::err(id, invalid_params("'path' must be an absolute path"));
+    }
     match bridge.call(emitter, method, request.params, timeout).await {
         Ok(result) => Response::ok(id, result),
         Err(e) => Response::err(id, e),
@@ -384,12 +415,12 @@ fn closes_connection(r: &Response) -> bool {
 
 /// Serves one connection: requests are handled one at a time, in order.
 async fn serve_connection(
-    stream: UnixStream,
+    stream: impl AsyncRead + AsyncWrite + Unpin,
     bridge: Arc<Bridge>,
     emitter: Arc<dyn RequestEmitter>,
     snapshotter: Arc<dyn Snapshotter>,
 ) {
-    let (read, mut write) = stream.into_split();
+    let (read, mut write) = async_io::split(stream);
     let mut reader = BufReader::new(read);
     loop {
         let response = match read_line_capped(&mut reader, MAX_LINE_BYTES).await {
@@ -412,6 +443,7 @@ async fn serve_connection(
 }
 
 /// The accept loop: one task per connection, no idle timeout, no connection limit.
+#[cfg(unix)]
 async fn serve(
     listener: UnixListener,
     bridge: Arc<Bridge>,
@@ -421,6 +453,10 @@ async fn serve(
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
+                #[cfg(target_os = "linux")]
+                if strudeland_ctl::path::check_peer(&stream).is_err() {
+                    continue;
+                }
                 tokio::spawn(serve_connection(
                     stream,
                     Arc::clone(&bridge),
@@ -439,6 +475,7 @@ async fn serve(
 /// The result of [`bind_socket`]. `Listening` carries the held lock file: keep it as long as the
 /// socket is served, and remove the socket before dropping it.
 #[derive(Debug)]
+#[cfg(unix)]
 pub enum BindOutcome {
     Listening(StdUnixListener, File),
     InUse,
@@ -446,6 +483,7 @@ pub enum BindOutcome {
 }
 
 /// The lock file next to the socket: `ctl.sock` to `ctl.sock.lock`.
+#[cfg(unix)]
 fn lock_path(path: &Path) -> PathBuf {
     let mut p = path.as_os_str().to_owned();
     p.push(".lock");
@@ -454,6 +492,7 @@ fn lock_path(path: &Path) -> PathBuf {
 
 /// Takes the exclusive lock on the socket's lock file (created `0600`, never removed). `None`
 /// when another instance holds it.
+#[cfg(unix)]
 fn lock_socket(path: &Path) -> Result<Option<File>, String> {
     let lock = lock_path(path);
     let file = fs::OpenOptions::new()
@@ -475,6 +514,7 @@ fn lock_socket(path: &Path) -> Result<Option<File>, String> {
 /// `{path}.lock` (held by another instance: in use, the socket untouched), removes a stale
 /// socket, leaves a live socket or a non-socket alone, and makes the new socket `0600` and
 /// non-blocking.
+#[cfg(unix)]
 pub fn bind_socket(path: &Path) -> BindOutcome {
     let shown = path.display();
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
@@ -532,6 +572,7 @@ pub fn bind_socket(path: &Path) -> BindOutcome {
 
 /// Binds the socket and turns the outcome into a status, with the listener and its held lock
 /// file. Needs a tokio runtime context, for `UnixListener::from_std`.
+#[cfg(unix)]
 fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(UnixListener, File)>) {
     let path = match path {
         Ok(p) => p,
@@ -542,6 +583,13 @@ fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(UnixListene
             );
         }
     };
+    #[cfg(target_os = "linux")]
+    if let Err(e) = ensure_private_parent(&path) {
+        return (
+            ControlInfo::new(SocketStatus::Disabled, Some(&path), Some(e.to_string())),
+            None,
+        );
+    }
     match bind_socket(&path) {
         BindOutcome::Listening(std, lock) => match UnixListener::from_std(std) {
             Ok(l) => (
@@ -571,6 +619,97 @@ fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(UnixListene
     }
 }
 
+#[cfg(target_os = "linux")]
+fn ensure_private_parent(path: &Path) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "control socket needs a private directory",
+            )
+        })?;
+    // The XDG runtime directory is checked by endpoint discovery; creating only the last
+    // component also prevents creating unchecked intermediate directories for an override.
+    match fs::DirBuilder::new().mode(0o700).create(parent) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
+    }
+    strudeland_ctl::path::check_private_dir(parent)
+}
+
+#[cfg(windows)]
+fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(NamedPipeServer, PathBuf)>) {
+    use strudeland_ctl::windows_pipe;
+    let path = match path {
+        Ok(path) => path,
+        Err(e) => {
+            return (
+                ControlInfo::new(SocketStatus::Disabled, None, Some(e.to_string())),
+                None,
+            );
+        }
+    };
+    match windows_pipe::listen(&path, true) {
+        Ok(pipe) => (
+            ControlInfo::new(SocketStatus::Listening, Some(&path), None),
+            Some((pipe, path)),
+        ),
+        Err(e) => {
+            let status = if windows_pipe::owned_existing(&path) {
+                SocketStatus::InUse
+            } else {
+                SocketStatus::Disabled
+            };
+            let message = format!("cannot listen on {}: {e}", path.display());
+            (ControlInfo::new(status, Some(&path), Some(message)), None)
+        }
+    }
+}
+
+#[cfg(windows)]
+async fn serve(
+    (mut pipe, path): (NamedPipeServer, PathBuf),
+    bridge: Arc<Bridge>,
+    emitter: Arc<dyn RequestEmitter>,
+    snapshotter: Arc<dyn Snapshotter>,
+) {
+    let mut clients = tokio::task::JoinSet::new();
+    loop {
+        tokio::select! {
+            outcome = pipe.connect() => if let Err(e) = outcome {
+                eprintln!("control: accept failed: {e}");
+                if pipe.disconnect().is_err() {
+                    return;
+                }
+                continue;
+            },
+            _ = clients.join_next(), if !clients.is_empty() => continue,
+        }
+        // Keep at least one instance alive, and ensure a second client can connect.
+        let next = match strudeland_ctl::windows_pipe::listen(&path, false) {
+            Ok(next) => next,
+            Err(e) => {
+                eprintln!("control: cannot create next pipe instance: {e}");
+                if pipe.disconnect().is_err() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        let connected = std::mem::replace(&mut pipe, next);
+        clients.spawn(serve_connection(
+            connected,
+            Arc::clone(&bridge),
+            Arc::clone(&emitter),
+            Arc::clone(&snapshotter),
+        ));
+    }
+}
+
 /// Starts the control socket. Never fails the app: every problem becomes the bridge's
 /// [`ControlInfo`], logged to stderr.
 pub fn start(app: &AppHandle, bridge: Arc<Bridge>) {
@@ -588,16 +727,29 @@ pub fn start(app: &AppHandle, bridge: Arc<Bridge>) {
         (_, None) => eprintln!("control: disabled"),
     }
     bridge.set_info(info);
-    if let Some((listener, file)) = listener {
-        *lock(&bridge.socket_lock) = Some(file);
+    if let Some(listener) = listener {
+        #[cfg(unix)]
+        let listener = {
+            let (listener, file) = listener;
+            *lock(&bridge.socket_lock) = Some(file);
+            listener
+        };
         let emitter: Arc<dyn RequestEmitter> = Arc::new(TauriEmitter(app.clone()));
         let snapshotter: Arc<dyn Snapshotter> =
             Arc::new(crate::snapshot::TauriSnapshotter(app.clone()));
-        tauri::async_runtime::spawn(serve(listener, bridge, emitter, snapshotter));
+        let server =
+            tauri::async_runtime::spawn(serve(listener, Arc::clone(&bridge), emitter, snapshotter));
+        #[cfg(windows)]
+        {
+            *lock(&bridge.server) = Some(server);
+        }
+        #[cfg(unix)]
+        drop(server);
     }
 }
 
 /// Removes the socket file if this instance created it. Returns whether it removed one.
+#[cfg(unix)]
 fn remove_socket(info: &ControlInfo) -> bool {
     match (&info.status, &info.path) {
         (SocketStatus::Listening, Some(path)) => fs::remove_file(path).is_ok(),
@@ -608,8 +760,15 @@ fn remove_socket(info: &ControlInfo) -> bool {
 /// Removes the socket file on exit, when this instance was listening, then releases the lock.
 pub fn shutdown(app: &AppHandle) {
     let bridge = app.state::<Arc<Bridge>>();
-    remove_socket(&bridge.info());
-    lock(&bridge.socket_lock).take();
+    #[cfg(unix)]
+    {
+        remove_socket(&bridge.info());
+        lock(&bridge.socket_lock).take();
+    }
+    #[cfg(windows)]
+    if let Some(server) = lock(&bridge.server).take() {
+        server.abort();
+    }
 }
 
 struct TauriEmitter(AppHandle);
@@ -639,6 +798,7 @@ pub fn control_reply(bridge: State<'_, Arc<Bridge>>, id: u64, reply: ReplyPayloa
 mod tests {
     use super::*;
     use serde_json::json;
+    #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
     type Respond = Box<dyn Fn(&str, &Value) -> ReplyPayload + Send + Sync>;
@@ -804,6 +964,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn project_open_checks_native_absolute_paths_before_forwarding() {
+        let bridge = attached_bridge();
+        let emitter =
+            FakeEmitter::answering(&bridge, |_, params| ReplyPayload::Result(params.clone()));
+        let snapshotter = FakeSnapshotter::default();
+        let response = handle_line(
+            &bridge,
+            &emitter,
+            &snapshotter,
+            &line(1, "project.open", json!({"path": "relative"})),
+        )
+        .await;
+        assert_eq!(err_code(&response), codes::INVALID_PARAMS);
+        assert!(emitter.requests().is_empty());
+        let path = std::env::temp_dir().join("Music project");
+        let response = handle_line(
+            &bridge,
+            &emitter,
+            &snapshotter,
+            &line(2, "project.open", json!({"path": path})),
+        )
+        .await;
+        assert_eq!(response.result.unwrap()["path"], json!(path));
+    }
+
+    #[tokio::test]
     async fn screenshot_is_answered_without_the_webview() {
         let emitter = FakeEmitter::default();
         let dir = tempfile::tempdir().unwrap();
@@ -834,7 +1020,9 @@ mod tests {
             && name
                 .strip_prefix("strudeland-screenshot-")
                 .and_then(|n| n.strip_suffix(".png"))
-                .is_some_and(|ms| !ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()))
+                .is_some_and(|ms| {
+                    !ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+                })
     }
 
     #[tokio::test]
@@ -866,6 +1054,8 @@ mod tests {
         let snap = FakeSnapshotter::default();
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path().display().to_string();
+        let missing = dir.path().join("missing");
+        let root = dir.path().ancestors().last().unwrap().display().to_string();
         let cases = [
             (json!([]), "invalid params: expected an object".to_string()),
             (json!("x"), "invalid params: expected an object".to_string()),
@@ -886,23 +1076,30 @@ mod tests {
                 "invalid params: 'path' must be absolute, got shot.png".to_string(),
             ),
             (
-                json!({"path": format!("{d}/missing/shot.png")}),
-                format!("invalid params: the directory {d}/missing does not exist"),
+                json!({"path": missing.join("shot.png")}),
+                format!(
+                    "invalid params: the directory {} does not exist",
+                    missing.display()
+                ),
             ),
             (
                 json!({"path": d}),
                 format!("invalid params: {d} is a directory"),
             ),
             (
-                json!({"path": "/"}),
-                "invalid params: / is not a file path".to_string(),
+                json!({"path": root}),
+                format!("invalid params: {root} is not a file path"),
             ),
         ];
         fs::write(dir.path().join("file"), "").unwrap();
-        let under_file = format!("{d}/file/shot.png");
+        let file = dir.path().join("file");
+        let under_file = file.join("shot.png");
         let cases = cases.into_iter().chain([(
             json!({"path": under_file}),
-            format!("invalid params: the directory {d}/file does not exist"),
+            format!(
+                "invalid params: the directory {} does not exist",
+                file.display()
+            ),
         )]);
         for (params, message) in cases {
             let r = handle_line(
@@ -989,6 +1186,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn a_connection_serves_a_screenshot() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1452,19 +1650,23 @@ mod tests {
 
     // --- socket ---
 
+    #[cfg(unix)]
     fn short_tempdir() -> tempfile::TempDir {
         // macOS limits socket paths to 103 bytes; $TMPDIR is long, /tmp is not.
         tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
             .prefix("sl")
             .tempdir_in("/tmp")
             .unwrap()
     }
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
         fs::symlink_metadata(path).unwrap().mode() & 0o777
     }
 
     #[test]
+    #[cfg(unix)]
     fn binds_a_fresh_path_with_mode_0600() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1476,6 +1678,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn creates_a_missing_parent_dir_0700() {
         let dir = short_tempdir();
         let path = dir.path().join("a/b/c.sock");
@@ -1487,6 +1690,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn keeps_the_mode_of_an_existing_parent_dir() {
         let dir = short_tempdir();
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
@@ -1497,6 +1701,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_stale_socket_is_removed_and_bound() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1511,6 +1716,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_live_socket_is_in_use_and_left_alone() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1521,6 +1727,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_held_lock_is_in_use_and_the_stale_socket_is_left_alone() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1546,6 +1753,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_regular_file_is_disabled_and_left_alone() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1561,6 +1769,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn an_uncreatable_parent_is_disabled() {
         let dir = short_tempdir();
         let ro = dir.path().join("ro");
@@ -1583,6 +1792,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn listen_reports_each_status() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1605,6 +1815,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn remove_socket_only_when_listening() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1626,6 +1837,7 @@ mod tests {
         assert!(!path.exists());
     }
 
+    #[cfg(unix)]
     async fn serve_on(path: &Path, bridge: Arc<Bridge>, emitter: Arc<dyn RequestEmitter>) {
         let (info, listener) = listen(Ok(path.to_path_buf()));
         assert_eq!(info.status, SocketStatus::Listening);
@@ -1642,12 +1854,14 @@ mod tests {
         });
     }
 
+    #[cfg(unix)]
     async fn read_response<R: AsyncBufRead + Unpin>(r: &mut R) -> Option<Value> {
         let line = read_line_capped(r, 1 << 20).await.unwrap()?;
         Some(serde_json::from_str(&line).unwrap())
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn a_connection_serves_several_requests_in_order() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1697,6 +1911,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn a_parse_error_closes_the_connection() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1714,6 +1929,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn an_oversize_line_closes_the_connection() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
@@ -1736,6 +1952,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn a_line_at_the_cap_is_accepted() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");

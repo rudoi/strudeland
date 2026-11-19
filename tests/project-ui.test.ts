@@ -1,9 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { defaultProjectName, matchShortcut, songStem } from '../src/lib/project/ui';
+import {
+  defaultProjectName,
+  matchShortcut,
+  primaryModifier,
+  songStem,
+} from '../src/lib/project/ui';
 
 const key = (key: string, extra: Record<string, boolean> = {}) => ({
   key,
-  metaKey: true,
+  metaKey: false,
   ctrlKey: false,
   altKey: false,
   shiftKey: false,
@@ -22,20 +27,29 @@ describe('defaultProjectName', () => {
 });
 
 describe('matchShortcut', () => {
-  test('Cmd-O and Cmd-N, any case', () => {
-    expect(matchShortcut(key('o'))).toBe('openProject');
-    expect(matchShortcut(key('N'))).toBe('newSong');
-  });
-  test('ignores Ctrl, Alt, Shift variants', () => {
-    for (const mod of ['ctrlKey', 'altKey', 'shiftKey']) {
-      expect(matchShortcut(key('o', { [mod]: true }))).toBeNull();
-    }
-  });
-  test('needs Cmd; ignores repeats and other keys', () => {
-    expect(matchShortcut(key('o', { metaKey: false }))).toBeNull();
-    expect(matchShortcut(key('o', { repeat: true }))).toBeNull();
-    expect(matchShortcut(key('s'))).toBeNull();
-  });
+  for (const [platform, expected, other] of [
+    ['MacIntel', 'metaKey', 'ctrlKey'],
+    ['Win32', 'ctrlKey', 'metaKey'],
+    ['Linux x86_64', 'ctrlKey', 'metaKey'],
+  ] as const) {
+    const modifier = primaryModifier(platform);
+    const pressed = { [modifier]: true };
+
+    test(`${platform} uses its primary modifier for O and N`, () => {
+      expect(modifier).toBe(expected);
+      expect(matchShortcut(key('o', pressed), modifier)).toBe('openProject');
+      expect(matchShortcut(key('N', pressed), modifier)).toBe('newSong');
+    });
+
+    test(`${platform} ignores other modifiers, repeats, and unrelated keys`, () => {
+      expect(matchShortcut(key('o'), modifier)).toBeNull();
+      expect(matchShortcut(key('o', { [other]: true }), modifier)).toBeNull();
+      for (const extra of [other, 'altKey', 'shiftKey', 'repeat']) {
+        expect(matchShortcut(key('o', { ...pressed, [extra]: true }), modifier)).toBeNull();
+      }
+      expect(matchShortcut(key('s', pressed), modifier)).toBeNull();
+    });
+  }
 });
 
 describe('songStem', () => {

@@ -30,3 +30,6 @@ v8 = "=152.2.0"
 [dev-dependencies]
 strudeland-engine = { path = "../strudeland-engine" }
 tempfile = "=3.27.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }

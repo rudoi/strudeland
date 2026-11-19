@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createApp } from './lib/app';
-  import { matchShortcut } from './lib/project/ui';
+  import { matchShortcut, primaryModifier } from './lib/project/ui';
   import ConflictBar from './components/ConflictBar.svelte';
   import Editor from './components/Editor.svelte';
   import NewSong from './components/NewSong.svelte';
@@ -18,6 +18,7 @@
   const session = app.session;
   const store = session.store;
   const rt = app.runtime.store;
+  const shortcutModifier = primaryModifier(navigator.platform);
   // The song whose audio is playing: only while the runtime runs.
   const playingPath = $derived($rt.started ? ($store.evaluated?.path ?? null) : null);
 
@@ -39,21 +40,20 @@
     void app.runtime.resumeAudio();
   }
 
-  // Window-level so they work with the editor hidden.
+  // Capture app shortcuts before the editor can consume Ctrl-O or Ctrl-N in Vim mode.
   function onKeydown(e: KeyboardEvent) {
-    const shortcut = matchShortcut(e);
+    onGesture();
+    if (e.defaultPrevented) return;
+    const shortcut = matchShortcut(e, shortcutModifier);
     if (!shortcut) return;
     e.preventDefault();
+    e.stopPropagation();
     if (shortcut === 'openProject') void session.openProject();
     else if ($store.project) newSongOpen = true;
   }
 </script>
 
-<svelte:window
-  onpointerdowncapture={onGesture}
-  onkeydowncapture={onGesture}
-  onkeydown={onKeydown}
-/>
+<svelte:window onpointerdowncapture={onGesture} onkeydowncapture={onKeydown} />
 
 <main>
   {#if $store.project}

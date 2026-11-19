@@ -8,6 +8,7 @@ rust-version = "1.94"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
+strudeland-record = { path = "../strudeland-record" }
 strudeland-engine = { path = "../strudeland-engine" }
 cpal = "=0.18.2"
 rtrb = "0.4.1"

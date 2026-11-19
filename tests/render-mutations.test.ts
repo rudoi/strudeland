@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import type { RenderRequest } from '../src/lib/render/contract';
@@ -10,8 +11,8 @@ import {
   type MutationSpec,
 } from '../scripts/render/mutations';
 
-const DIR = new URL('./render/corpus/', import.meta.url).pathname;
-const MANIFEST = new URL('./render/corpus.json', import.meta.url).pathname;
+const DIR = fileURLToPath(new URL('./render/corpus/', import.meta.url));
+const MANIFEST = fileURLToPath(new URL('./render/corpus.json', import.meta.url));
 const fsIo: CorpusIo = {
   readSong: (f) => (existsSync(DIR + f) ? readFileSync(DIR + f, 'utf8') : null),
   sampleExists: (f) => existsSync(`${DIR}samples/${f}`),

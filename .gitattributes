@@ -1,0 +1,7 @@
+# Keep byte-checked sources and generated text identical across checkouts.
+* text=auto eol=lf
+
+*.icns binary
+*.ico binary
+*.png binary
+*.wav binary

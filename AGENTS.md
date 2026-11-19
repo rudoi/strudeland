@@ -1,6 +1,6 @@
 # strudeland: agent guide
 
-A macOS Tauri 2 + Svelte 5 + TypeScript app for editing Strudel music. See [README.md](README.md)
+A desktop Tauri 2 + Svelte 5 + TypeScript app for editing Strudel music. See [README.md](README.md)
 for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance.
 
 ## Commands
@@ -47,7 +47,8 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Run the CLI | `cargo run -p strudeland-cli -- state` |
 
 The [macOS workflow](.github/workflows/macos.yml) runs frozen Bun and locked Rust checks on
-Apple Silicon. The [contributor guide](CONTRIBUTING.md#verify-your-changes) lists the local commands.
+Apple Silicon. The [native workflow](.github/workflows/native.yml) checks Windows x64 and Ubuntu
+24.04 amd64, builds unsigned packages, and runs host parity. The [contributor guide](CONTRIBUTING.md#verify-your-changes) lists the local commands.
 
 `cargo test`/`clippy`/`check` do not need a built frontend (`dist/`). Only `tauri build` does, and it
 runs `bun run build` itself. The first cargo build takes a few minutes. Building `strudeland-render` (and so `strudeland-cli`)
@@ -94,15 +95,16 @@ the V8 download the host brings.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
   atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,
-  blocking `Client`). No Tauri dependency.
+  blocking `Client`). Windows uses per-user named pipes. Linux uses private XDG Unix sockets
+  with peer credentials. No Tauri dependency.
 - `crates/strudeland-cli/` the `strudeland` command (clap, output, exit codes) over
   `strudeland-ctl`. `src/docs.rs` plus `strudel-docs.json` are the embedded Strudel docs (`strudeland
   docs`); `scripts/extract-strudel-docs.ts` generates the JSON from
   `vendor/strudel/doc.json`. `skill/SKILL.md` is the Claude Code skill, embedded by `src/skill.rs`
   (`strudeland skill print/install`).
 - `src-tauri/src/control.rs` the control socket listener; it bridges requests to the webview and
-  replies, and answers `ping` and `screenshot` itself. `src-tauri/src/snapshot.rs` the WKWebView
-  screenshot behind the `Snapshotter` trait (macOS only; objc2). `src/lib/control/` the webview side: `protocol.ts`, `handler.ts` (methods on the
+  replies, and answers `ping` and `screenshot` itself. `src-tauri/src/snapshot.rs` the native webview
+  screenshot behind the `Snapshotter` trait (WKWebView, WebView2 and WebKitGTK). `src/lib/control/` the webview side: `protocol.ts`, `handler.ts` (methods on the
   session and runtime), `events.ts` (haps to inspectable events with bar, beat, section and source
   line/col; pure), `api.ts`. `src/lib/editor/claude-mark.ts` marks lines changed by Claude.
 - `vendor/strudel/` the vendored Strudel fork (workspace packages, consumed from source):

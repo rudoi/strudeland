@@ -891,9 +891,12 @@ mod tests {
             root_of(&format!("{}/../alpha", env.dir("alpha"))).unwrap(),
             canonical
         );
-        let link = env.dir("link");
-        std::os::unix::fs::symlink(env.dir("alpha"), &link).unwrap();
-        assert_eq!(root_of(&link).unwrap(), canonical);
+        #[cfg(unix)]
+        {
+            let link = env.dir("link");
+            std::os::unix::fs::symlink(env.dir("alpha"), &link).unwrap();
+            assert_eq!(root_of(&link).unwrap(), canonical);
+        }
         assert!(env.state.current().is_err());
     }
 
