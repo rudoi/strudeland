@@ -48,7 +48,8 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 
 The [macOS workflow](.github/workflows/macos.yml) runs frozen Bun and locked Rust checks on
 Apple Silicon. The [native workflow](.github/workflows/native.yml) checks Windows x64 and Ubuntu
-24.04 amd64, builds unsigned packages, and runs host parity. The [contributor guide](CONTRIBUTING.md#verify-your-changes) lists the local commands.
+24.04 amd64 and builds unsigned packages. Browser parity and live timing benchmarks run on demand.
+The [contributor guide](CONTRIBUTING.md#verify-your-changes) lists the local commands.
 
 `cargo test`/`clippy`/`check` do not need a built frontend (`dist/`). Only `tauri build` does, and it
 runs `bun run build` itself. The first cargo build takes a few minutes. Building `strudeland-render` (and so `strudeland-cli`)

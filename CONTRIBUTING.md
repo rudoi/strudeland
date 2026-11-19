@@ -52,3 +52,12 @@ For changes involving native APIs, report the target desktop, package, webview v
 runtime path you exercised. For audio timing, also report the device, negotiated sample rate and
 loopback measurements. Hosted fake-device and build checks cover reproducible regressions. The
 desktop acceptance pass exercises installed packages with real playback and capture.
+
+Run the Chromium-based host and render checks on demand. Use `bun run host:parity` and
+`bun run host:parity --batch` after installing Chromium with `bunx playwright install chromium`.
+Run the timing-sensitive live benchmark on a quiet machine with
+`cargo test --locked -p strudeland-live --test dropout dropout_short`. Hosted PR checks skip this
+wall-clock benchmark.
+
+Run browser checks on macOS or Ubuntu while Bun's Windows Chromium launch issue is open.
+See the [upstream Windows issue](https://github.com/oven-sh/bun/issues/27977).
