@@ -18210,7 +18210,7 @@ Defaulting to 2020, but this will stop working in the future.`);
   }
   function planWindow(ctx, request, lookbackSec, schedule, captured, scheduleStart = 0, tailFrames = 0) {
     const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames);
-    const chunk = plan.c0 === scheduleStart ? schedule : selectHaps(ctx.query(plan.c0, plan.c1));
+    const chunk = plan.c0 === scheduleStart ? schedule : ctx.frozenSchedule ? { selected: onsetsFrom(schedule.selected, plan.c0), errors: [] } : selectHaps(ctx.query(plan.c0, plan.c1));
     const planned = planEngineJob(chunk.selected, schedule.selected, plan, request, ctx.cps, ctx.seed);
     const errors = dedupeErrors([...schedule.errors, ...chunk.errors, ...captured]);
     return pageJob(planned, { errors, plan, cps: ctx.cps, structure: ctx.structure });
@@ -18351,18 +18351,25 @@ Defaulting to 2020, but this will stop working in the future.`);
       window2.fromBar = 0;
     return { window: window2, loopStartBar: loop.start };
   }
-  function cutSchedule(full, c1) {
+  function onsetIndex(selected, bar) {
     let lo = 0;
-    let hi = full.selected.length;
+    let hi = selected.length;
     while (lo < hi) {
       const mid = lo + hi >>> 1;
-      if (full.selected[mid].onsetCycle < c1)
+      if (selected[mid].onsetCycle < bar)
         lo = mid + 1;
       else
         hi = mid;
     }
+    return lo;
+  }
+  function onsetsFrom(selected, bar) {
+    const first = onsetIndex(selected, bar);
+    return first === 0 ? selected : selected.slice(first).map((s, index) => ({ ...s, index }));
+  }
+  function cutSchedule(full, c1) {
     return {
-      selected: full.selected.slice(0, lo),
+      selected: full.selected.slice(0, onsetIndex(full.selected, c1)),
       errors: full.errors.filter((e) => e.bar === undefined || e.bar < c1)
     };
   }
@@ -18381,7 +18388,8 @@ Defaulting to 2020, but this will stop working in the future.`);
       if (request.preset)
         checkBufferFrames(programFrames, "mix");
       const query = querySong(rt, layoutSegments(layout, structure));
-      const ctx = { query, cps, seed, structure: song.structure };
+      const frozenSchedule = loopStartBar !== undefined;
+      const ctx = { query, cps, seed, structure: song.structure, frozenSchedule };
       const base = {
         code,
         layout,
@@ -18394,11 +18402,10 @@ Defaulting to 2020, but this will stop working in the future.`);
       };
       const errors = [];
       let lookbackSec = 0;
-      function planPass(start, scheduleStart, keepTail) {
+      function planPass(full2, start, scheduleStart2, keepTail) {
         const chunks = [];
-        const full = selectHaps(query(scheduleStart, toBar));
-        const events = !request.preset || request.includeEvents && start === fromBar ? eventsFromValues(eventSources(full.selected), cps) : [];
-        const exportEvents = request.preset ? full.selected.map((s) => exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps)) : undefined;
+        const events = !request.preset || request.includeEvents && start === fromBar ? eventsFromValues(eventSources(full2.selected), cps) : [];
+        const exportEvents = request.preset ? full2.selected.map((s) => exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps)) : undefined;
         const decay = exportEvents ? exportDecay(exportEvents, toBar / cps) : undefined;
         const history = decay?.lookbackSec ?? lookbackSeconds(events);
         lookbackSec = Math.max(lookbackSec, history);
@@ -18415,9 +18422,9 @@ Defaulting to 2020, but this will stop working in the future.`);
         });
         for (const plan of plans) {
           const req = chunkRequest(base, plan);
-          const chunkLookback = scheduleStart === 0 ? plan.lookbackSec : Math.min(plan.lookbackSec, (req.fromBar - scheduleStart) / cps);
-          const schedule = reuseSchedule ? cutSchedule(full, req.toBar) : selectHaps(query(scheduleStart, req.toBar));
-          const { info, json } = planWindow(ctx, req, chunkLookback, schedule, captured, scheduleStart, req.toBar === toBar ? tailFrames : 0);
+          const chunkLookback = scheduleStart2 === 0 ? plan.lookbackSec : Math.min(plan.lookbackSec, (req.fromBar - scheduleStart2) / cps);
+          const schedule = frozenSchedule || reuseSchedule ? cutSchedule(full2, req.toBar) : selectHaps(query(scheduleStart2, req.toBar));
+          const { info, json } = planWindow(ctx, req, chunkLookback, schedule, captured, scheduleStart2, req.toBar === toBar ? tailFrames : 0);
           errors.push(...info.errors);
           chunks.push({
             json,
@@ -18432,8 +18439,13 @@ Defaulting to 2020, but this will stop working in the future.`);
         return { chunks, events, tailFrames };
       }
       const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
-      const opening = planPass(fromBar, loopStartBar === fromBar ? fromBar : 0, !separateRepeat && !!request.preset);
-      const repeat = separateRepeat ? planPass(loopStartBar, loopStartBar, true) : undefined;
+      const scheduleStart = loopStartBar === fromBar ? fromBar : 0;
+      const full = selectHaps(query(scheduleStart, toBar));
+      const opening = planPass(full, fromBar, scheduleStart, !separateRepeat && !!request.preset);
+      const repeat = separateRepeat ? planPass({
+        selected: onsetsFrom(full.selected, loopStartBar),
+        errors: full.errors.filter((e) => e.bar === undefined || e.bar >= loopStartBar)
+      }, loopStartBar, loopStartBar, true) : undefined;
       return {
         window: window2,
         cps,
@@ -28811,9 +28823,9 @@ Please check with "npm ls @strudel/core".`);
       const savedPattern = r.scheduler.pattern;
       try {
         let pattern3 = countIn && state2.structure === null ? evaluatedPattern.late(1).filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(1)) : evaluatedPattern;
-        const onsetsFrom = from?.onsetsFrom;
-        if (onsetsFrom !== undefined) {
-          pattern3 = pattern3.filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(onsetsFrom));
+        const onsetsFrom2 = from?.onsetsFrom;
+        if (onsetsFrom2 !== undefined) {
+          pattern3 = pattern3.filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(onsetsFrom2));
         }
         if (r.scheduler.pattern !== pattern3)
           await r.scheduler.setPattern(pattern3, false);

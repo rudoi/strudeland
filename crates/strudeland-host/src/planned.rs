@@ -18,12 +18,12 @@ pub struct PlannedRender {
     pub cps: f64,
     /// The song's structure (with a `loops` override applied).
     pub structure: Structure,
-    /// The full schedule's `'auto'` lookback, in seconds.
+    /// The longest lookback across the planned passes, in seconds.
     pub lookback_sec: f64,
     /// Captured and selection errors of every chunk, deduplicated.
     pub errors: Vec<PlanError>,
-    /// The schedule's events over `[0, toBar)` (`RenderEvent[]`), only when the request set
-    /// `includeEvents`.
+    /// The opening window's schedule for an export, or the standard schedule over `[0, toBar)`.
+    /// A `RenderEvent[]` returned only when the request set `includeEvents`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub events: Option<serde_json::Value>,
     /// The chunks in order; their windows are contiguous and cover `window`.
@@ -59,8 +59,7 @@ pub struct PlannedWindow {
     pub layout: Layout,
 }
 
-/// One chunk: its engine job text (byte-equal to the render page's plan of the chunk request)
-/// and its window.
+/// One chunk's engine job text and its window. Standard jobs match the render page's plan.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedChunk {

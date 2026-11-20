@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { evaluateOptions, staticStructure } from '../src/lib/project/evaluate-options';
 import { parseMeta } from '../src/lib/project/meta';
 import { windowFrames, type RenderError, type RenderRequest } from '../src/lib/render/contract';
-import { planEngineJob } from '../src/lib/render/engine-job';
+import { planEngineJob, type EngineJob } from '../src/lib/render/engine-job';
 import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
 import {
   cutSchedule,
@@ -12,6 +12,7 @@ import {
   planRender,
   querySong,
   type LengthRequest,
+  type PlannedRender,
   type PlanJobPhase,
   type PlannerRuntime,
   type RenderPlanRequest,
@@ -1224,12 +1225,12 @@ describe('loop export windows and decay', () => {
     const folded = await run(f.rt, 'folded-loop');
     expect(folded.window).toEqual({ fromBar: 3, toBar: 30, layout: 'linear' });
     expect(folded.chunks.length).toBeGreaterThan(1);
-    expect(f.queries.every((q) => q.from >= 3 && q.to <= 30)).toBe(true);
+    expect(f.queries).toEqual([{ from: 3, to: 30, segments: LINEAR_SEGMENTS }]);
     expect(folded.chunks.every((c) => c.plan.c0 >= 3)).toBe(true);
     const source = fakeRuntime({ structure, cps });
     const split = await run(source.rt, 'intro-loop');
     expect(source.evaluated).toHaveLength(1);
-    expect(source.queries.every((q) => q.to <= 30 && q.segments === LINEAR_SEGMENTS)).toBe(true);
+    expect(source.queries).toEqual([{ from: 0, to: 30, segments: LINEAR_SEGMENTS }]);
     expect(split.window).toEqual({ fromBar: 0, toBar: 30, layout: 'linear' });
     expect(split.chunks[0]!.plan.toBar).toBeGreaterThan(3);
     const tailFrames = folded.export!.tailFrames;
@@ -1256,6 +1257,46 @@ describe('loop export windows and decay', () => {
     const tagged = await run(fakeRuntime({ structure, cps }).rt, 'tagged-loop');
     expect(tagged).toEqual(split);
   });
+
+  test.each(['intro-loop', 'tagged-loop'] as const)(
+    '%s uses identical authored body onsets even when the query range changes its results',
+    async (preset) => {
+      const source = fakeRuntime({
+        structure,
+        seed: 42,
+        query: (from, to) =>
+          Array.from({ length: to - from }, (_, i) => {
+            const bar = from + i;
+            return hap(bar, bar + 0.25, { s: 'white', note: from + to + bar });
+          }),
+      });
+      const plan = await planRender(
+        source.rt,
+        CODE,
+        renderReq(clip, { preset }),
+        [],
+        undefined,
+        false,
+      );
+      expect(source.queries).toEqual([{ from: 0, to: 30, segments: LINEAR_SEGMENTS }]);
+      const repeat = plan.export!.repeat!.chunks;
+      expect(plan.chunks.length).toBeGreaterThan(1);
+      expect(repeat.length).toBeGreaterThan(1);
+
+      const body = (chunks: PlannedRender['chunks']) =>
+        chunks.flatMap(({ json, plan }) => {
+          const job: EngineJob = JSON.parse(json);
+          const haps = job.pauses.flatMap((pause) => pause.haps);
+          expect(haps.map((hap) => hap.event)).toEqual(haps.map((_, i) => i));
+          return haps
+            .filter((hap) => hap.cycle >= Math.max(3, plan.fromBar))
+            .map((hap) => [hap.cycle, hap.duration, job.seed, job.values[hap.v]!.note]);
+        });
+      const expected = Array.from({ length: 27 }, (_, i) => [i + 3, 0.5, 42, i + 33]);
+      expect(body(plan.chunks)).toEqual(expected);
+      expect(body(repeat)).toEqual(expected);
+    },
+  );
 
   test('one set of body jobs supplies both passes when the song opens on its loop', async () => {
     const structure = buildStructure({ sections: [{ name: 'a', bars: 2, loop: true }] });
