@@ -109,7 +109,9 @@ pub fn encode_wav_with_loop(
         RenderError::Encode("wav: RIFF with loop metadata is larger than 4 GiB".into())
     })?;
     out.reserve_exact(extra);
-    out[4..8].copy_from_slice(&riff_size.to_le_bytes());
+    out.get_mut(4..8)
+        .ok_or_else(|| RenderError::Encode("wav: missing RIFF size".into()))?
+        .copy_from_slice(&riff_size.to_le_bytes());
     out.resize(out.len() + pad, 0);
     out.extend_from_slice(b"smpl");
     out.extend_from_slice(&SMPL_DATA_SIZE.to_le_bytes());

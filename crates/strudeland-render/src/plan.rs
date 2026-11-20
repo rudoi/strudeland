@@ -6,17 +6,23 @@ use std::time::Instant;
 use strudeland_engine::EngineJob;
 use strudeland_engine::controls::{UnsupportedSignature, unsupported_signatures};
 use strudeland_host::{
-    Host, Layout, Mode, PlannedRender, PlannedWindow, RenderPlanRequest, SAMPLE_RATE, Structure,
+    ExportPreset, Host, Layout, Mode, PlannedRender, PlannedWindow, RenderPlanRequest, SAMPLE_RATE,
+    Structure,
 };
 
 use crate::{RenderError, RenderOptions, Unsupported};
 
 /// Plans every chunk of the render in one host call, on a host that is dropped (with its
 /// isolate's memory) before this returns. Returns the plan and the milliseconds it took.
-pub(crate) fn plan(code: &str, opts: &RenderOptions) -> Result<(PlannedRender, f64), RenderError> {
+pub(crate) fn plan(
+    code: &str,
+    opts: &RenderOptions,
+    preset: Option<ExportPreset>,
+) -> Result<(PlannedRender, f64), RenderError> {
     let started = Instant::now();
     let request = RenderPlanRequest {
         length: opts.length.clone(),
+        preset,
         mode: Mode::Mix,
         sample_rate: SAMPLE_RATE,
         include_events: opts.include_events.then_some(true),

@@ -21,6 +21,7 @@
 pub mod bench;
 pub mod encode;
 mod error;
+mod export;
 pub mod join;
 pub mod level;
 mod options;
@@ -34,13 +35,18 @@ use std::time::Instant;
 use strudeland_host::{ChunkWindow, PlannedRender, SAMPLE_RATE};
 
 pub use error::{ExitClass, RenderError, Unsupported};
+pub use export::{ExportFile, ExportRole, LoopPoints, render_export};
 pub use options::{
     BitDepth, DEFAULT_MAX_JOBS, DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, Format,
     Loudness, Mp3Mode, OnOff, OutputOptions, RenderOptions,
 };
-pub use output::{OutputTarget, resolve_format, resolve_output, write_output};
+pub use output::{
+    OutputTarget, resolve_export_output, resolve_format, resolve_output, write_output,
+};
 pub use render::MAX_WARNINGS;
-pub use strudeland_host::{HostError, LengthRequest, MAX_TIMEOUT_SEC, timeout_from_secs};
+pub use strudeland_host::{
+    ExportPreset, HostError, LengthRequest, MAX_TIMEOUT_SEC, timeout_from_secs,
+};
 pub use summary::{Progress, RenderOutput, RenderedAudio, Summary, Timings};
 
 /// Plans, renders, joins, levels and encodes. Equivalent to `finish(&render_audio(..)?, ..)`.
@@ -58,9 +64,18 @@ pub fn render_audio(
     opts: &RenderOptions,
     progress: &dyn Fn(Progress),
 ) -> Result<RenderedAudio, RenderError> {
+    render_audio_for(code, opts, None, progress).map(|(audio, _)| audio)
+}
+
+fn render_audio_for(
+    code: &str,
+    opts: &RenderOptions,
+    preset: Option<ExportPreset>,
+    progress: &dyn Fn(Progress),
+) -> Result<(RenderedAudio, Option<u32>), RenderError> {
     let started = Instant::now();
     render::validate_jobs(opts.jobs)?;
-    let (planned, plan_ms) = plan::plan(code, opts)?;
+    let (planned, plan_ms) = plan::plan(code, opts, preset)?;
     progress(Progress::Planned {
         chunks: planned.chunks.len(),
     });
@@ -73,14 +88,17 @@ pub fn render_audio(
         errors: plan_errors,
         events,
         chunks,
+        export,
     } = planned;
+    let tail_frames = export.as_ref().map_or(0, |export| export.tail_frames);
+    let loop_start_bar = export.and_then(|export| export.loop_start_bar);
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
     let workers = render::workers_for(opts.jobs, chunks.len());
 
     let render_started = Instant::now();
     // The window is allocated before the renders and each chunk's content is copied in as it
     // arrives, so the joined song and the chunks in flight are all that is held at once.
-    let mut joiner = join::Joiner::for_plans(&window, cps, &chunks, 2)?;
+    let mut joiner = join::Joiner::for_plans_with_tail(&window, cps, &chunks, 2, tail_frames)?;
     let engine_errors = render::render_chunks(
         jobs,
         &chunks,
@@ -92,7 +110,9 @@ pub fn render_audio(
     let channels = joiner.finish()?;
     let render_ms = ms_since(render_started);
 
-    let frames = join::window_frames(window.from_bar, window.to_bar, cps);
+    let frames = join::window_frames(window.from_bar, window.to_bar, cps)
+        .checked_add(tail_frames)
+        .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
     let summary = Summary {
         format: None,
         bytes: None,
@@ -112,16 +132,19 @@ pub fn render_audio(
         },
         warnings: render::warnings(&plan_errors, &engine_errors),
     };
-    Ok(RenderedAudio {
-        channels,
-        cps,
-        structure,
-        lookback_sec,
-        chunks,
-        events,
-        plan_errors,
-        summary,
-    })
+    Ok((
+        RenderedAudio {
+            channels,
+            cps,
+            structure,
+            lookback_sec,
+            chunks,
+            events,
+            plan_errors,
+            summary,
+        },
+        loop_start_bar,
+    ))
 }
 
 /// Steps 5 and 6: level and encode a joined buffer, verifying and correcting a lossy file's

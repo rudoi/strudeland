@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use strudeland_project::{Project, ProjectError};
 
-use crate::{Format, LengthRequest, Progress, RenderError, RenderOutput};
+use crate::{ExportPreset, ExportRole, Format, LengthRequest, Progress, RenderError, RenderOutput};
 
 /// The output format: `--format` when given, else the `--out` extension, else WAV. A `--format`
 /// that disagrees with a known `--out` extension is a usage error (`--format`); an `--out`
@@ -88,6 +88,60 @@ pub fn resolve_output(
     if let Some(out) = out {
         return Ok(OutputTarget::file(out));
     }
+    let suffix = render_suffix(length);
+    project_output(song, suffix.as_deref(), format)
+}
+
+/// Resolves a preset destination without creating files. For split exports, `out` supplies
+/// the stem and directory and each role gets its own suffix.
+pub fn resolve_export_output(
+    out: Option<&Path>,
+    song: &Path,
+    length: &LengthRequest,
+    format: Format,
+    preset: ExportPreset,
+    role: ExportRole,
+) -> Result<OutputTarget, RenderError> {
+    let suffix = match (preset, role) {
+        (ExportPreset::IntroLoop, ExportRole::Intro) => "intro",
+        (ExportPreset::IntroLoop, ExportRole::Loop) => "loop",
+        (ExportPreset::TaggedLoop, ExportRole::Single) => "tagged-loop",
+        (ExportPreset::FoldedLoop, ExportRole::Loop) => "folded-loop",
+        (ExportPreset::OneShot, ExportRole::Single) => "one-shot",
+        _ => {
+            return Err(RenderError::Render(
+                "invalid output role for export preset".into(),
+            ));
+        }
+    };
+    if let Some(path) = out {
+        if preset != ExportPreset::IntroLoop {
+            return Ok(OutputTarget::file(path));
+        }
+        let mut name = path
+            .file_stem()
+            .ok_or_else(|| RenderError::Usage {
+                flag: "--out",
+                message: "the split export needs a file name for --out".into(),
+            })?
+            .to_os_string();
+        name.push(format!("-{suffix}.{}", format.ext()));
+        return Ok(OutputTarget::file(path.with_file_name(name)));
+    }
+    let suffix = if preset == ExportPreset::OneShot {
+        render_suffix(length)
+            .map_or_else(|| suffix.to_owned(), |length| format!("{length}-{suffix}"))
+    } else {
+        suffix.to_owned()
+    };
+    project_output(song, Some(&suffix), format)
+}
+
+fn project_output(
+    song: &Path,
+    suffix: Option<&str>,
+    format: Format,
+) -> Result<OutputTarget, RenderError> {
     let Some((project, stem)) = Project::find(song) else {
         return Err(RenderError::Usage {
             flag: "--out",
@@ -97,9 +151,8 @@ pub fn resolve_output(
             ),
         });
     };
-    let suffix = render_suffix(length);
     let path = project
-        .render_path(&stem, suffix.as_deref(), format.ext())
+        .render_path(&stem, suffix, format.ext())
         .map_err(|e| io_error(&project.root().join("renders"), e))?;
     Ok(OutputTarget {
         path,

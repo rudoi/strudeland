@@ -17,13 +17,28 @@ pub fn encode_once(
     sample_rate: u32,
     encoder: &EncoderOptions,
 ) -> Result<Vec<u8>, RenderError> {
+    encode_once_with_loop(channels, sample_rate, encoder, None)
+}
+
+pub(crate) fn encode_once_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    encoder: &EncoderOptions,
+    range: Option<std::ops::Range<u64>>,
+) -> Result<Vec<u8>, RenderError> {
     match *encoder {
-        EncoderOptions::Wav { bit_depth } => wav::encode_wav(channels, sample_rate, bit_depth),
-        EncoderOptions::Mp3 { mode, vbr_quality } => {
-            mp3::encode_mp3(channels, sample_rate, mode, vbr_quality)
+        EncoderOptions::Wav { bit_depth } => {
+            wav::encode_wav_with_loop(channels, sample_rate, bit_depth, range)
         }
-        EncoderOptions::Ogg { quality } => ogg::encode_ogg(channels, sample_rate, quality),
-        EncoderOptions::Opus { kbps } => opus::encode_opus(channels, sample_rate, kbps),
+        EncoderOptions::Mp3 { mode, vbr_quality } => {
+            mp3::encode_mp3_with_loop(channels, sample_rate, mode, vbr_quality, range)
+        }
+        EncoderOptions::Ogg { quality } => {
+            ogg::encode_ogg_with_loop(channels, sample_rate, quality, range)
+        }
+        EncoderOptions::Opus { kbps } => {
+            opus::encode_opus_with_loop(channels, sample_rate, kbps, range)
+        }
     }
 }
 

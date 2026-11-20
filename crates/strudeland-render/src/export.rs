@@ -1,0 +1,367 @@
+//! Arranges rendered PCM into export files and finishes repeatable regions with one static gain.
+
+use std::ops::Range;
+use std::time::Instant;
+
+use serde::Serialize;
+
+use crate::encode::{CORRECTION_MARGIN_DB, MAX_ENCODES, encode_once_with_loop, opus, verify};
+use crate::join::window_frames;
+use crate::level::true_peak::TAPS_PER_PHASE;
+use crate::level::{LoudnessSummary, SILENCE_WARNING, check_input, measure, true_peak_db};
+use crate::{
+    ExportPreset, Format, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
+    RenderOutput, Summary, finish, ms_since, render_audio_for,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportRole {
+    Intro,
+    Loop,
+    Single,
+}
+
+/// The forward loop in decoded PCM. The end is exclusive when computed as start plus length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopPoints {
+    pub start_frame: u64,
+    pub length_frames: u64,
+    pub sample_rate: u32,
+}
+
+impl LoopPoints {
+    pub fn godot_loop_offset(&self) -> f64 {
+        self.start_frame as f64 / f64::from(self.sample_rate)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportFile {
+    pub role: ExportRole,
+    pub output: RenderOutput,
+    pub loop_points: Option<LoopPoints>,
+}
+
+/// Plans, renders, and encodes every file for the given preset before returning any of them.
+pub fn render_export(
+    code: &str,
+    opts: &RenderOptions,
+    preset: ExportPreset,
+    progress: &dyn Fn(Progress),
+) -> Result<Vec<ExportFile>, RenderError> {
+    let (mut audio, loop_start_bar) = render_audio_for(code, opts, Some(preset), progress)?;
+    if preset == ExportPreset::OneShot {
+        return Ok(vec![ExportFile {
+            role: ExportRole::Single,
+            output: finish(&audio, &opts.output, progress)?,
+            loop_points: None,
+        }]);
+    }
+
+    let window = audio.summary.window;
+    let start_bar = loop_start_bar.ok_or_else(|| render_error("the plan has no loop start"))?;
+    if !(window.from_bar..window.to_bar).contains(&start_bar) {
+        return Err(render_error("loop start is outside the planned window"));
+    }
+    let start = usize::try_from(window_frames(window.from_bar, start_bar, audio.cps))
+        .map_err(|_| render_error("loop start is too large"))?;
+    let end = usize::try_from(window_frames(window.from_bar, window.to_bar, audio.cps))
+        .map_err(|_| render_error("loop end is too large"))?;
+    if end <= start {
+        return Err(render_error("loop has no frames"));
+    }
+    if matches!(preset, ExportPreset::IntroLoop | ExportPreset::FoldedLoop) {
+        fold_tail(&mut audio.channels, start..end)?;
+    }
+
+    let measure_start = Instant::now();
+    check_input(&audio.channels)?;
+    let sample_rate = audio.summary.sample_rate;
+    let program = measure(&audio.channels, sample_rate);
+    let wrap = wrap_peak(&audio.channels, start..end)?;
+    let loop_peak = program.true_peak_db.max(wrap);
+    let parts = match preset {
+        ExportPreset::IntroLoop if start > 0 => {
+            let body = audio
+                .channels
+                .iter_mut()
+                .map(|ch| ch.split_off(start))
+                .collect();
+            vec![
+                Part {
+                    role: ExportRole::Intro,
+                    channels: audio.channels,
+                    bars: window.from_bar..start_bar,
+                    loop_range: None,
+                },
+                Part {
+                    role: ExportRole::Loop,
+                    channels: body,
+                    bars: start_bar..window.to_bar,
+                    loop_range: Some(0..end - start),
+                },
+            ]
+        }
+        ExportPreset::IntroLoop | ExportPreset::FoldedLoop => vec![Part {
+            role: ExportRole::Loop,
+            channels: audio.channels,
+            bars: window.from_bar..window.to_bar,
+            loop_range: Some(0..end),
+        }],
+        ExportPreset::TaggedLoop => vec![Part {
+            role: ExportRole::Single,
+            channels: audio.channels,
+            bars: window.from_bar..window.to_bar,
+            loop_range: Some(start..end),
+        }],
+        ExportPreset::OneShot => return Err(render_error("unexpected one-shot preset")),
+    };
+    let mut summary = audio.summary;
+    summary.timings.level_ms = ms_since(measure_start);
+    finish_loop(
+        parts,
+        summary,
+        &opts.output,
+        program.lufs,
+        loop_peak,
+        progress,
+    )
+}
+
+fn render_error(message: &str) -> RenderError {
+    RenderError::Render(message.into())
+}
+
+fn fold_tail(channels: &mut [Vec<f32>], body: Range<usize>) -> Result<(), RenderError> {
+    if body.is_empty() {
+        return Err(render_error("cannot fold into an empty loop"));
+    }
+    for channel in channels {
+        if body.end > channel.len() {
+            return Err(render_error("loop extends past the rendered PCM"));
+        }
+        let body_end = body.end;
+        let (content, tail) = channel.split_at_mut(body_end);
+        let body = content
+            .get_mut(body.clone())
+            .ok_or_else(|| render_error("invalid loop bounds"))?;
+        for cycle in tail.chunks(body.len()) {
+            for (sample, tail) in body.iter_mut().zip(cycle) {
+                *sample += *tail;
+            }
+        }
+        channel.truncate(body_end);
+    }
+    Ok(())
+}
+
+/// Measure cyclic FIR input across the join. The ordinary program measurement handles all
+/// samples away from the seam. Repeating the short edge data also covers loops shorter than a tap window.
+fn wrap_peak(channels: &[Vec<f32>], body: Range<usize>) -> Result<f64, RenderError> {
+    let mut edges = Vec::with_capacity(channels.len());
+    for ch in channels {
+        let body = ch
+            .get(body.clone())
+            .filter(|body| !body.is_empty())
+            .ok_or_else(|| render_error("invalid loop bounds for true peak"))?;
+        let width = TAPS_PER_PHASE;
+        let preceding = (body.len() - width % body.len()) % body.len();
+        let right = body
+            .get(preceding..)
+            .ok_or_else(|| render_error("invalid loop edge"))?;
+        edges.push(
+            right
+                .iter()
+                .chain(body.iter().cycle())
+                .take(2 * width)
+                .copied()
+                .collect(),
+        );
+    }
+    Ok(true_peak_db(&edges))
+}
+
+struct Part {
+    role: ExportRole,
+    channels: Vec<Vec<f32>>,
+    bars: Range<u32>,
+    loop_range: Option<Range<usize>>,
+}
+
+fn finish_loop(
+    parts: Vec<Part>,
+    summary: Summary,
+    options: &OutputOptions,
+    program_lufs: f64,
+    program_peak: f64,
+    progress: &dyn Fn(Progress),
+) -> Result<Vec<ExportFile>, RenderError> {
+    let sample_rate = summary.sample_rate;
+    let format = options.encoder.format();
+    let before: Vec<_> = parts
+        .iter()
+        .map(|part| measure(&part.channels, sample_rate))
+        .collect();
+    // Playing a split asset by itself pads its edges with silence during peak measurement.
+    // Account for those edges as well as the continuous intro handoff and the loop wrap.
+    let program_peak = before
+        .iter()
+        .fold(program_peak, |peak, file| peak.max(file.true_peak_db));
+    let mut warnings = Vec::new();
+    let (target, ceiling, mut gain_db) = match options.loudness {
+        Loudness::Off => {
+            if program_peak > 0.0 {
+                warnings.push(format!("loudness off: true peak is {program_peak:.1} dBTP (above 0 dBFS); the file may clip"));
+            }
+            (None, None, 0.0)
+        }
+        Loudness::On {
+            target_lufs,
+            true_peak_db,
+        } => {
+            let ideal = if program_lufs.is_finite() {
+                target_lufs - program_lufs
+            } else {
+                warnings.push(SILENCE_WARNING.to_owned());
+                0.0
+            };
+            (
+                Some(target_lufs),
+                Some(true_peak_db),
+                ideal.min(true_peak_db - program_peak),
+            )
+        }
+    };
+    if format == Format::Mp3 {
+        warnings.push("mp3 encoder delay and padding can cause gaps in loop playback; use WAV for sample-exact loops".into());
+    }
+    let mut level_ms = summary.timings.level_ms;
+    let mut encode_ms = 0.0;
+    for pass in 1..=MAX_ENCODES {
+        let mut files = Vec::with_capacity(parts.len());
+        let mut worst_peak = f64::NEG_INFINITY;
+        for (part, before) in parts.iter().zip(&before) {
+            let started = Instant::now();
+            let gained;
+            let channels = if gain_db == 0.0 {
+                &part.channels
+            } else {
+                let gain = 10f64.powf(gain_db / 20.0);
+                gained = part
+                    .channels
+                    .iter()
+                    .map(|ch| ch.iter().map(|&x| (f64::from(x) * gain) as f32).collect())
+                    .collect();
+                &gained
+            };
+            let after = if gain_db == 0.0 {
+                *before
+            } else {
+                measure(channels, sample_rate)
+            };
+            level_ms += ms_since(started);
+
+            let started = Instant::now();
+            let (range, loop_points) = match &part.loop_range {
+                Some(range) => {
+                    let (range, rate) = if format == Format::Opus {
+                        (
+                            opus::resampled_len(range.start, sample_rate)
+                                ..opus::resampled_len(range.end, sample_rate),
+                            opus::OPUS_RATE,
+                        )
+                    } else {
+                        (range.clone(), sample_rate)
+                    };
+                    let points = LoopPoints {
+                        start_frame: range.start as u64,
+                        length_frames: range.len() as u64,
+                        sample_rate: rate,
+                    };
+                    (Some(range.start as u64..range.end as u64), Some(points))
+                }
+                None => (None, None),
+            };
+            let bytes = encode_once_with_loop(channels, sample_rate, &options.encoder, range)?;
+            let decoded_peak = if format == Format::Wav {
+                None
+            } else {
+                let peak = verify::decoded_true_peak_db(format, &bytes)?;
+                worst_peak = worst_peak.max(peak);
+                Some(peak)
+            };
+            encode_ms += ms_since(started);
+
+            let frames = channels.first().map_or(0, Vec::len) as u64;
+            let mut summary = summary.clone();
+            summary.window.from_bar = part.bars.start;
+            summary.window.to_bar = part.bars.end;
+            summary.frames = frames;
+            summary.seconds = frames as f64 / f64::from(sample_rate);
+            summary.format = Some(format);
+            summary.bytes = Some(bytes.len() as u64);
+            summary.loudness = Some(LoudnessSummary {
+                enabled: target.is_some(),
+                target_lufs: target,
+                ceiling_dbtp: ceiling,
+                limiter_ceiling_dbtp: None,
+                input_lufs: before.lufs,
+                input_true_peak_db: before.true_peak_db,
+                gain_db,
+                limiter_samples: 0,
+                output_lufs: after.lufs,
+                output_true_peak_db: after.true_peak_db,
+                decoded_true_peak_db: decoded_peak,
+                encodes: pass,
+            });
+            files.push(ExportFile {
+                role: part.role,
+                output: RenderOutput { bytes, summary },
+                loop_points,
+            });
+        }
+        progress(Progress::Encoded { pass });
+        if let Some(ceiling) = ceiling
+            && worst_peak > ceiling
+        {
+            if pass < MAX_ENCODES {
+                gain_db -= worst_peak - ceiling + CORRECTION_MARGIN_DB;
+                continue;
+            }
+            warnings.push(format!("lossy encode: decoded true peak {worst_peak:.2} dBTP is above the ceiling {ceiling:.1} dBTP after {} corrections", MAX_ENCODES - 1));
+        }
+        for file in &mut files {
+            let summary = &mut file.output.summary;
+            summary.timings.level_ms = level_ms;
+            summary.timings.encode_ms = encode_ms;
+            summary.timings.total_ms += level_ms + encode_ms;
+            summary.warnings.extend(warnings.iter().cloned());
+        }
+        return Ok(files);
+    }
+    Err(render_error("no export encode pass was attempted"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folds_multiple_repeats_into_a_body_without_changing_intro() {
+        let mut channels = vec![vec![9., 1., 2., 3., 4., 5., 6., 7.], vec![0.; 8]];
+        fold_tail(&mut channels, 1..3).unwrap();
+        assert_eq!(channels, [vec![9., 16., 12.], vec![0.; 3]]);
+        assert!(fold_tail(&mut channels, 3..3).is_err());
+        assert!(fold_tail(&mut channels, 1..4).is_err());
+    }
+
+    #[test]
+    fn measures_a_wrap_even_for_a_loop_shorter_than_the_filter() {
+        let body = vec![vec![-0.9, 0.0]];
+        let peak = wrap_peak(&body, 0..2).unwrap();
+        assert!(peak.is_finite());
+        assert!(peak > true_peak_db(&body));
+    }
+}

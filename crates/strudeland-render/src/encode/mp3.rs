@@ -118,20 +118,22 @@ pub fn encode_mp3_with_loop(
 
 /// A leading ID3v2.4 tag with two user-defined Latin-1 text frames.
 fn loop_id3_tag(range: Range<u64>) -> Vec<u8> {
-    let mut tag = b"ID3\x04\x00\x00\x00\x00\x00\x00".to_vec();
+    let mut frames = Vec::new();
     for (name, value) in [
         ("LOOPSTART", range.start.to_string()),
         ("LOOPLENGTH", (range.end - range.start).to_string()),
     ] {
-        tag.extend_from_slice(b"TXXX");
-        tag.extend_from_slice(&synchsafe(2 + name.len() + value.len()));
-        tag.extend_from_slice(&[0, 0, 0]); // frame flags, text encoding
-        tag.extend_from_slice(name.as_bytes());
-        tag.push(0);
-        tag.extend_from_slice(value.as_bytes());
+        frames.extend_from_slice(b"TXXX");
+        frames.extend_from_slice(&synchsafe(2 + name.len() + value.len()));
+        frames.extend_from_slice(&[0, 0, 0]); // frame flags, text encoding
+        frames.extend_from_slice(name.as_bytes());
+        frames.push(0);
+        frames.extend_from_slice(value.as_bytes());
     }
-    let size = synchsafe(tag.len() - 10);
-    tag[6..10].copy_from_slice(&size);
+    let mut tag = Vec::with_capacity(10 + frames.len());
+    tag.extend_from_slice(b"ID3\x04\x00\x00");
+    tag.extend_from_slice(&synchsafe(frames.len()));
+    tag.extend_from_slice(&frames);
     tag
 }
 
