@@ -975,6 +975,18 @@ impl GainNode {
         input_silent: bool,
         inputs: &ParamInputs,
     ) -> bool {
+        self.process_observing_gain(quantum_start, channels, input_silent, inputs, None)
+    }
+
+    /// Optionally records the exact gain applied by the orbit output for stem capture.
+    pub(crate) fn process_observing_gain(
+        &mut self,
+        quantum_start: u64,
+        channels: &mut [[f32; QUANTUM]],
+        input_silent: bool,
+        inputs: &ParamInputs,
+        observed: Option<&mut [f32; QUANTUM]>,
+    ) -> bool {
         let now = quantum_start as f64 / SAMPLE_RATE_F64;
         if input_silent && self.last_non_silent_time < now {
             for c in channels.iter_mut() {
@@ -983,7 +995,7 @@ impl GainNode {
             let mut scratch = [0.0f32; QUANTUM];
             self.gain.fill_quantum_connected(
                 quantum_start,
-                &mut scratch,
+                observed.unwrap_or(&mut scratch),
                 &inputs.bufs,
                 inputs.connected,
             );
@@ -995,6 +1007,7 @@ impl GainNode {
             channels,
             input_silent,
             inputs,
+            observed,
         );
         if !input_silent {
             self.last_non_silent_time = crate::quantum_end_time(quantum_start);
@@ -1012,11 +1025,13 @@ fn gain_handler(
     channels: &mut [[f32; QUANTUM]],
     input_silent: bool,
     inputs: &ParamInputs,
+    observed: Option<&mut [f32; QUANTUM]>,
 ) -> bool {
     let sample_accurate = gain.has_sample_accurate_values(quantum_start, inputs.connected);
     if sample_accurate && gain.rate() == Rate::A {
-        let mut values = [0.0f32; QUANTUM];
-        gain.fill_quantum_connected(quantum_start, &mut values, &inputs.bufs, inputs.connected);
+        let mut scratch = [0.0f32; QUANTUM];
+        let values = observed.unwrap_or(&mut scratch);
+        gain.fill_quantum_connected(quantum_start, values, &inputs.bufs, inputs.connected);
         if input_silent {
             zero(channels);
             return true;
@@ -1033,6 +1048,9 @@ fn gain_handler(
     } else {
         gain.audio_value(quantum_start)
     };
+    if let Some(observed) = observed {
+        observed.fill(g);
+    }
     scale(channels, g, input_silent)
 }
 
