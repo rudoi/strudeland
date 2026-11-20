@@ -48,6 +48,33 @@ export function cliExecutable(messages: string): string {
   return artifacts[0].executable;
 }
 
+export async function matchesTarget(executable: Blob, target: string): Promise<boolean> {
+  const header = new DataView(await executable.slice(0, 64).arrayBuffer());
+  if (target === macTarget) {
+    // Thin little-endian 64-bit Mach-O, CPU_TYPE_ARM64.
+    return (
+      header.byteLength >= 8 &&
+      header.getUint32(0, true) === 0xfeedfacf &&
+      header.getUint32(4, true) === 0x0100000c
+    );
+  }
+  if (target !== windowsTarget || header.byteLength < 64 || header.getUint16(0, true) !== 0x5a4d) {
+    return false;
+  }
+  // The DOS header points to the PE signature and machine field.
+  const offset = header.getUint32(60, true);
+  const pe = new DataView(await executable.slice(offset, offset + 6).arrayBuffer());
+  return (
+    pe.byteLength === 6 && pe.getUint32(0, true) === 0x4550 && pe.getUint16(4, true) === 0x8664
+  );
+}
+
+async function verifyTarget(executable: string, target: string) {
+  if (!(await matchesTarget(Bun.file(executable), target))) {
+    throw new Error(`${executable} is not an executable for ${target}`);
+  }
+}
+
 async function cargoCli(debug: boolean, isWindows: boolean): Promise<string> {
   const proc = Bun.spawn(
     [
@@ -79,15 +106,18 @@ async function main(args: string[]): Promise<number> {
   const isWindows = options.command === 'msi';
   const profile = options.debug ? 'debug' : 'release';
   const sidecar = `binaries/${profile}/strudeland-cli`;
+  const macSidecar = join(root, 'src-tauri', `${sidecar}-${options.target}`);
   const env = { ...process.env };
-  if (!options.bundleOnly) {
+  if (options.bundleOnly) {
+    await verifyTarget(macSidecar, options.target);
+  } else {
     const executable = await cargoCli(options.debug, isWindows);
+    await verifyTarget(executable, options.target);
     if (isWindows) {
       env[MSI_SOURCE_ENV] = executable;
     } else {
-      const dest = join(root, 'src-tauri', `${sidecar}-${options.target}`);
-      await mkdir(dirname(dest), { recursive: true });
-      await copyFile(executable, dest);
+      await mkdir(dirname(macSidecar), { recursive: true });
+      await copyFile(executable, macSidecar);
     }
   }
 
