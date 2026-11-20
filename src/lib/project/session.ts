@@ -82,10 +82,8 @@ export interface Session {
   init(): Promise<void>;
   /** Show the active song in `view` (or detach with undefined). The live state moves with it. */
   attachView(view: EditorView | undefined): void;
-  /** Folder picker for New project; null when cancelled or failed (`error` set). */
-  pickNewProjectFolder(): Promise<string | null>;
-  /** After the UI collected the name. */
-  createProject(dir: string, name: string): Promise<void>;
+  /** Pick a folder, collect a name (null to cancel), then create and open the project. */
+  newProject(askName: (folder: string) => Promise<string | null>): Promise<void>;
   /** pickFolder, then open. */
   openProject(): Promise<void>;
   openRecent(path: string): Promise<void>;
@@ -739,6 +737,16 @@ export function createSession(deps: SessionDeps): Session {
     }
   }
 
+  async function pickProjectFolder(title: string): Promise<string | null> {
+    try {
+      return await api.pickFolder(title);
+    } catch (e) {
+      error = errorMessage(e);
+      emit();
+      return null;
+    }
+  }
+
   async function guardAndLoad(load: () => Promise<ProjectInfo | null>): Promise<void> {
     if (project && !(await guardUnsaved())) return;
     if (project) await beforeChange();
@@ -936,7 +944,7 @@ export function createSession(deps: SessionDeps): Session {
   // ---- unsaved guard ----
 
   async function guardUnsaved(): Promise<boolean> {
-    const dirty = order.filter(isDirty);
+    const dirty = order.filter(needsSave);
     if (dirty.length === 0) return true;
     let choice: UnsavedChoice;
     try {
@@ -1178,29 +1186,18 @@ export function createSession(deps: SessionDeps): Session {
       show();
     },
 
-    async pickNewProjectFolder() {
-      try {
-        return await api.pickFolder('New project folder');
-      } catch (e) {
-        error = errorMessage(e);
-        emit();
-        return null;
-      }
-    },
-
-    createProject: (dir, name) => openWith(() => api.create(dir, name)),
+    newProject: (askName) =>
+      uiOpen(async () => {
+        const dir = await pickProjectFolder('New project folder');
+        if (dir === null) return;
+        const name = await askName(dir);
+        if (name !== null) await guardAndLoad(() => api.create(dir, name));
+      }),
 
     openProject: () =>
       uiOpen(async () => {
-        let dir: string | null;
-        try {
-          dir = await api.pickFolder('Open project');
-        } catch (e) {
-          error = errorMessage(e);
-          emit();
-          return;
-        }
-        if (dir) await openWith(() => api.open(dir));
+        const dir = await pickProjectFolder('Open project');
+        if (dir !== null) await guardAndLoad(() => api.open(dir));
       }),
 
     openRecent: (path) => openWith(() => api.open(path)),

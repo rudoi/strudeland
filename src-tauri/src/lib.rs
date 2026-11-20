@@ -4,6 +4,7 @@ mod commands;
 mod control;
 mod playback;
 mod project;
+mod project_menu;
 mod recording;
 mod snapshot;
 mod watcher;
@@ -17,6 +18,8 @@ use tauri::webview::PageLoadEvent;
 pub fn run() {
     let bridge = Arc::new(control::Bridge::new());
     tauri::Builder::default()
+        .menu(project_menu::build)
+        .on_menu_event(project_menu::dispatch)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(project::ProjectState::default())

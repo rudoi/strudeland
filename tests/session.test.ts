@@ -1,5 +1,5 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, mock, test } from 'bun:test';
 
 GlobalRegistrator.register();
 afterAll(() => GlobalRegistrator.unregister());
@@ -494,20 +494,45 @@ describe('open', () => {
   test('a failing folder picker sets error and returns null', async () => {
     const h = await opened({ last: null });
     h.fake.failPick = true;
-    expect(await h.session.pickNewProjectFolder()).toBeNull();
+    const askName = mock(async () => 'unused');
+    await h.session.newProject(askName);
+    expect(askName).not.toHaveBeenCalled();
     expect(h.st().error).toBe('dialog unavailable');
   });
 
-  test('pickNewProjectFolder and createProject pass through', async () => {
+  test('newProject picks a folder, asks for its name, then opens the new project', async () => {
     const h = await opened({ last: null });
     h.fake.picks.push('/new');
-    expect(await h.session.pickNewProjectFolder()).toBe('/new');
+    const askName = mock(async (_dir: string) => 'Fresh');
+    await h.session.newProject(askName);
+    expect(askName).toHaveBeenCalledWith('/new');
     expect(h.fake.calls).toContain('pickFolder:New project folder');
-    await h.session.createProject('/new', 'Fresh');
     expect(h.fake.calls).toContain('create:/new:Fresh');
     expect(h.st().project).toMatchObject({ root: '/new', name: 'Fresh' });
     expect(h.st().active).toBe('songs/main.js');
     expect(h.item('songs/main.js')?.title).toBe('main');
+  });
+
+  test('newProject offers to preserve a deleted active song even when its buffer is clean', async () => {
+    const h = await opened();
+    h.fake.files().delete(PA);
+    h.fake.emit({ removed: [PA] });
+    await flush();
+    expect(h.item(PA)).toMatchObject({ conflict: 'deleted', dirty: false });
+
+    h.fake.picks.push('/new');
+    h.fake.confirm.push('cancel');
+    await h.session.newProject(async () => 'Fresh');
+    expect(h.st().project?.root).toBe('/p');
+    expect(h.doc()).toBe(A);
+    expect(h.fake.calls).not.toContain('create:/new:Fresh');
+
+    h.fake.picks.push('/new');
+    h.fake.confirm.push('save');
+    await h.session.newProject(async () => 'Fresh');
+    expect(h.fake.confirmCounts).toEqual([1, 1]);
+    expect(h.fake.disk.get('/p')?.files.get(PA)).toBe(A);
+    expect(h.st().project?.root).toBe('/new');
   });
 
   test('openRecent opens the path', async () => {
@@ -533,7 +558,8 @@ describe('open', () => {
   test('a create error keeps the previous project', async () => {
     const h = await opened();
     h.fake.failOpen.add('/full');
-    await h.session.createProject('/full', 'X');
+    h.fake.picks.push('/full');
+    await h.session.newProject(async () => 'X');
     expect(h.st().error).toContain('already contains files');
     expect(h.st().project?.root).toBe('/p');
   });
@@ -552,7 +578,7 @@ describe('open', () => {
     await flush();
     expect(await h.session.guardUnsaved()).toBe(true);
     h.fake.failPick = true;
-    expect(await h.session.pickNewProjectFolder()).toBeNull(); // emits
+    await h.session.newProject(async () => null); // the picker fails and emits
     expect(h.st()).toMatchObject({ project: { root: '/q' }, songs: [], active: null });
     hold.resolve();
     expect(await saving).toBe(false);
@@ -2280,6 +2306,31 @@ describe('openPath', () => {
     expect(await h.session.openPath('/q', { discard: false })).toMatchObject({ ok: true });
   });
 
+  test('control open is busy throughout the new-project picker and name prompt', async () => {
+    const h = await opened();
+    const pick = deferred();
+    const name = Promise.withResolvers<string | null>();
+    h.fake.holdPicks = pick.promise;
+    h.fake.picks.push('/new');
+    const askName = mock(() => name.promise);
+    const ui = h.session.newProject(askName);
+    expect(await h.session.openPath('/q', { discard: false })).toEqual({
+      ok: false,
+      reason: 'busy',
+    });
+    pick.resolve();
+    await flush();
+    expect(askName).toHaveBeenCalledWith('/new');
+    expect(await h.session.openPath('/q', { discard: false })).toEqual({
+      ok: false,
+      reason: 'busy',
+    });
+    name.resolve(null);
+    await ui;
+    expect(h.fake.calls.some((call) => call.startsWith('create:'))).toBe(false);
+    expect(await h.session.openPath('/q', { discard: false })).toMatchObject({ ok: true });
+  });
+
   test('busy while a UI open waits on the unsaved modal, not after', async () => {
     const h = await opened();
     h.type('x');
@@ -3214,10 +3265,11 @@ describe('beforeProjectChange', () => {
     expect(h.st().project?.root).toBe('/q');
   });
 
-  test('createProject and the open picker call it too', async () => {
+  test('newProject and the open picker call it too', async () => {
     const log: string[] = [];
     const h = await opened({ beforeProjectChange: hook(log) });
-    await h.session.createProject('/new', 'Fresh');
+    h.fake.picks.push('/new');
+    await h.session.newProject(async () => 'Fresh');
     expect(log).toEqual(['hook', 'hook done']);
     h.fake.picks.push('/q');
     await h.session.openProject();
