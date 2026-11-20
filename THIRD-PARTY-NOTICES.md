@@ -197,7 +197,8 @@ settings and highlight rules. [Strudel lockfile](https://github.com/tidalcycles/
   [Upstream](https://github.com/floriankarsten/space-grotesk),
   [SIL Open Font License 1.1](LICENSES/Space-Grotesk-OFL-1.1.txt).
 - **JetBrains Mono.** Copyright 2020 The JetBrains Mono Project Authors. The bundled Latin variable
-  WOFF2 is from `@fontsource-variable/jetbrains-mono@5.3.0`.
+  WOFF2 is from `@fontsource-variable/jetbrains-mono@5.3.0`. The app icon uses outlines from that
+  font.
   [Upstream](https://github.com/JetBrains/JetBrainsMono),
   [SIL Open Font License 1.1](LICENSES/JetBrains-Mono-OFL-1.1.txt).
 

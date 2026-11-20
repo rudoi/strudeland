@@ -82,6 +82,20 @@ To build locally, run `bun install --frozen-lockfile` first. On Apple Silicon, r
 use `bun run tauri build --ci --no-sign --bundles deb -- --locked`.
 Tauri writes installers under `release/bundle` in Cargo's configured target directory.
 
+### App icon
+
+Edit the [outlined master](src-tauri/icons/app-icon.svg) to change the icon. It records the
+bundled font weights and the [theme roles](src/styles/tokens.css) used for the artwork. From the
+repository root, generate the platform assets with the pinned Tauri CLI.
+
+```sh
+bun run tauri icon src-tauri/icons/app-icon.svg --output target/app-icons
+```
+
+Copy the top-level PNG, ICNS, and ICO files into `src-tauri/icons/`. Inspect the actual 16 and
+32 px frames before committing the generated assets. Compare decoded frames when checking ICNS
+regeneration, since Tauri can write the same frames in a different order.
+
 ## Releases
 
 For a Developer ID-signed and notarized DMG, configure the GitHub `release` environment to
