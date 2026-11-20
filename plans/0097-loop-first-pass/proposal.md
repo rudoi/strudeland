@@ -24,9 +24,9 @@ The `exportWindow` and `planRender` functions in `src/lib/render/job-plan.ts` cu
 
 ## Technical design
 
-- Start mono or stereo loop-only exports from the marked body's first downbeat with fresh loop effect state. For intro exports, render the intro through the first loop pass with contiguous effect history. Preserve sample-exact timing through both passes.
-- Evaluate a repeat candidate with real prior body history. Compare against the existing periodized post-roll as a reference, especially where delay feedback, heavy effects, or a decay longer than the body make the second traversal differ from a steady-state traversal.
-- Measure both joins independently. If a long decay keeps the opening and periodic state apart, use a bounded transition in the repeat region only if fixtures demonstrate that both joins improve and the intro never repeats. Specify the seam policy in refinement before implementation.
+- Start loop-only exports from the marked body's first downbeat with fresh loop effect state. For intro exports, render the intro through the first loop pass with contiguous effect history. Preserve sample-exact timing through both passes.
+- Fold the isolated body's bounded post-roll into its repeat, using every period of decay covered by the render.
+- Measure both joins independently. Move the final part of the opening toward the same effect state and phase as the end of the repeat. The intro decays through the first pass and never recurs in the loop.
 - Use exact decoded PCM for WAV acceptance. Exercise a delayed first echo, wet reverb shorter and longer than the body, a wet intro crossing into the first pass, a dry loop, and a section with a distinct outro. Verify file roles, ordering, frame counts, markers, repeat behavior and shared gain. Verify decoded loop metadata for lossy formats and keep the existing MP3 gap warning.
 
 ## Dependencies and risks
@@ -35,10 +35,19 @@ The planner is shared by the browser and the headless host. Planner edits requir
 
 The first transition and steady-state wrap can have different effect histories on short loops with long tails. A single fixed repeat cannot reproduce every intermediate traversal of a changing effect state. A player must honor nonzero loop points for the proposed single-file exports. A consumer that already loops the entire folded file would otherwise replay the opening.
 
-## Open questions
+## Resolved packaging questions
 
-- Confirm the proposed packaging, especially whether `folded-loop` should keep one file with a nonzero loop start or produce two explicitly managed assets like `intro-loop`.
-- Confirm that `tagged-loop` should use the same two-pass behavior. Its current one-pass contract could instead be retained for compatibility.
-- Decide whether the split opening should retain the existing `-intro` suffix for compatibility or be renamed `-opening` to describe its new contents.
+- `folded-loop` and `tagged-loop` keep a single file with the repeat marked.
+- The split opening keeps the existing `-intro` suffix.
 
 Recommended workflow complexity is medium. Keep a single proposal, skip fracture, and retain singletonize and a light loss check because the host, renderer, encoders and CLI share the contract.
+
+## Refinement decisions
+
+Retain the existing preset names, file counts for the two single-file presets, and the split suffixes and roles. The split preset always emits two files. The legacy `-intro` name now means the one-time opening, even when the song begins on its loop. Single-file consumers start at frame zero and repeat the marked range. Their marker starts after the first traversal, including any intro.
+
+Reuse bounded modular post-roll folding for the periodic reference. When the opening starts on the loop, one engine render supplies both versions. When it has an intro, plan the continuous opening and a separate isolated body with post-roll in one evaluation. Use identical authored bar coordinates for both copies. The length of a body can differ by one frame when measured against a shifted absolute bar, so do not plan the second copy at shifted bar coordinates. Preserve the original body event cycles and seeds.
+
+The recurring file contains only the isolated loop. In the one-time opening, use a smoothstep blend over the final 10 ms at most, capped at half a body, between its final frames and the corresponding final frames of the repeat. An opening already matching the repeat at that phase stays identical. This keeps the opening downbeat and the intro handoff intact, keeps intro-only sound out of the repeat, and makes the first wrap use the same boundary waveform as subsequent wraps. At very long decays it transitions into the periodic state at the end of the first pass. Modular folding uses the same post-roll approximation as the existing preset. A simulation of nonlinear effects over many successive traversals is outside this revision.
+
+Verify two paths through the planner, both file joins in WAV, exact decoded lengths at a fractional-frame tempo, unchanged seed identity, and upper bounds on assembly. Preserve one-shot and legacy plan responses.
