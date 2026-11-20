@@ -51,3 +51,11 @@ Keitora task 14 delivered the Rust render pipeline and is complete. The current 
 3. In voice and instrument mode, should shared effects be delivered per orbit as proposed, or grouped into a single stereo effects stem?
 
 Recommended complexity is large. The change spans the engine's signal graph, the offline pipeline, and the two export interfaces. Keep fracture, singletonize, and loss check before sequencing.
+
+## Refinement
+
+The authorized automated pass kept all three grouping modes, the existing `.label(...)` control, and per-orbit shared effects. The set's reference is the same unmastered stereo mix as the normal pipeline produces before leveling. Float WAV carries values outside the integer full-scale range. Keep any sum comparison in float before playback or conversion to integer PCM.
+
+The CLI uses `--stems orbit|voice|instrument` and interprets `--out` as the new set directory. The desktop uses an export mode with a grouping selector and previews the derived directory. A set contains `mix.wav`, numbered stereo stem files, and `stems.json`. The manifest is published last and includes typed group identities, so both CLI and app can report paths without interpreting user labels.
+
+All distinct scheduled groups count toward a 128-stem limit. The pipeline also checks a 512 MiB budget for PCM output, chunk buffers, and a single WAV encoding buffer before starting any render worker. The budget is for audio buffers. The host, synth state, and effects caches also use memory. Limit the worker output queue so the estimate holds even if progress reporting and joining run slowly.
