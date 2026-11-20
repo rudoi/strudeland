@@ -1,5 +1,6 @@
-# Claude Code per-machine settings
+# Local agent settings
 .claude/settings.local.json
+/.codex/hooks.json
 
 # Workflow harness per-branch state
 WORKFLOW_STATE.json
