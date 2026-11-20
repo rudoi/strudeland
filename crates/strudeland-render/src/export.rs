@@ -8,10 +8,10 @@ use serde::Serialize;
 use crate::encode::{CORRECTION_MARGIN_DB, MAX_ENCODES, encode_once_with_loop, opus, verify};
 use crate::join::window_frames;
 use crate::level::true_peak::TAPS_PER_PHASE;
-use crate::level::{LoudnessSummary, SILENCE_WARNING, check_input, measure, true_peak_db};
+use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
 use crate::{
     ExportPreset, Format, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
-    RenderOutput, Summary, finish, ms_since, render_audio_for,
+    RenderOutput, RenderedAudio, Summary, finish_file, ms_since, render_audio_for,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,9 +53,10 @@ pub fn render_export(
 ) -> Result<Vec<ExportFile>, RenderError> {
     let (mut audio, loop_start_bar) = render_audio_for(code, opts, Some(preset), progress)?;
     if preset == ExportPreset::OneShot {
+        trim_silent_post_roll(&mut audio)?;
         return Ok(vec![ExportFile {
             role: ExportRole::Single,
-            output: finish(&audio, &opts.output, progress)?,
+            output: finish_file(&audio, &opts.output, progress, true)?,
             loop_points: None,
         }]);
     }
@@ -72,11 +73,11 @@ pub fn render_export(
     if end <= start {
         return Err(render_error("loop has no frames"));
     }
+    let measure_start = Instant::now();
     if matches!(preset, ExportPreset::IntroLoop | ExportPreset::FoldedLoop) {
         fold_tail(&mut audio.channels, start..end)?;
     }
 
-    let measure_start = Instant::now();
     check_input(&audio.channels)?;
     let sample_rate = audio.summary.sample_rate;
     let program = measure(&audio.channels, sample_rate);
@@ -120,18 +121,39 @@ pub fn render_export(
     };
     let mut summary = audio.summary;
     summary.timings.level_ms = ms_since(measure_start);
-    finish_loop(
-        parts,
-        summary,
-        &opts.output,
-        program.lufs,
-        loop_peak,
-        progress,
-    )
+    finish_loop(parts, summary, &opts.output, program, loop_peak, progress)
 }
 
 fn render_error(message: &str) -> RenderError {
     RenderError::Render(message.into())
+}
+
+fn trim_silent_post_roll(audio: &mut RenderedAudio) -> Result<(), RenderError> {
+    let started = Instant::now();
+    let window = audio.summary.window;
+    let musical = usize::try_from(window_frames(window.from_bar, window.to_bar, audio.cps))
+        .map_err(|_| render_error("one-shot window is too large"))?;
+    // Seek back from the end so quiet gaps before late echoes stay in the output.
+    let tail = audio
+        .channels
+        .iter()
+        .filter_map(|channel| {
+            channel
+                .get(musical..)?
+                .iter()
+                .rposition(|&sample| sample != 0.0)
+        })
+        .max();
+    let frames = tail.map_or(musical, |last| musical + last + 1);
+    for channel in &mut audio.channels {
+        channel.truncate(frames);
+    }
+    audio.summary.frames = frames as u64;
+    audio.summary.seconds = frames as f64 / f64::from(audio.summary.sample_rate);
+    let trim_ms = ms_since(started);
+    audio.summary.timings.render_ms += trim_ms;
+    audio.summary.timings.total_ms += trim_ms;
+    Ok(())
 }
 
 fn fold_tail(channels: &mut [Vec<f32>], body: Range<usize>) -> Result<(), RenderError> {
@@ -194,16 +216,22 @@ fn finish_loop(
     parts: Vec<Part>,
     summary: Summary,
     options: &OutputOptions,
-    program_lufs: f64,
+    program: Measure,
     program_peak: f64,
     progress: &dyn Fn(Progress),
 ) -> Result<Vec<ExportFile>, RenderError> {
     let sample_rate = summary.sample_rate;
     let format = options.encoder.format();
-    let before: Vec<_> = parts
-        .iter()
-        .map(|part| measure(&part.channels, sample_rate))
-        .collect();
+    let started = Instant::now();
+    let before = if parts.len() == 1 {
+        vec![program]
+    } else {
+        parts
+            .iter()
+            .map(|part| measure(&part.channels, sample_rate))
+            .collect()
+    };
+    let mut level_ms = summary.timings.level_ms + ms_since(started);
     // Playing a split asset by itself pads its edges with silence during peak measurement.
     // Account for those edges as well as the continuous intro handoff and the loop wrap.
     let program_peak = before
@@ -221,10 +249,13 @@ fn finish_loop(
             target_lufs,
             true_peak_db,
         } => {
-            let ideal = if program_lufs.is_finite() {
-                target_lufs - program_lufs
+            let ideal = if program.lufs.is_finite() {
+                target_lufs - program.lufs
             } else {
-                warnings.push(SILENCE_WARNING.to_owned());
+                warnings.push(
+                    "loudness: skipped normalization because integrated LUFS is unmeasurable; the true-peak ceiling still applies"
+                        .to_owned(),
+                );
                 0.0
             };
             (
@@ -237,7 +268,6 @@ fn finish_loop(
     if format == Format::Mp3 {
         warnings.push("mp3 encoder delay and padding can cause gaps in loop playback; use WAV for sample-exact loops".into());
     }
-    let mut level_ms = summary.timings.level_ms;
     let mut encode_ms = 0.0;
     for pass in 1..=MAX_ENCODES {
         let mut files = Vec::with_capacity(parts.len());

@@ -698,3 +698,46 @@ fn one_shot_retains_the_reverb_tail_in_the_encoded_file() {
             .any(|x| x.abs() > 0.0001)
     );
 }
+
+#[test]
+fn one_shot_preserves_filter_ringing_after_the_amp_release() {
+    use strudeland_render::{ExportPreset, render_export};
+    let opts = options(LengthRequest::Length { bars: 1 });
+    let after_release = window_frames(0, 1, 2.0) as usize + 442;
+    for voice in [
+        "s('square').lpf(3000).lpq(20)",
+        "s('sine').freq(660).vowel('a')",
+    ] {
+        let code = format!(
+            r#"const meta = {{ bpm: 240, meter: '2/4' }};
+note("~ ~ ~ a3").{voice}.release(0.01)"#
+        );
+        let shot = render_export(&code, &opts, ExportPreset::OneShot, &|_| {}).unwrap();
+        let raw = read_f32(&shot[0].output.bytes).unwrap();
+        let ring = raw.channels[0]
+            .get(after_release..after_release + 128)
+            .unwrap_or_else(|| panic!("{voice} must ring past its amp release"));
+        assert!(ring.iter().any(|x| x.abs() > 0.001), "{voice}");
+    }
+}
+
+#[test]
+fn a_short_hot_loop_still_respects_the_static_peak_ceiling() {
+    use strudeland_render::{ExportPreset, render_export};
+    let code = r#"const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
+song(meta, { body: s('square').gain(4) })"#;
+    let mut opts = options(LengthRequest::Clip { loops: None });
+    opts.output.loudness = Loudness::default();
+    let files = render_export(code, &opts, ExportPreset::FoldedLoop, &|_| {}).unwrap();
+    let summary = &files[0].output.summary;
+    let loudness = summary.loudness.as_ref().unwrap();
+    assert!(!loudness.input_lufs.is_finite());
+    assert!(loudness.gain_db < 0.0);
+    assert!(loudness.output_true_peak_db <= -1.0 + 1e-5);
+    assert!(
+        summary
+            .warnings
+            .iter()
+            .any(|w| w.contains("true-peak ceiling still applies"))
+    );
+}

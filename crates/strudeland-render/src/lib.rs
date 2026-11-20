@@ -156,9 +156,23 @@ pub fn finish(
     out: &OutputOptions,
     progress: &dyn Fn(Progress),
 ) -> Result<RenderOutput, RenderError> {
+    finish_file(audio, out, progress, false)
+}
+
+fn finish_file(
+    audio: &RenderedAudio,
+    out: &OutputOptions,
+    progress: &dyn Fn(Progress),
+    standalone: bool,
+) -> Result<RenderOutput, RenderError> {
     let mut summary = audio.summary.clone();
     let mut warnings = Vec::new();
-    let encoded = encode::encode(
+    let encode = if standalone {
+        encode::encode_standalone
+    } else {
+        encode::encode
+    };
+    let encoded = encode(
         &audio.channels,
         audio.summary.sample_rate,
         out,

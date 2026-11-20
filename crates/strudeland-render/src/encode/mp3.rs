@@ -2,7 +2,8 @@
 //! tag written over the reserved first frame. The output keeps the input sample rate.
 
 use mp3lame_encoder::{
-    Bitrate, Builder, DualPcm, FlushNoGap, Mode, Quality, VbrMode, max_required_buffer_size,
+    Bitrate, Builder, DualPcm, EncoderFlush, FlushGap, FlushNoGap, Mode, Quality, VbrMode,
+    max_required_buffer_size,
 };
 
 use std::num::NonZeroU32;
@@ -41,11 +42,23 @@ pub fn encode_mp3(
     mode: Mp3Mode,
     quality: u8,
 ) -> Result<Vec<u8>, RenderError> {
-    encode_mp3_with_loop(channels, sample_rate, mode, quality, None)
+    encode_mp3_file::<FlushNoGap>(channels, sample_rate, mode, quality, None)
 }
 
-/// Encodes MP3 with an optional loop in decoded frames (exclusive end), after gapless trimming.
+/// Encodes a standalone MP3 with an optional loop in decoded frames (exclusive end).
+/// The LAME tag describes the encoder delay and final padding for gapless playback.
 pub fn encode_mp3_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    mode: Mp3Mode,
+    quality: u8,
+    loop_range: Option<Range<u64>>,
+) -> Result<Vec<u8>, RenderError> {
+    // Finalize the pending PCM even for an export without loop metadata.
+    encode_mp3_file::<FlushGap>(channels, sample_rate, mode, quality, loop_range)
+}
+
+fn encode_mp3_file<F: EncoderFlush>(
     channels: &[Vec<f32>],
     sample_rate: u32,
     mode: Mp3Mode,
@@ -98,7 +111,7 @@ pub fn encode_mp3_with_loop(
             .map_err(err)?;
     }
     out.reserve(max_required_buffer_size(0));
-    encoder.flush_to_vec::<FlushNoGap>(&mut out).map_err(err)?;
+    encoder.flush_to_vec::<F>(&mut out).map_err(err)?;
 
     // LAME reserved the first frame for the tag (a frame header, then zeros); the real tag replaces it in place.
     let size = encoder.lame_tag_size();

@@ -266,11 +266,12 @@ fn encode_mp3_lame_tag_overwrites_the_first_frame() {
 }
 
 #[test]
-fn encode_mp3_id3_loop_tags_keep_the_lame_frame_and_decoded_audio() {
-    let input = sine(100_003, 440.0, 0.5);
-    for mode in [Mp3Mode::Cbr, Mp3Mode::Vbr] {
-        let tagged = encode_mp3_with_loop(&input, SR, mode, 6, Some(147..100_003)).unwrap();
-        let plain = mp3(&input, mode, 6);
+fn encode_mp3_preset_preserves_the_gapless_duration_and_loop_tags() {
+    let frames = 100_003;
+    let input = sine(frames, 440.0, 0.5);
+    for (mode, tag) in [(Mp3Mode::Cbr, b"Info"), (Mp3Mode::Vbr, b"Xing")] {
+        let tagged = encode_mp3_with_loop(&input, SR, mode, 6, Some(147..frames as u64)).unwrap();
+        let untagged = encode_mp3_with_loop(&input, SR, mode, 6, None).unwrap();
         let read_size = |bytes: &[u8]| {
             bytes.iter().fold(0usize, |size, &b| {
                 assert!(b < 128);
@@ -292,11 +293,16 @@ fn encode_mp3_id3_loop_tags_keep_the_lame_frame_and_decoded_audio() {
             at += size;
         }
         assert_eq!(at, end);
-        assert_eq!(&tagged[end..], plain);
-        assert_eq!(
-            decode(Format::Mp3, &tagged).unwrap(),
-            decode(Format::Mp3, &plain).unwrap()
-        );
+        assert_eq!(&tagged[end..], untagged);
+        assert_eq!(&untagged[36..40], tag);
+        assert_eq!(&untagged[0x9c..0xa0], b"LAME");
+        // Symphonia reads the LAME delay and padding and decodes with gapless trimming enabled.
+        for bytes in [&tagged, &untagged] {
+            let decoded = decode(Format::Mp3, bytes).unwrap();
+            assert_eq!(decoded.sample_rate, SR);
+            assert_eq!(decoded.channels[0].len(), frames);
+            assert_eq!(decoded.channels[1].len(), frames);
+        }
     }
 }
 
