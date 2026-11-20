@@ -106,3 +106,23 @@ would change the shared export contract for CLI users as well.
 
 Recommended workflow complexity is medium. Keep one proposal, skip fracture, and retain
 singletonization and a light loss check for the project, renderer, and desktop UI interfaces.
+
+## Refinement decisions
+
+- Use the shared first-pass layouts in the mode table. The split preview lists the opening first
+  and labels the legacy `-intro` file as the opening. A song that starts with the loop still
+  needs that file for its clean first pass. The folded description explains both passes.
+- Capture the active buffer synchronously when the dialog opens. Keep its source and title for the
+  life of the dialog. Show when it includes unsaved edits. Block competing app-level project
+  actions while the modal is open. Recheck project identity and scoped song path at submission.
+- Use clip by default when the static structure has sections. For a song without known sections,
+  start with the length control and let the user enter bars. Keep the host responsible for final
+  validity. An unavailable static loop is a visible hint with the exact metadata requirement.
+- Build a pure shared basename rule so a custom folder preview does not depend on the state of
+  the project render folder. Return the whole set of existing regular files, confirm those exact
+  paths, and compare the approved preview with fresh targets before rendering. Use atomic
+  no-replace publication for every unapproved target. Report any file already published before
+  a later write fails. Keep the CLI's existing publication behavior.
+- Count completed chunk notifications because the worker indices arrive out of order. Announce
+  coarse progress accessibly. Use keyboard-operable mode controls with descriptions, then place
+  the exact file list before the action buttons. Use the existing app type, surfaces and spacing.
