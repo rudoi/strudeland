@@ -17,14 +17,14 @@ installs `strudeland.exe` as part of the MSI and offers terminal access through 
 
 ## Architecture
 
-- Use Tauri packaging overlays for the DMG and MSI. Stage each CLI using Tauri's target-triple
-  naming rules under an ignored directory. On macOS, package it as `strudeland-cli` alongside
-  the app executable. On Windows, package it as `strudeland.exe` and give the MSI's GUI
-  executable a distinct name if required. Preserve the product and shortcut names and the
-  MSI upgrade identity. [Tauri external binaries](https://v2.tauri.app/develop/sidecar/)
-- Use the MSI template's support for external binaries and WiX extensions. The pinned template
-  defines a PATH-labeled feature that references the sidecar components. Verify the generated
-  MSI's Environment table and use a WiX fragment to author PATH setup where required.
+- Use Tauri packaging overlays for the DMG and MSI. On macOS, use `externalBin` to package
+  `strudeland-cli` beside the app executable. Stage a target-suffixed binary under an ignored
+  directory and let Tauri sign it with the app. [Tauri external binaries](https://v2.tauri.app/develop/sidecar/)
+- On Windows, use Tauri's WiX fragment support to install `strudeland.exe` and the PATH entry as
+  one stable component under Program Files. The pinned template puts external binaries in the
+  configurable GUI install directory. Its PATH-labeled feature contains component references
+  and leaves PATH authoring to the installer. A fragment lets the CLI stay in a protected path
+  while the GUI retains its install options, executable name, and upgrade identity.
   [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/#customizing-the-wix-installer)
   [Pinned WiX template](https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v2.12.4/crates/tauri-bundler/src/bundle/windows/msi/main.wxs)
 - Keep the overlay out of plain Cargo checks, `tauri dev`, and the release workflow's
@@ -76,12 +76,11 @@ the user to remove the old link and run the action from the new location.
 
 ### Installing on Windows
 
-Use the MSI to install the CLI with the app and expose `strudeland` in a newly opened terminal.
-Keep the existing per-machine MSI scope. Prefer an MSI-owned PATH component that appends a
-single entry and removes it on uninstall. Verify how custom install locations are handled before
-adding an entry to machine PATH. Use a protected installer-owned directory for any machine PATH
-entry. If the supported MSI extension cannot enforce that, refine a user-scoped PATH action
-instead of adding the arbitrary app install directory to machine PATH.
+Use the existing per-machine MSI scope. Install the CLI under Program Files in `Strudeland CLI`
+independently of the selected GUI location. The WiX component appends that directory to machine
+PATH for newly opened terminals and removes its entry at uninstall. Keep a stable component GUID
+and file key path across upgrades. The component references the exact Cargo-built executable via
+an environment variable set by the shared packaging command.
 [WiX Environment element](https://docs.firegiant.com/wix3/xsd/wix/environment/)
 
 ## Dependencies
@@ -114,12 +113,11 @@ instead of adding the arbitrary app install directory to machine PATH.
   workflow checks. Check that a clean dev or Cargo build works without a staged sidecar.
   A Developer ID artifact needs the existing release authorization and credentials.
 
-## Open questions for refinement
+## Refinement decisions
 
-- The proposal uses `~/.local/bin` with explicit PATH instructions. Confirm that destination
-  and the native app menu placement.
-- Verify the pinned MSI's PATH behavior and select the smallest supported WiX configuration
-  that works with upgrades, custom install locations, and uninstall.
+- Use the native macOS app menu and `~/.local/bin` with explicit PATH instructions.
+- Use the existing Tauri WiX template with a fragment and verify the resulting MSI component,
+  PATH entry, and installed CLI against the published MSI upgrade path.
 
 **Recommended complexity.** Medium. Keep a reference and interface pass before sequencing.
 The proposal covers shared CLI staging and the platform-specific installation steps.
