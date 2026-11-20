@@ -209,6 +209,10 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
 
   function onProgress(progress: ExportProgress) {
     switch (progress.kind) {
+      case 'confirming':
+      case 'planning':
+        update({ activity: { kind: progress.kind } });
+        break;
       case 'planned':
         update({
           activity:
@@ -246,24 +250,15 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     )
       return;
     const { files, request } = state.preview;
-    const collisions = files.filter((file) => file.exists).map((file) => file.path);
     let receivingProgress = true;
     try {
-      if (collisions.length > 0) {
-        update({ activity: { kind: 'confirming' } });
-        const approved = await api.confirmReplacement(collisions);
-        if (disposed || !approved) {
-          update({ activity: { kind: 'idle' } });
-          return;
-        }
-      }
       update({ activity: { kind: 'planning' }, failure: null });
       const result = await api.start(request, song.source, files, (progress) => {
         if (receivingProgress) onProgress(progress);
       });
       update({
         activity: { kind: 'idle' },
-        result: { ...result, warnings: [...new Set(result.warnings)] },
+        result: result && { ...result, warnings: [...new Set(result.warnings)] },
       });
     } catch (error) {
       update({

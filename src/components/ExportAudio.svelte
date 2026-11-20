@@ -1,23 +1,29 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { exportApi } from '../lib/export/api';
   import {
-    createExportDialog,
     loopMode,
     MODES,
     roleLabel,
     showMp3Warning,
+    type createExportDialog,
     type ExportSong,
   } from '../lib/export/controller';
   import Button from './ui/Button.svelte';
   import Field from './ui/Field.svelte';
   import Notice from './ui/Notice.svelte';
 
-  let { song, onclose }: { song: ExportSong; onclose: () => void } = $props();
+  let {
+    song,
+    controller,
+    onclose,
+  }: {
+    song: ExportSong;
+    controller: ReturnType<typeof createExportDialog>;
+    onclose: () => void;
+  } = $props();
 
   const source = untrack(() => song);
-  const controller = createExportDialog(source, exportApi);
-  const store = controller.store;
+  const store = untrack(() => controller.store);
   const options = $derived($store.options);
   const activity = $derived($store.activity);
   const locked = $derived(activity.kind !== 'idle');
@@ -242,6 +248,8 @@
             <span>rendering {activity.completed} of {activity.total} chunks</span>
             <progress value={activity.completed} max={activity.total}></progress>
           </label>
+        {:else if activity.kind === 'confirming'}
+          <span>confirm file replacement…</span>
         {:else if activity.kind === 'planning' || activity.kind === 'encoding' || activity.kind === 'writing'}
           <label class="progress">
             <span>{activity.kind}…</span>

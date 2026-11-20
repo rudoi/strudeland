@@ -3,8 +3,8 @@
   import { createProjectActions } from './lib/project/actions';
   import { onProjectMenu, type ProjectAction, type ProjectMenuAction } from './lib/project/api';
   import { matchShortcut, primaryModifier } from './lib/project/ui';
-  import { setExportMenuAvailable } from './lib/export/api';
-  import { captureExportSong, type ExportSong } from './lib/export/controller';
+  import { exportApi, setExportMenuAvailable } from './lib/export/api';
+  import { captureExportSong, createExportDialog, type ExportSong } from './lib/export/controller';
   import ConflictBar from './components/ConflictBar.svelte';
   import Editor from './components/Editor.svelte';
   import ExportAudio from './components/ExportAudio.svelte';
@@ -32,25 +32,30 @@
 
   let newSongOpen = $state(false);
   let projectsReady = $state(false);
-  let exportSong = $state.raw<ExportSong | null>(null);
+  let nativeMenuReady = $state(false);
+  let exportDialog = $state.raw<{
+    song: ExportSong;
+    controller: ReturnType<typeof createExportDialog>;
+  } | null>(null);
   const conflict = $derived($store.songs.find((s) => s.path === $store.active)?.conflict ?? null);
   const exportAvailable = $derived(
     projectsReady && $store.project !== null && $store.active !== null,
   );
 
   $effect(() => {
-    if (projectsReady) void setExportMenuAvailable(exportAvailable).catch(console.error);
+    if (nativeMenuReady) void setExportMenuAvailable(exportAvailable).catch(console.error);
   });
 
   function runProjectAction(action: ProjectAction) {
-    if (projectsReady && !exportSong) void projectActions.run(action);
+    if (projectsReady && !exportDialog) void projectActions.run(action);
   }
 
   function onMenuAction(action: ProjectMenuAction) {
     if (action !== 'exportAudio') {
       runProjectAction(action);
-    } else if (exportAvailable && !exportSong && !projectActions.isBusy()) {
-      exportSong = captureExportSong($store, session.activeText());
+    } else if (exportAvailable && !exportDialog && !projectActions.isBusy()) {
+      const song = captureExportSong($store, session.activeText());
+      if (song) exportDialog = { song, controller: createExportDialog(song, exportApi) };
     }
   }
 
@@ -59,16 +64,17 @@
     let destroyed = false;
     let unlisten: (() => void) | undefined;
     void session
-      .init()
+      .init(() => exportDialog?.controller.canClose() ?? true)
       .then(async () => {
         if (destroyed || !$store.available) return;
+        projectsReady = true;
         const stop = await onProjectMenu(onMenuAction);
         if (destroyed) {
           stop();
           return;
         }
         unlisten = stop;
-        projectsReady = true;
+        nativeMenuReady = true;
       })
       .catch(console.error);
     return () => {
@@ -96,7 +102,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (exportSong) return;
+    if (exportDialog) return;
     if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }
@@ -155,8 +161,12 @@
   />
 {/if}
 
-{#if exportSong}
-  <ExportAudio song={exportSong} onclose={() => (exportSong = null)} />
+{#if exportDialog}
+  <ExportAudio
+    song={exportDialog.song}
+    controller={exportDialog.controller}
+    onclose={() => (exportDialog = null)}
+  />
 {/if}
 
 <style>

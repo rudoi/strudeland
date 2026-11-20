@@ -35,7 +35,6 @@ function setup(source = editor) {
   const api = {
     preview: mock<ExportApi['preview']>(async () => [audio]),
     pickFolder: mock<ExportApi['pickFolder']>(async () => null),
-    confirmReplacement: mock<ExportApi['confirmReplacement']>(async () => true),
     start: mock<ExportApi['start']>(async () => result),
   };
   const dialog = createExportDialog(source, api);
@@ -162,32 +161,37 @@ describe('export dialog', () => {
     expect(state().preview.kind).toBe('ready');
   });
 
-  test('approves only listed collisions and submits the displayed targets and captured text once', async () => {
+  test('locks the displayed request through native confirmation and restores it when cancelled', async () => {
     const { api, dialog, state } = setup();
-    const answer = Promise.withResolvers<boolean>();
+    const answer = Promise.withResolvers<ExportResult | null>();
     api.preview.mockResolvedValue([opening, loop]);
     dialog.select({ mode: 'intro-loop' });
     await next();
-    api.confirmReplacement.mockReturnValueOnce(answer.promise);
+    api.start.mockImplementationOnce((_request, _source, _preview, onProgress) => {
+      onProgress({ kind: 'confirming' });
+      return answer.promise;
+    });
     const attempt = dialog.start();
-    expect(api.confirmReplacement).toHaveBeenCalledWith([opening.path]);
-    expect(dialog.canClose()).toBe(false);
-    dialog.select({ format: 'opus' });
-    await dialog.start();
-    answer.resolve(false);
-    await attempt;
-    expect(state().options.format).toBe('wav');
-    expect(api.start).not.toHaveBeenCalled();
-    expect(dialog.canClose()).toBe(true);
-
-    await dialog.start();
-    expect(api.start).toHaveBeenCalledTimes(1);
+    expect(state().activity.kind).toBe('confirming');
     expect(api.start).toHaveBeenCalledWith(
       expect.objectContaining({ preset: 'intro-loop' }),
       editor.source,
       [opening, loop],
       expect.any(Function),
     );
+    expect(dialog.canClose()).toBe(false);
+    dialog.select({ format: 'opus' });
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledTimes(1);
+    answer.resolve(null);
+    await attempt;
+    expect(state().options.format).toBe('wav');
+    expect(state().result).toBeNull();
+    expect(dialog.canClose()).toBe(true);
+
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledTimes(2);
+    expect(state().result).toEqual(result);
   });
 
   test('counts out-of-order chunks and refreshes collision status after a partial write', async () => {

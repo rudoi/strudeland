@@ -2385,6 +2385,38 @@ describe('openPath', () => {
 // ---------------------------------------------------------------- guard
 
 describe('unsaved guard (window close)', () => {
+  test('an active operation blocks window close before the unsaved prompt', async () => {
+    const h = setup();
+    let exporting = true;
+    await h.session.init(() => !exporting);
+    h.type('x');
+    h.fake.confirm.push('discard');
+    expect(await h.closeWindow()).toBe(true);
+    expect(h.fake.confirmCounts).toEqual([]);
+
+    exporting = false;
+    expect(await h.closeWindow()).toBe(false);
+    expect(h.fake.confirmCounts).toEqual([1]);
+  });
+
+  test('a close approved by the unsaved guard rechecks for an export started during saving', async () => {
+    const h = setup();
+    let exporting = false;
+    await h.session.init(() => !exporting);
+    h.type('x');
+    h.fake.confirm.push('save');
+    const saving = deferred();
+    h.fake.holdSaves = saving.promise;
+    const close = h.closeWindow();
+    await flush();
+    expect(h.fake.confirmCounts).toEqual([1]);
+
+    exporting = true;
+    saving.resolve();
+    expect(await close).toBe(true);
+    expect(h.fake.files().get(PA)).toBe(A + 'x');
+  });
+
   test('no dirty songs: close allowed without a prompt', async () => {
     const h = await opened();
     expect(await h.closeWindow()).toBe(false);

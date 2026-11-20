@@ -16,7 +16,9 @@ use strudeland_render::{
     MAX_BARS, OutputOptions, Progress, RenderOptions, render, render_export,
 };
 use tauri::{Manager, State, WebviewWindow, ipc::Channel};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
+};
 
 use crate::project::ProjectState;
 
@@ -106,6 +108,8 @@ fn problem(error: impl Display) -> ExportError {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ExportProgress {
+    Confirming,
+    Planning,
     Planned { chunks: usize },
     ChunkRendered { index: usize, of: usize },
     Encoded { pass: u32 },
@@ -229,20 +233,35 @@ impl ExportRequest {
     }
 }
 
-fn run(
+/// Resolve and compare native targets before asking for approval and again before rendering.
+fn checked_targets(
     projects: &ProjectState,
     state: &ExportState,
     request: &ExportRequest,
-    source: &str,
     preview: &[PreviewFile],
-    progress: &dyn Fn(ExportProgress),
-) -> Result<ExportResult, ExportError> {
+) -> Result<(Arc<Project>, Vec<PreviewFile>), ExportError> {
     let project = projects.current_for(&request.root).map_err(problem)?;
     let targets = request.targets(&project, state)?;
     if targets != preview {
         return Err(problem(
             "the output files changed; review the new preview before exporting",
         ));
+    }
+    Ok((project, targets))
+}
+
+fn run(
+    projects: &ProjectState,
+    state: &ExportState,
+    request: &ExportRequest,
+    source: &str,
+    preview: &[PreviewFile],
+    replacement_approved: bool,
+    progress: &dyn Fn(ExportProgress),
+) -> Result<ExportResult, ExportError> {
+    let (project, targets) = checked_targets(projects, state, request, preview)?;
+    if !replacement_approved && targets.iter().any(|file| file.exists) {
+        return Err(problem("replacement requires confirmation"));
     }
 
     let rendered = request.render(source, &|p| progress(p.into()))?;
@@ -286,10 +305,10 @@ pub async fn export_audio_pick_folder(
     state: State<'_, ExportState>,
 ) -> Result<Option<PathBuf>, ExportError> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    window
-        .dialog()
-        .file()
-        .set_parent(&window)
+    let dialog = window.dialog().file();
+    #[cfg(any(target_os = "macos", windows))]
+    let dialog = dialog.set_parent(&window);
+    dialog
         .set_title("Choose export folder")
         .pick_folder(move |folder| {
             let _ = tx.send(folder);
@@ -319,27 +338,76 @@ pub async fn export_audio_preview(
     request.targets(&project, &state)
 }
 
+const REPLACE: &str = "Replace";
+
+async fn confirm_replacement(
+    window: &WebviewWindow,
+    paths: &[String],
+) -> Result<bool, ExportError> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let dialog = window.dialog().message(format!(
+        "Replace the existing audio files at these paths?\n\n{}",
+        paths.join("\n")
+    ));
+    #[cfg(any(target_os = "macos", windows))]
+    let dialog = dialog.parent(window);
+    dialog
+        .title("Replace audio files?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            REPLACE.into(),
+            "Cancel".into(),
+        ))
+        .show_with_result(move |choice| {
+            let _ =
+                tx.send(matches!(choice, MessageDialogResult::Custom(label) if label == REPLACE));
+        });
+    rx.await.map_err(problem)
+}
+
 #[tauri::command]
 pub async fn export_audio_start(
-    app: tauri::AppHandle,
+    window: WebviewWindow,
     request: ExportRequest,
     source: String,
     preview: Vec<PreviewFile>,
     on_progress: Channel<ExportProgress>,
-) -> Result<ExportResult, ExportError> {
-    let permit = app.state::<ExportState>().reserve()?;
+) -> Result<Option<ExportResult>, ExportError> {
+    let permit = window.state::<ExportState>().reserve()?;
+    let (_, targets) = checked_targets(
+        &window.state::<ProjectState>(),
+        &window.state::<ExportState>(),
+        &request,
+        &preview,
+    )?;
+    let existing: Vec<_> = targets
+        .iter()
+        .filter(|file| file.exists)
+        .map(|file| file.path.display().to_string())
+        .collect();
+    let mut replacement_approved = false;
+    if !existing.is_empty() {
+        let _ = on_progress.send(ExportProgress::Confirming);
+        replacement_approved = confirm_replacement(&window, &existing).await?;
+        if !replacement_approved {
+            return Ok(None);
+        }
+    }
+    let _ = on_progress.send(ExportProgress::Planning);
     tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
         run(
-            &app.state::<ProjectState>(),
-            &app.state::<ExportState>(),
+            &window.state::<ProjectState>(),
+            &window.state::<ExportState>(),
             &request,
             &source,
-            &preview,
+            &targets,
+            replacement_approved,
             &|event| {
                 let _ = on_progress.send(event);
             },
         )
+        .map(Some)
     })
     .await
     .map_err(problem)?
@@ -394,6 +462,7 @@ mod tests {
             &self,
             source: &str,
             preview: &[PreviewFile],
+            replacement_approved: bool,
             progress: &dyn Fn(ExportProgress),
         ) -> Result<ExportResult, ExportError> {
             run(
@@ -402,6 +471,7 @@ mod tests {
                 &self.request,
                 source,
                 preview,
+                replacement_approved,
                 progress,
             )
         }
@@ -494,7 +564,7 @@ mod tests {
         f.projects
             .open_unwatched(Project::create(&f.dir.path().join("other"), "other").unwrap());
         assert_eq!(
-            f.run("unreachable", &preview, &|_| panic!())
+            f.run("unreachable", &preview, false, &|_| panic!())
                 .unwrap_err()
                 .message,
             crate::project::PROJECT_CHANGED
@@ -515,11 +585,29 @@ mod tests {
         let f = Fixture::new();
         let preview = f.preview();
         fs::write(&preview[1].path, b"existing repeat").unwrap();
-        let e = f.run("unreachable", &preview, &|_| panic!()).unwrap_err();
+        let e = f
+            .run("unreachable", &preview, false, &|_| panic!())
+            .unwrap_err();
         assert!(e.message.contains("review the new preview"));
         assert!(e.written.is_empty());
         assert!(!preview[0].path.exists());
         assert!(f.preview()[1].exists);
+    }
+
+    #[test]
+    fn matching_preview_cannot_authorize_overwriting_a_file() {
+        let f = Fixture::new();
+        let opening = f.preview()[0].path.clone();
+        fs::write(&opening, b"original audio").unwrap();
+        let preview = f.preview();
+        assert!(preview[0].exists);
+        let err = f
+            .run("unreachable", &preview, false, &|_| panic!())
+            .unwrap_err();
+        assert!(err.message.contains("confirmation"));
+        assert!(err.written.is_empty());
+        assert_eq!(fs::read(&opening).unwrap(), b"original audio");
+        assert!(!preview[1].path.exists());
     }
 
     const BODY: &str = "const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };\nsong(meta, { body: note('a4').s('sine') })";
@@ -528,11 +616,15 @@ mod tests {
     #[test]
     fn split_wavs_include_the_first_pass_and_encoded_loop_markers() {
         let f = Fixture::new();
-        for (source, opening_frames) in [(INTRO_BODY, 22_050), (BODY, 11_025)] {
+        for (source, opening_frames, approve_replacement) in
+            [(INTRO_BODY, 22_050, false), (BODY, 11_025, true)]
+        {
             let preview = f.preview();
             let events = RefCell::new(Vec::new());
             let result = f
-                .run(source, &preview, &|event| events.borrow_mut().push(event))
+                .run(source, &preview, approve_replacement, &|event| {
+                    events.borrow_mut().push(event)
+                })
                 .unwrap();
             let [opening, repeat] = &result.files[..] else {
                 panic!("expected two files");
@@ -591,7 +683,7 @@ mod tests {
             let preview = f.preview();
             let collision = &preview[1].path;
             let e = f
-                .run(BODY, &preview, &|p| {
+                .run(BODY, &preview, false, &|p| {
                     if matches!(p, ExportProgress::Written { .. }) {
                         fs::write(collision, b"concurrent file").unwrap();
                     }

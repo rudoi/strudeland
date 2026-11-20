@@ -78,8 +78,8 @@ export type OpenOutcome =
 
 export interface Session {
   readonly store: Readable<SessionState>;
-  /** Reopens the last project (`project_last`); with none, `project` stays null (Welcome). */
-  init(): Promise<void>;
+  /** Reopens the last project and installs the window close guard. */
+  init(canCloseWindow?: () => boolean): Promise<void>;
   /** Show the active song in `view` (or detach with undefined). The live state moves with it. */
   attachView(view: EditorView | undefined): void;
   /** Pick a folder, collect a name (null to cancel), then create and open the project. */
@@ -1149,13 +1149,20 @@ export function createSession(deps: SessionDeps): Session {
   return {
     store: { subscribe: state.subscribe },
 
-    async init() {
+    async init(canCloseWindow) {
       if (!available) return;
       if (!closeHookRegistered) {
         closeHookRegistered = true;
         try {
           await api.onCloseRequested(async (e) => {
-            if (!(await guardUnsaved())) e.preventDefault();
+            // An export can start while the unsaved-changes guard writes one or more songs.
+            if (
+              canCloseWindow?.() === false ||
+              !(await guardUnsaved()) ||
+              canCloseWindow?.() === false
+            ) {
+              e.preventDefault();
+            }
           });
         } catch (e) {
           console.error(e);
