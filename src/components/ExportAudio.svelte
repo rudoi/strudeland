@@ -21,8 +21,12 @@
   const options = $derived($store.options);
   const activity = $derived($store.activity);
   const locked = $derived(activity.kind !== 'idle');
-  const sections = $derived(source.structure?.sections ?? []);
-  const markedLoop = $derived(sections.find((section) => section.loop));
+  const sections = source.structure?.sections ?? [];
+  const loopIndex = source.structure?.loopIndex ?? null;
+  const markedLoop = loopIndex === null ? undefined : sections[loopIndex];
+  const files = $derived(
+    $store.result?.files ?? ($store.preview.kind === 'ready' ? $store.preview.files : null),
+  );
   const canExport = $derived(!locked && $store.preview.kind === 'ready' && !$store.result);
   let dialog: HTMLDialogElement;
 
@@ -183,27 +187,19 @@
           <h3 class="label" id="export-files">
             {$store.result ? 'written files' : 'output files'}
           </h3>
-          {#if $store.result}
+          {#if files}
             <ul class="file-list">
-              {#each $store.result.files as file (file.path)}
+              {#each files as file (file.path)}
                 <li>
                   <strong class="file-role">{roleLabel(file.role)}</strong>
                   <span class="path mono">{file.path}</span>
-                  {#if file.godotLoopOffset !== null}
-                    <span class="hint"
-                      >Godot loop offset <span class="mono">{file.godotLoopOffset} s</span></span
-                    >
+                  {#if 'godotLoopOffset' in file && file.godotLoopOffset !== null}
+                    <span class="hint">
+                      Godot loop offset <span class="mono">{file.godotLoopOffset} s</span>
+                    </span>
+                  {:else if 'exists' in file && file.exists}
+                    <span class="hint replaces">file exists</span>
                   {/if}
-                </li>
-              {/each}
-            </ul>
-          {:else if $store.preview.kind === 'ready'}
-            <ul class="file-list">
-              {#each $store.preview.files as file (file.path)}
-                <li>
-                  <strong class="file-role">{roleLabel(file.role)}</strong>
-                  <span class="path mono">{file.path}</span>
-                  {#if file.exists}<span class="hint replaces">file exists</span>{/if}
                 </li>
               {/each}
             </ul>

@@ -35,10 +35,7 @@
   let exportSong = $state.raw<ExportSong | null>(null);
   const conflict = $derived($store.songs.find((s) => s.path === $store.active)?.conflict ?? null);
   const exportAvailable = $derived(
-    projectsReady &&
-      $store.project !== null &&
-      $store.active !== null &&
-      session.activeText() !== null,
+    projectsReady && $store.project !== null && $store.active !== null,
   );
 
   $effect(() => {
