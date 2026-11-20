@@ -39,7 +39,11 @@ fn the_v8_licence_is_shipped_and_named() {
 #[test]
 fn v8_is_the_only_runtime_and_pinned_exactly() {
     let manifest = crate_file("Cargo.toml");
-    assert!(!manifest.contains("[features]"), "no runtime features");
+    let features = manifest
+        .split_once("[features]\n")
+        .and_then(|(_, rest)| rest.split_once("\n["))
+        .map(|(features, _)| features.trim());
+    assert_eq!(features, Some("jitless = []"), "V8 is the only runtime");
     assert!(manifest.contains("v8 = \"="), "v8 is pinned exactly");
 }
 

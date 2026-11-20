@@ -51,12 +51,11 @@ sudo apt install build-essential cmake file libasound2-dev libayatana-appindicat
 ```
 
 Use `bun install --frozen-lockfile` and `bun run tauri dev` from the repository root.
-For a local package build, use `bun run tauri build --bundles msi -- --locked` on Windows
-or `bun run tauri build --bundles deb -- --locked` on Ubuntu.
+For a local package build, use `bun run app:bundle msi` on Windows or
+`bun run tauri build --bundles deb -- --locked` on Ubuntu.
 
 On Ubuntu, install a locally built Debian package with `sudo apt install ./path-to-strudeland.deb`.
-To install the separate CLI from source, run `cargo install --locked --path crates/strudeland-cli`
-and check `strudeland --version`. The GUI and CLI have distinct executable names.
+See [Command line](#command-line) for CLI installation.
 
 If Windows denies microphone access, use **Settings → Privacy & security → Microphone** to
 allow desktop apps and retry. On Ubuntu, select and test an input in **Settings → Sound**.
@@ -90,10 +89,20 @@ still contain them. Review recordings and their timing sidecars before sharing a
 
 ## Command line
 
-Install the CLI to control the running app or work with song files and voice memos from a shell.
+The CLI controls the running app and works with song files and voice memos from a shell.
+
+- **macOS DMG.** Copy Strudeland to Applications, open that copy, and choose
+  **strudeland → install command line tool…**. The app creates `~/.local/bin/strudeland`.
+  Add `$HOME/.local/bin` to your shell's PATH if needed. An update at the same app path
+  keeps the link working. To remove it or reinstall after moving the app, delete the symlink.
+  The bundled CLI interprets song JavaScript, so planning complex renders can take longer.
+- **Windows x64 MSI.** The installer puts `strudeland.exe` under Program Files in
+  **Strudeland CLI** and adds that folder to PATH. Open a new PowerShell or Command Prompt
+  after installation. Uninstalling the MSI removes the CLI and its PATH entry.
+- **From source.** Run `cargo install --locked --path crates/strudeland-cli`.
 
 ```sh
-cargo install --locked --path crates/strudeland-cli
+strudeland --version
 strudeland --help
 strudeland render songs/main.js --format wav
 strudeland render songs/main.js --preset intro-loop --out soundtrack.wav

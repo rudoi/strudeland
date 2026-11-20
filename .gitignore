@@ -16,3 +16,4 @@ dist-render/
 .render-out/
 target/
 src-tauri/gen/schemas/
+src-tauri/binaries/

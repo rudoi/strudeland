@@ -43,9 +43,14 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Rust tests | `cargo test --workspace` |
 | Rust lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Rust format check | `cargo fmt --all --check` |
-| Install the CLI | `cargo install --path crates/strudeland-cli` |
+| Build a local installer with its matching CLI (native Apple Silicon or Windows x64) | `bun run app:bundle dmg --adhoc` or `bun run app:bundle msi` |
+| Install the CLI from source | `cargo install --locked --path crates/strudeland-cli` |
 | Run the CLI | `cargo run -p strudeland-cli -- state` |
 | Open a version bump PR or build a tagged release draft | `bun run release (--current\|--patch\|--minor\|--major\|--set VERSION) [--dry-run]` |
+
+`scripts/app-bundle.ts` builds the locked CLI into the existing Cargo target and feeds it to
+Tauri as a macOS sidecar or to the Windows MSI WiX fragment. The macOS release prepares the
+CLI before importing the signing identity and bundles it during the signing step.
 
 The [macOS workflow](.github/workflows/macos.yml) runs frozen Bun and locked Rust checks on
 Apple Silicon. The [native workflow](.github/workflows/native.yml) checks Windows x64 and Ubuntu
