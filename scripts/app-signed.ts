@@ -5,7 +5,7 @@
 // The identity is `APPLE_SIGNING_IDENTITY` (Tauri's own variable) when set, else the first
 // "Apple Development" identity in the login keychain. Nothing personal is committed.
 
-export const BUNDLE = 'target/debug/bundle/macos/strudeland.app';
+import { join } from 'node:path';
 
 export interface Options {
   open: boolean;
@@ -67,8 +67,15 @@ async function main(): Promise<number> {
     APPLE_SIGNING_IDENTITY: picked.identity,
   });
   if (built !== 0) return 1;
-  if (opts.open) return (await run(['open', BUNDLE])) === 0 ? 0 : 1;
-  console.error(`built ${BUNDLE}`);
+  const metadata = Bun.spawnSync(
+    ['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1'],
+    { stderr: 'inherit' },
+  );
+  if (metadata.exitCode !== 0) return 1;
+  const target = JSON.parse(metadata.stdout.toString()).target_directory;
+  const bundle = join(target, 'debug', 'bundle', 'macos', 'strudeland.app');
+  if (opts.open) return (await run(['open', bundle])) === 0 ? 0 : 1;
+  console.error(`built ${bundle}`);
   return 0;
 }
 

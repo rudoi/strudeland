@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { bundleOptions, cliExecutable } from '../scripts/app-bundle';
+import { bundleOptions, cliExecutable, MSI_SOURCE_ENV } from '../scripts/app-bundle';
 
 describe('app bundle options', () => {
   test('selects an Apple Silicon target, debug profile and ad hoc signing', () => {
@@ -60,4 +60,10 @@ describe('Cargo CLI executable', () => {
     expect(() => cliExecutable('')).toThrow('one strudeland CLI executable');
     expect(() => cliExecutable(`${message}\n${message}`)).toThrow('one strudeland CLI executable');
   });
+});
+
+test('the WiX source variable survives Tauri’s restricted installer environment', async () => {
+  expect(MSI_SOURCE_ENV.startsWith('TAURI')).toBe(true);
+  const fragment = await Bun.file(new URL('../src-tauri/windows/cli.wxs', import.meta.url)).text();
+  expect(fragment).toContain(`$(env.${MSI_SOURCE_ENV})`);
 });

@@ -62,9 +62,11 @@ try {
         'SELECT `Directory_Parent`, `DefaultDir` FROM `Directory` WHERE `Directory` = ''StrudelandCliDir''' 2
     $cliComponent, $cliFile = Get-MsiRow $database `
         'SELECT `Component_`, `FileName` FROM `File` WHERE `File` = ''StrudelandCliExe''' 2
+    $cliDirectoryName = $directoryName.Split('|')[-1]
+    $cliFileName = $cliFile.Split('|')[-1]
     if ($directory -cne 'StrudelandCliDir' -or $keyFile -cne 'StrudelandCliExe' -or
-        $directoryParent -cne 'ProgramFiles64Folder' -or $directoryName.Split('|')[-1] -cne 'Strudeland CLI' -or
-        $cliComponent -cne 'StrudelandCli' -or $cliFile.Split('|')[-1] -cne 'strudeland.exe') {
+        $directoryParent -cne 'ProgramFiles64Folder' -or $cliDirectoryName -cne 'Strudeland CLI' -or
+        $cliComponent -cne 'StrudelandCli' -or $cliFileName -cne 'strudeland.exe') {
         throw 'Expected the CLI component at Program Files\Strudeland CLI\strudeland.exe'
     }
 
@@ -92,8 +94,8 @@ try {
         throw "MSI extraction exited with code $($process.ExitCode)"
     }
 
-    $cli = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'strudeland.exe' |
-        Where-Object { $_.Directory.Name -ceq 'Strudeland CLI' })
+    $cli = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter $cliFileName |
+        Where-Object { $_.Directory.Name -ceq $cliDirectoryName })
     $gui = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter $guiName |
         Where-Object { $_.Directory.Name -eq 'strudeland' })
     if ($cli.Count -ne 1 -or $gui.Count -ne 1) {

@@ -4,6 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 const root = resolve(import.meta.dir, '..');
 const macTarget = 'aarch64-apple-darwin';
 const windowsTarget = 'x86_64-pc-windows-msvc';
+// Tauri's WiX runner only forwards TAURI-prefixed application environment variables.
+export const MSI_SOURCE_ENV = 'TAURI_STRUDELAND_CLI_MSI_SOURCE';
 
 export function bundleOptions(args: string[]) {
   const [command, ...flags] = args;
@@ -81,7 +83,7 @@ async function main(args: string[]): Promise<number> {
   if (!options.bundleOnly) {
     const executable = await cargoCli(options.debug, isWindows);
     if (isWindows) {
-      env.STRUDELAND_CLI_MSI_SOURCE = executable;
+      env[MSI_SOURCE_ENV] = executable;
     } else {
       const dest = join(root, 'src-tauri', `${sidecar}-${options.target}`);
       await mkdir(dirname(dest), { recursive: true });

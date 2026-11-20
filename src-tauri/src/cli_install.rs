@@ -53,8 +53,8 @@ pub fn register(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn confirm(app: &AppHandle, source: &Path) {
-    let bin = match app.path().home_dir() {
-        Ok(home) => home.join(".local/bin"),
+    let destination = match app.path().home_dir() {
+        Ok(home) => home.join(".local/bin/strudeland"),
         Err(error) => {
             report_error(
                 app,
@@ -63,7 +63,6 @@ fn confirm(app: &AppHandle, source: &Path) {
             return;
         }
     };
-    let destination = bin.join("strudeland");
     let source = source.to_owned();
     let handle = app.clone();
     app.dialog()
@@ -81,7 +80,7 @@ fn confirm(app: &AppHandle, source: &Path) {
             if !confirmed {
                 return;
             }
-            if let Err(error) = install(&source, &bin) {
+            if let Err(error) = install(&source, &destination) {
                 report_error(&handle, error);
                 return;
             }
@@ -120,7 +119,7 @@ fn check_location(source: &Path, flags: StatVfsMountFlags) -> Result<(), String>
     Ok(())
 }
 
-fn install(source: &Path, bin: &Path) -> Result<(), String> {
+fn install(source: &Path, destination: &Path) -> Result<(), String> {
     let file = fs::symlink_metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
     if !file.is_file() || file.permissions().mode() & 0o111 == 0 {
         return Err(format!(
@@ -131,12 +130,14 @@ fn install(source: &Path, bin: &Path) -> Result<(), String> {
     let mount = statvfs(source).map_err(|e| format!("{}: {e}", source.display()))?;
     check_location(source, mount.f_flag)?;
 
+    let bin = destination
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory.", destination.display()))?;
     fs::create_dir_all(bin).map_err(|e| format!("{}: {e}", bin.display()))?;
-    let destination = bin.join("strudeland");
-    match symlink(source, &destination) {
+    match symlink(source, destination) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-            if fs::read_link(&destination).is_ok_and(|target| {
+            if fs::read_link(destination).is_ok_and(|target| {
                 bin.join(target)
                     .canonicalize()
                     .is_ok_and(|path| path == source)
@@ -203,11 +204,10 @@ mod tests {
     fn creates_the_link_once_and_tracks_app_replacement() {
         let tmp = tempfile::tempdir().unwrap();
         let source = bundled_cli(tmp.path());
-        let bin = tmp.path().join(".local/bin");
-        install(&source, &bin).unwrap();
-        let link = bin.join("strudeland");
+        let link = tmp.path().join(".local/bin/strudeland");
+        install(&source, &link).unwrap();
         assert_eq!(fs::read_link(&link).unwrap(), source);
-        install(&source, &bin).unwrap();
+        install(&source, &link).unwrap();
         fs::rename(&source, source.with_extension("old")).unwrap();
         fs::write(&source, "version two").unwrap();
         assert_eq!(fs::read_to_string(link).unwrap(), "version two");
@@ -229,7 +229,7 @@ mod tests {
                 "other link" => symlink(&other, &dest).unwrap(),
                 _ => symlink("missing", &dest).unwrap(),
             }
-            let error = install(&source, &bin).unwrap_err();
+            let error = install(&source, &dest).unwrap_err();
             assert!(error.contains(dest.to_string_lossy().as_ref()), "{error}");
             match kind {
                 "file" => assert_eq!(fs::read_to_string(dest).unwrap(), "user command"),
@@ -245,17 +245,18 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let source = bundled_cli(tmp.path());
         let bin = tmp.path().join(".local/bin");
+        let dest = bin.join("strudeland");
         fs::write(tmp.path().join(".local"), "occupied").unwrap();
         assert!(
-            install(&source, &bin)
+            install(&source, &dest)
                 .unwrap_err()
                 .contains(bin.to_string_lossy().as_ref())
         );
         fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(install(&source, &bin).unwrap_err().contains("executable"));
+        assert!(install(&source, &dest).unwrap_err().contains("executable"));
         fs::remove_file(&source).unwrap();
         assert!(
-            install(&source, &bin)
+            install(&source, &dest)
                 .unwrap_err()
                 .contains(source.to_string_lossy().as_ref())
         );

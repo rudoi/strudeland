@@ -6,7 +6,7 @@
       <Directory Id="StrudelandCliDir" Name="Strudeland CLI">
         <Component Id="StrudelandCli" Guid="E55DCB75-266B-45AA-A9E1-4EF6687D7565" Win64="yes">
           <File Id="StrudelandCliExe" Name="strudeland.exe"
-                Source="$(env.STRUDELAND_CLI_MSI_SOURCE)" KeyPath="yes" />
+                Source="$(env.TAURI_STRUDELAND_CLI_MSI_SOURCE)" KeyPath="yes" />
           <Environment Id="StrudelandCliPath" Name="PATH" Value="[StrudelandCliDir]"
                        Action="set" Part="last" System="yes" />
         </Component>
