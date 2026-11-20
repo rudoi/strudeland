@@ -63,7 +63,7 @@ async function main(): Promise<number> {
     return 1;
   }
   console.error(`signing with ${picked.identity}`);
-  const built = await run(['bun', 'run', 'tauri', 'build', '--debug', '--bundles', 'app'], {
+  const built = await run(['bun', 'run', 'app:bundle', 'app', '--debug'], {
     APPLE_SIGNING_IDENTITY: picked.identity,
   });
   if (built !== 0) return 1;

@@ -44,18 +44,37 @@ if [[ "$bundle" == dmg ]]; then
     xcrun stapler validate "$installer"
   fi
   hdiutil verify "$installer"
-  mountpoint=$(mktemp -d)
-  trap 'hdiutil detach -quiet "$mountpoint" 2>/dev/null || true; rmdir "$mountpoint"' EXIT
+  scratch=$(mktemp -d)
+  mountpoint="$scratch/mount"
+  mkdir "$mountpoint"
+  trap 'hdiutil detach -quiet "$mountpoint" 2>/dev/null || true; rm -f "$scratch/cli.wav"; rmdir "$mountpoint" "$scratch"' EXIT
   hdiutil attach -nobrowse -readonly -mountpoint "$mountpoint" "$installer"
   app="$mountpoint/strudeland.app"
   codesign --verify --deep --strict "$app"
   executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
-  file "$app/Contents/MacOS/$executable" | grep -F arm64
+  gui="$app/Contents/MacOS/$executable"
+  cli="$app/Contents/MacOS/strudeland-cli"
+  file "$gui" | grep -F arm64
+  [[ -f "$cli" && -x "$cli" && ! "$gui" -ef "$cli" ]]
+  if cmp -s "$gui" "$cli"; then
+    echo "The app packages identical content as the CLI and GUI" >&2
+    exit 1
+  fi
+  test "$(lipo -archs "$cli")" = arm64
+  codesign --verify --strict "$cli"
+  cli_version=$("$cli" --version)
+  test "$cli_version" = "strudeland $version"
+  "$cli" docs --list | grep -Fx fast
+  "$cli" render tests/render/corpus/bass-line.js --length 1 --out "$scratch/cli.wav"
+  test -s "$scratch/cli.wav"
   if [[ "$signing" == developer-id ]]; then
     codesign -dr - "$app" 2>&1 | grep -F 'identifier "com.rudoi.strudeland"'
     xcrun stapler validate "$app"
     spctl --assess --type exec --verbose "$app"
   fi
+elif [[ "$bundle" == msi ]]; then
+  MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w scripts/verify-msi.ps1)" -Installer "$(cygpath -w "$installer")" -Version "$version"
 elif [[ "$bundle" == deb ]]; then
   test "$(dpkg-deb -f "$installer" Architecture)" = amd64
 fi
