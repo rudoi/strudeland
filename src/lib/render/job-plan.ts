@@ -30,7 +30,7 @@ import {
   type Selected,
   type WindowPlan,
 } from './plan';
-import { eventsFromValues, type RenderEvent } from './schedule';
+import { eventsFromValues, exportTimingEvent, type RenderEvent } from './schedule';
 
 /** The part of a Strudel runtime the planner uses (the page and the host adapt theirs). */
 export interface PlannerRuntime {
@@ -541,13 +541,17 @@ export async function planRender(
         start === loopStartBar;
       const scheduleStart = isolated ? start : 0;
       const full = selectHaps(query(scheduleStart, end));
-      const events = eventsFromValues(eventSources(full.selected), cps);
+      const events =
+        request.includeEvents || !request.preset
+          ? eventsFromValues(eventSources(full.selected), cps)
+          : [];
       if (request.includeEvents) for (const event of events) allEvents.push(event);
-      // ScheduleResult keeps whole timespans; the engine plays hap.duration (clip/legato).
-      const engineEvents = request.preset
-        ? events.map((e, j) => ({ ...e, durSec: Number(full.selected[j]!.hap.duration) / cps }))
-        : events;
-      const decay = request.preset ? exportDecay(engineEvents, end / cps) : undefined;
+      const exportEvents = request.preset
+        ? full.selected.map((s) =>
+            exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps),
+          )
+        : undefined;
+      const decay = exportEvents ? exportDecay(exportEvents, end / cps) : undefined;
       const history = decay?.lookbackSec ?? lookbackSeconds(events);
       lookbackSec = Math.max(lookbackSec, history);
       if (end === toBar && decay && request.preset !== 'tagged-loop') {
@@ -557,7 +561,7 @@ export async function planRender(
       const plans = renderChunkPlans({
         fromBar: start,
         toBar: end,
-        events: engineEvents,
+        events: exportEvents ?? events,
         cps,
         overlapBars: 0,
         lookbackSec: history,

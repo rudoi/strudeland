@@ -144,13 +144,22 @@ export function lookbackSeconds(events: RenderEvent[], opts?: LookbackOptions): 
  *  delay plus one render quantum, down to -60 dB with the engine's 0.98 feedback ceiling.
  *  Orbit settings are shared, so allow a wet voice to ring through later changes on its orbit.
  *  An empty schedule, silence markers or a decay that ends before the cut need no post-roll. */
-export function exportDecay(events: RenderEvent[], cutoffSec: number) {
+export function exportDecay(
+  events: (RenderEvent & { filterTailSec: number; djFilter: boolean })[],
+  cutoffSec: number,
+) {
   const sounding = events.filter((e) => !['~', '-', '_'].includes(e.s));
-  const own = sounding.map((e) => ownSec({ ...e, release: Math.max(e.release, 0.01) }));
+  const own = sounding.map(
+    (e) => ownSec({ ...e, release: Math.max(e.release, 0.01) }) + e.filterTailSec,
+  );
   const feed = busFeedSec(sounding, own);
-  const effects = new Map<number, { reverb: number; time: number; feedback: number }>();
+  const effects = new Map<
+    number,
+    { reverb: number; time: number; feedback: number; djFilterSec: number }
+  >();
   for (const e of sounding) {
-    const fx = effects.get(e.orbit) ?? { reverb: 0, time: 0, feedback: 0 };
+    const fx = effects.get(e.orbit) ?? { reverb: 0, time: 0, feedback: 0, djFilterSec: 0 };
+    if (e.djFilter) fx.djFilterSec = LOOKBACK_MARGIN_SEC;
     if (e.room) fx.reverb = Math.max(fx.reverb, 1.5 * e.room.size);
     if (e.delay) {
       fx.time = Math.max(fx.time, Math.min(1, e.delay.timeSec));
@@ -164,7 +173,8 @@ export function exportDecay(events: RenderEvent[], cutoffSec: number) {
     const fx = effects.get(e.orbit)!;
     const repeats = e.delay ? Math.ceil(delayTailSec(1, fx.feedback)) : 0;
     const echo = e.delay ? fx.time + repeats * (fx.time + 128 / SAMPLE_RATE) : 0;
-    const life = own[i]! + maxFeed(e.busReads, feed) + Math.max(echo, e.room ? fx.reverb : 0);
+    const life =
+      own[i]! + maxFeed(e.busReads, feed) + Math.max(echo, e.room ? fx.reverb : 0) + fx.djFilterSec;
     historySec = Math.max(historySec, life);
     endSec = Math.max(endSec, e.tSec + life);
   }

@@ -17605,11 +17605,13 @@ Defaulting to 2020, but this will stop working in the future.`);
   }
   function exportDecay(events, cutoffSec) {
     const sounding = events.filter((e) => !["~", "-", "_"].includes(e.s));
-    const own = sounding.map((e) => ownSec({ ...e, release: Math.max(e.release, 0.01) }));
+    const own = sounding.map((e) => ownSec({ ...e, release: Math.max(e.release, 0.01) }) + e.filterTailSec);
     const feed = busFeedSec(sounding, own);
     const effects = new Map;
     for (const e of sounding) {
-      const fx = effects.get(e.orbit) ?? { reverb: 0, time: 0, feedback: 0 };
+      const fx = effects.get(e.orbit) ?? { reverb: 0, time: 0, feedback: 0, djFilterSec: 0 };
+      if (e.djFilter)
+        fx.djFilterSec = LOOKBACK_MARGIN_SEC;
       if (e.room)
         fx.reverb = Math.max(fx.reverb, 1.5 * e.room.size);
       if (e.delay) {
@@ -17624,7 +17626,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       const fx = effects.get(e.orbit);
       const repeats = e.delay ? Math.ceil(delayTailSec(1, fx.feedback)) : 0;
       const echo = e.delay ? fx.time + repeats * (fx.time + 128 / SAMPLE_RATE) : 0;
-      const life = own[i2] + maxFeed(e.busReads, feed) + Math.max(echo, e.room ? fx.reverb : 0);
+      const life = own[i2] + maxFeed(e.busReads, feed) + Math.max(echo, e.room ? fx.reverb : 0) + fx.djFilterSec;
       historySec = Math.max(historySec, life);
       endSec = Math.max(endSec, e.tSec + life);
     }
@@ -17815,6 +17817,17 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
   }
   var isPropertyKey = (x) => typeof x === "string" || typeof x === "number" || typeof x === "symbol";
+  function* modConfigs(mod2) {
+    if (!isObject(mod2))
+      return;
+    for (const id of modIds(mod2)) {
+      if (!isPropertyKey(id))
+        continue;
+      const config = mod2[id];
+      if (isObject(config))
+        yield config;
+    }
+  }
   function busReadsOf(v) {
     const reads = new Set;
     const add = (x) => {
@@ -17825,14 +17838,8 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (v.s === "bus")
       add(v.n ?? 0);
     for (const e of [v, ...fxEntries(v)]) {
-      const bmod = e.bmod;
-      for (const id of modIds(bmod)) {
-        if (!isPropertyKey(id))
-          continue;
-        const config = bmod[id];
-        if (isObject(config))
-          add(config.bus);
-      }
+      for (const config of modConfigs(e.bmod))
+        add(config.bus);
     }
     return [...reads];
   }
@@ -17842,7 +17849,72 @@ Defaulting to 2020, but this will stop working in the future.`);
     const k = busKey(bus);
     return k === null ? [] : [k];
   }
-  function toEvent(src, cps) {
+  function engineNum(value) {
+    if (value === null || typeof value === "boolean")
+      return Number(value);
+    if (typeof value === "string")
+      return num(Number(value));
+    return num(value);
+  }
+  function roomNum(value) {
+    return Array.isArray(value) ? num(Number(value)) : engineNum(value);
+  }
+  var FILTERS = [
+    ["cutoff", "resonance", "lp"],
+    ["hcutoff", "hresonance", "hp"],
+    ["bandf", "bandq", "bp"]
+  ];
+  var FILTER_MAX_TAIL_SEC = 30;
+  function exportFilterTailSec(v) {
+    const entries = [v, ...fxEntries(v)];
+    let seconds = 0;
+    let hasFilter = false;
+    let implicitSeconds = 0;
+    for (const entry of entries) {
+      if (entry.vowel !== undefined)
+        implicitSeconds += 1;
+      if (entry.phaserrate !== undefined && (engineNum(entry.phaserdepth ?? undefined) ?? 0.75) > 0)
+        implicitSeconds += LOOKBACK_MARGIN_SEC;
+      for (const [frequency, resonance, family] of FILTERS) {
+        if (entry[frequency] === undefined)
+          continue;
+        hasFilter = true;
+        const hz = engineNum(entry[frequency]) ?? 0;
+        const rawQ = engineNum(entry[resonance]) ?? 1;
+        const q = family === "bp" ? rawQ : 10 ** (rawQ / 20);
+        let lowHz = hz;
+        let highHz = hz;
+        if (["env", "attack", "decay", "sustain", "release"].some((k) => entry[family + k] !== undefined)) {
+          const octaves = Math.abs(engineNum(entry[family + "env"]) ?? 1);
+          const offset2 = octaves * (engineNum(entry.fanchor) ?? 0);
+          lowHz = Math.min(20000, hz * 2 ** -offset2);
+          highHz = Math.min(20000, hz * 2 ** (octaves - offset2));
+        }
+        if (["rate", "sync", "depth", "depthfrequency", "shape", "skew"].some((k) => entry[family + k] !== undefined)) {
+          lowHz += Math.min(0, 30 - hz);
+          highHz += Math.max(0, 20000 - hz);
+        }
+        const edgeHz = Math.min(lowHz, SAMPLE_RATE / 2 - highHz);
+        const rings = q > 0 && highHz > 0 && lowHz < SAMPLE_RATE / 2;
+        if (rings)
+          seconds += Math.max(LOOKBACK_MARGIN_SEC, 6 * Math.max(q, 1 / q) / Math.max(0, edgeHz));
+      }
+    }
+    if (!hasFilter && !implicitSeconds)
+      return 0;
+    for (const entry of entries) {
+      for (const mod2 of [entry.lfo, entry.env, entry.bmod]) {
+        for (const config of modConfigs(mod2)) {
+          const control = typeof config.control === "string" ? config.control.split("_")[0] : null;
+          if (control === "vowel" || control === "phasercenter" || control === "phaserdepth" || FILTERS.some(([f, q]) => control === f || control === q))
+            return FILTER_MAX_TAIL_SEC;
+        }
+      }
+    }
+    const doubled = v.ftype === "24db" || typeof v.ftype === "number" && (v.ftype % 3 + 3) % 3 >= 2;
+    return Math.min(FILTER_MAX_TAIL_SEC, implicitSeconds + seconds * (doubled ? 2 : 1));
+  }
+  function toEvent(src, cps, engineTiming = false) {
     const raw = src.value;
     let v;
     if (typeof raw === "string")
@@ -17851,38 +17923,39 @@ Defaulting to 2020, but this will stop working in the future.`);
       v = raw;
     else
       v = {};
-    const roomAmount = num(v.room);
-    const delayAmount = num(v.delay);
+    const timingNum = engineTiming ? engineNum : num;
+    const roomAmount = engineTiming ? roomNum(v.room) : num(v.room);
+    const delayAmount = timingNum(v.delay);
     const note = typeof v.note === "number" || typeof v.note === "string" ? v.note : null;
     return {
       tSec: src.wholeBeginCycles / cps,
       durSec: src.wholeDurCycles / cps,
       bar: Math.floor(src.wholeBeginCycles),
       s: typeof v.s === "string" ? v.s : "",
-      orbit: num(v.orbit) ?? 1,
+      orbit: timingNum(v.orbit ?? undefined) ?? 1,
       freq: freqOf(v),
       note,
       gain: (num(v.gain) ?? 0.8) * (num(v.velocity) ?? 1),
       attack: num(v.attack) ?? 0,
       decay: num(v.decay) ?? 0,
       sustain: num(v.sustain),
-      release: num(v.release) ?? 0.01,
+      release: timingNum(v.release) ?? 0.01,
       penv: num(v.penv) ?? 0,
       cutoff: num(v.cutoff),
       room: roomAmount !== null && roomAmount > 0 ? {
         amount: roomAmount,
-        size: num(v.roomsize) ?? num(v.size) ?? num(v.rsize) ?? 2,
+        size: (engineTiming ? roomNum(v.roomsize) : num(v.roomsize) ?? num(v.size) ?? num(v.rsize)) ?? 2,
         fade: num(v.roomfade) ?? 0.1,
         lp: num(v.roomlp) ?? 15000,
         dim: num(v.roomdim) ?? 1000
       } : null,
       delay: delayAmount !== null && delayAmount > 0 ? {
         amount: delayAmount,
-        timeSec: num(v.delaytime) ?? (num(v.delaysync) ?? 3 / 16) / cps,
-        feedback: num(v.delayfeedback) ?? 0.5
+        timeSec: timingNum(v.delaytime ?? undefined) ?? (timingNum(v.delaysync) ?? 3 / 16) / cps,
+        feedback: timingNum(v.delayfeedback) ?? 0.5
       } : null,
       stochastic: v.workletSrc !== undefined,
-      fxRelease: num(v.FXrelease) ?? 0,
+      fxRelease: timingNum(v.FXrelease) ?? 0,
       compressor: v.compressor !== undefined || fxEntries(v).some((e) => e.compressor !== undefined),
       busSends: busSendsOf(v.bus),
       busReads: busReadsOf(v)
@@ -17892,6 +17965,15 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (!Number.isFinite(cps) || cps <= 0)
       throw new RangeError(`invalid cps ${cps}`);
     return sources.map((s) => toEvent(s, cps)).sort((a, b) => a.tSec - b.tSec);
+  }
+  function exportTimingEvent(value, onset, duration, cps) {
+    const src = { value, wholeBeginCycles: onset, wholeDurCycles: duration };
+    const djf = Math.fround(engineNum(value.djf ?? undefined) ?? 0.5);
+    return {
+      ...toEvent(src, cps, true),
+      filterTailSec: exportFilterTailSec(value),
+      djFilter: djf < 0.49 || djf > 0.51
+    };
   }
 
   // src/lib/render/engine-job.ts
@@ -18324,12 +18406,12 @@ Defaulting to 2020, but this will stop working in the future.`);
         const isolated = (request.preset === "intro-loop" || request.preset === "folded-loop") && start === loopStartBar;
         const scheduleStart = isolated ? start : 0;
         const full = selectHaps(query(scheduleStart, end));
-        const events = eventsFromValues(eventSources(full.selected), cps);
+        const events = request.includeEvents || !request.preset ? eventsFromValues(eventSources(full.selected), cps) : [];
         if (request.includeEvents)
           for (const event of events)
             allEvents.push(event);
-        const engineEvents = request.preset ? events.map((e, j) => ({ ...e, durSec: Number(full.selected[j].hap.duration) / cps })) : events;
-        const decay = request.preset ? exportDecay(engineEvents, end / cps) : undefined;
+        const exportEvents = request.preset ? full.selected.map((s) => exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps)) : undefined;
+        const decay = exportEvents ? exportDecay(exportEvents, end / cps) : undefined;
         const history = decay?.lookbackSec ?? lookbackSeconds(events);
         lookbackSec = Math.max(lookbackSec, history);
         if (end === toBar && decay && request.preset !== "tagged-loop") {
@@ -18339,7 +18421,7 @@ Defaulting to 2020, but this will stop working in the future.`);
         const plans = renderChunkPlans({
           fromBar: start,
           toBar: end,
-          events: engineEvents,
+          events: exportEvents ?? events,
           cps,
           overlapBars: 0,
           lookbackSec: history

@@ -3,6 +3,9 @@
  * superdough's defaults filled in. The harness gates compare audio against these events. Pure.
  */
 
+import { SAMPLE_RATE } from './contract';
+import { LOOKBACK_MARGIN_SEC } from './thresholds';
+
 export interface RenderEvent {
   /** Onset, layout seconds = hap.whole.begin / cps. */
   tSec: number;
@@ -128,6 +131,15 @@ function busKey(x: unknown): string | null {
 const isPropertyKey = (x: unknown): x is PropertyKey =>
   typeof x === 'string' || typeof x === 'number' || typeof x === 'symbol';
 
+function* modConfigs(mod: unknown): Generator<Record<string, unknown>> {
+  if (!isObject(mod)) return;
+  for (const id of modIds(mod)) {
+    if (!isPropertyKey(id)) continue;
+    const config = (mod as Record<PropertyKey, unknown>)[id];
+    if (isObject(config)) yield config;
+  }
+}
+
 /** `getBus` keys this voice reads: the bus sound's `n ?? 0`, then each `bmod` config's `bus` on
  *  the value and every `FX` entry (superdough's `connectBusModulator`). */
 function busReadsOf(v: Record<string, unknown>): string[] {
@@ -138,12 +150,7 @@ function busReadsOf(v: Record<string, unknown>): string[] {
   };
   if (v.s === 'bus') add(v.n ?? 0);
   for (const e of [v, ...fxEntries(v)]) {
-    const bmod = e.bmod;
-    for (const id of modIds(bmod)) {
-      if (!isPropertyKey(id)) continue;
-      const config = (bmod as Record<PropertyKey, unknown>)[id];
-      if (isObject(config)) add(config.bus);
-    }
+    for (const config of modConfigs(e.bmod)) add(config.bus);
   }
   return [...reads];
 }
@@ -155,15 +162,109 @@ function busSendsOf(bus: unknown): string[] {
   return k === null ? [] : [k];
 }
 
-function toEvent(src: EventSource, cps: number): RenderEvent {
+/** Numeric controls as read by the engine (controls.rs js_to_number). Only reverb also
+ *  converts arrays through their string representation (js_to_number_full). */
+function engineNum(value: unknown): number | null {
+  if (value === null || typeof value === 'boolean') return Number(value);
+  if (typeof value === 'string') return num(Number(value));
+  return num(value);
+}
+
+function roomNum(value: unknown): number | null {
+  return Array.isArray(value) ? num(Number(value)) : engineNum(value);
+}
+
+const FILTERS = [
+  ['cutoff', 'resonance', 'lp'],
+  ['hcutoff', 'hresonance', 'hp'],
+  ['bandf', 'bandq', 'bp'],
+] as const;
+const FILTER_MAX_TAIL_SEC = 30; // biquad.rs MAX_TAIL_TIME
+
+/** Clearance for export after a filtered voice's amp envelope closes. The static estimate
+ *  allows six Q-weighted periods at the nearer of DC and Nyquist, for both oscillatory and
+ *  overdamped poles. The engine takes Q in dB for low/high pass and linear Q for bandpass.
+ *  The engine caps a biquad's tail time at 30 seconds. */
+function exportFilterTailSec(v: Record<string, unknown>): number {
+  const entries = [v, ...fxEntries(v)];
+  let seconds = 0;
+  let hasFilter = false;
+  let implicitSeconds = 0;
+  for (const entry of entries) {
+    // The vowel's parallel formants have six Q-weighted periods under one second (vowel.rs).
+    if (entry.vowel !== undefined) implicitSeconds += 1;
+    if (entry.phaserrate !== undefined && (engineNum(entry.phaserdepth ?? undefined) ?? 0.75) > 0)
+      implicitSeconds += LOOKBACK_MARGIN_SEC; // the phaser's swept notch
+
+    for (const [frequency, resonance, family] of FILTERS) {
+      if (entry[frequency] === undefined) continue;
+      hasFilter = true;
+      const hz = engineNum(entry[frequency]) ?? 0;
+      const rawQ = engineNum(entry[resonance]) ?? 1;
+      const q = family === 'bp' ? rawQ : 10 ** (rawQ / 20);
+      let lowHz = hz;
+      let highHz = hz;
+      // The filter envelope sweeps +/- octaves around its anchor, capped at 20 kHz.
+      if (
+        ['env', 'attack', 'decay', 'sustain', 'release'].some(
+          (k) => entry[family + k] !== undefined,
+        )
+      ) {
+        const octaves = Math.abs(engineNum(entry[family + 'env']) ?? 1);
+        const offset = octaves * (engineNum(entry.fanchor) ?? 0);
+        lowHz = Math.min(20000, hz * 2 ** -offset);
+        highHz = Math.min(20000, hz * 2 ** (octaves - offset));
+      }
+      if (
+        ['rate', 'sync', 'depth', 'depthfrequency', 'shape', 'skew'].some(
+          (k) => entry[family + k] !== undefined,
+        )
+      ) {
+        // A built-in filter LFO can sweep down to 30 Hz. With an envelope too, the two add.
+        lowHz += Math.min(0, 30 - hz);
+        highHz += Math.max(0, 20000 - hz);
+      }
+      const edgeHz = Math.min(lowHz, SAMPLE_RATE / 2 - highHz);
+      // A static cutoff at DC or Nyquist degenerates to a pass or silence. A sweep passing
+      // through that point can approach it arbitrarily closely.
+      const rings = q > 0 && highHz > 0 && lowHz < SAMPLE_RATE / 2;
+      if (rings)
+        seconds += Math.max(LOOKBACK_MARGIN_SEC, (6 * Math.max(q, 1 / q)) / Math.max(0, edgeHz));
+    }
+  }
+  if (!hasFilter && !implicitSeconds) return 0;
+  // Generic modulators may target a different FX entry and drive its cutoff or Q beyond the
+  // static estimate. This scan includes only filter targets, so gain modulation stays cheap.
+  for (const entry of entries) {
+    for (const mod of [entry.lfo, entry.env, entry.bmod]) {
+      for (const config of modConfigs(mod)) {
+        const control = typeof config.control === 'string' ? config.control.split('_')[0] : null;
+        if (
+          control === 'vowel' ||
+          control === 'phasercenter' ||
+          control === 'phaserdepth' ||
+          FILTERS.some(([f, q]) => control === f || control === q)
+        )
+          return FILTER_MAX_TAIL_SEC;
+      }
+    }
+  }
+  // The 24 dB setting cascades each stage twice (numeric ftype wraps around three settings).
+  const doubled =
+    v.ftype === '24db' || (typeof v.ftype === 'number' && ((v.ftype % 3) + 3) % 3 >= 2);
+  return Math.min(FILTER_MAX_TAIL_SEC, implicitSeconds + seconds * (doubled ? 2 : 1));
+}
+
+function toEvent(src: EventSource, cps: number, engineTiming = false): RenderEvent {
   const raw: unknown = src.value;
   let v: Record<string, unknown>;
   if (typeof raw === 'string') v = { s: raw };
   else if (raw !== null && typeof raw === 'object') v = raw as Record<string, unknown>;
   else v = {};
 
-  const roomAmount = num(v.room);
-  const delayAmount = num(v.delay);
+  const timingNum = engineTiming ? engineNum : num;
+  const roomAmount = engineTiming ? roomNum(v.room) : num(v.room);
+  const delayAmount = timingNum(v.delay);
   const note = typeof v.note === 'number' || typeof v.note === 'string' ? v.note : null;
 
   return {
@@ -171,21 +272,24 @@ function toEvent(src: EventSource, cps: number): RenderEvent {
     durSec: src.wholeDurCycles / cps,
     bar: Math.floor(src.wholeBeginCycles),
     s: typeof v.s === 'string' ? v.s : '',
-    orbit: num(v.orbit) ?? 1,
+    orbit: timingNum(v.orbit ?? undefined) ?? 1,
     freq: freqOf(v),
     note,
     gain: (num(v.gain) ?? 0.8) * (num(v.velocity) ?? 1),
     attack: num(v.attack) ?? 0,
     decay: num(v.decay) ?? 0,
     sustain: num(v.sustain),
-    release: num(v.release) ?? 0.01,
+    release: timingNum(v.release) ?? 0.01,
     penv: num(v.penv) ?? 0,
     cutoff: num(v.cutoff),
     room:
       roomAmount !== null && roomAmount > 0
         ? {
             amount: roomAmount,
-            size: num(v.roomsize) ?? num(v.size) ?? num(v.rsize) ?? 2,
+            size:
+              (engineTiming
+                ? roomNum(v.roomsize)
+                : (num(v.roomsize) ?? num(v.size) ?? num(v.rsize))) ?? 2,
             fade: num(v.roomfade) ?? 0.1,
             lp: num(v.roomlp) ?? 15000,
             dim: num(v.roomdim) ?? 1000,
@@ -195,12 +299,13 @@ function toEvent(src: EventSource, cps: number): RenderEvent {
       delayAmount !== null && delayAmount > 0
         ? {
             amount: delayAmount,
-            timeSec: num(v.delaytime) ?? (num(v.delaysync) ?? 3 / 16) / cps,
-            feedback: num(v.delayfeedback) ?? 0.5,
+            timeSec:
+              timingNum(v.delaytime ?? undefined) ?? (timingNum(v.delaysync) ?? 3 / 16) / cps,
+            feedback: timingNum(v.delayfeedback) ?? 0.5,
           }
         : null,
     stochastic: v.workletSrc !== undefined,
-    fxRelease: num(v.FXrelease) ?? 0,
+    fxRelease: timingNum(v.FXrelease) ?? 0,
     compressor: v.compressor !== undefined || fxEntries(v).some((e) => e.compressor !== undefined),
     busSends: busSendsOf(v.bus),
     busReads: busReadsOf(v),
@@ -212,4 +317,21 @@ function toEvent(src: EventSource, cps: number): RenderEvent {
 export function eventsFromValues(sources: EventSource[], cps: number): RenderEvent[] {
   if (!Number.isFinite(cps) || cps <= 0) throw new RangeError(`invalid cps ${cps}`);
   return sources.map((s) => toEvent(s, cps)).sort((a, b) => a.tSec - b.tSec);
+}
+
+/** The export's lifetime model follows the engine duration and numeric coercions. Keep the
+ *  schedule reported by includeEvents (and used by the regular parity gates) as authored. */
+export function exportTimingEvent(
+  value: Record<string, unknown>,
+  onset: number,
+  duration: number,
+  cps: number,
+) {
+  const src = { value, wholeBeginCycles: onset, wholeDurCycles: duration };
+  const djf = Math.fround(engineNum(value.djf ?? undefined) ?? 0.5);
+  return {
+    ...toEvent(src, cps, true),
+    filterTailSec: exportFilterTailSec(value),
+    djFilter: djf < 0.49 || djf > 0.51,
+  };
 }

@@ -1300,6 +1300,91 @@ describe('loop export windows and decay', () => {
     },
   );
 
+  async function exportTail(value: Record<string, unknown>) {
+    const f = fakeRuntime({ query: () => [hap(0, 1, { s: 'sine', release: 1, ...value })] });
+    const shot = await run(f.rt, 'one-shot', { kind: 'length', bars: 1 });
+    return shot.export!.tailFrames;
+  }
+
+  test('keeps ringing LP, HP and BP stages past the amp release, including FX entries', async () => {
+    const dry = await exportTail({});
+    expect(dry).toBe(44100);
+    expect(await exportTail({ vowel: 'a' })).toBe(dry + 44100);
+    expect(await exportTail({ FX: [{ vowel: 'u' }] })).toBe(dry + 44100);
+    expect(await exportTail({ phaserrate: 1 })).toBe(dry + 22050);
+    expect(await exportTail({ phaserrate: 1, phaserdepth: 0 })).toBe(dry);
+    expect(await exportTail({ djf: 0.3 })).toBe(dry + 22050);
+    expect(await exportTail({ djf: 0.5 })).toBe(dry);
+    for (const endpoint of [
+      { cutoff: 24000 },
+      { hcutoff: 0 },
+      { bandf: 22050 },
+      { bandf: 500, bandq: 0 },
+    ]) {
+      expect(await exportTail(endpoint)).toBe(dry);
+    }
+    for (const filter of [
+      { cutoff: 1500, resonance: 15 },
+      { hcutoff: 1500, hresonance: 15 },
+      { bandf: 1500, bandq: 10 },
+    ]) {
+      expect(await exportTail(filter)).toBe(dry + 22050);
+      expect(await exportTail({ FX: [filter] })).toBe(dry + 22050);
+    }
+    // The low-frequency, high-Q resonance needs more time. Modulating its cutoff or Q can
+    // take it beyond the static estimate, so the per-voice allowance is capped at 30 s.
+    expect(await exportTail({ bandf: 40, bandq: 20 })).toBe(dry + 3 * 44100);
+    const mod = (control: string) => ({ __ids: new Set([0]), 0: { control } });
+    expect(await exportTail({ FX: [{ hcutoff: 400 }], lfo: mod('hcutoff') })).toBe(
+      dry + 30 * 44100,
+    );
+    expect(await exportTail({ cutoff: 1500, resonance: 15, lfo: mod('gain') })).toBe(dry + 22050);
+    expect(await exportTail({ cutoff: 1000, resonance: 40, lprate: 3 })).toBeGreaterThan(
+      dry + 44100,
+    );
+    expect(await exportTail({ bandf: 1, bandq: 10000 })).toBe(dry + 30 * 44100);
+  });
+
+  test.each([
+    [{ release: true }, { release: 1 }],
+    [{ release: false }, { release: null }],
+    [
+      { FXrelease: true, release: 0 },
+      { FXrelease: 1, release: 0 },
+    ],
+    [
+      { delay: true, delaytime: null, delaysync: true, delayfeedback: false },
+      { delay: 1, delaytime: 2, delayfeedback: 0 },
+    ],
+    [
+      { delay: 1, delaytime: 0.5, delayfeedback: null },
+      { delay: 1, delaytime: 0.5, delayfeedback: 0 },
+    ],
+    [
+      { room: [1], roomsize: [3] },
+      { room: 1, roomsize: 3 },
+    ],
+    [
+      { room: true, roomsize: null },
+      { room: 1, roomsize: 0 },
+    ],
+    [
+      { hcutoff: true, hresonance: true },
+      { hcutoff: 1, hresonance: 1 },
+    ],
+  ])('matches engine-equivalent timing controls %o and %o', async (value, equivalent) => {
+    expect(await exportTail(value)).toBe(await exportTail(equivalent));
+  });
+
+  test('includeEvents keeps the authored schedule when export timing coerces a control', async () => {
+    const f = fakeRuntime({ query: () => [hap(0, 1, { s: 'sine', release: true })] });
+    const shot = await run(f.rt, 'one-shot', { kind: 'length', bars: 1 });
+    expect(shot.export!.tailFrames).toBe(44100);
+    expect(shot.events![0]!.release).toBe(0.01);
+    const regular = await run(f.rt, undefined, { kind: 'length', bars: 1 });
+    expect(regular.events).toEqual(shot.events);
+  });
+
   test('an empty schedule and an early note that already decayed require zero frames', async () => {
     for (const notes of [[], [hap(0, 0.25, { s: 'sine' })]]) {
       const shot = await run(fakeRuntime({ query: () => notes }).rt, 'one-shot', {
