@@ -10,8 +10,9 @@ use crate::join::window_frames;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
 use crate::{
-    ExportPreset, Format, LoopAudio, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
-    RenderOutput, RenderedAudio, Summary, finish_file, ms_since, render_audio_for,
+    AudioMode, ExportPreset, Format, LoopAudio, Loudness, OutputOptions, PipelineAudio, Progress,
+    RenderError, RenderOptions, RenderOutput, RenderedAudio, Summary, finish_file, ms_since,
+    render_audio_for,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -51,7 +52,11 @@ pub fn render_export(
     preset: ExportPreset,
     progress: &dyn Fn(Progress),
 ) -> Result<Vec<ExportFile>, RenderError> {
-    let (mut audio, loop_audio) = render_audio_for(code, opts, Some(preset), progress)?;
+    let PipelineAudio {
+        mut audio,
+        loop_audio,
+        ..
+    } = render_audio_for(code, opts, AudioMode::Preset(preset), progress)?;
     if preset == ExportPreset::OneShot {
         trim_silent_post_roll(&mut audio)?;
         return Ok(vec![ExportFile {

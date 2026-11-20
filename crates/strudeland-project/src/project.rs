@@ -51,7 +51,7 @@ pub struct ProjectInfo {
 }
 
 /// An open project folder.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     root: PathBuf,
     manifest: Manifest,
@@ -305,6 +305,60 @@ impl Project {
     /// Publishes a new render atomically. An existing destination is never replaced.
     pub fn create_render(&self, path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
         self.publish_render(path, bytes, atomic_create_bytes)
+    }
+
+    /// Resolves the directory for a set of renders without creating it.
+    pub fn render_set_path(&self, name: &str) -> Result<PathBuf, ProjectError> {
+        let dir = self.root.join(RENDERS_DIR);
+        let path = dir.join(name);
+        if !windows_file_name(name) || path.parent() != Some(dir.as_path()) {
+            return Err(ProjectError::PathOutsideProject(path.display().to_string()));
+        }
+        if fs::symlink_metadata(&dir).is_ok() {
+            check_dir(&dir, RENDERS_DIR, name)?;
+        }
+        Ok(path)
+    }
+
+    /// Reserves a new directory directly in this project's renders folder.
+    pub fn create_render_set(&self, path: &Path) -> Result<(), ProjectError> {
+        let dir = self.root.join(RENDERS_DIR);
+        let name = self.check_render_set_path(path)?;
+        match fs::create_dir(&dir) {
+            Ok(()) => (),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(e) => return Err(ProjectError::io(&dir, e)),
+        }
+        check_dir(&dir, RENDERS_DIR, name)?;
+        fs::create_dir(path).map_err(|e| ProjectError::io(path, e))
+    }
+
+    /// Publishes a new file in a previously reserved directory inside renders.
+    pub fn create_render_set_file(
+        &self,
+        set: &Path,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(), ProjectError> {
+        let set_name = self.check_render_set_path(set)?;
+        check_dir(set, RENDERS_DIR, set_name)?;
+        let path = set.join(name);
+        if !windows_file_name(name) || path.parent() != Some(set) {
+            return Err(ProjectError::PathOutsideProject(path.display().to_string()));
+        }
+        atomic_create_bytes(&path, bytes)
+    }
+
+    fn check_render_set_path<'a>(&self, path: &'a Path) -> Result<&'a str, ProjectError> {
+        let outside = || ProjectError::PathOutsideProject(path.display().to_string());
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(outside)?;
+        if self.render_set_path(name)? != path {
+            return Err(outside());
+        }
+        Ok(name)
     }
 
     fn publish_render(
@@ -693,9 +747,9 @@ fn device_basename(name: &str) -> bool {
         })
 }
 
-#[cfg(windows)]
 fn windows_file_name(name: &str) -> bool {
-    !name.ends_with([' ', '.'])
+    !name.is_empty()
+        && !name.ends_with([' ', '.'])
         && !name
             .chars()
             .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
@@ -2156,6 +2210,47 @@ mod tests {
         project.write_render(&path, b"two").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"two");
         assert_eq!(dir_names(&renders).len(), 1);
+    }
+
+    #[test]
+    fn render_sets_are_contained_and_never_replace_outputs() {
+        let (_tmp, project) = new_project();
+        assert!(project.render_set_path("../escape").is_err());
+        let set = project.render_set_path("song-stems").unwrap();
+        assert!(!set.exists());
+        project.create_render_set(&set).unwrap();
+        assert!(project.create_render_set(&set).is_err());
+        assert!(
+            project
+                .create_render_set_file(&set, "../escape", b"x")
+                .is_err()
+        );
+        project
+            .create_render_set_file(&set, "mix.wav", b"one")
+            .unwrap();
+        assert!(
+            project
+                .create_render_set_file(&set, "mix.wav", b"two")
+                .is_err()
+        );
+        assert_eq!(fs::read(set.join("mix.wav")).unwrap(), b"one");
+    }
+
+    #[test]
+    fn render_set_refuses_a_redirected_directory() {
+        let (tmp, project) = new_project();
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let set = project.render_set_path("song-stems").unwrap();
+        project.create_render_set(&set).unwrap();
+        fs::remove_dir(&set).unwrap();
+        test_symlink!(&outside, &set).unwrap();
+        assert!(
+            project
+                .create_render_set_file(&set, "mix.wav", b"x")
+                .is_err()
+        );
+        assert!(!outside.join("mix.wav").exists());
     }
 
     #[test]
