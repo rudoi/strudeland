@@ -108,8 +108,9 @@ strudeland render songs/main.js --format wav
 strudeland render songs/main.js --preset intro-loop --out soundtrack.wav
 ```
 
-The split preset writes `soundtrack-intro.wav` and `soundtrack-loop.wav`. Play the intro once,
-then repeat the loop file. Mark the loop section with `loop: true` in the song's metadata.
+Mark the loop section with `loop: true` in the song's metadata. The split preset always writes
+`soundtrack-intro.wav` and `soundtrack-loop.wav`. Play the first file once to hear any intro
+and the first pass through the loop. Then repeat `soundtrack-loop.wav` from frame zero.
 
 The CLI connects to a per-user endpoint.
 

@@ -49,21 +49,24 @@ Without a preset, the render ends at the requested musical boundary.
 ## Game audio presets
 
 Use `strudeland render song.js --preset PRESET`. The loop presets use the section marked
-`loop: true`, take one pass, and exclude sections after it. The one-shot accepts the usual
-`--section`, `--length` or `--loops` options.
+`loop: true` and exclude sections after it. Each loop export includes a first pass through the body
+and a repeat region of the same length. The one-shot accepts the usual `--section`, `--length`
+or `--loops` options.
 
 | Preset | Output |
 | --- | --- |
-| `intro-loop` | `<name>-intro.<ext>` and `<name>-loop.<ext>`. Play the intro once, then start the loop file from frame zero and repeat it. A song beginning with the loop produces just the loop file. |
-| `tagged-loop` | One file with the intro followed by the marked loop through EOF. The loop range starts after the intro. |
-| `folded-loop` | One loop file. The release and effect decay after the loop end are mixed into its beginning, wrapping again as needed. |
+| `intro-loop` | Always two files. Play `<name>-intro.<ext>` once for any intro and the first pass. Then play `<name>-loop.<ext>`, whose repeat marker starts at frame zero. |
+| `tagged-loop` | One file with any intro, the first pass and the marked repeat region. Start at frame zero and loop from the marker through EOF. |
+| `folded-loop` | One file that starts at the marked section with fresh effect state. Start at frame zero to hear the first pass, then loop from the marker through EOF. |
 | `one-shot` | One file that includes the requested arrangement and then lets triggered notes and effects decay. Trailing zero frames after the requested arrangement are trimmed. |
 
-For `intro-loop`, the intro ends at its musical boundary and the loop is rendered and
-tail-folded in isolation. The two files share a static gain so their relative levels stay
-intact. The game controls the handoff. A click already present in the source or imposed by
-the player or codec can still be audible. For sample-exact loops use WAV. MP3 exports warn
-because playback can expose encoder delay and padding.
+Intro effects carry into the first pass for `intro-loop` and `tagged-loop`. The repeat region
+uses the loop body alone, with its release and effect decay folded back into it. The last
+frames of the first pass blend into the corresponding frames of the repeat to match the boundary
+waveform even with long tails. In a split export, the game controls the handoff and the opening
+has no loop marker. Use WAV for sample-exact playback. A click already present in the source
+or imposed by the player or codec can still be audible. MP3 exports warn because playback can
+expose encoder delay and padding.
 
 For example, `strudeland render song.js --preset intro-loop --out music.wav` writes
 `music-intro.wav` and `music-loop.wav`. Assets are encoded before either is written. Each
@@ -77,7 +80,8 @@ In Godot, use the WAV metadata detection option for WAV, or enable Loop and ente
 reported offset for Ogg Vorbis or MP3.
 [Godot audio import settings](https://docs.godotengine.org/en/4.5/tutorials/assets_pipeline/importing_audio_samples.html)
 
-The loop presets use static gain capped for the true peak, including across the wrap.
+The loop presets share one static gain across the opening and repeat, capped for the true peak
+at the handoff and repeat wrap as well as within the audio.
 If any lossy file exceeds the ceiling after decoding, the correction reduces the shared
 gain and re-encodes the outputs. `--loudness off` bypasses gain and correction.
 

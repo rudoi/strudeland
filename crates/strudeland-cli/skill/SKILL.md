@@ -452,15 +452,19 @@ Use `--preset` to export loop assets or append decay to a one-shot.
 
 | Preset | Output |
 | --- | --- |
-| `tagged-loop` | One file with the intro, one loop pass, and a marker for the loop through the end of the file. |
-| `intro-loop` | Play the intro file once, then repeat the loop file from frame zero. The intro stops at the musical boundary and the loop starts with its own effects history. When the song starts at the loop, only the loop file is written. |
-| `folded-loop` | One file with the isolated loop body. Decay from the end folds back into the loop. The marker covers the whole file. |
+| `tagged-loop` | One file with any intro, the first pass and the marked repeat region. Start at frame zero and loop from the marker through EOF. |
+| `intro-loop` | Always two files. Play the `-intro` file once for any intro and the first pass. Then play the `-loop` file, whose repeat marker starts at frame zero. |
+| `folded-loop` | One file starting at the marked section with fresh effect state. Start at frame zero to hear the first pass, then loop from the marker through EOF. |
 | `one-shot` | The requested clip, section or length followed by automatic decay. A full clip includes any composed ending. |
 
-The loop presets require one section marked `loop: true` and select their own bars before and
-through that section. A composed ending stays outside those files. Combining a loop preset with
+The loop presets require one section marked `loop: true` and select their own bars. A composed
+ending stays outside those files. Combining a loop preset with
 `--section`, `--length` or `--loops` is a usage error (exit 4). `one-shot` accepts the usual length
 flags.
+
+Intro effects carry into the first pass for `intro-loop` and `tagged-loop`. The repeat region
+uses the body alone and folds its decay back into the loop. The opening and repeat share one
+static gain. Use WAV for sample-exact playback.
 
 Project defaults add the preset to single-file names. `intro-loop` adds `-intro` and `-loop` to
 the song stem by default, or to the stem of `--out`. For example, `--out music.wav` produces
@@ -469,10 +473,12 @@ Each file is replaced atomically. If the second write fails, stderr names the co
 paths, stdout is empty, and the command exits 1. You can retry the same command.
 
 Preset JSON wraps the output in `{preset, files}`. Each file includes its regular summary fields,
-`path`, `role` (`intro`, `loop` or `single`), and `loopPoints`. `loopPoints` is `null` for files
-without a marker. When present, it contains decoded `startFrame`, `lengthFrames`, `sampleRate`
-and `godotLoopOffset` in seconds. Human output also reports the range, rate and offset. MP3 loop
-exports warn that players may introduce a gap if they leave encoder delay or padding in place.
+`path`, `role` and `loopPoints`. The split opening has role `intro`. The split repeat and
+`folded-loop` have role `loop`. `tagged-loop` and `one-shot` have role `single`. Files without
+a marker have `loopPoints: null`. When present, `loopPoints` contains decoded `startFrame`,
+`lengthFrames`, `sampleRate` and `godotLoopOffset` in seconds. Human output also reports the
+range, rate and offset. MP3 loop exports warn that players may introduce a gap if they leave
+encoder delay or padding in place.
 
 In Godot, use **Detect from WAV** for WAV loop markers. For Ogg Vorbis and MP3, enable **Loop**
 and set **Loop Offset** to `godotLoopOffset`. Leave looping disabled for the intro file.
