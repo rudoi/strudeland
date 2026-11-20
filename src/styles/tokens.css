@@ -69,6 +69,7 @@
   --focus-offset: 2px;
   /* Shadow */
   --shadow-pop: 0 12px 32px var(--shadow-color), 0 0 0 1px var(--border-strong);
+  --modal-backdrop: var(--shadow-color);
   /* Scrollbars */
   --scrollbar-thumb: var(--border-strong);
   --scrollbar-thumb-hover: var(--text-faint);

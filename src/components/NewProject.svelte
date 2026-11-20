@@ -62,7 +62,7 @@
     box-shadow: var(--shadow-pop);
   }
   dialog::backdrop {
-    background: var(--shadow-color);
+    background: var(--modal-backdrop);
   }
   form {
     display: grid;
