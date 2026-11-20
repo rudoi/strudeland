@@ -30,13 +30,24 @@ pub struct PlannedRender {
     pub chunks: Vec<PlannedChunk>,
 }
 
-/// Musical loop boundary in absolute bars and extra physical frames on the final chunk.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Musical loop boundary and post-roll for the opening or one-shot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedExport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_start_bar: Option<u32>,
     pub tail_frames: u64,
+    /// The isolated loop plan when the opening also contains intro bars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<PlannedRepeat>,
+}
+
+/// An isolated body using the same authored bars as the opening's loop.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedRepeat {
+    pub tail_frames: u64,
+    pub chunks: Vec<PlannedChunk>,
 }
 
 /// The window a length request resolved to.

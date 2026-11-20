@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { evaluateOptions, staticStructure } from '../src/lib/project/evaluate-options';
 import { parseMeta } from '../src/lib/project/meta';
-import type { RenderError, RenderRequest } from '../src/lib/render/contract';
+import { windowFrames, type RenderError, type RenderRequest } from '../src/lib/render/contract';
 import { planEngineJob } from '../src/lib/render/engine-job';
 import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
 import {
@@ -1218,32 +1218,53 @@ describe('loop export windows and decay', () => {
       [],
     );
 
-  test('uses the evaluated loop once, and each isolated body chunk stays inside its own range', async () => {
-    const f = fakeRuntime({ structure });
+  test('keeps the opening continuous and plans a body with its own bounded history', async () => {
+    const cps = 137 / 60 / 3.5;
+    const f = fakeRuntime({ structure, cps });
     const folded = await run(f.rt, 'folded-loop');
     expect(folded.window).toEqual({ fromBar: 3, toBar: 30, layout: 'linear' });
     expect(folded.chunks.length).toBeGreaterThan(1);
     expect(f.queries.every((q) => q.from >= 3 && q.to <= 30)).toBe(true);
     expect(folded.chunks.every((c) => c.plan.c0 >= 3)).toBe(true);
-    const split = await run(fakeRuntime({ structure }).rt, 'intro-loop');
+    const source = fakeRuntime({ structure, cps });
+    const split = await run(source.rt, 'intro-loop');
+    expect(source.evaluated).toHaveLength(1);
+    expect(source.queries.every((q) => q.to <= 30 && q.segments === LINEAR_SEGMENTS)).toBe(true);
     expect(split.window).toEqual({ fromBar: 0, toBar: 30, layout: 'linear' });
-    expect(split.chunks[0]!.plan.toBar).toBe(3);
-    expect(split.chunks.slice(1)).toEqual(folded.chunks);
-    expect(split.export).toEqual(folded.export);
-    expect(split.export!.loopStartBar).toBe(3);
-    const tagged = await run(fakeRuntime({ structure }).rt, 'tagged-loop');
-    expect(tagged.window).toEqual(split.window);
-    expect(tagged.export).toEqual({ loopStartBar: 3, tailFrames: 0 });
-    expect(tagged.chunks[0]!.plan.toBar).toBeGreaterThan(3);
-    expect(tagged.events!.every((e) => e.bar < 30)).toBe(true);
-    expect(split.events).toEqual(tagged.events);
+    expect(split.chunks[0]!.plan.toBar).toBeGreaterThan(3);
+    const tailFrames = folded.export!.tailFrames;
+    expect(tailFrames).toBeGreaterThan(0);
+    expect(split.export).toEqual({
+      loopStartBar: 3,
+      tailFrames: 0,
+      repeat: { chunks: folded.chunks, tailFrames },
+    });
+    for (const { plan } of split.chunks) {
+      const musical = windowFrames(plan.fromBar, plan.toBar, cps, 44100);
+      expect(plan.frames - plan.windowStartFrame).toBe(musical);
+    }
+    for (const { plan } of folded.chunks) {
+      const musical = windowFrames(plan.fromBar, plan.toBar, cps, 44100);
+      expect(plan.frames - plan.windowStartFrame).toBe(
+        musical + (plan.toBar === 30 ? tailFrames : 0),
+      );
+    }
+    expect(split.events!.map((event) => event.bar)).toEqual(
+      Array.from({ length: 60 }, (_, i) => Math.floor(i / 2)),
+    );
+    expect(split.errors).toEqual([expect.objectContaining({ bar: 1 })]);
+    const tagged = await run(fakeRuntime({ structure, cps }).rt, 'tagged-loop');
+    expect(tagged).toEqual(split);
   });
 
-  test('the split and folded jobs coincide when the song opens on its loop', async () => {
+  test('one set of body jobs supplies both passes when the song opens on its loop', async () => {
     const structure = buildStructure({ sections: [{ name: 'a', bars: 2, loop: true }] });
     const split = await run(fakeRuntime({ structure }).rt, 'intro-loop');
     const folded = await run(fakeRuntime({ structure }).rt, 'folded-loop');
     expect(split).toEqual(folded);
+    const tagged = await run(fakeRuntime({ structure }).rt, 'tagged-loop');
+    expect(tagged).toEqual(folded);
+    expect(folded.export).not.toHaveProperty('repeat');
     expect(split.chunks).toHaveLength(1);
   });
 
@@ -1417,5 +1438,15 @@ describe('loop export windows and decay', () => {
       kind: 'plan',
       message: expect.stringContaining('render buffer too large'),
     });
+  });
+
+  test('counts the opening and repeat together before querying a loop export', async () => {
+    const structure = buildStructure({ sections: [{ name: 'body', bars: 800, loop: true }] });
+    const f = fakeRuntime({ structure, query: () => [] });
+    expect(await planError(run(f.rt, 'folded-loop'))).toMatchObject({
+      kind: 'plan',
+      message: expect.stringContaining('render buffer too large'),
+    });
+    expect(f.queries).toEqual([]);
   });
 });

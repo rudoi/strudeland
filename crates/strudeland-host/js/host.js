@@ -18376,8 +18376,10 @@ Defaulting to 2020, but this will stop working in the future.`);
       const { window: window2, loopStartBar } = exportWindow(request, structure);
       const { fromBar, toBar, layout } = window2;
       const musicalFrames = windowFrames(fromBar, toBar, cps, SAMPLE_RATE);
+      const bodyFrames = loopStartBar === undefined ? 0 : windowFrames(loopStartBar, toBar, cps, SAMPLE_RATE);
+      const programFrames = musicalFrames + bodyFrames;
       if (request.preset)
-        checkBufferFrames(musicalFrames, "mix");
+        checkBufferFrames(programFrames, "mix");
       const query = querySong(rt, layoutSegments(layout, structure));
       const ctx = { query, cps, seed, structure: song.structure };
       const base = {
@@ -18390,37 +18392,22 @@ Defaulting to 2020, but this will stop working in the future.`);
         mode: "mix",
         sampleRate: SAMPLE_RATE
       };
-      const chunks = [];
       const errors = [];
-      const allEvents = [];
       let lookbackSec = 0;
-      let tailFrames = 0;
-      const boundaries = [fromBar];
-      if (request.preset === "intro-loop" && loopStartBar !== undefined && loopStartBar > fromBar) {
-        boundaries.push(loopStartBar);
-      }
-      boundaries.push(toBar);
-      for (let i2 = 1;i2 < boundaries.length; i2++) {
-        const start = boundaries[i2 - 1];
-        const end = boundaries[i2];
-        const isolated = (request.preset === "intro-loop" || request.preset === "folded-loop") && start === loopStartBar;
-        const scheduleStart = isolated ? start : 0;
-        const full = selectHaps(query(scheduleStart, end));
-        const events = request.includeEvents || !request.preset ? eventsFromValues(eventSources(full.selected), cps) : [];
-        if (request.includeEvents)
-          for (const event of events)
-            allEvents.push(event);
+      function planPass(start, scheduleStart, keepTail) {
+        const chunks = [];
+        const full = selectHaps(query(scheduleStart, toBar));
+        const events = !request.preset || request.includeEvents && start === fromBar ? eventsFromValues(eventSources(full.selected), cps) : [];
         const exportEvents = request.preset ? full.selected.map((s) => exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps)) : undefined;
-        const decay = exportEvents ? exportDecay(exportEvents, end / cps) : undefined;
+        const decay = exportEvents ? exportDecay(exportEvents, toBar / cps) : undefined;
         const history = decay?.lookbackSec ?? lookbackSeconds(events);
         lookbackSec = Math.max(lookbackSec, history);
-        if (end === toBar && decay && request.preset !== "tagged-loop") {
-          tailFrames = decay.tailFrames;
-          checkBufferFrames(musicalFrames + tailFrames, "mix");
-        }
+        const tailFrames = keepTail ? decay?.tailFrames ?? 0 : 0;
+        if (keepTail)
+          checkBufferFrames(programFrames + tailFrames, "mix");
         const plans = renderChunkPlans({
           fromBar: start,
-          toBar: end,
+          toBar,
           events: exportEvents ?? events,
           cps,
           overlapBars: 0,
@@ -18428,7 +18415,7 @@ Defaulting to 2020, but this will stop working in the future.`);
         });
         for (const plan of plans) {
           const req = chunkRequest(base, plan);
-          const chunkLookback = isolated ? Math.min(plan.lookbackSec, (req.fromBar - start) / cps) : plan.lookbackSec;
+          const chunkLookback = scheduleStart === 0 ? plan.lookbackSec : Math.min(plan.lookbackSec, (req.fromBar - scheduleStart) / cps);
           const schedule = reuseSchedule ? cutSchedule(full, req.toBar) : selectHaps(query(scheduleStart, req.toBar));
           const { info, json } = planWindow(ctx, req, chunkLookback, schedule, captured, scheduleStart, req.toBar === toBar ? tailFrames : 0);
           errors.push(...info.errors);
@@ -18442,16 +18429,26 @@ Defaulting to 2020, but this will stop working in the future.`);
             }
           });
         }
+        return { chunks, events, tailFrames };
       }
+      const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
+      const opening = planPass(fromBar, loopStartBar === fromBar ? fromBar : 0, !separateRepeat && !!request.preset);
+      const repeat = separateRepeat ? planPass(loopStartBar, loopStartBar, true) : undefined;
       return {
         window: window2,
         cps,
         structure,
         lookbackSec,
         errors: dedupeErrors(errors),
-        ...request.includeEvents === true ? { events: allEvents } : {},
-        ...request.preset ? { export: { ...loopStartBar === undefined ? {} : { loopStartBar }, tailFrames } } : {},
-        chunks
+        ...request.includeEvents === true ? { events: opening.events } : {},
+        ...request.preset ? {
+          export: {
+            ...loopStartBar === undefined ? {} : { loopStartBar },
+            tailFrames: opening.tailFrames,
+            ...repeat ? { repeat: { chunks: repeat.chunks, tailFrames: repeat.tailFrames } } : {}
+          }
+        } : {},
+        chunks: opening.chunks
       };
     });
   }

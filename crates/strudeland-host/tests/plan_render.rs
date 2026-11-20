@@ -149,7 +149,19 @@ fn export_requests_cross_the_bundle_boundary_and_exclude_the_ending() {
             last.frames - last.window_start_frame,
             u64::from(last.to_bar - last.from_bar) * 88_200 + export.tail_frames
         );
-        assert_eq!(export.tail_frames == 0, preset == ExportPreset::TaggedLoop);
+        let has_intro = matches!(preset, ExportPreset::IntroLoop | ExportPreset::TaggedLoop);
+        assert_eq!(export.tail_frames == 0, has_intro);
+        assert_eq!(export.repeat.is_some(), has_intro);
+        if let Some(repeat) = export.repeat {
+            let first = &repeat.chunks.first().unwrap().plan;
+            let last = &repeat.chunks.last().unwrap().plan;
+            assert_eq!((first.c0, first.from_bar, last.to_bar), (2, 2, 6));
+            assert!(repeat.tail_frames > 0);
+            assert_eq!(
+                last.frames - last.window_start_frame,
+                u64::from(last.to_bar - last.from_bar) * 88_200 + repeat.tail_frames
+            );
+        }
     }
 }
 
