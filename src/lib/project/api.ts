@@ -101,6 +101,18 @@ export interface ProjectApi {
 }
 
 export const PROJECT_CHANGED_EVENT = 'project://changed';
+export const PROJECT_MENU_EVENT = 'project://menu';
+export type ProjectMenuAction = 'newProject' | 'openProject';
+
+export function onProjectMenu(handler: (action: ProjectMenuAction) => void): Promise<() => void> {
+  return listen<unknown>(
+    PROJECT_MENU_EVENT,
+    ({ payload }) => {
+      if (payload === 'newProject' || payload === 'openProject') handler(payload);
+    },
+    { target: 'main' },
+  );
+}
 
 /** Button labels of the unsaved-changes prompt. */
 export const UNSAVED_BUTTONS = { yes: 'Save all', no: 'Discard', cancel: 'Cancel' } as const;

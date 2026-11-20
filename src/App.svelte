@@ -1,8 +1,11 @@
 <script lang="ts">
   import { createApp } from './lib/app';
+  import { createProjectActions } from './lib/project/actions';
+  import { onProjectMenu, type ProjectMenuAction } from './lib/project/api';
   import { matchShortcut, primaryModifier } from './lib/project/ui';
   import ConflictBar from './components/ConflictBar.svelte';
   import Editor from './components/Editor.svelte';
+  import NewProject from './components/NewProject.svelte';
   import NewSong from './components/NewSong.svelte';
   import SongList from './components/SongList.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -17,17 +20,39 @@
   setContext(SCOPE_CLOCK_KEY, app.scopeClock);
   const session = app.session;
   const store = session.store;
+  const projectActions = createProjectActions(session);
+  const newProjectFolder = projectActions.folder;
   const rt = app.runtime.store;
   const shortcutModifier = primaryModifier(navigator.platform);
   // The song whose audio is playing: only while the runtime runs.
   const playingPath = $derived($rt.started ? ($store.evaluated?.path ?? null) : null);
 
   let newSongOpen = $state(false);
+  let projectsReady = $state(false);
   const conflict = $derived($store.songs.find((s) => s.path === $store.active)?.conflict ?? null);
 
-  // Reopen the last project.
+  function runProjectAction(action: ProjectMenuAction) {
+    if (projectsReady) void projectActions.run(action);
+  }
+
+  // Reopen the last project before allowing the menu or shortcut to switch it.
   onMount(() => {
-    void session.init();
+    let destroyed = false;
+    let unlisten: (() => void) | undefined;
+    void session
+      .init()
+      .then(async () => {
+        if (destroyed || !$store.available) return;
+        projectsReady = true;
+        const stop = await onProjectMenu(runProjectAction);
+        if (destroyed) stop();
+        else unlisten = stop;
+      })
+      .catch(console.error);
+    return () => {
+      destroyed = true;
+      unlisten?.();
+    };
   });
 
   // Drop the control listener when this instance goes away (HMR remounts the component), so the
@@ -48,7 +73,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (shortcut === 'openProject') void session.openProject();
+    if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project) newSongOpen = true;
   }
 </script>
@@ -70,7 +95,13 @@
     <Toolbar {app} />
     {#if conflict}<ConflictBar {session} {conflict} />{/if}
     {#if !$store.project}
-      <Welcome {session} />
+      <Welcome
+        {session}
+        ready={projectsReady}
+        onnew={() => runProjectAction('newProject')}
+        onopen={() => runProjectAction('openProject')}
+        onrecent={(path) => void projectActions.openRecent(path)}
+      />
     {:else if $store.active === null}
       <section class="empty">
         <p>no songs yet</p>
@@ -91,6 +122,14 @@
     />
   </div>
 </main>
+
+{#if $newProjectFolder !== null}
+  <NewProject
+    folder={$newProjectFolder}
+    oncreate={(name) => void projectActions.create(name)}
+    oncancel={projectActions.cancel}
+  />
+{/if}
 
 <style>
   main {
