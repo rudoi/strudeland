@@ -1,5 +1,7 @@
 # Clean first pass for loop exports
 
+Implemented and approved for squash merge in PR #8.
+
 ## Goal
 
 Play the loop once with the effect state that follows from the music heard so far. Then enter a repeat region that carries the loop's own releases, reverb, and delay across its boundary.

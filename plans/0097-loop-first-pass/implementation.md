@@ -17,3 +17,5 @@ The implementation was rebased onto `8ff2acb`, which added File menu project act
 The simplify pass removed avoidable PCM allocations, reduced the time separate job JSON is held, and simplified folding and peak measurement over the isolated repeat buffer. A unit test checks that the opening fade reaches the repeat smoothly.
 
 Independent high-mode review found that Strudel patterns such as `stepBind` can change the body pitches when queried from a different origin. Both passes now use one selected schedule and preserve its values, times and seeds through each chunk. Multi-chunk planner tests and a real headless `stepBind` regression cover the correction. The review also identified stale host response documentation, which was updated together with the frame summary contract. Re-review found no outstanding issues.
+
+The maintainer approved finalization and squash merge of PR #8 at `cce972c`. The proposal, contract check, implementation sequence, and validation record are the retained design records.
