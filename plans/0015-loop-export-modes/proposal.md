@@ -1,5 +1,7 @@
 # Loop export modes
 
+This is the initial proposal. See the [resolved design](design.md) for the decisions from refinement.
+
 ## Goal
 
 Give `strudeland render` four per-render presets for game audio. An export can carry loop

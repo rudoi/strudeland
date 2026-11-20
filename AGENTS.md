@@ -33,7 +33,7 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Time the whole render pipeline and every encoder over songs (JSON on stdout, table on stderr; exit 0 ok, 1 a song failed, 2 bad input) | `cargo run --release -p strudeland-render -- bench [--jobs N] [--lengths FILE] [--bars N] [--out-dir DIR] <song…>` |
 | Check the live player's dropout budget (release, a dense pattern through the real-time fake output under load: zero underruns and zero late haps) | `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture` |
 | Measure the live batch decode cost at 1/16/64/256 haps per batch (JSON to values and haps; prints a table; the app side is the invoke round trip in `strudeland state`) | `cargo test --release -p strudeland-live --test ipc_decode -- --ignored --nocapture` |
-| Render a song file to audio (offline, no app needed; defaults -23 LUFS (EBU R128), -1 dBTP, wav 24-bit; exit 1 render failed, 4 bad length request) | `cargo run -p strudeland-cli -- render <song> [--out PATH] [--format F] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` |
+| Render a song file to audio (offline, no app needed; defaults -23 LUFS (EBU R128), -1 dBTP, wav 24-bit; exit 1 render failed, 4 bad length request) | `cargo run -p strudeland-cli -- render <song> [--out PATH] [--format F] [--preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` |
 | List a project's voice memos / show one's timing (offline; project from --project, the cwd, then the running app; exit 1 not found or bad sidecar, 4 no project) | `cargo run -p strudeland-cli -- memo list [--project DIR]`, `… -- memo show <name> [--project DIR]` |
 | Transcribe a voice memo to Strudel code (offline; project as for memo; exit 1 not found, bad sidecar or unreadable WAV, 4 usage: bad flags, no project, `--bars` without a known grid, a grid that does not divide the bar, `--debug` without `--json`, a memo over 10 minutes without a span) | `cargo run -p strudeland-cli -- transcribe <name> [--project DIR] [--grid 4\|8\|16\|8t\|16t] [--bpm N] [--meter N/D] [--bar1 S] [--shift MS] [--key ROOT:SCALE] [--tuning CENTS] [--start S --end S \| --bars A-B] [--debug --json]` |
 | Score the transcriber on the synthetic evaluation set (release; prints the per-tier table) | `cargo run --release -p strudeland-transcribe --features eval --example eval` |
@@ -192,7 +192,8 @@ the V8 download the host brings.
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
   library: `plan` (host to jobs, refusal of unsupported material), `render` (the worker pool),
   `join` (sample-exact joiner), `level/` (`loudness.rs`, `true_peak.rs`, `limiter.rs`), `encode/`
-  (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `output`
+  (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `export`
+  (loop presets, post-roll folding and shared static gain), `output`
   (default paths, atomic write), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness
   binary (`render`, `bench`); its README has the formats, defaults and licences, and
   `tests/vectors/` is written by `render:vectors`. `crates/strudeland-cli/src/render.rs` is
