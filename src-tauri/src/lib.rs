@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod cli_install;
 mod commands;
 mod control;
 mod playback;
@@ -33,6 +35,8 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            cli_install::register(app.handle())?;
             let recorder = recording::system_state(app.handle());
             let core = Arc::clone(&recorder.0);
             app.state::<project::ProjectState>()

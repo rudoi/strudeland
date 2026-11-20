@@ -15,6 +15,9 @@ path = "src/lib.rs"
 name = "strudeland-render"
 path = "src/bin/strudeland-render.rs"
 
+[features]
+host-jitless = ["strudeland-host/jitless"]
+
 [dependencies]
 strudeland-engine = { path = "../strudeland-engine" }
 strudeland-host = { path = "../strudeland-host" }

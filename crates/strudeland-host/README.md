@@ -219,9 +219,10 @@ much.
 The first build of the `v8` crate downloads a prebuilt static V8 library
 (`librusty_v8_release_<target>.a.gz`, about 40 MB) and caches it in `~/.cargo/.rusty_v8`; the
 first link is slow. Offline builds point `RUSTY_V8_ARCHIVE` at a downloaded archive, or
-`RUSTY_V8_MIRROR` at a mirror of the release assets. Hardened-runtime macOS apps embedding V8 need
-the `com.apple.security.cs.allow-jit` entitlement. The engine crate does not depend on this crate
-or on V8 (`tests/licence.rs` checks `Cargo.lock`).
+`RUSTY_V8_MIRROR` at a mirror of the release assets. The CLI bundled in the hardened macOS app
+enables the host's `jitless` feature to run V8 without a JIT entitlement. Source builds use V8's
+default mode. The engine crate does not depend on this crate or on V8
+(`tests/licence.rs` checks `Cargo.lock`).
 
 ## Licences
 

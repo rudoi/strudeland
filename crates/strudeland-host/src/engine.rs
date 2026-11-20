@@ -32,6 +32,10 @@ static PLATFORM: Once = Once::new();
 fn init_platform() {
     PLATFORM.call_once(|| {
         v8::V8::set_flags_from_string(&format!("--stack-size={STACK_KIB}"));
+        // The hardened macOS sidecar cannot allocate executable memory for JIT code.
+        if cfg!(feature = "jitless") {
+            v8::V8::set_flags_from_string("--jitless");
+        }
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();

@@ -56,8 +56,11 @@ jobs:
           BUNDLE: ${{ matrix.bundle }}
         run: |
           if [[ "$BUNDLE" == dmg ]]; then
-            bun run tauri build --ci --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked
+            bun run app:bundle dmg --adhoc
             bash scripts/stage-installer.sh dmg adhoc
+          elif [[ "$BUNDLE" == msi ]]; then
+            bun run app:bundle msi
+            bash scripts/stage-installer.sh msi unsigned
           else
             bun run tauri build --ci --no-sign --bundles "$BUNDLE" -- --locked
             bash scripts/stage-installer.sh "$BUNDLE" unsigned
