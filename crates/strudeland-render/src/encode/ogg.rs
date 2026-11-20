@@ -2,6 +2,7 @@
 //! gives the same bytes.
 
 use std::num::{NonZeroU8, NonZeroU32};
+use std::ops::Range;
 
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
 
@@ -23,6 +24,16 @@ pub fn encode_ogg(
     channels: &[Vec<f32>],
     sample_rate: u32,
     quality: i32,
+) -> Result<Vec<u8>, RenderError> {
+    encode_ogg_with_loop(channels, sample_rate, quality, None)
+}
+
+/// Encodes Ogg Vorbis with an optional loop in decoded frames (exclusive end).
+pub fn encode_ogg_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    quality: i32,
+    loop_range: Option<Range<u64>>,
 ) -> Result<Vec<u8>, RenderError> {
     let [left, right] = channels else {
         return Err(err(format!(
@@ -46,6 +57,17 @@ pub fn encode_ogg(
         })
         .comment_tag("ENCODER", "strudeland")
         .map_err(err)?;
+    if let Some(range) = loop_range {
+        if range.is_empty() || range.end > left.len() as u64 {
+            return Err(err("loop range is outside the audio"));
+        }
+        builder
+            .comment_tags([
+                ("LOOPSTART", range.start.to_string()),
+                ("LOOPLENGTH", (range.end - range.start).to_string()),
+            ])
+            .map_err(err)?;
+    }
     let mut encoder = builder.build().map_err(err)?;
     // Never hand the encoder an empty block: zero frames is libvorbis's end-of-stream signal.
     for (l, r) in left.chunks(BLOCK).zip(right.chunks(BLOCK)) {
