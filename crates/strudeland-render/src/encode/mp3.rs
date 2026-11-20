@@ -2,10 +2,12 @@
 //! tag written over the reserved first frame. The output keeps the input sample rate.
 
 use mp3lame_encoder::{
-    Bitrate, Builder, DualPcm, FlushNoGap, Mode, Quality, VbrMode, max_required_buffer_size,
+    Bitrate, Builder, DualPcm, EncoderFlush, FlushGap, FlushNoGap, Mode, Quality, VbrMode,
+    max_required_buffer_size,
 };
 
 use std::num::NonZeroU32;
+use std::ops::Range;
 
 use crate::{Mp3Mode, RenderError};
 
@@ -40,12 +42,43 @@ pub fn encode_mp3(
     mode: Mp3Mode,
     quality: u8,
 ) -> Result<Vec<u8>, RenderError> {
+    encode_mp3_file::<FlushNoGap>(channels, sample_rate, mode, quality, None)
+}
+
+/// Encodes a standalone MP3 with an optional loop in decoded frames (exclusive end).
+/// The LAME tag describes the encoder delay and final padding for gapless playback.
+pub fn encode_mp3_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    mode: Mp3Mode,
+    quality: u8,
+    loop_range: Option<Range<u64>>,
+) -> Result<Vec<u8>, RenderError> {
+    // Finalize the pending PCM even for an export without loop metadata.
+    encode_mp3_file::<FlushGap>(channels, sample_rate, mode, quality, loop_range)
+}
+
+fn encode_mp3_file<F: EncoderFlush>(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    mode: Mp3Mode,
+    quality: u8,
+    loop_range: Option<Range<u64>>,
+) -> Result<Vec<u8>, RenderError> {
     let [left, right] = channels else {
         return Err(err(format!("{} channels (MP3 takes two)", channels.len())));
     };
     if left.len() != right.len() {
         return Err(err("channel length mismatch"));
     }
+    let mut out = match loop_range {
+        Some(range) if range.is_empty() || range.end > left.len() as u64 => {
+            return Err(err("loop range is outside the audio"));
+        }
+        Some(range) => loop_id3_tag(range),
+        None => Vec::new(),
+    };
+    let audio_offset = out.len();
     let builder = Builder::new()
         .ok_or_else(|| RenderError::Encode("LAME could not allocate an encoder".into()))?
         .with_num_channels(2)
@@ -71,7 +104,6 @@ pub fn encode_mp3(
     };
     let mut encoder = builder.build().map_err(err)?;
 
-    let mut out = Vec::new();
     for (l, r) in left.chunks(BLOCK).zip(right.chunks(BLOCK)) {
         out.reserve(max_required_buffer_size(l.len()));
         encoder
@@ -79,7 +111,7 @@ pub fn encode_mp3(
             .map_err(err)?;
     }
     out.reserve(max_required_buffer_size(0));
-    encoder.flush_to_vec::<FlushNoGap>(&mut out).map_err(err)?;
+    encoder.flush_to_vec::<F>(&mut out).map_err(err)?;
 
     // LAME reserved the first frame for the tag (a frame header, then zeros); the real tag replaces it in place.
     let size = encoder.lame_tag_size();
@@ -88,13 +120,39 @@ pub fn encode_mp3(
         encoder
             .lame_tag_encode_to_vec(&mut tag)
             .ok_or_else(|| err("LAME could not write its tag"))?;
-        let at = encoder.id3v2_tag_size();
+        let at = audio_offset + encoder.id3v2_tag_size();
         let reserved = out
             .get_mut(at..at.saturating_add(tag.len()))
             .ok_or_else(|| err("the output is shorter than the LAME tag"))?;
         reserved.copy_from_slice(&tag);
     }
     Ok(out)
+}
+
+/// A leading ID3v2.4 tag with two user-defined Latin-1 text frames.
+fn loop_id3_tag(range: Range<u64>) -> Vec<u8> {
+    let mut frames = Vec::new();
+    for (name, value) in [
+        ("LOOPSTART", range.start.to_string()),
+        ("LOOPLENGTH", (range.end - range.start).to_string()),
+    ] {
+        frames.extend_from_slice(b"TXXX");
+        frames.extend_from_slice(&synchsafe(2 + name.len() + value.len()));
+        frames.extend_from_slice(&[0, 0, 0]); // frame flags, text encoding
+        frames.extend_from_slice(name.as_bytes());
+        frames.push(0);
+        frames.extend_from_slice(value.as_bytes());
+    }
+    let mut tag = Vec::with_capacity(10 + frames.len());
+    tag.extend_from_slice(b"ID3\x04\x00\x00");
+    tag.extend_from_slice(&synchsafe(frames.len()));
+    tag.extend_from_slice(&frames);
+    tag
+}
+
+/// ID3v2.4 encodes sizes as big-endian groups of seven bits.
+fn synchsafe(size: usize) -> [u8; 4] {
+    [21, 14, 7, 0].map(|shift| ((size >> shift) & 0x7f) as u8)
 }
 
 #[cfg(test)]

@@ -1194,3 +1194,228 @@ describe('planRender render limit', () => {
     expect(section.window).toEqual({ fromBar: 90000, toBar: 100000, layout: 'linear' });
   });
 });
+
+describe('loop export windows and decay', () => {
+  const structure = buildStructure({
+    loops: 5,
+    sections: [
+      { name: 'count', bars: 1 },
+      { name: 'intro', bars: 2 },
+      { name: 'body', bars: 27, loop: true },
+      { name: 'ending', bars: 4 },
+    ],
+  });
+  const clip = { kind: 'clip' } as const;
+  const run = (
+    rt: PlannerRuntime,
+    preset: RenderPlanRequest['preset'],
+    length: LengthRequest = clip,
+  ) =>
+    planRender(
+      rt,
+      CODE,
+      renderReq(length, { ...(preset ? { preset } : {}), includeEvents: true }),
+      [],
+    );
+
+  test('uses the evaluated loop once, and each isolated body chunk stays inside its own range', async () => {
+    const f = fakeRuntime({ structure });
+    const folded = await run(f.rt, 'folded-loop');
+    expect(folded.window).toEqual({ fromBar: 3, toBar: 30, layout: 'linear' });
+    expect(folded.chunks.length).toBeGreaterThan(1);
+    expect(f.queries.every((q) => q.from >= 3 && q.to <= 30)).toBe(true);
+    expect(folded.chunks.every((c) => c.plan.c0 >= 3)).toBe(true);
+    const split = await run(fakeRuntime({ structure }).rt, 'intro-loop');
+    expect(split.window).toEqual({ fromBar: 0, toBar: 30, layout: 'linear' });
+    expect(split.chunks[0]!.plan.toBar).toBe(3);
+    expect(split.chunks.slice(1)).toEqual(folded.chunks);
+    expect(split.export).toEqual(folded.export);
+    expect(split.export!.loopStartBar).toBe(3);
+    const tagged = await run(fakeRuntime({ structure }).rt, 'tagged-loop');
+    expect(tagged.window).toEqual(split.window);
+    expect(tagged.export).toEqual({ loopStartBar: 3, tailFrames: 0 });
+    expect(tagged.chunks[0]!.plan.toBar).toBeGreaterThan(3);
+    expect(tagged.events!.every((e) => e.bar < 30)).toBe(true);
+    expect(split.events).toEqual(tagged.events);
+  });
+
+  test('the split and folded jobs coincide when the song opens on its loop', async () => {
+    const structure = buildStructure({ sections: [{ name: 'a', bars: 2, loop: true }] });
+    const split = await run(fakeRuntime({ structure }).rt, 'intro-loop');
+    const folded = await run(fakeRuntime({ structure }).rt, 'folded-loop');
+    expect(split).toEqual(folded);
+    expect(split.chunks).toHaveLength(1);
+  });
+
+  test('length selection conflicts and missing loops are flagged before querying', async () => {
+    for (const length of [
+      clip,
+      { kind: 'length', bars: 1 },
+      { kind: 'section', name: 'count' },
+      { kind: 'clip', loops: 1 },
+    ] as const) {
+      const f = fakeRuntime();
+      expect(await planError(run(f.rt, 'tagged-loop', length))).toMatchObject({
+        kind: 'meta',
+        flag: '--preset',
+      });
+      expect(f.queries).toEqual([]);
+    }
+  });
+
+  test('one-shot honors the section and extends only the final job, with no further onsets', async () => {
+    const f = fakeRuntime({ structure });
+    const shot = await run(f.rt, 'one-shot', { kind: 'section', name: 'body' });
+    expect(shot.window).toEqual({ fromBar: 3, toBar: 30, layout: 'linear' });
+    expect(shot.export!.loopStartBar).toBeUndefined();
+    expect(shot.export!.tailFrames).toBeGreaterThan(0);
+    expect(f.queries.every((q) => q.to <= 30)).toBe(true);
+    for (const { plan, json } of shot.chunks) {
+      const job = JSON.parse(json);
+      expect(job.frames).toBe(plan.frames);
+      const musicalFrames = (plan.toBar - plan.fromBar) * 2 * 44100;
+      expect(plan.frames - plan.windowStartFrame - musicalFrames).toBe(
+        plan.toBar === 30 ? shot.export!.tailFrames : 0,
+      );
+      expect(job.pauses.length).toBe(plan.c1 - plan.c0);
+    }
+    const legacy = await run(fakeRuntime({ structure }).rt, undefined, {
+      kind: 'section',
+      name: 'body',
+    });
+    expect(legacy).not.toHaveProperty('export');
+  });
+
+  test.each([
+    [{ s: 'sine', duration: 2, clip: 2, release: 1 }, 7],
+    [{ s: 'sine', FXrelease: 1, room: 0.2, roomsize: 2 }, 4],
+    [{ s: 'sine', release: 1, delay: 1, delaytime: 0.5, delayfeedback: 0 }, 1.5],
+    [{ s: '~', release: 10000 }, 0],
+  ] as const)(
+    'uses actual duration, releases, full room IR and the first delay tap: %o',
+    async (value, seconds) => {
+      const f = fakeRuntime({ query: (_from, _to) => [hap(0, 1, value)] });
+      const shot = await run(f.rt, 'one-shot', { kind: 'length', bars: 1 });
+      expect(shot.export!.tailFrames).toBe(seconds * 44100);
+    },
+  );
+
+  async function exportTail(value: Record<string, unknown>) {
+    const f = fakeRuntime({ query: () => [hap(0, 1, { s: 'sine', release: 1, ...value })] });
+    const shot = await run(f.rt, 'one-shot', { kind: 'length', bars: 1 });
+    return shot.export!.tailFrames;
+  }
+
+  test('keeps ringing LP, HP and BP stages past the amp release, including FX entries', async () => {
+    const dry = await exportTail({});
+    expect(dry).toBe(44100);
+    expect(await exportTail({ vowel: 'a' })).toBe(dry + 44100);
+    expect(await exportTail({ FX: [{ vowel: 'u' }] })).toBe(dry + 44100);
+    expect(await exportTail({ phaserrate: 1 })).toBe(dry + 22050);
+    expect(await exportTail({ phaserrate: 1, phaserdepth: 0 })).toBe(dry);
+    expect(await exportTail({ djf: 0.3 })).toBe(dry + 22050);
+    expect(await exportTail({ djf: 0.5 })).toBe(dry);
+    for (const endpoint of [
+      { cutoff: 24000 },
+      { hcutoff: 0 },
+      { bandf: 22050 },
+      { bandf: 500, bandq: 0 },
+    ]) {
+      expect(await exportTail(endpoint)).toBe(dry);
+    }
+    for (const filter of [
+      { cutoff: 1500, resonance: 15 },
+      { hcutoff: 1500, hresonance: 15 },
+      { bandf: 1500, bandq: 10 },
+    ]) {
+      expect(await exportTail(filter)).toBe(dry + 22050);
+      expect(await exportTail({ FX: [filter] })).toBe(dry + 22050);
+    }
+    // The low-frequency, high-Q resonance needs more time. Modulating its cutoff or Q can
+    // take it beyond the static estimate, so the per-voice allowance is capped at 30 s.
+    expect(await exportTail({ bandf: 40, bandq: 20 })).toBe(dry + 3 * 44100);
+    const mod = (control: string) => ({ __ids: new Set([0]), 0: { control } });
+    expect(await exportTail({ FX: [{ hcutoff: 400 }], lfo: mod('hcutoff') })).toBe(
+      dry + 30 * 44100,
+    );
+    expect(await exportTail({ cutoff: 1500, resonance: 15, lfo: mod('gain') })).toBe(dry + 22050);
+    expect(await exportTail({ cutoff: 1000, resonance: 40, lprate: 3 })).toBeGreaterThan(
+      dry + 44100,
+    );
+    expect(await exportTail({ bandf: 1, bandq: 10000 })).toBe(dry + 30 * 44100);
+  });
+
+  test.each([
+    [{ release: true }, { release: 1 }],
+    [{ release: false }, { release: null }],
+    [
+      { FXrelease: true, release: 0 },
+      { FXrelease: 1, release: 0 },
+    ],
+    [
+      { delay: true, delaytime: null, delaysync: true, delayfeedback: false },
+      { delay: 1, delaytime: 2, delayfeedback: 0 },
+    ],
+    [
+      { delay: 1, delaytime: 0.5, delayfeedback: null },
+      { delay: 1, delaytime: 0.5, delayfeedback: 0 },
+    ],
+    [
+      { room: [1], roomsize: [3] },
+      { room: 1, roomsize: 3 },
+    ],
+    [
+      { room: true, roomsize: null },
+      { room: 1, roomsize: 0 },
+    ],
+    [
+      { hcutoff: true, hresonance: true },
+      { hcutoff: 1, hresonance: 1 },
+    ],
+  ])('matches engine-equivalent timing controls %o and %o', async (value, equivalent) => {
+    expect(await exportTail(value)).toBe(await exportTail(equivalent));
+  });
+
+  test('includeEvents keeps the authored schedule when export timing coerces a control', async () => {
+    const f = fakeRuntime({ query: () => [hap(0, 1, { s: 'sine', release: true })] });
+    const shot = await run(f.rt, 'one-shot', { kind: 'length', bars: 1 });
+    expect(shot.export!.tailFrames).toBe(44100);
+    expect(shot.events![0]!.release).toBe(0.01);
+    const regular = await run(f.rt, undefined, { kind: 'length', bars: 1 });
+    expect(regular.events).toEqual(shot.events);
+  });
+
+  test('an empty schedule and an early note that already decayed require zero frames', async () => {
+    for (const notes of [[], [hap(0, 0.25, { s: 'sine' })]]) {
+      const shot = await run(fakeRuntime({ query: () => notes }).rt, 'one-shot', {
+        kind: 'length',
+        bars: 1,
+      });
+      expect(shot.export!.tailFrames).toBe(0);
+    }
+  });
+
+  test('rejects a preset that only coerces to a valid name', async () => {
+    const f = fakeRuntime();
+    const malformed = renderReq(clip, { preset: ['one-shot'] as unknown as 'one-shot' });
+    expect(await planError(planRender(f.rt, CODE, malformed, []))).toMatchObject({ kind: 'plan' });
+    expect(f.calls).toEqual([]);
+  });
+
+  test('rejects a joined export larger than the buffer limit before querying its chunks', async () => {
+    const f = fakeRuntime({ query: () => [] });
+    expect(await planError(run(f.rt, 'one-shot', { kind: 'length', bars: 2000 }))).toMatchObject({
+      kind: 'plan',
+      message: expect.stringContaining('render buffer too large'),
+    });
+    expect(f.queries).toEqual([]);
+  });
+
+  test('counts decay toward the last job buffer limit', async () => {
+    const f = fakeRuntime({ query: () => [hap(0, 1, { s: 'sine', release: 1e9 })] });
+    expect(await planError(run(f.rt, 'one-shot', { kind: 'length', bars: 1 }))).toMatchObject({
+      kind: 'plan',
+      message: expect.stringContaining('render buffer too large'),
+    });
+  });
+});

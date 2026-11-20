@@ -17,13 +17,32 @@ pub fn encode_once(
     sample_rate: u32,
     encoder: &EncoderOptions,
 ) -> Result<Vec<u8>, RenderError> {
+    if let EncoderOptions::Mp3 { mode, vbr_quality } = *encoder {
+        return mp3::encode_mp3(channels, sample_rate, mode, vbr_quality);
+    }
+    encode_once_with_loop(channels, sample_rate, encoder, None)
+}
+
+/// Encodes an independent export file, with loop metadata where requested.
+pub(crate) fn encode_once_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    encoder: &EncoderOptions,
+    range: Option<std::ops::Range<u64>>,
+) -> Result<Vec<u8>, RenderError> {
     match *encoder {
-        EncoderOptions::Wav { bit_depth } => wav::encode_wav(channels, sample_rate, bit_depth),
-        EncoderOptions::Mp3 { mode, vbr_quality } => {
-            mp3::encode_mp3(channels, sample_rate, mode, vbr_quality)
+        EncoderOptions::Wav { bit_depth } => {
+            wav::encode_wav_with_loop(channels, sample_rate, bit_depth, range)
         }
-        EncoderOptions::Ogg { quality } => ogg::encode_ogg(channels, sample_rate, quality),
-        EncoderOptions::Opus { kbps } => opus::encode_opus(channels, sample_rate, kbps),
+        EncoderOptions::Mp3 { mode, vbr_quality } => {
+            mp3::encode_mp3_with_loop(channels, sample_rate, mode, vbr_quality, range)
+        }
+        EncoderOptions::Ogg { quality } => {
+            ogg::encode_ogg_with_loop(channels, sample_rate, quality, range)
+        }
+        EncoderOptions::Opus { kbps } => {
+            opus::encode_opus_with_loop(channels, sample_rate, kbps, range)
+        }
     }
 }
 
@@ -58,7 +77,10 @@ trait Codec {
 }
 
 /// The real encoders and decoders.
-struct Real;
+enum Real {
+    Legacy,
+    Standalone,
+}
 
 impl Codec for Real {
     fn encode(
@@ -67,7 +89,10 @@ impl Codec for Real {
         sample_rate: u32,
         encoder: &EncoderOptions,
     ) -> Result<Vec<u8>, RenderError> {
-        encode_once(channels, sample_rate, encoder)
+        match self {
+            Self::Legacy => encode_once(channels, sample_rate, encoder),
+            Self::Standalone => encode_once_with_loop(channels, sample_rate, encoder, None),
+        }
     }
 
     fn decoded_true_peak_db(&self, format: Format, bytes: &[u8]) -> Result<f64, RenderError> {
@@ -91,7 +116,24 @@ pub fn encode(
     progress: &dyn Fn(Progress),
     warnings: &mut Vec<String>,
 ) -> Result<Encoded, RenderError> {
-    encode_with(&Real, input, sample_rate, out, progress, warnings)
+    encode_with(&Real::Legacy, input, sample_rate, out, progress, warnings)
+}
+
+pub(crate) fn encode_standalone(
+    input: &[Vec<f32>],
+    sample_rate: u32,
+    out: &OutputOptions,
+    progress: &dyn Fn(Progress),
+    warnings: &mut Vec<String>,
+) -> Result<Encoded, RenderError> {
+    encode_with(
+        &Real::Standalone,
+        input,
+        sample_rate,
+        out,
+        progress,
+        warnings,
+    )
 }
 
 fn encode_with(

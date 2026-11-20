@@ -1,6 +1,8 @@
 //! Opus in Ogg (RFC 7845): the buffer is resampled to 48 kHz, encoded with libopus in 20 ms
 //! frames and muxed by hand with a fixed stream serial, so the same input gives the same bytes.
 
+use std::ops::Range;
+
 use ::ogg::writing::{PacketWriteEndInfo, PacketWriter};
 use ::opus::{Application, Bitrate, Channels, Encoder};
 use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
@@ -80,11 +82,25 @@ pub fn opus_head(pre_skip: u16, input_rate: u32) -> Vec<u8> {
 
 /// The `OpusTags` comment header (RFC 7845 5.2): the vendor string and no comments.
 pub fn opus_tags() -> Vec<u8> {
+    opus_tags_with_loop(None)
+}
+
+fn opus_tags_with_loop(loop_range: Option<Range<u64>>) -> Vec<u8> {
     let mut t = Vec::with_capacity(8 + 4 + VENDOR.len() + 4);
     t.extend_from_slice(b"OpusTags");
     t.extend_from_slice(&(VENDOR.len() as u32).to_le_bytes());
     t.extend_from_slice(VENDOR);
-    t.extend_from_slice(&0u32.to_le_bytes());
+    let count = if loop_range.is_some() { 2u32 } else { 0 };
+    t.extend_from_slice(&count.to_le_bytes());
+    if let Some(range) = loop_range {
+        for comment in [
+            format!("LOOPSTART={}", range.start),
+            format!("LOOPLENGTH={}", range.end - range.start),
+        ] {
+            t.extend_from_slice(&(comment.len() as u32).to_le_bytes());
+            t.extend_from_slice(comment.as_bytes());
+        }
+    }
     t
 }
 
@@ -94,6 +110,16 @@ pub fn encode_opus(
     channels: &[Vec<f32>],
     sample_rate: u32,
     kbps: u32,
+) -> Result<Vec<u8>, RenderError> {
+    encode_opus_with_loop(channels, sample_rate, kbps, None)
+}
+
+/// Encodes Ogg Opus with an optional loop in decoded 48 kHz frames (exclusive end).
+pub fn encode_opus_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    kbps: u32,
+    loop_range: Option<Range<u64>>,
 ) -> Result<Vec<u8>, RenderError> {
     let [left, right] = channels else {
         return Err(err(format!("{} channels (Opus takes two)", channels.len())));
@@ -106,6 +132,13 @@ pub fn encode_opus(
     }
     if !(6..=510).contains(&kbps) {
         return Err(err(format!("bitrate {kbps} kbps is not 6 to 510")));
+    }
+    let frames = resampled_len(left.len(), sample_rate) as u64;
+    if loop_range
+        .as_ref()
+        .is_some_and(|range| range.is_empty() || range.end > frames)
+    {
+        return Err(err("loop range is outside the audio"));
     }
     let mut pcm = resample_48k(channels, sample_rate)?;
     let m = pcm.len() / 2;
@@ -134,7 +167,12 @@ pub fn encode_opus(
         )
         .map_err(err)?;
     writer
-        .write_packet(opus_tags(), STREAM_SERIAL, PacketWriteEndInfo::EndPage, 0)
+        .write_packet(
+            opus_tags_with_loop(loop_range),
+            STREAM_SERIAL,
+            PacketWriteEndInfo::EndPage,
+            0,
+        )
         .map_err(err)?;
     let mut packet = vec![0u8; MAX_PACKET];
     for (k, frame) in pcm.chunks_exact(FRAME * 2).enumerate() {

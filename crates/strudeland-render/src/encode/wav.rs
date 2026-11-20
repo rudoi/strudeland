@@ -1,6 +1,8 @@
 //! The WAV writer: 16 and 24-bit PCM with deterministic TPDF dither, and 32-bit float through the
 //! engine's writer.
 
+use std::ops::Range;
+
 use strudeland_engine::Mulberry32;
 use strudeland_engine::wav::sample_data_size;
 
@@ -11,6 +13,8 @@ pub const DITHER_SEED: u32 = 0x5354_5244;
 
 /// `WAVE_FORMAT_PCM`.
 const TAG_PCM: u16 = 1;
+/// Nine sampler fields and six fields for the single loop, all 32-bit.
+const SMPL_DATA_SIZE: u32 = 60;
 
 /// Encodes `channels` (equal lengths) at `sample_rate` as a WAV of `bit_depth`. 16 and 24-bit
 /// take one or two channels and are TPDF-dithered with fixed seeds, so the bytes depend only on
@@ -77,6 +81,59 @@ pub fn encode_wav(
             let q = quantize(x, scale, rng);
             out.extend(q.to_le_bytes().into_iter().take(bytes));
         }
+    }
+    Ok(out)
+}
+
+/// Encodes WAV with an optional forward loop in decoded frames (exclusive end).
+pub fn encode_wav_with_loop(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    bit_depth: BitDepth,
+    loop_range: Option<Range<u64>>,
+) -> Result<Vec<u8>, RenderError> {
+    let Some(range) = loop_range else {
+        return encode_wav(channels, sample_rate, bit_depth);
+    };
+    let frames = channels.first().map_or(0, |c| c.len() as u64);
+    if range.is_empty() || range.end > frames || range.end - 1 > u64::from(u32::MAX) {
+        return Err(RenderError::Encode(
+            "wav: loop range is outside the audio".into(),
+        ));
+    }
+    let mut out = encode_wav(channels, sample_rate, bit_depth)?;
+    // The legacy writer ends after the sample payload. Pad an odd-sized data chunk before smpl.
+    let pad = out.len() % 2;
+    let extra = pad + 8 + SMPL_DATA_SIZE as usize;
+    let riff_size = u32::try_from((out.len() - 8) as u64 + extra as u64).map_err(|_| {
+        RenderError::Encode("wav: RIFF with loop metadata is larger than 4 GiB".into())
+    })?;
+    out.reserve_exact(extra);
+    out.get_mut(4..8)
+        .ok_or_else(|| RenderError::Encode("wav: missing RIFF size".into()))?
+        .copy_from_slice(&riff_size.to_le_bytes());
+    out.resize(out.len() + pad, 0);
+    out.extend_from_slice(b"smpl");
+    out.extend_from_slice(&SMPL_DATA_SIZE.to_le_bytes());
+    let period_ns = 1_000_000_000u32.checked_div(sample_rate).unwrap_or(0);
+    for field in [
+        0, // manufacturer
+        0, // product
+        period_ns,
+        60, // MIDI unity note (middle C)
+        0,  // MIDI pitch fraction
+        0,  // SMPTE format
+        0,  // SMPTE offset
+        1,  // loop count
+        0,  // sampler data size
+        0,  // cue point ID
+        0,  // forward loop
+        range.start as u32,
+        (range.end - 1) as u32, // inclusive end
+        0,                      // loop point fraction
+        0,                      // repeat indefinitely
+    ] {
+        out.extend_from_slice(&field.to_le_bytes());
     }
     Ok(out)
 }

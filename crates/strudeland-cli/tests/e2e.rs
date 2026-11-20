@@ -321,6 +321,134 @@ fn render_writes_a_wav_through_the_real_pipeline() {
     assert!(tp <= -1.0 + 1e-6, "true peak {tp}");
 }
 
+fn wav_chunk<'a>(wav: &'a [u8], name: &[u8; 4]) -> Option<&'a [u8]> {
+    assert_eq!(&wav[..4], b"RIFF");
+    assert_eq!(&wav[8..12], b"WAVE");
+    let mut cursor = 12;
+    while cursor + 8 <= wav.len() {
+        let size = u32::from_le_bytes(wav[cursor + 4..cursor + 8].try_into().unwrap()) as usize;
+        let start = cursor + 8;
+        if &wav[cursor..cursor + 4] == name {
+            return Some(&wav[start..start + size]);
+        }
+        cursor = start + size + (size % 2);
+    }
+    None
+}
+
+#[test]
+fn render_exports_a_wav_intro_and_repeatable_loop_through_the_real_pipeline() {
+    use std::ffi::OsStr;
+    let dir = tempfile::tempdir().unwrap();
+    let song = dir.path().join("score.js");
+    std::fs::write(
+        &song,
+        r#"
+const meta = {
+  bpm: 240, meter: '4/4',
+  sections: [
+    { name: 'intro', bars: 1 },
+    { name: 'body', bars: 1, loop: true },
+    { name: 'ending', bars: 1 },
+  ],
+  loops: 3,
+};
+$: song(meta, {
+  intro: note('a3').s('sine'),
+  body: note('a4').s('sine'),
+  ending: note('a5').s('sine'),
+});
+"#,
+    )
+    .unwrap();
+    let out = dir.path().join("music.wav");
+    let o = render(&[
+        song.as_os_str(),
+        OsStr::new("--preset"),
+        OsStr::new("intro-loop"),
+        OsStr::new("--out"),
+        out.as_os_str(),
+        OsStr::new("--bit-depth"),
+        OsStr::new("16"),
+        OsStr::new("--loudness"),
+        OsStr::new("off"),
+        OsStr::new("--json"),
+    ]);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let json: Value = serde_json::from_slice(&o.stdout).unwrap();
+    let intro_path = dir.path().join("music-intro.wav");
+    let loop_path = dir.path().join("music-loop.wav");
+    assert_eq!(json["preset"], "intro-loop");
+    let files = json["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0]["role"], "intro");
+    assert_eq!(files[0]["path"], intro_path.to_str().unwrap());
+    assert_eq!(files[0]["loopPoints"], Value::Null);
+    assert_eq!(files[1]["role"], "loop");
+    assert_eq!(files[1]["path"], loop_path.to_str().unwrap());
+    assert_eq!(
+        files[1]["loopPoints"],
+        serde_json::json!({
+            "startFrame": 0, "lengthFrames": 44_100, "sampleRate": 44_100, "godotLoopOffset": 0.0,
+        })
+    );
+    assert!(!out.exists());
+
+    let intro = std::fs::read(intro_path).unwrap();
+    let body = std::fs::read(loop_path).unwrap();
+    assert!(wav_chunk(&intro, b"smpl").is_none());
+    let marker = wav_chunk(&body, b"smpl").unwrap();
+    assert_eq!(u32::from_le_bytes(marker[44..48].try_into().unwrap()), 0);
+    assert_eq!(
+        u32::from_le_bytes(marker[48..52].try_into().unwrap()),
+        44_099
+    );
+    let intro = wav_chunk(&intro, b"data").unwrap();
+    let body = wav_chunk(&body, b"data").unwrap();
+    assert_eq!(intro.len(), 44_100 * 4);
+    assert_eq!(body.len(), 44_100 * 4);
+
+    // Play the intro once, then the body twice. Count positive zero crossings in the
+    // middle half second of each asset to check that only the body pitch repeats.
+    let playback = [intro, body, body].concat();
+    for (bar, crossings) in [110, 220, 220].into_iter().enumerate() {
+        let start = bar * 44_100 + 11_025;
+        let samples: Vec<_> = playback[start * 4..(start + 22_050) * 4]
+            .chunks_exact(4)
+            .map(|frame| i16::from_le_bytes([frame[0], frame[1]]))
+            .collect();
+        let actual = samples
+            .windows(2)
+            .filter(|pair| pair[0] <= 0 && pair[1] > 0)
+            .count();
+        assert!(actual.abs_diff(crossings) <= 1, "bar {bar}: {actual}");
+    }
+}
+
+#[test]
+fn render_loop_preset_requires_a_marked_loop() {
+    use std::ffi::OsStr;
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("missing-loop.wav");
+    let song = corpus("sine-basic.js");
+    let o = render(&[
+        song.as_os_str(),
+        OsStr::new("--preset"),
+        OsStr::new("folded-loop"),
+        OsStr::new("--out"),
+        out.as_os_str(),
+    ]);
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(4), "{stderr}");
+    assert!(stderr.contains("loop: true"), "{stderr}");
+    assert!(!out.exists());
+}
+
 #[test]
 fn render_without_sections_needs_a_length() {
     use std::ffi::OsStr;

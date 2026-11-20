@@ -24,7 +24,7 @@ use crate::cli::{
 };
 use crate::docs;
 use crate::output::{self, Report};
-use crate::render::{self, ProgressLines, RenderBackend, StrudelandBackend};
+use crate::render::{self, Destination, ProgressLines, RenderBackend, StrudelandBackend};
 use crate::skill;
 
 pub const EXIT_OK: i32 = 0;
@@ -467,20 +467,31 @@ fn run_render(
     let plan = render::plan(args).map_err(Failure::Render)?;
     let lines = ProgressLines::new(&mut *env.stderr);
     let progress = |p| lines.report(p);
-    let out = backend
-        .render(&code, &plan.opts, &progress)
-        .map_err(Failure::Render)?;
-    let path = backend
-        .write(&out, &plan.target, &progress)
-        .map_err(Failure::Render)?;
-    lines.warnings(&out.summary);
-    if json {
-        let _ = writeln!(env.stdout, "{}", render::json_line(&out.summary, &path));
-    } else {
-        let _ = env
-            .stdout
-            .write_all(render::human_summary(&out.summary, &path).as_bytes());
-    }
+    let summary = match plan.destination {
+        Destination::Standard(target) => {
+            let out = backend
+                .render(&code, &plan.opts, &progress)
+                .map_err(Failure::Render)?;
+            let path = backend
+                .write(&out, &target, &progress)
+                .map_err(Failure::Render)?;
+            lines.warnings(&out.summary.warnings);
+            if json {
+                format!("{}\n", render::json_line(&out.summary, &path))
+            } else {
+                render::human_summary(&out.summary, &path)
+            }
+        }
+        Destination::Export(export) => {
+            let files = backend
+                .render_export(&code, &plan.opts, export.preset, &progress)
+                .map_err(Failure::Render)?;
+            export
+                .write(&files, backend, &lines, json)
+                .map_err(Failure::Render)?
+        }
+    };
+    let _ = env.stdout.write_all(summary.as_bytes());
     let _ = env.stdout.flush();
     Ok(EXIT_OK)
 }

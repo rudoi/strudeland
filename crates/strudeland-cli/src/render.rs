@@ -2,14 +2,17 @@
 //! It runs offline and never opens the control socket.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use serde_json::Value;
 use strudeland_render::{
-    DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, LengthRequest, Loudness,
-    OutputOptions, OutputTarget, Progress, RenderError, RenderOptions, RenderOutput, Summary,
-    resolve_format, resolve_output,
+    DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, ExportFile, ExportPreset,
+    ExportRole, LengthRequest, LoopPoints, Loudness, OutputOptions, OutputTarget, Progress,
+    RenderError, RenderOptions, RenderOutput, Summary, resolve_export_output, resolve_format,
+    resolve_output,
 };
 
 use crate::cli::{OnOff, RenderArgs};
@@ -23,6 +26,15 @@ pub trait RenderBackend {
         opts: &RenderOptions,
         progress: &dyn Fn(Progress),
     ) -> Result<RenderOutput, RenderError>;
+
+    /// Plans, renders, levels and encodes every file for a preset.
+    fn render_export(
+        &mut self,
+        code: &str,
+        opts: &RenderOptions,
+        preset: ExportPreset,
+        progress: &dyn Fn(Progress),
+    ) -> Result<Vec<ExportFile>, RenderError>;
 
     /// Writes the encoded file and returns where it went.
     fn write(
@@ -46,6 +58,16 @@ impl RenderBackend for StrudelandBackend {
         strudeland_render::render(code, opts, progress)
     }
 
+    fn render_export(
+        &mut self,
+        code: &str,
+        opts: &RenderOptions,
+        preset: ExportPreset,
+        progress: &dyn Fn(Progress),
+    ) -> Result<Vec<ExportFile>, RenderError> {
+        strudeland_render::render_export(code, opts, preset, progress)
+    }
+
     fn write(
         &mut self,
         out: &RenderOutput,
@@ -63,15 +85,35 @@ fn usage(flag: &'static str, message: impl Into<String>) -> RenderError {
     }
 }
 
-/// Everything the flags resolve to: the render options and where the file goes.
+/// Everything the flags resolve to: the render options and destinations.
 pub struct Plan {
     pub opts: RenderOptions,
-    pub target: OutputTarget,
+    pub destination: Destination,
+}
+
+pub enum Destination {
+    Standard(OutputTarget),
+    Export(ExportPlan),
+}
+
+pub struct ExportPlan {
+    pub preset: ExportPreset,
+    primary: OutputTarget,
+    intro: Option<Result<OutputTarget, RenderError>>,
 }
 
 /// Resolves the flags before any work, so a bad flag or a missing `--out` fails fast. Creates
 /// nothing: a project's `renders/` is created only when the file is written.
 pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
+    let preset = args.preset.map(ExportPreset::from);
+    if matches!(preset, Some(p) if p != ExportPreset::OneShot)
+        && (args.section.is_some() || args.length.is_some() || args.loops.is_some())
+    {
+        return Err(usage(
+            "--preset",
+            "loop presets select their own bars; omit --section, --length and --loops",
+        ));
+    }
     let length = if let Some(name) = &args.section {
         LengthRequest::Section { name: name.clone() }
     } else if let Some(bars) = args.length {
@@ -98,7 +140,25 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
             true_peak_db: args.true_peak.unwrap_or(DEFAULT_TRUE_PEAK_DB),
         }
     };
-    let target = resolve_output(args.out.as_deref(), &args.song, &length, format)?;
+    let out = args.out.as_deref();
+    let destination = match preset {
+        None => Destination::Standard(resolve_output(out, &args.song, &length, format)?),
+        Some(preset) => {
+            let resolve =
+                |role| resolve_export_output(out, &args.song, &length, format, preset, role);
+            let primary_role = match preset {
+                ExportPreset::IntroLoop | ExportPreset::FoldedLoop => ExportRole::Loop,
+                ExportPreset::TaggedLoop | ExportPreset::OneShot => ExportRole::Single,
+            };
+            Destination::Export(ExportPlan {
+                preset,
+                primary: resolve(primary_role)?,
+                // The arranged loop may start at frame zero, so resolve this optional path
+                // without letting an existing intro file block a loop-only export.
+                intro: (preset == ExportPreset::IntroLoop).then(|| resolve(ExportRole::Intro)),
+            })
+        }
+    };
     Ok(Plan {
         opts: RenderOptions {
             length,
@@ -107,7 +167,7 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
             include_events: false,
             output: OutputOptions { loudness, encoder },
         },
-        target,
+        destination,
     })
 }
 
@@ -143,11 +203,112 @@ impl<'a> ProgressLines<'a> {
     }
 
     /// Prints the warnings after the run, for human and `--json` output alike.
-    pub fn warnings(&self, summary: &Summary) {
+    pub fn warnings<'w>(&self, warnings: impl IntoIterator<Item = &'w String>) {
         let mut err = self.stderr.borrow_mut();
-        for w in &summary.warnings {
+        for w in warnings {
             let _ = writeln!(err, "warning: {w}");
         }
+    }
+
+    fn partial_write(&self, completed: &Path, failed: &Path) {
+        let _ = writeln!(
+            self.stderr.borrow_mut(),
+            "partial export: wrote {}, failed to write {}",
+            completed.display(),
+            failed.display(),
+        );
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoopReport<'a> {
+    #[serde(flatten)]
+    points: &'a LoopPoints,
+    godot_loop_offset: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WrittenExport<'a> {
+    role: ExportRole,
+    #[serde(serialize_with = "serialize_path")]
+    path: PathBuf,
+    #[serde(flatten)]
+    summary: &'a Summary,
+    loop_points: Option<LoopReport<'a>>,
+}
+
+fn serialize_path<S: serde::Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&path.to_string_lossy())
+}
+
+impl ExportPlan {
+    pub fn write(
+        self,
+        files: &[ExportFile],
+        backend: &mut dyn RenderBackend,
+        lines: &ProgressLines<'_>,
+        json: bool,
+    ) -> Result<String, RenderError> {
+        let intro = if files.iter().any(|file| file.role == ExportRole::Intro) {
+            Some(
+                self.intro
+                    .transpose()?
+                    .ok_or_else(|| RenderError::Render("unexpected intro file".into()))?,
+            )
+        } else {
+            None
+        };
+        let mut written: Vec<WrittenExport<'_>> = Vec::new();
+        let mut reported_warnings = HashSet::new();
+        for file in files {
+            let target = match (&intro, file.role) {
+                (Some(target), ExportRole::Intro) => target,
+                _ => &self.primary,
+            };
+            let path = backend
+                .write(&file.output, target, &|p| lines.report(p))
+                .inspect_err(|_| {
+                    if let Some(completed) = written.last() {
+                        lines.partial_write(&completed.path, target.path());
+                    }
+                })?;
+            let summary = &file.output.summary;
+            lines.warnings(
+                summary
+                    .warnings
+                    .iter()
+                    .filter(|warning| reported_warnings.insert(*warning)),
+            );
+            written.push(WrittenExport {
+                role: file.role,
+                path,
+                summary,
+                loop_points: file.loop_points.as_ref().map(|points| LoopReport {
+                    points,
+                    godot_loop_offset: points.godot_loop_offset(),
+                }),
+            });
+        }
+        if json {
+            return Ok(format!(
+                "{}\n",
+                serde_json::json!({"preset": self.preset, "files": written})
+            ));
+        }
+        let mut output = String::new();
+        for file in written {
+            output.push_str(&human_summary(file.summary, &file.path));
+            if let Some(loop_report) = file.loop_points {
+                let points = loop_report.points;
+                output.push_str(&format!(
+                    "  loop starts at frame {}, spans {} frames at {} Hz (Godot loop_offset {} s)\n",
+                    points.start_frame, points.length_frames, points.sample_rate, loop_report.godot_loop_offset,
+                ));
+            }
+        }
+        Ok(output)
     }
 }
 
@@ -282,7 +443,10 @@ mod tests {
 
     struct Fake {
         result: Option<Result<RenderOutput, RenderError>>,
+        export: Option<Result<Vec<ExportFile>, RenderError>>,
+        preset: Option<ExportPreset>,
         write_error: Option<RenderError>,
+        writes_before_error: usize,
         seen: Vec<(String, RenderOptions)>,
         written: Vec<PathBuf>,
         events: Vec<Progress>,
@@ -298,10 +462,21 @@ mod tests {
         fn with(r: Result<RenderOutput, RenderError>) -> Fake {
             Fake {
                 result: Some(r),
+                export: None,
+                preset: None,
                 write_error: None,
+                writes_before_error: 0,
                 seen: vec![],
                 written: vec![],
                 events: vec![],
+            }
+        }
+
+        fn with_export(files: Vec<ExportFile>) -> Fake {
+            Fake {
+                result: None,
+                export: Some(Ok(files)),
+                ..Fake::ok()
             }
         }
     }
@@ -319,6 +494,22 @@ mod tests {
             }
             self.result.take().expect("one render")
         }
+
+        fn render_export(
+            &mut self,
+            code: &str,
+            opts: &RenderOptions,
+            preset: ExportPreset,
+            progress: &dyn Fn(Progress),
+        ) -> Result<Vec<ExportFile>, RenderError> {
+            self.seen.push((code.to_string(), opts.clone()));
+            self.preset = Some(preset);
+            for p in &self.events {
+                progress(p.clone());
+            }
+            self.export.take().expect("one export")
+        }
+
         fn write(
             &mut self,
             _: &RenderOutput,
@@ -326,7 +517,9 @@ mod tests {
             progress: &dyn Fn(Progress),
         ) -> Result<PathBuf, RenderError> {
             let path = target.path();
-            if let Some(e) = self.write_error.take() {
+            if self.written.len() == self.writes_before_error
+                && let Some(e) = self.write_error.take()
+            {
                 return Err(e);
             }
             self.written.push(path.to_path_buf());
@@ -368,6 +561,158 @@ mod tests {
         let p = dir.join("song.js");
         std::fs::write(&p, "note('c3')").unwrap();
         p.to_string_lossy().into_owned()
+    }
+
+    fn export_file(role: ExportRole, loop_points: Option<LoopPoints>) -> ExportFile {
+        ExportFile {
+            role,
+            output: RenderOutput {
+                bytes: vec![1, 2, 3],
+                summary: summary(Format::Wav, false),
+            },
+            loop_points,
+        }
+    }
+
+    #[test]
+    fn tagged_export_reports_decoded_loop_points() {
+        let dir = tempfile::tempdir().unwrap();
+        let (song, out) = (song(dir.path()), dir.path().join("tag.wav"));
+        let files = || {
+            vec![export_file(
+                ExportRole::Single,
+                Some(LoopPoints {
+                    start_frame: 24_000,
+                    length_frames: 96_000,
+                    sample_rate: 48_000,
+                }),
+            )]
+        };
+        let args = [
+            "render",
+            &song,
+            "--out",
+            out.to_str().unwrap(),
+            "--preset",
+            "tagged-loop",
+        ];
+        let mut fake = Fake::with_export(files());
+        let o = run(&args, &mut fake);
+        assert_eq!(o.code, 0, "{}", o.stderr);
+        assert_eq!(fake.preset, Some(ExportPreset::TaggedLoop));
+        assert!(o.stdout.contains(
+            "loop starts at frame 24000, spans 96000 frames at 48000 Hz (Godot loop_offset 0.5 s)"
+        ));
+        let mut json_args = args.to_vec();
+        json_args.push("--json");
+        let mut fake = Fake::with_export(files());
+        let o = run(&json_args, &mut fake);
+        assert_eq!(o.code, 0, "{}", o.stderr);
+        assert_eq!(o.stdout.lines().count(), 1);
+        let v: Value = serde_json::from_str(&o.stdout).unwrap();
+        assert_eq!(v["preset"], "tagged-loop");
+        assert_eq!(v["files"][0]["role"], "single");
+        assert_eq!(v["files"][0]["path"], out.to_str().unwrap());
+        assert_eq!(v["files"][0]["format"], "wav");
+        assert_eq!(
+            v["files"][0]["loopPoints"],
+            serde_json::json!({
+                "startFrame": 24_000, "lengthFrames": 96_000, "sampleRate": 48_000, "godotLoopOffset": 0.5,
+            })
+        );
+        assert!(o.stderr.contains("warning: w one"));
+    }
+
+    #[test]
+    fn split_write_failure_reports_both_destinations() {
+        let dir = tempfile::tempdir().unwrap();
+        let (song, out) = (song(dir.path()), dir.path().join("pair.wav"));
+        let intro = dir.path().join("pair-intro.wav");
+        let body = dir.path().join("pair-loop.wav");
+        let pair = || {
+            vec![
+                export_file(ExportRole::Intro, None),
+                export_file(ExportRole::Loop, None),
+            ]
+        };
+        let args = [
+            "--json",
+            "render",
+            &song,
+            "--out",
+            out.to_str().unwrap(),
+            "--preset",
+            "intro-loop",
+        ];
+        let mut fake = Fake::with_export(pair());
+        let success = run(&args, &mut fake);
+        assert_eq!(success.code, 0, "{}", success.stderr);
+        assert_eq!(success.stderr.matches("warning: w one").count(), 1);
+        let json: Value = serde_json::from_str(&success.stdout).unwrap();
+        assert_eq!(json["files"][0]["warnings"][0], "w one");
+        assert_eq!(json["files"][1]["warnings"][0], "w one");
+        let mut fake = Fake::with_export(pair());
+        fake.writes_before_error = 1;
+        fake.write_error = Some(RenderError::Io {
+            path: body.clone(),
+            source: std::io::Error::other("disk full"),
+        });
+        let o = run(&args, &mut fake);
+        assert_eq!(o.code, 1, "{}", o.stderr);
+        assert_eq!(fake.written, vec![intro.clone()]);
+        assert!(o.stdout.is_empty());
+        assert!(o.stderr.contains(&format!(
+            "partial export: wrote {}, failed to write {}",
+            intro.display(),
+            body.display()
+        )));
+        assert!(o.stderr.contains("disk full"));
+    }
+
+    #[test]
+    fn only_one_shot_accepts_length_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let song = song(dir.path());
+        for preset in ["tagged-loop", "intro-loop", "folded-loop"] {
+            for (flag, value) in [("--section", "body"), ("--length", "2"), ("--loops", "3")] {
+                let mut fake = Fake::ok();
+                let o = run(
+                    &[
+                        "render", &song, "--out", "x.wav", "--preset", preset, flag, value,
+                    ],
+                    &mut fake,
+                );
+                assert_eq!(o.code, 4, "{}", o.stderr);
+                assert!(o.stderr.contains("loop presets select their own bars"));
+                assert!(fake.seen.is_empty());
+                assert!(fake.written.is_empty());
+            }
+        }
+        for (flag, value, expected) in [
+            (
+                "--section",
+                "body",
+                LengthRequest::Section {
+                    name: "body".into(),
+                },
+            ),
+            ("--length", "2", LengthRequest::Length { bars: 2 }),
+            ("--loops", "3", LengthRequest::Clip { loops: Some(3) }),
+        ] {
+            let mut fake = Fake::with_export(vec![export_file(ExportRole::Single, None)]);
+            let o = run(
+                &[
+                    "--json", "render", &song, "--out", "x.wav", "--preset", "one-shot", flag,
+                    value,
+                ],
+                &mut fake,
+            );
+            assert_eq!(o.code, 0, "{}", o.stderr);
+            assert_eq!(fake.preset, Some(ExportPreset::OneShot));
+            assert_eq!(fake.seen[0].1.length, expected);
+            let v: Value = serde_json::from_str(&o.stdout).unwrap();
+            assert_eq!(v["files"][0]["loopPoints"], Value::Null);
+        }
     }
 
     #[test]
@@ -720,6 +1065,58 @@ mod tests {
                 "{flags:?}"
             );
         }
+    }
+
+    #[test]
+    fn preset_outputs_use_distinct_project_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = strudeland_project::Project::create(&dir.path().join("p"), "t").unwrap();
+        let song = project.root().join("songs/main.js");
+        std::fs::write(&song, "note('c3')").unwrap();
+        let renders = project.root().join("renders");
+        for (preset, role, name) in [
+            ("tagged-loop", ExportRole::Single, "main-tagged-loop.wav"),
+            ("intro-loop", ExportRole::Loop, "main-loop.wav"),
+            ("folded-loop", ExportRole::Loop, "main-folded-loop.wav"),
+            ("one-shot", ExportRole::Single, "main-one-shot.wav"),
+        ] {
+            let mut fake = Fake::with_export(vec![export_file(role, None)]);
+            let out = run(
+                &["render", song.to_str().unwrap(), "--preset", preset],
+                &mut fake,
+            );
+            assert_eq!(out.code, 0, "{preset}: {}", out.stderr);
+            assert_eq!(fake.written, vec![renders.join(name)]);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn split_only_requires_the_intro_path_when_the_song_has_an_intro() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = strudeland_project::Project::create(&dir.path().join("p"), "t").unwrap();
+        let song = project.root().join("songs/main.js");
+        std::fs::write(&song, "note('c3')").unwrap();
+        let renders = project.root().join("renders");
+        std::os::unix::fs::symlink(
+            dir.path().join("outside.wav"),
+            renders.join("main-intro.wav"),
+        )
+        .unwrap();
+        let args = ["render", song.to_str().unwrap(), "--preset", "intro-loop"];
+
+        let mut fake = Fake::with_export(vec![export_file(ExportRole::Loop, None)]);
+        let out = run(&args, &mut fake);
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        assert_eq!(fake.written, vec![renders.join("main-loop.wav")]);
+
+        let mut fake = Fake::with_export(vec![
+            export_file(ExportRole::Intro, None),
+            export_file(ExportRole::Loop, None),
+        ]);
+        let out = run(&args, &mut fake);
+        assert_eq!(out.code, 1, "{}", out.stderr);
+        assert!(fake.written.is_empty());
     }
 
     #[test]

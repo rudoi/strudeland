@@ -261,7 +261,7 @@ fn limited(x: f32, g: &[f64], i: usize) -> f32 {
 
 /// Equal channel lengths and finite samples (the first non-finite sample in frame order is
 /// named).
-fn check_input(input: &[Vec<f32>]) -> Result<(), RenderError> {
+pub(crate) fn check_input(input: &[Vec<f32>]) -> Result<(), RenderError> {
     if let Some(first) = input.first()
         && input.iter().any(|c| c.len() != first.len())
     {

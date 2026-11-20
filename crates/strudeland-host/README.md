@@ -3,7 +3,7 @@
 The headless pattern host: evaluates a strudeland song in an embedded V8 and plans its engine
 job (schema 2) exactly as the render page does in Chromium, without a browser. Both run the same
 planner (`src/lib/render/job-plan.ts`, bundled into `js/host.js`), so the job text is byte-equal by
-construction; `bun run host:parity` proves it on the corpus (37 fixtures). It is the planning half
+construction; `bun run host:parity` proves it on the render corpus. It is the planning half
 of `strudeland render`. Its harness binary is invoked as `strudeland-host`.
 
 Each request loads the committed bundle `js/host.js` into a fresh V8 isolate and context, with
@@ -42,7 +42,7 @@ module state leaks from one song to the next.
 `plan_render` (`plan-render`) plans a whole render in one call, for `strudeland render`, instead of
 one request (and one evaluation of the song) per chunk. The request is a `RenderPlanRequest`:
 `{"length":{"kind":"clip"|"section"|"length"|"window",...},"mode":"mix","sampleRate":44100,
-"includeEvents"?,"timeoutSec"?}`. The bundle's `planRender` (`src/lib/render/job-plan.ts`):
+"preset"?,"includeEvents"?,"timeoutSec"?}`. The bundle's `planRender` (`src/lib/render/job-plan.ts`):
 
 1. resolves the length request against the song's `meta` (a clip with `loops`, a section, the
    first N bars, or an explicit window); one the song cannot satisfy is `HostError::MetaFlag` and
@@ -56,6 +56,27 @@ chunk. The schedule is reused by default (`BATCH_REUSE_SCHEDULE = true`): each c
 the full schedule cut at the chunk's end. Setting it to `false` makes each chunk query and select
 `[0, end)` itself, as `plan_job` does (quadratic, equal by construction); `host:parity --batch`
 found every corpus chunk job byte-equal with `true`, so the fallback is unused.
+
+The optional `preset` field accepts `tagged-loop`, `intro-loop`, `folded-loop` or `one-shot`.
+Loop presets take a plain clip request and resolve one pass through the evaluated loop section.
+The split intro ends at the loop start, and both split and folded loop jobs start their history
+at that bar. A tagged loop plays the intro and body continuously. A one-shot accepts the usual
+length request. The response includes `export.tailFrames` and, for a loop, `export.loopStartBar`
+on the song timeline. Only the final job's frame count includes post-roll. Its last scheduled
+bar stays at the requested musical end.
+
+The post-roll estimate uses each hap's actual duration, release, compressor pre-delay and bus
+dependencies. Lowpass, highpass and bandpass filters in the voice or its FX chain can ring after
+the amp envelope closes. The estimate allows at least half a second per ringing stage and scales
+with Q and cutoff near DC or Nyquist. A static filter at either endpoint needs no extra time. It accounts for filter envelopes, LFOs and cascaded stages,
+with a 30-second cap per voice. A generic modulator driving cutoff or Q uses that cap.
+Vowel formants get one second and a phaser notch half a second. An active orbit DJ filter gets
+another half-second after the effects returns.
+The estimate allows the full room impulse response (1.5 times room size) and the first delay
+tap, even at zero feedback, where the engine can skip the orbit delay send. Later repeats include the engine's 128-frame feedback latency until
+the echo falls 60 dB below the first tap. Feedback tops out at 0.98 and delay time at one second.
+The estimate subtracts the elapsed time before the musical cut. An empty schedule and silence
+markers need zero post-roll. The scratch buffer limit also applies to the extended final job and the joined export.
 
 ### Planning timeout
 

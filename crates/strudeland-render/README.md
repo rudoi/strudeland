@@ -44,7 +44,42 @@ runs it and it is not a `strudeland` subcommand.
 | `opus` | 160 kbps (`--quality` is kbps, 6 to 510); the audio is resampled from 44.1 to 48 kHz |
 | Planning timeout | 120 s in the CLI, none in the library |
 
-The window ends with a hard cut: no reverb tail and no fade.
+Without a preset, the render ends at the requested musical boundary.
+
+## Game audio presets
+
+Use `strudeland render song.js --preset PRESET`. The loop presets use the section marked
+`loop: true`, take one pass, and exclude sections after it. The one-shot accepts the usual
+`--section`, `--length` or `--loops` options.
+
+| Preset | Output |
+| --- | --- |
+| `intro-loop` | `<name>-intro.<ext>` and `<name>-loop.<ext>`. Play the intro once, then start the loop file from frame zero and repeat it. A song beginning with the loop produces just the loop file. |
+| `tagged-loop` | One file with the intro followed by the marked loop through EOF. The loop range starts after the intro. |
+| `folded-loop` | One loop file. The release and effect decay after the loop end are mixed into its beginning, wrapping again as needed. |
+| `one-shot` | One file that includes the requested arrangement and then lets triggered notes and effects decay. Trailing zero frames after the requested arrangement are trimmed. |
+
+For `intro-loop`, the intro ends at its musical boundary and the loop is rendered and
+tail-folded in isolation. The two files share a static gain so their relative levels stay
+intact. The game controls the handoff. A click already present in the source or imposed by
+the player or codec can still be audible. For sample-exact loops use WAV. MP3 exports warn
+because playback can expose encoder delay and padding.
+
+For example, `strudeland render song.js --preset intro-loop --out music.wav` writes
+`music-intro.wav` and `music-loop.wav`. Assets are encoded before either is written. Each
+write is atomic. If the second write fails, the CLI reports the completed path and the
+failed path so the same command can be retried.
+
+WAV uses an embedded forward `smpl` loop. Ogg Vorbis and Opus use `LOOPSTART` and
+`LOOPLENGTH` comments, and MP3 stores those names in ID3. The CLI reports the decoded frame
+range, sample rate and Godot `loop_offset` in seconds. Opus loop metadata uses 48 kHz.
+In Godot, use the WAV metadata detection option for WAV, or enable Loop and enter the
+reported offset for Ogg Vorbis or MP3.
+[Godot audio import settings](https://docs.godotengine.org/en/4.5/tutorials/assets_pipeline/importing_audio_samples.html)
+
+The loop presets use static gain capped for the true peak, including across the wrap.
+If any lossy file exceeds the ceiling after decoding, the correction reduces the shared
+gain and re-encodes the outputs. `--loudness off` bypasses gain and correction.
 
 ## Loudness and true peak
 

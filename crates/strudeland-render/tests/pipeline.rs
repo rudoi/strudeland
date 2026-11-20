@@ -587,3 +587,157 @@ fn a_rendered_file_is_written_and_overwritten() {
     );
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
+
+const GAME_LOOP: &str = r#"
+const meta = {
+  bpm: 137, meter: '7/8', loops: 3,
+  sections: [
+    { name: 'intro', bars: 1 },
+    { name: 'body', bars: 1, loop: true },
+    { name: 'ending', bars: 1 },
+  ],
+};
+song(meta, {
+  intro: s('sine').freq(220).gain(0.25).room(0.15).roomsize(0.5),
+  body: s('sine').freq(440).gain(0.12).release(0.15),
+  ending: s('square').freq(880).gain(0.5),
+})
+"#;
+
+#[test]
+fn split_intro_plays_once_and_the_body_can_repeat_without_the_intro_or_ending() {
+    use strudeland_render::{ExportPreset, ExportRole, render_export};
+    let mut opts = options(LengthRequest::Clip { loops: None });
+    opts.jobs = Some(2);
+    let files = render_export(GAME_LOOP, &opts, ExportPreset::IntroLoop, &|_| {}).unwrap();
+    let [intro, body] = files.as_slice() else {
+        panic!("expected an intro and body")
+    };
+    assert_eq!(
+        (intro.role, body.role),
+        (ExportRole::Intro, ExportRole::Loop)
+    );
+    assert_eq!(intro.loop_points, None);
+    let intro = read_f32(&intro.output.bytes).unwrap();
+    let body_wav = read_f32(&body.output.bytes).unwrap();
+    let cps = (137.0 / 60.0) / 3.5;
+    let intro_frames = window_frames(0, 1, cps) as usize;
+    let loop_frames = window_frames(1, 2, cps) as usize;
+    assert_eq!(intro.channels[0].len(), intro_frames);
+    assert_eq!(body_wav.channels[0].len(), loop_frames);
+    let points = body.loop_points.unwrap();
+    assert_eq!(
+        (points.start_frame, points.length_frames),
+        (0, loop_frames as u64)
+    );
+
+    let altered = GAME_LOOP
+        .replace("freq(220)", "freq(660)")
+        .replace("freq(880)", "freq(990)");
+    opts.jobs = Some(1);
+    let other = render_export(&altered, &opts, ExportPreset::IntroLoop, &|_| {}).unwrap();
+    assert_ne!(files[0].output.bytes, other[0].output.bytes);
+    assert_eq!(files[1].output.bytes, other[1].output.bytes);
+    let folded = render_export(GAME_LOOP, &opts, ExportPreset::FoldedLoop, &|_| {}).unwrap();
+    assert_eq!(files[1].output.bytes, folded[0].output.bytes);
+    let playback: Vec<f32> = intro.channels[0]
+        .iter()
+        .chain(&body_wav.channels[0])
+        .chain(&body_wav.channels[0])
+        .copied()
+        .collect();
+    let frequency_at = |start: usize| {
+        let frames = &playback[start + 4410..start + 8820];
+        frames
+            .windows(2)
+            .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+            .count()
+            * 10
+    };
+    assert!(frequency_at(0).abs_diff(220) <= 10);
+    assert!(frequency_at(intro_frames).abs_diff(440) <= 10);
+    assert!(frequency_at(intro_frames + loop_frames).abs_diff(440) <= 10);
+}
+
+#[test]
+fn one_shot_renders_a_delayed_echo_without_triggering_the_next_bar() {
+    use strudeland_render::{ExportPreset, render_export};
+    let code = "const meta = { bpm: 120 }; s('sine').freq(220).gain(0.25).delay(0.5).delaytime(0.2).delayfeedback(0.01)";
+    let opts = options(LengthRequest::Length { bars: 1 });
+    let one = render_export(code, &opts, ExportPreset::OneShot, &|_| {}).unwrap();
+    let wav = read_f32(&one[0].output.bytes).unwrap();
+    let end = window_frames(0, 1, 0.5) as usize;
+    assert!(wav.channels[0].len() > end);
+    assert!(
+        wav.channels[0][end + 4000..end + 8000]
+            .iter()
+            .any(|x| x.abs() > 0.0001)
+    );
+
+    // The next cycle would still be sounding well beyond the previous note and its first echo.
+    let extended = render(code, &options(LengthRequest::Length { bars: 2 }), &|_| {}).unwrap();
+    let extended = read_f32(&extended.bytes).unwrap();
+    assert!(extended.channels[0][end + 25_000].abs() > 0.0001);
+    let late_shot = wav.channels[0].get(end + 25_000).copied().unwrap_or(0.0);
+    assert!(late_shot.abs() < 0.0001);
+}
+
+#[test]
+fn one_shot_retains_the_reverb_tail_in_the_encoded_file() {
+    use strudeland_render::{ExportPreset, render_export};
+    let code = "const meta = { bpm: 120 }; s('sine').gain(0.3).room(0.7).roomsize(0.4)";
+    let opts = options(LengthRequest::Length { bars: 1 });
+    let shot = render_export(code, &opts, ExportPreset::OneShot, &|_| {}).unwrap();
+    let raw = read_f32(&shot[0].output.bytes).unwrap();
+    let end = window_frames(0, 1, 0.5) as usize;
+    assert_eq!(shot[0].loop_points, None);
+    assert_eq!(shot[0].output.summary.frames, raw.channels[0].len() as u64);
+    assert!(
+        raw.channels[0][end + 4410..]
+            .iter()
+            .any(|x| x.abs() > 0.0001)
+    );
+}
+
+#[test]
+fn one_shot_preserves_filter_ringing_after_the_amp_release() {
+    use strudeland_render::{ExportPreset, render_export};
+    let opts = options(LengthRequest::Length { bars: 1 });
+    let after_release = window_frames(0, 1, 2.0) as usize + 442;
+    for voice in [
+        "s('square').lpf(3000).lpq(20)",
+        "s('sine').freq(660).vowel('a')",
+    ] {
+        let code = format!(
+            r#"const meta = {{ bpm: 240, meter: '2/4' }};
+note("~ ~ ~ a3").{voice}.release(0.01)"#
+        );
+        let shot = render_export(&code, &opts, ExportPreset::OneShot, &|_| {}).unwrap();
+        let raw = read_f32(&shot[0].output.bytes).unwrap();
+        let ring = raw.channels[0]
+            .get(after_release..after_release + 128)
+            .unwrap_or_else(|| panic!("{voice} must ring past its amp release"));
+        assert!(ring.iter().any(|x| x.abs() > 0.001), "{voice}");
+    }
+}
+
+#[test]
+fn a_short_hot_loop_still_respects_the_static_peak_ceiling() {
+    use strudeland_render::{ExportPreset, render_export};
+    let code = r#"const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
+song(meta, { body: s('square').gain(4) })"#;
+    let mut opts = options(LengthRequest::Clip { loops: None });
+    opts.output.loudness = Loudness::default();
+    let files = render_export(code, &opts, ExportPreset::FoldedLoop, &|_| {}).unwrap();
+    let summary = &files[0].output.summary;
+    let loudness = summary.loudness.as_ref().unwrap();
+    assert!(!loudness.input_lufs.is_finite());
+    assert!(loudness.gain_db < 0.0);
+    assert!(loudness.output_true_peak_db <= -1.0 + 1e-5);
+    assert!(
+        summary
+            .warnings
+            .iter()
+            .any(|w| w.contains("true-peak ceiling still applies"))
+    );
+}

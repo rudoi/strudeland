@@ -1,8 +1,13 @@
 //! The encoders: WAV, MP3, Ogg Vorbis and Opus, on synthetic buffers.
 
-use strudeland_render::encode::opus::{resample_48k, resampled_len};
+use std::io::Cursor;
+
+use ogg::reading::PacketReader;
+use strudeland_render::encode::mp3::encode_mp3_with_loop;
+use strudeland_render::encode::ogg::encode_ogg_with_loop;
+use strudeland_render::encode::opus::{encode_opus_with_loop, resample_48k, resampled_len};
 use strudeland_render::encode::verify::{decode, decode_opus_trimmed, decoded_true_peak_db};
-use strudeland_render::encode::wav::encode_wav;
+use strudeland_render::encode::wav::{encode_wav, encode_wav_with_loop};
 use strudeland_render::encode::{CORRECTION_MARGIN_DB, encode_once};
 use strudeland_render::level::true_peak_db;
 use strudeland_render::{BitDepth, EncoderOptions, Format, Mp3Mode, RenderError};
@@ -88,6 +93,31 @@ fn encode_wav_32f_is_the_engine_writer() {
     assert_eq!(u16_at(&b, 20), 3, "float tag");
     assert_eq!(u16_at(&b, 34), 32, "bits");
     assert_eq!(u32_at(&b, 40), 777 * 2 * 4, "data size");
+}
+
+#[test]
+fn encode_wav_smpl_keeps_pcm_and_uses_an_inclusive_end() {
+    let input = sine(17, 440.0, 0.5);
+    for depth in [BitDepth::B16, BitDepth::B24, BitDepth::F32] {
+        // Mono 24-bit has an odd data size and needs a pad byte before the next chunk.
+        let input = &input[..1];
+        let plain = wav(input, depth);
+        let tagged = encode_wav_with_loop(input, SR, depth, Some(3..17)).unwrap();
+        assert_eq!(encode_wav_with_loop(input, SR, depth, None).unwrap(), plain);
+        assert_eq!(u32_at(&tagged, 4) as usize + 8, tagged.len());
+        assert_eq!(&tagged[8..plain.len()], &plain[8..]);
+        let at = plain.len().next_multiple_of(2);
+        assert!(tagged[plain.len()..at].iter().all(|&b| b == 0));
+        assert_eq!(&tagged[at..at + 4], b"smpl");
+        assert_eq!(u32_at(&tagged, at + 4), 60);
+        assert_eq!(tagged.len(), at + 8 + 60);
+        let smpl = &tagged[at + 8..];
+        assert_eq!(u32_at(smpl, 28), 1, "one loop");
+        assert_eq!(u32_at(smpl, 40), 0, "forward");
+        assert_eq!(u32_at(smpl, 44), 3);
+        assert_eq!(u32_at(smpl, 48), 16, "inclusive end");
+        assert_eq!(u32_at(smpl, 56), 0, "repeat indefinitely");
+    }
 }
 
 #[test]
@@ -233,6 +263,99 @@ fn encode_mp3_lame_tag_overwrites_the_first_frame() {
         assert_eq!(&b[36..40], tag, "{mode:?} {q}");
         assert_eq!(&b[0x9c..0xa0], b"LAME", "{mode:?} {q}: the LAME extension");
     }
+}
+
+#[test]
+fn encode_mp3_preset_preserves_the_gapless_duration_and_loop_tags() {
+    let frames = 100_003;
+    let input = sine(frames, 440.0, 0.5);
+    for (mode, tag) in [(Mp3Mode::Cbr, b"Info"), (Mp3Mode::Vbr, b"Xing")] {
+        let tagged = encode_mp3_with_loop(&input, SR, mode, 6, Some(147..frames as u64)).unwrap();
+        let untagged = encode_mp3_with_loop(&input, SR, mode, 6, None).unwrap();
+        let read_size = |bytes: &[u8]| {
+            bytes.iter().fold(0usize, |size, &b| {
+                assert!(b < 128);
+                size * 128 + usize::from(b)
+            })
+        };
+        assert_eq!(&tagged[..6], b"ID3\x04\x00\x00");
+        let end = 10 + read_size(&tagged[6..10]);
+        let mut at = 10;
+        for content in [
+            b"\x00LOOPSTART\x00147".as_slice(),
+            b"\x00LOOPLENGTH\x0099856",
+        ] {
+            assert_eq!(&tagged[at..at + 4], b"TXXX");
+            let size = read_size(&tagged[at + 4..at + 8]);
+            assert_eq!(&tagged[at + 8..at + 10], &[0, 0]);
+            at += 10;
+            assert_eq!(&tagged[at..at + size], content);
+            at += size;
+        }
+        assert_eq!(at, end);
+        assert_eq!(&tagged[end..], untagged);
+        assert_eq!(&untagged[36..40], tag);
+        assert_eq!(&untagged[0x9c..0xa0], b"LAME");
+        // Symphonia reads the LAME delay and padding and decodes with gapless trimming enabled.
+        for bytes in [&tagged, &untagged] {
+            let decoded = decode(Format::Mp3, bytes).unwrap();
+            assert_eq!(decoded.sample_rate, SR);
+            assert_eq!(decoded.channels[0].len(), frames);
+            assert_eq!(decoded.channels[1].len(), frames);
+        }
+    }
+}
+
+/// Reads a Vorbis-style comment packet with a codec-specific magic prefix.
+fn ogg_comments(bytes: &[u8], prefix: &[u8]) -> Vec<String> {
+    let mut reader = PacketReader::new(Cursor::new(bytes));
+    reader.read_packet().unwrap().unwrap(); // identification header
+    let comments = reader.read_packet().unwrap().unwrap().data;
+    assert!(comments.starts_with(prefix));
+    let vendor_at = prefix.len() + 4;
+    let vendor_len = u32_at(&comments, prefix.len()) as usize;
+    let mut at = vendor_at + vendor_len;
+    let count = u32_at(&comments, at);
+    at += 4;
+    (0..count)
+        .map(|_| {
+            let size = u32_at(&comments, at) as usize;
+            at += 4;
+            let value = std::str::from_utf8(&comments[at..at + size]).unwrap();
+            at += size;
+            value.to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn encode_ogg_loop_comments_use_the_pcm_sample_rate() {
+    let input = sine(10_003, 440.0, 0.5);
+    let tagged = encode_ogg_with_loop(&input, SR, 6, Some(148..10_003)).unwrap();
+    assert_eq!(
+        ogg_comments(&tagged, b"\x03vorbis"),
+        ["ENCODER=strudeland", "LOOPSTART=148", "LOOPLENGTH=9855"]
+    );
+    assert_eq!(
+        decode(Format::Ogg, &tagged).unwrap(),
+        decode(Format::Ogg, &ogg(&input, 6)).unwrap()
+    );
+}
+
+#[test]
+fn encode_opus_loop_comments_use_decoded_frames_after_pre_skip() {
+    let input = sine(10_003, 440.0, 0.5);
+    // ceil(148 * 160 / 147) is 162 and ceil(10003 * 160 / 147) is 10888.
+    // Resampling the endpoints independently yields length 10726.
+    let tagged = encode_opus_with_loop(&input, SR, 160, Some(162..10_888)).unwrap();
+    assert_eq!(
+        ogg_comments(&tagged, b"OpusTags"),
+        ["LOOPSTART=162", "LOOPLENGTH=10726"]
+    );
+    let decoded = decode_opus_trimmed(&tagged).unwrap();
+    assert_eq!(decoded.sample_rate, 48_000);
+    assert_eq!(decoded.channels[0].len(), 10_888);
+    assert_eq!(decoded, decode_opus_trimmed(&opus(&input, 160)).unwrap());
 }
 
 #[test]

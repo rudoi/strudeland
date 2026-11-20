@@ -91,7 +91,11 @@ Install the CLI to control the running app or work with song files and voice mem
 cargo install --locked --path crates/strudeland-cli
 strudeland --help
 strudeland render songs/main.js --format wav
+strudeland render songs/main.js --preset intro-loop --out soundtrack.wav
 ```
+
+The split preset writes `soundtrack-intro.wav` and `soundtrack-loop.wav`. Play the intro once,
+then repeat the loop file. Mark the loop section with `loop: true` in the song's metadata.
 
 The CLI connects to a per-user endpoint.
 

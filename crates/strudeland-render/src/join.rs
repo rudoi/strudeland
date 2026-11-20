@@ -80,6 +80,7 @@ pub struct Joiner {
     placed: Vec<bool>,
     out: Vec<Vec<f32>>,
     total: usize,
+    tail: usize,
     cps: f64,
 }
 
@@ -90,6 +91,15 @@ impl Joiner {
     /// `window.to_bar`, or the chunks' frames do not add up to
     /// `window_frames(window.from_bar, window.to_bar, cps)`.
     pub fn new(window: &PlannedWindow, cps: f64, spans: &[Span]) -> Result<Self, RenderError> {
+        Self::with_tail(window, cps, spans, 0)
+    }
+
+    fn with_tail(
+        window: &PlannedWindow,
+        cps: f64,
+        spans: &[Span],
+        tail_frames: u64,
+    ) -> Result<Self, RenderError> {
         // The planner refuses such a window; checked again before anything is allocated.
         if u64::from(window.to_bar) > MAX_BARS {
             return join_err(format!(
@@ -158,15 +168,19 @@ impl Joiner {
                 "the chunks hold {written} frames, the window is {total}"
             ));
         }
+        let tail = to_usize(tail_frames, "tail frames")?;
+        let frames = total
+            .checked_add(tail)
+            .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
         let mut out = Vec::with_capacity(nch);
         for _ in 0..nch {
             let mut ch: Vec<f32> = Vec::new();
-            if ch.try_reserve_exact(total).is_err() {
+            if ch.try_reserve_exact(frames).is_err() {
                 return join_err(format!(
-                    "cannot allocate the window ({nch} channels of {total} frames)"
+                    "cannot allocate the window ({nch} channels of {frames} frames)"
                 ));
             }
-            ch.resize(total, 0.0);
+            ch.resize(frames, 0.0);
             out.push(ch);
         }
         Ok(Joiner {
@@ -174,6 +188,7 @@ impl Joiner {
             chunks,
             out,
             total,
+            tail,
             cps,
         })
     }
@@ -186,6 +201,16 @@ impl Joiner {
         plans: &[ChunkWindow],
         channels: usize,
     ) -> Result<Self, RenderError> {
+        Self::for_plans_with_tail(window, cps, plans, channels, 0)
+    }
+
+    pub(crate) fn for_plans_with_tail(
+        window: &PlannedWindow,
+        cps: f64,
+        plans: &[ChunkWindow],
+        channels: usize,
+        tail_frames: u64,
+    ) -> Result<Self, RenderError> {
         let spans: Vec<Span> = plans
             .iter()
             .map(|p| Span {
@@ -194,7 +219,7 @@ impl Joiner {
                 channels,
             })
             .collect();
-        Joiner::new(window, cps, &spans)
+        Joiner::with_tail(window, cps, &spans, tail_frames)
     }
 
     /// Places chunk `index` from its whole rendered buffer: drops `plan.window_start_frame`
@@ -219,6 +244,22 @@ impl Joiner {
             RenderError::Render(m) => RenderError::Render(format!("chunk {index}: {m}")),
             other => other,
         })?;
+        if self.tail != 0 && index == self.chunks.len() - 1 {
+            let start = kept_range(plan, self.cps)?.end;
+            let end = start
+                .checked_add(self.tail)
+                .ok_or_else(|| RenderError::Render("tail end overflows".into()))?;
+            for (dst, src) in self.out.iter_mut().zip(channels) {
+                match (dst.get_mut(self.total..), src.get(start..end)) {
+                    (Some(dst), Some(src)) => dst.copy_from_slice(src),
+                    _ => {
+                        return join_err(format!(
+                            "chunk {index} does not contain the planned tail"
+                        ));
+                    }
+                }
+            }
+        }
         self.place(index, &content)
     }
 
