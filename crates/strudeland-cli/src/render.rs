@@ -99,7 +99,7 @@ pub enum Destination {
 pub struct ExportPlan {
     pub preset: ExportPreset,
     primary: OutputTarget,
-    intro: Option<Result<OutputTarget, RenderError>>,
+    intro: Option<OutputTarget>,
 }
 
 /// Resolves the flags before any work, so a bad flag or a missing `--out` fails fast. Creates
@@ -153,9 +153,9 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
             Destination::Export(ExportPlan {
                 preset,
                 primary: resolve(primary_role)?,
-                // The arranged loop may start at frame zero, so resolve this optional path
-                // without letting an existing intro file block a loop-only export.
-                intro: (preset == ExportPreset::IntroLoop).then(|| resolve(ExportRole::Intro)),
+                intro: (preset == ExportPreset::IntroLoop)
+                    .then(|| resolve(ExportRole::Intro))
+                    .transpose()?,
             })
         }
     };
@@ -251,19 +251,13 @@ impl ExportPlan {
         lines: &ProgressLines<'_>,
         json: bool,
     ) -> Result<String, RenderError> {
-        let intro = if files.iter().any(|file| file.role == ExportRole::Intro) {
-            Some(
-                self.intro
-                    .transpose()?
-                    .ok_or_else(|| RenderError::Render("unexpected intro file".into()))?,
-            )
-        } else {
-            None
-        };
+        if self.intro.is_none() && files.iter().any(|file| file.role == ExportRole::Intro) {
+            return Err(RenderError::Render("unexpected intro file".into()));
+        }
         let mut written: Vec<WrittenExport<'_>> = Vec::new();
         let mut reported_warnings = HashSet::new();
         for file in files {
-            let target = match (&intro, file.role) {
+            let target = match (&self.intro, file.role) {
                 (Some(target), ExportRole::Intro) => target,
                 _ => &self.primary,
             };
@@ -632,7 +626,14 @@ mod tests {
         let pair = || {
             vec![
                 export_file(ExportRole::Intro, None),
-                export_file(ExportRole::Loop, None),
+                export_file(
+                    ExportRole::Loop,
+                    Some(LoopPoints {
+                        start_frame: 0,
+                        length_frames: 44_100,
+                        sample_rate: 44_100,
+                    }),
+                ),
             ]
         };
         let args = [
@@ -649,6 +650,13 @@ mod tests {
         assert_eq!(success.code, 0, "{}", success.stderr);
         assert_eq!(success.stderr.matches("warning: w one").count(), 1);
         let json: Value = serde_json::from_str(&success.stdout).unwrap();
+        assert_eq!(json["files"].as_array().unwrap().len(), 2);
+        assert_eq!(json["files"][0]["path"], intro.to_str().unwrap());
+        assert_eq!(json["files"][0]["role"], "intro");
+        assert_eq!(json["files"][0]["loopPoints"], Value::Null);
+        assert_eq!(json["files"][1]["path"], body.to_str().unwrap());
+        assert_eq!(json["files"][1]["role"], "loop");
+        assert_eq!(json["files"][1]["loopPoints"]["startFrame"], 0);
         assert_eq!(json["files"][0]["warnings"][0], "w one");
         assert_eq!(json["files"][1]["warnings"][0], "w one");
         let mut fake = Fake::with_export(pair());
@@ -1076,7 +1084,6 @@ mod tests {
         let renders = project.root().join("renders");
         for (preset, role, name) in [
             ("tagged-loop", ExportRole::Single, "main-tagged-loop.wav"),
-            ("intro-loop", ExportRole::Loop, "main-loop.wav"),
             ("folded-loop", ExportRole::Loop, "main-folded-loop.wav"),
             ("one-shot", ExportRole::Single, "main-one-shot.wav"),
         ] {
@@ -1088,11 +1095,27 @@ mod tests {
             assert_eq!(out.code, 0, "{preset}: {}", out.stderr);
             assert_eq!(fake.written, vec![renders.join(name)]);
         }
+        let mut fake = Fake::with_export(vec![
+            export_file(ExportRole::Intro, None),
+            export_file(ExportRole::Loop, None),
+        ]);
+        let out = run(
+            &["render", song.to_str().unwrap(), "--preset", "intro-loop"],
+            &mut fake,
+        );
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        assert_eq!(
+            fake.written,
+            vec![
+                renders.join("main-intro.wav"),
+                renders.join("main-loop.wav")
+            ]
+        );
     }
 
     #[cfg(unix)]
     #[test]
-    fn split_only_requires_the_intro_path_when_the_song_has_an_intro() {
+    fn split_validates_the_intro_path_before_rendering() {
         let dir = tempfile::tempdir().unwrap();
         let project = strudeland_project::Project::create(&dir.path().join("p"), "t").unwrap();
         let song = project.root().join("songs/main.js");
@@ -1105,17 +1128,11 @@ mod tests {
         .unwrap();
         let args = ["render", song.to_str().unwrap(), "--preset", "intro-loop"];
 
-        let mut fake = Fake::with_export(vec![export_file(ExportRole::Loop, None)]);
-        let out = run(&args, &mut fake);
-        assert_eq!(out.code, 0, "{}", out.stderr);
-        assert_eq!(fake.written, vec![renders.join("main-loop.wav")]);
-
-        let mut fake = Fake::with_export(vec![
-            export_file(ExportRole::Intro, None),
-            export_file(ExportRole::Loop, None),
-        ]);
+        let mut fake = Fake::ok();
         let out = run(&args, &mut fake);
         assert_eq!(out.code, 1, "{}", out.stderr);
+        assert!(out.stderr.contains("main-intro.wav"), "{}", out.stderr);
+        assert!(fake.seen.is_empty());
         assert!(fake.written.is_empty());
     }
 

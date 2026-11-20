@@ -153,9 +153,11 @@ interface WindowContext {
   cps: number;
   seed: number;
   structure: SongStructure;
+  /** Loop passes all use the same authored events. */
+  frozenSchedule?: boolean;
 }
 
-/** A `selectHaps` result over the schedule [0, c1). */
+/** A `selectHaps` result for a range of the schedule. */
 interface ScheduleSelection {
   selected: Selected[];
   errors: RenderError[];
@@ -173,12 +175,15 @@ function planWindow(
   tailFrames = 0,
 ): { info: PageJobInfo; json: string } {
   const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames);
-  // The chunk window ends at c1 = toBar + overlapBars (`windowPlan`'s definition); when it also
-  // starts at the schedule origin, querying it again would return the same haps in
-  // the same order (queries are pure), so the schedule's selection is reused. A window starting
-  // later is queried: a hap crossing c0 comes back as a fragment there, which filtering the
-  // schedule's haps would not reproduce.
-  const chunk = plan.c0 === scheduleStart ? schedule : selectHaps(ctx.query(plan.c0, plan.c1));
+  // The incoming schedule already ends at c1. For loop exports the chunk uses those same
+  // authored onsets and whole durations, with indices local to the chunk's event list.
+  // Standard windows keep the render page's query at c0, which also observes query fragments.
+  const chunk =
+    plan.c0 === scheduleStart
+      ? schedule
+      : ctx.frozenSchedule
+        ? { selected: onsetsFrom(schedule.selected, plan.c0), errors: [] }
+        : selectHaps(ctx.query(plan.c0, plan.c1));
   const planned = planEngineJob(
     chunk.selected,
     schedule.selected,
@@ -248,9 +253,19 @@ export interface RenderPlanRequest {
  *  (`lookbackSecUsed` is not always equal to it in floating point). */
 export type ChunkWindowPlan = WindowPlan & { fromBar: number; toBar: number; lookbackSec: number };
 
+interface RenderPass {
+  chunks: { json: string; plan: ChunkWindowPlan }[];
+  tailFrames: number;
+}
+
 export interface PlannedRender {
-  /** Absolute musical loop start (when present) and extra physical frames on the last job. */
-  export?: { loopStartBar?: number; tailFrames: number };
+  /** Extra frames on the last job and the isolated body when the opening includes an intro. */
+  export?: {
+    loopStartBar?: number;
+    tailFrames: number;
+    /** The body from `loopStartBar` to `window.toBar`, with its own effect state. */
+    repeat?: RenderPass;
+  };
   window: { fromBar: number; toBar: number; layout: SegmentLayout };
   cps: number;
   structure: SongStructure;
@@ -258,9 +273,9 @@ export interface PlannedRender {
   lookbackSec: number;
   /** Captured and selection errors of every chunk, deduped, first occurrence kept. */
   errors: RenderError[];
-  /** Present only with `includeEvents`; equals `ScheduleResult.events` for [0, toBar). */
+  /** Present only with `includeEvents`; the opening's schedule for a loop export. */
   events?: RenderEvent[];
-  chunks: { json: string; plan: ChunkWindowPlan }[];
+  chunks: RenderPass['chunks'];
 }
 
 /** The widest render window, in bars (the host's request limit). */
@@ -464,19 +479,28 @@ function exportWindow(request: RenderPlanRequest, structure: SongStructure) {
   return { window, loopStartBar: loop.start };
 }
 
-/** The schedule selection up to `c1` (an integer bar): the haps with onset before it, in order,
- *  with their original `index`, and the errors of the bars before it. The selection is sorted by
- *  onset, so the haps are a prefix. */
-export function cutSchedule(full: ScheduleSelection, c1: number): ScheduleSelection {
+/** The first event at or after `bar` in an onset-sorted selection. */
+function onsetIndex(selected: Selected[], bar: number): number {
   let lo = 0;
-  let hi = full.selected.length;
+  let hi = selected.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (full.selected[mid]!.onsetCycle < c1) lo = mid + 1;
+    if (selected[mid]!.onsetCycle < bar) lo = mid + 1;
     else hi = mid;
   }
+  return lo;
+}
+
+/** Onsets from `bar` onward, numbered from the start of this selection. */
+function onsetsFrom(selected: Selected[], bar: number): Selected[] {
+  const first = onsetIndex(selected, bar);
+  return first === 0 ? selected : selected.slice(first).map((s, index) => ({ ...s, index }));
+}
+
+/** The schedule selection up to `c1`: haps with original indices and errors before the cut. */
+export function cutSchedule(full: ScheduleSelection, c1: number): ScheduleSelection {
   return {
-    selected: full.selected.slice(0, lo),
+    selected: full.selected.slice(0, onsetIndex(full.selected, c1)),
     errors: full.errors.filter((e) => e.bar === undefined || e.bar < c1),
   };
 }
@@ -484,10 +508,10 @@ export function cutSchedule(full: ScheduleSelection, c1: number): ScheduleSelect
 /**
  * Plans every chunk of a render in one call: evaluates once, resolves the length request against
  * the evaluated structure (the one playback follows; `--loops` replaces its loop count), queries
- * the schedule once, plans the chunks (`renderChunkPlans`, no seam overlap) and each chunk's
- * engine job, byte-equal to `planJob` of the same chunk request. `captured` is shared by the
- * chunks and read as each one is planned. Throws `PlanJobError` (length errors are kind 'meta'
- * with a `flag`; a header or evaluation error comes first).
+ * the schedule once, and plans each chunk's engine job (`renderChunkPlans`, no seam overlap).
+ * Loop passes share the selected schedule. Standard jobs are byte-equal to `planJob` of the
+ * same chunk request. `captured` is read as each chunk is planned. Throws `PlanJobError` (length
+ * errors are kind 'meta' with a `flag`; a header or evaluation error comes first).
  */
 export async function planRender(
   rt: PlannerRuntime,
@@ -508,9 +532,13 @@ export async function planRender(
     const { window, loopStartBar } = exportWindow(request, structure);
     const { fromBar, toBar, layout } = window;
     const musicalFrames = windowFrames(fromBar, toBar, cps, SAMPLE_RATE);
-    if (request.preset) checkBufferFrames(musicalFrames, 'mix');
+    const bodyFrames =
+      loopStartBar === undefined ? 0 : windowFrames(loopStartBar, toBar, cps, SAMPLE_RATE);
+    const programFrames = musicalFrames + bodyFrames;
+    if (request.preset) checkBufferFrames(programFrames, 'mix');
     const query = querySong(rt, layoutSegments(layout, structure));
-    const ctx: WindowContext = { query, cps, seed, structure: song.structure };
+    const frozenSchedule = loopStartBar !== undefined;
+    const ctx: WindowContext = { query, cps, seed, structure: song.structure, frozenSchedule };
     const base: RenderRequest = {
       code,
       layout,
@@ -521,46 +549,33 @@ export async function planRender(
       mode: 'mix',
       sampleRate: SAMPLE_RATE,
     };
-    const chunks: PlannedRender['chunks'] = [];
     const errors: RenderError[] = [];
-    const allEvents: RenderEvent[] = [];
     let lookbackSec = 0;
-    let tailFrames = 0;
 
-    // A split starts a fresh engine job at the handoff even when the normal chunk spans it.
-    const boundaries = [fromBar];
-    if (request.preset === 'intro-loop' && loopStartBar !== undefined && loopStartBar > fromBar) {
-      boundaries.push(loopStartBar);
-    }
-    boundaries.push(toBar);
-    for (let i = 1; i < boundaries.length; i++) {
-      const start = boundaries[i - 1]!;
-      const end = boundaries[i]!;
-      const isolated =
-        (request.preset === 'intro-loop' || request.preset === 'folded-loop') &&
-        start === loopStartBar;
-      const scheduleStart = isolated ? start : 0;
-      const full = selectHaps(query(scheduleStart, end));
+    function planPass(
+      full: ScheduleSelection,
+      start: number,
+      scheduleStart: number,
+      keepTail: boolean,
+    ) {
+      const chunks: RenderPass['chunks'] = [];
       const events =
-        request.includeEvents || !request.preset
+        !request.preset || (request.includeEvents && start === fromBar)
           ? eventsFromValues(eventSources(full.selected), cps)
           : [];
-      if (request.includeEvents) for (const event of events) allEvents.push(event);
       const exportEvents = request.preset
         ? full.selected.map((s) =>
             exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps),
           )
         : undefined;
-      const decay = exportEvents ? exportDecay(exportEvents, end / cps) : undefined;
+      const decay = exportEvents ? exportDecay(exportEvents, toBar / cps) : undefined;
       const history = decay?.lookbackSec ?? lookbackSeconds(events);
       lookbackSec = Math.max(lookbackSec, history);
-      if (end === toBar && decay && request.preset !== 'tagged-loop') {
-        tailFrames = decay.tailFrames;
-        checkBufferFrames(musicalFrames + tailFrames, 'mix');
-      }
+      const tailFrames = keepTail ? (decay?.tailFrames ?? 0) : 0;
+      if (keepTail) checkBufferFrames(programFrames + tailFrames, 'mix');
       const plans = renderChunkPlans({
         fromBar: start,
-        toBar: end,
+        toBar,
         events: exportEvents ?? events,
         cps,
         overlapBars: 0,
@@ -568,12 +583,14 @@ export async function planRender(
       });
       for (const plan of plans) {
         const req = chunkRequest(base, plan);
-        const chunkLookback = isolated
-          ? Math.min(plan.lookbackSec, (req.fromBar - start) / cps)
-          : plan.lookbackSec;
-        const schedule = reuseSchedule
-          ? cutSchedule(full, req.toBar)
-          : selectHaps(query(scheduleStart, req.toBar));
+        const chunkLookback =
+          scheduleStart === 0
+            ? plan.lookbackSec
+            : Math.min(plan.lookbackSec, (req.fromBar - scheduleStart) / cps);
+        const schedule =
+          frozenSchedule || reuseSchedule
+            ? cutSchedule(full, req.toBar)
+            : selectHaps(query(scheduleStart, req.toBar));
         const { info, json } = planWindow(
           ctx,
           req,
@@ -594,18 +611,45 @@ export async function planRender(
           },
         });
       }
+      return { chunks, events, tailFrames };
     }
+
+    // The opening keeps intro effects. The repeat starts at the authored body and adds only its
+    // own decay after the final bar. When there is no intro to render, one pass supplies both.
+    const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
+    const scheduleStart = loopStartBar === fromBar ? fromBar : 0;
+    const full = selectHaps(query(scheduleStart, toBar));
+    const opening = planPass(full, fromBar, scheduleStart, !separateRepeat && !!request.preset);
+    const repeat = separateRepeat
+      ? planPass(
+          {
+            selected: onsetsFrom(full.selected, loopStartBar),
+            errors: full.errors.filter((e) => e.bar === undefined || e.bar >= loopStartBar),
+          },
+          loopStartBar,
+          loopStartBar,
+          true,
+        )
+      : undefined;
     return {
       window,
       cps,
       structure,
       lookbackSec,
       errors: dedupeErrors(errors),
-      ...(request.includeEvents === true ? { events: allEvents } : {}),
+      ...(request.includeEvents === true ? { events: opening.events } : {}),
       ...(request.preset
-        ? { export: { ...(loopStartBar === undefined ? {} : { loopStartBar }), tailFrames } }
+        ? {
+            export: {
+              ...(loopStartBar === undefined ? {} : { loopStartBar }),
+              tailFrames: opening.tailFrames,
+              ...(repeat
+                ? { repeat: { chunks: repeat.chunks, tailFrames: repeat.tailFrames } }
+                : {}),
+            },
+          }
         : {}),
-      chunks,
+      chunks: opening.chunks,
     };
   });
 }

@@ -193,11 +193,11 @@ pub use strudeland_render::OnOff;
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
-    /// Preserve the intro and mark the loop region through the end of one file.
+    /// Keep any intro and the first pass before the marked repeat region in one file.
     TaggedLoop,
-    /// Export a separate intro and a repeatable loop body.
+    /// Export an opening with the first pass and a separate repeat file.
     IntroLoop,
-    /// Export the loop body with its decay folded back into the loop.
+    /// Start at the loop section and export the first pass and marked repeat in one file.
     FoldedLoop,
     /// Append the scheduled decay to the selected clip, section or length.
     OneShot,

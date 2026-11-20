@@ -10,7 +10,7 @@ use crate::join::window_frames;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
 use crate::{
-    ExportPreset, Format, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
+    ExportPreset, Format, LoopAudio, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
     RenderOutput, RenderedAudio, Summary, finish_file, ms_since, render_audio_for,
 };
 
@@ -51,7 +51,7 @@ pub fn render_export(
     preset: ExportPreset,
     progress: &dyn Fn(Progress),
 ) -> Result<Vec<ExportFile>, RenderError> {
-    let (mut audio, loop_start_bar) = render_audio_for(code, opts, Some(preset), progress)?;
+    let (mut audio, loop_audio) = render_audio_for(code, opts, Some(preset), progress)?;
     if preset == ExportPreset::OneShot {
         trim_silent_post_roll(&mut audio)?;
         return Ok(vec![ExportFile {
@@ -62,7 +62,10 @@ pub fn render_export(
     }
 
     let window = audio.summary.window;
-    let start_bar = loop_start_bar.ok_or_else(|| render_error("the plan has no loop start"))?;
+    let LoopAudio {
+        start_bar,
+        isolated_body,
+    } = loop_audio.ok_or_else(|| render_error("the plan has no loop start"))?;
     if !(window.from_bar..window.to_bar).contains(&start_bar) {
         return Err(render_error("loop start is outside the planned window"));
     }
@@ -74,49 +77,64 @@ pub fn render_export(
         return Err(render_error("loop has no frames"));
     }
     let measure_start = Instant::now();
-    if matches!(preset, ExportPreset::IntroLoop | ExportPreset::FoldedLoop) {
-        fold_tail(&mut audio.channels, start..end)?;
-    }
-
-    check_input(&audio.channels)?;
     let sample_rate = audio.summary.sample_rate;
-    let program = measure(&audio.channels, sample_rate);
-    let wrap = wrap_peak(&audio.channels, start..end)?;
+    let body_frames = end - start;
+    let combined_frames = end
+        .checked_add(body_frames)
+        .ok_or_else(|| render_error("the combined loop is too large"))?;
+    let repeat_range = end..combined_frames;
+    let (mut opening, mut repeat) = match isolated_body {
+        Some(body) if start > 0 => (audio.channels, body),
+        None if start == 0 => {
+            let opening = audio
+                .channels
+                .iter()
+                .map(|ch| copy_opening(ch, end, combined_frames))
+                .collect::<Result<Vec<_>, _>>()?;
+            (opening, audio.channels)
+        }
+        _ => return Err(render_error("the plan has inconsistent loop history")),
+    };
+    fold_tail(&mut repeat, body_frames)?;
+    join_opening(&mut opening, &repeat, end, sample_rate)?;
+
+    check_input(&opening)?;
+    let program = measure(&opening, sample_rate);
+    let wrap = wrap_peak(&repeat);
     let loop_peak = program.true_peak_db.max(wrap);
     let parts = match preset {
-        ExportPreset::IntroLoop if start > 0 => {
-            let body = audio
-                .channels
-                .iter_mut()
-                .map(|ch| ch.split_off(start))
-                .collect();
+        ExportPreset::IntroLoop => {
+            for ch in &mut opening {
+                ch.truncate(end);
+            }
             vec![
                 Part {
                     role: ExportRole::Intro,
-                    channels: audio.channels,
-                    bars: window.from_bar..start_bar,
+                    channels: opening,
+                    bars: window.from_bar..window.to_bar,
                     loop_range: None,
                 },
                 Part {
                     role: ExportRole::Loop,
-                    channels: body,
+                    channels: repeat,
                     bars: start_bar..window.to_bar,
-                    loop_range: Some(0..end - start),
+                    loop_range: Some(0..body_frames),
                 },
             ]
         }
-        ExportPreset::IntroLoop | ExportPreset::FoldedLoop => vec![Part {
-            role: ExportRole::Loop,
-            channels: audio.channels,
-            bars: window.from_bar..window.to_bar,
-            loop_range: Some(0..end),
-        }],
-        ExportPreset::TaggedLoop => vec![Part {
-            role: ExportRole::Single,
-            channels: audio.channels,
-            bars: window.from_bar..window.to_bar,
-            loop_range: Some(start..end),
-        }],
+        ExportPreset::FoldedLoop | ExportPreset::TaggedLoop => {
+            drop(repeat);
+            vec![Part {
+                role: if preset == ExportPreset::FoldedLoop {
+                    ExportRole::Loop
+                } else {
+                    ExportRole::Single
+                },
+                channels: opening,
+                bars: window.from_bar..window.to_bar,
+                loop_range: Some(repeat_range),
+            }]
+        }
         ExportPreset::OneShot => return Err(render_error("unexpected one-shot preset")),
     };
     let mut summary = audio.summary;
@@ -126,6 +144,57 @@ pub fn render_export(
 
 fn render_error(message: &str) -> RenderError {
     RenderError::Render(message.into())
+}
+
+fn copy_opening(
+    channel: &[f32],
+    frames: usize,
+    total_frames: usize,
+) -> Result<Vec<f32>, RenderError> {
+    let opening = channel
+        .get(..frames)
+        .ok_or_else(|| render_error("opening extends past the rendered PCM"))?;
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(total_frames)
+        .map_err(|_| render_error("cannot allocate the loop opening"))?;
+    copy.extend_from_slice(opening);
+    Ok(copy)
+}
+
+/// Bring the last few milliseconds of the opening to the same phase and effect
+/// state as the repeat's end. The repeat stays independent of the opening.
+fn join_opening(
+    opening: &mut [Vec<f32>],
+    repeat: &[Vec<f32>],
+    opening_frames: usize,
+    sample_rate: u32,
+) -> Result<(), RenderError> {
+    if opening.len() != repeat.len() {
+        return Err(render_error("opening and repeat channel counts differ"));
+    }
+    for (first, periodic) in opening.iter_mut().zip(repeat) {
+        if first.len() != opening_frames || first.len() < periodic.len() {
+            return Err(render_error("invalid loop opening length"));
+        }
+        // 10 ms, limited to the latter half of even a very short loop.
+        let blend_frames = (sample_rate as usize / 100).min(periodic.len() / 2);
+        let fade = first.iter_mut().rev().zip(periodic.iter().rev());
+        for (i, (dst, &src)) in fade.take(blend_frames).enumerate() {
+            let x = 1.0 - i as f64 / blend_frames as f64;
+            let weight = x * x * (3.0 - 2.0 * x);
+            *dst = if i == 0 {
+                src
+            } else {
+                let a = f64::from(*dst);
+                (a + (f64::from(src) - a) * weight) as f32
+            };
+        }
+        first
+            .try_reserve_exact(periodic.len())
+            .map_err(|_| render_error("cannot allocate the combined loop export"))?;
+        first.extend_from_slice(periodic);
+    }
+    Ok(())
 }
 
 fn trim_silent_post_roll(audio: &mut RenderedAudio) -> Result<(), RenderError> {
@@ -156,53 +225,41 @@ fn trim_silent_post_roll(audio: &mut RenderedAudio) -> Result<(), RenderError> {
     Ok(())
 }
 
-fn fold_tail(channels: &mut [Vec<f32>], body: Range<usize>) -> Result<(), RenderError> {
-    if body.is_empty() {
+fn fold_tail(channels: &mut [Vec<f32>], body_frames: usize) -> Result<(), RenderError> {
+    if body_frames == 0 {
         return Err(render_error("cannot fold into an empty loop"));
     }
     for channel in channels {
-        if body.end > channel.len() {
-            return Err(render_error("loop extends past the rendered PCM"));
-        }
-        let body_end = body.end;
-        let (content, tail) = channel.split_at_mut(body_end);
-        let body = content
-            .get_mut(body.clone())
-            .ok_or_else(|| render_error("invalid loop bounds"))?;
-        for cycle in tail.chunks(body.len()) {
+        let (body, tail) = channel
+            .split_at_mut_checked(body_frames)
+            .ok_or_else(|| render_error("loop extends past the rendered PCM"))?;
+        for cycle in tail.chunks(body_frames) {
             for (sample, tail) in body.iter_mut().zip(cycle) {
                 *sample += *tail;
             }
         }
-        channel.truncate(body_end);
+        channel.truncate(body_frames);
     }
     Ok(())
 }
 
-/// Measure cyclic FIR input across the join. The ordinary program measurement handles all
-/// samples away from the seam. Repeating the short edge data also covers loops shorter than a tap window.
-fn wrap_peak(channels: &[Vec<f32>], body: Range<usize>) -> Result<f64, RenderError> {
+/// Measure cyclic FIR input across the folded body's join. Each channel has at
+/// least one frame. Cycling the edges covers loops shorter than a tap window.
+fn wrap_peak(channels: &[Vec<f32>]) -> f64 {
     let mut edges = Vec::with_capacity(channels.len());
-    for ch in channels {
-        let body = ch
-            .get(body.clone())
-            .filter(|body| !body.is_empty())
-            .ok_or_else(|| render_error("invalid loop bounds for true peak"))?;
+    for body in channels {
         let width = TAPS_PER_PHASE;
         let preceding = (body.len() - width % body.len()) % body.len();
-        let right = body
-            .get(preceding..)
-            .ok_or_else(|| render_error("invalid loop edge"))?;
         edges.push(
-            right
-                .iter()
+            body.iter()
+                .skip(preceding)
                 .chain(body.iter().cycle())
                 .take(2 * width)
                 .copied()
                 .collect(),
         );
     }
-    Ok(true_peak_db(&edges))
+    true_peak_db(&edges)
 }
 
 struct Part {
@@ -379,18 +436,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folds_multiple_repeats_into_a_body_without_changing_intro() {
-        let mut channels = vec![vec![9., 1., 2., 3., 4., 5., 6., 7.], vec![0.; 8]];
-        fold_tail(&mut channels, 1..3).unwrap();
-        assert_eq!(channels, [vec![9., 16., 12.], vec![0.; 3]]);
-        assert!(fold_tail(&mut channels, 3..3).is_err());
-        assert!(fold_tail(&mut channels, 1..4).is_err());
+    fn folds_full_and_partial_repeats_into_a_body() {
+        let mut channels = vec![vec![1., 2., 3., 4., 5., 6., 7.], vec![0.; 7]];
+        fold_tail(&mut channels, 2).unwrap();
+        assert_eq!(channels, [vec![16., 12.], vec![0.; 2]]);
+        assert!(fold_tail(&mut channels, 0).is_err());
+        assert!(fold_tail(&mut channels, 3).is_err());
+    }
+
+    #[test]
+    fn the_opening_blend_matches_the_repeat_without_a_step_in_the_fade() {
+        let mut opening = vec![vec![0.0; 30]];
+        let repeat = vec![vec![1.0; 24]];
+        join_opening(&mut opening, &repeat, 30, 1000).unwrap();
+        let first = &opening[0];
+        assert!(first[..20].iter().all(|&sample| sample == 0.0));
+        assert!(first[19..30].windows(2).all(|pair| {
+            let step = pair[1] - pair[0];
+            step > 0.0 && step < 0.15
+        }));
+        assert_eq!(first[29], 1.0);
+        assert_eq!(&first[30..], &repeat[0]);
     }
 
     #[test]
     fn measures_a_wrap_even_for_a_loop_shorter_than_the_filter() {
         let body = vec![vec![-0.9, 0.0]];
-        let peak = wrap_peak(&body, 0..2).unwrap();
+        let peak = wrap_peak(&body);
         assert!(peak.is_finite());
         assert!(peak > true_peak_db(&body));
     }

@@ -47,7 +47,7 @@ one request (and one evaluation of the song) per chunk. The request is a `Render
 1. resolves the length request against the song's `meta` (a clip with `loops`, a section, the
    first N bars, or an explicit window); one the song cannot satisfy is `HostError::MetaFlag` and
    names the CLI flag (`--length`, `--section`, `--loops`);
-2. evaluates the song once and queries its schedule once;
+2. evaluates the song once and selects the schedule for its render window;
 3. cuts that schedule per chunk and plans each chunk's engine job (the chunk windows, seam overlap
    and lookback are the same ones `renderChunkPlans` gives the harness).
 
@@ -58,12 +58,16 @@ the full schedule cut at the chunk's end. Setting it to `false` makes each chunk
 found every corpus chunk job byte-equal with `true`, so the fallback is unused.
 
 The optional `preset` field accepts `tagged-loop`, `intro-loop`, `folded-loop` or `one-shot`.
-Loop presets take a plain clip request and resolve one pass through the evaluated loop section.
-The split intro ends at the loop start, and both split and folded loop jobs start their history
-at that bar. A tagged loop plays the intro and body continuously. A one-shot accepts the usual
-length request. The response includes `export.tailFrames` and, for a loop, `export.loopStartBar`
-on the song timeline. Only the final job's frame count includes post-roll. Its last scheduled
-bar stays at the requested musical end.
+Loop presets take a plain clip request and set `export.loopStartBar` to the marked section's
+start on the song timeline. The top-level chunks cover the one-time opening through the end
+of the body. If the opening includes an intro, `export.tailFrames` is zero and `export.repeat`
+provides its own `chunks` and `tailFrames` for the body in isolation. That repeat uses the
+same selected events as the opening from `export.loopStartBar` to `window.toBar`.
+For `folded-loop` and songs that
+begin with the loop, the top-level body jobs and their `export.tailFrames` supply both passes.
+The renderer folds the body's post-roll into the repeat. A one-shot accepts the usual length
+request and uses the top-level `export.tailFrames`. Post-roll extends only the final job of
+the pass it belongs to, without scheduling any later bars.
 
 The post-roll estimate uses each hap's actual duration, release, compressor pre-delay and bus
 dependencies. Lowpass, highpass and bandpass filters in the voice or its FX chain can ring after

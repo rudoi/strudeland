@@ -200,7 +200,7 @@ the V8 download the host brings.
   library: `plan` (host to jobs, refusal of unsupported material), `render` (the worker pool),
   `join` (sample-exact joiner), `level/` (`loudness.rs`, `true_peak.rs`, `limiter.rs`), `encode/`
   (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `export`
-  (loop presets, post-roll folding and shared static gain), `output`
+  (one-time loop openings, isolated repeats with post-roll folding, and shared static gain), `output`
   (default paths, atomic write), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness
   binary (`render`, `bench`); its README has the formats, defaults and licences, and
   `tests/vectors/` is written by `render:vectors`. `crates/strudeland-cli/src/render.rs` is

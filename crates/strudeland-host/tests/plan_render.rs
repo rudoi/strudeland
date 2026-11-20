@@ -7,10 +7,10 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{SONG, corpus_song, request};
-use strudeland_engine::EngineJob;
+use strudeland_engine::{EngineJob, Value};
 use strudeland_host::{
-    ExportPreset, Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedRender,
-    RenderPlanRequest, RenderRequest,
+    ExportPreset, Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedChunk,
+    PlannedRender, RenderPlanRequest, RenderRequest,
 };
 
 fn plan_request(length: LengthRequest) -> RenderPlanRequest {
@@ -149,8 +149,55 @@ fn export_requests_cross_the_bundle_boundary_and_exclude_the_ending() {
             last.frames - last.window_start_frame,
             u64::from(last.to_bar - last.from_bar) * 88_200 + export.tail_frames
         );
-        assert_eq!(export.tail_frames == 0, preset == ExportPreset::TaggedLoop);
+        let has_intro = matches!(preset, ExportPreset::IntroLoop | ExportPreset::TaggedLoop);
+        assert_eq!(export.tail_frames == 0, has_intro);
+        assert_eq!(export.repeat.is_some(), has_intro);
+        if let Some(repeat) = export.repeat {
+            let first = &repeat.chunks.first().unwrap().plan;
+            let last = &repeat.chunks.last().unwrap().plan;
+            assert_eq!((first.c0, first.from_bar, last.to_bar), (2, 2, 6));
+            assert!(repeat.tail_frames > 0);
+            assert_eq!(
+                last.frames - last.window_start_frame,
+                u64::from(last.to_bar - last.from_bar) * 88_200 + repeat.tail_frames
+            );
+        }
     }
+}
+
+#[test]
+fn loop_passes_reuse_the_same_notes_for_patterns_that_depend_on_the_query_start() {
+    let code = r#"
+const meta = {
+  bpm: 120,
+  sections: [{ name: 'intro', bars: 1 }, { name: 'body', bars: 1, loop: true }],
+};
+"<220 440>".stepBind(x => freq(x)).s('sine')
+"#;
+    let planned = Host::new()
+        .unwrap()
+        .plan_render(
+            code,
+            &RenderPlanRequest {
+                preset: Some(ExportPreset::TaggedLoop),
+                ..plan_request(LengthRequest::Clip { loops: None })
+            },
+        )
+        .unwrap();
+    assert!(planned.errors.is_empty());
+    let body_frequencies = |chunks: &[PlannedChunk]| {
+        let job = EngineJob::from_json(&chunks[0].json).unwrap();
+        job.pauses
+            .iter()
+            .flat_map(|pause| &pause.haps)
+            .filter(|hap| hap.cycle == 1.0)
+            .map(|hap| job.values[hap.v as usize]["freq"].clone())
+            .collect::<Vec<_>>()
+    };
+    let opening = body_frequencies(&planned.chunks);
+    let repeat = planned.export.unwrap().repeat.unwrap();
+    assert_eq!(opening, [Value::Num(220.0)]);
+    assert_eq!(body_frequencies(&repeat.chunks), opening);
 }
 
 #[test]

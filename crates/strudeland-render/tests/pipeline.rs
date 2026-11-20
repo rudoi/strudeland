@@ -609,7 +609,16 @@ fn split_intro_plays_once_and_the_body_can_repeat_without_the_intro_or_ending() 
     use strudeland_render::{ExportPreset, ExportRole, render_export};
     let mut opts = options(LengthRequest::Clip { loops: None });
     opts.jobs = Some(2);
-    let files = render_export(GAME_LOOP, &opts, ExportPreset::IntroLoop, &|_| {}).unwrap();
+    let recorder = Recorder::new();
+    let files = render_export(GAME_LOOP, &opts, ExportPreset::IntroLoop, &|p| {
+        recorder.record(p)
+    })
+    .unwrap();
+    assert_progress(
+        &recorder.events(),
+        files[0].output.summary.chunks,
+        &[Progress::Encoded { pass: 1 }],
+    );
     let [intro, body] = files.as_slice() else {
         panic!("expected an intro and body")
     };
@@ -623,7 +632,7 @@ fn split_intro_plays_once_and_the_body_can_repeat_without_the_intro_or_ending() 
     let cps = (137.0 / 60.0) / 3.5;
     let intro_frames = window_frames(0, 1, cps) as usize;
     let loop_frames = window_frames(1, 2, cps) as usize;
-    assert_eq!(intro.channels[0].len(), intro_frames);
+    assert_eq!(intro.channels[0].len(), intro_frames + loop_frames);
     assert_eq!(body_wav.channels[0].len(), loop_frames);
     let points = body.loop_points.unwrap();
     assert_eq!(
@@ -638,8 +647,30 @@ fn split_intro_plays_once_and_the_body_can_repeat_without_the_intro_or_ending() 
     let other = render_export(&altered, &opts, ExportPreset::IntroLoop, &|_| {}).unwrap();
     assert_ne!(files[0].output.bytes, other[0].output.bytes);
     assert_eq!(files[1].output.bytes, other[1].output.bytes);
+    let other_intro = read_f32(&other[0].output.bytes).unwrap();
+    assert_ne!(
+        intro.channels[0][intro_frames..intro_frames + 1024],
+        other_intro.channels[0][intro_frames..intro_frames + 1024],
+        "intro effects should carry into the first pass"
+    );
+
     let folded = render_export(GAME_LOOP, &opts, ExportPreset::FoldedLoop, &|_| {}).unwrap();
-    assert_eq!(files[1].output.bytes, folded[0].output.bytes);
+    let tagged = render_export(GAME_LOOP, &opts, ExportPreset::TaggedLoop, &|_| {}).unwrap();
+    for (files, first_frames) in [
+        (&folded, loop_frames),
+        (&tagged, intro_frames + loop_frames),
+    ] {
+        let file = &files[0];
+        let points = file.loop_points.unwrap();
+        let wav = read_f32(&file.output.bytes).unwrap();
+        assert_eq!(points.start_frame, first_frames as u64);
+        assert_eq!(points.length_frames, loop_frames as u64);
+        assert_eq!(wav.channels[0].len(), first_frames + loop_frames);
+        for (channel, repeat) in wav.channels.iter().zip(&body_wav.channels) {
+            assert_eq!(&channel[first_frames..], repeat);
+            assert_eq!(channel[first_frames - 1], *repeat.last().unwrap());
+        }
+    }
     let playback: Vec<f32> = intro.channels[0]
         .iter()
         .chain(&body_wav.channels[0])
@@ -657,6 +688,55 @@ fn split_intro_plays_once_and_the_body_can_repeat_without_the_intro_or_ending() 
     assert!(frequency_at(0).abs_diff(220) <= 10);
     assert!(frequency_at(intro_frames).abs_diff(440) <= 10);
     assert!(frequency_at(intro_frames + loop_frames).abs_diff(440) <= 10);
+    assert!(frequency_at(intro_frames + 2 * loop_frames).abs_diff(440) <= 10);
+}
+
+#[test]
+fn delayed_and_reverberant_body_tails_enter_on_the_repeat() {
+    use strudeland_render::{ExportPreset, render_export};
+    const BODY: &str = r#"
+const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
+song(meta, { body: note("~ ~ ~ a4").s('sine').gain(0.35).release(0.02).FX })
+"#;
+    let opts = options(LengthRequest::Clip { loops: None });
+    let frames = 11_025;
+    for fx in [
+        "delay(0.8).delaytime(0.8).delayfeedback(0)",
+        "room(0.8).roomsize(0.7)",
+    ] {
+        let code = BODY.replace("FX", fx);
+        let reference = render(&code, &opts, &|_| {}).unwrap();
+        let reference = read_f32(&reference.bytes).unwrap();
+        let files = render_export(&code, &opts, ExportPreset::IntroLoop, &|_| {}).unwrap();
+        let [opening, repeat] = files.as_slice() else {
+            panic!("a split export always has a one-time opening and a repeat")
+        };
+        assert!(opening.loop_points.is_none());
+        assert_eq!(repeat.loop_points.unwrap().start_frame, 0);
+        let opening = read_f32(&opening.output.bytes).unwrap();
+        let repeat = read_f32(&repeat.output.bytes).unwrap();
+        for ((first, steady), cold) in opening
+            .channels
+            .iter()
+            .zip(&repeat.channels)
+            .zip(&reference.channels)
+        {
+            assert_eq!(first.len(), frames, "{fx}");
+            assert_eq!(steady.len(), frames, "{fx}");
+            assert_eq!(&first[..frames - 441], &cold[..frames - 441], "{fx}");
+            assert!(
+                first[..frames / 2].iter().all(|&sample| sample == 0.0),
+                "{fx}"
+            );
+            assert!(
+                steady[..frames / 2]
+                    .iter()
+                    .any(|sample| sample.abs() > 1e-4),
+                "{fx}"
+            );
+            assert_eq!(first.last(), steady.last(), "{fx}");
+        }
+    }
 }
 
 #[test]
@@ -724,7 +804,8 @@ note("~ ~ ~ a3").{voice}.release(0.01)"#
 #[test]
 fn a_short_hot_loop_still_respects_the_static_peak_ceiling() {
     use strudeland_render::{ExportPreset, render_export};
-    let code = r#"const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
+    // Both passes together must stay below the 400 ms loudness gating window.
+    let code = r#"const meta = { bpm: 360, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
 song(meta, { body: s('square').gain(4) })"#;
     let mut opts = options(LengthRequest::Clip { loops: None });
     opts.output.loudness = Loudness::default();
