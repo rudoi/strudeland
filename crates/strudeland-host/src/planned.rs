@@ -13,6 +13,8 @@ use crate::Layout;
 pub struct PlannedRender {
     /// The resolved window and layout.
     pub window: PlannedWindow,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<PlannedExport>,
     pub cps: f64,
     /// The song's structure (with a `loops` override applied).
     pub structure: Structure,
@@ -26,6 +28,15 @@ pub struct PlannedRender {
     pub events: Option<serde_json::Value>,
     /// The chunks in order; their windows are contiguous and cover `window`.
     pub chunks: Vec<PlannedChunk>,
+}
+
+/// Musical loop boundary in absolute bars and extra physical frames on the final chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedExport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_start_bar: Option<u32>,
+    pub tail_frames: u64,
 }
 
 /// The window a length request resolved to.

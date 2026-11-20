@@ -108,9 +108,22 @@ export interface WindowPlan {
 export const maxChannels = (mode: RenderMode): number =>
   mode === 'stems' ? 2 * STEMS_MAX_PAIRS : 2;
 
+/** Apply the existing scratch-buffer ceiling before allocating a render or joined export. */
+export function checkBufferFrames(frames: number, mode: RenderMode): void {
+  const bytes = frames * maxChannels(mode) * 4;
+  if (!Number.isSafeInteger(frames) || frames < 0 || bytes > MAX_BUFFER_BYTES) {
+    throw new RangeError(`render buffer too large: ${bytes} bytes (max ${MAX_BUFFER_BYTES})`);
+  }
+}
+
 /** The render window: whole-bar lead-in covering `lookbackSec` (clamped at bar 0), the request's
  *  bars and its overlap. Throws on an empty window or a buffer over `MAX_BUFFER_BYTES`. */
-export function windowPlan(req: RenderRequest, cps: number, lookbackSec: number): WindowPlan {
+export function windowPlan(
+  req: RenderRequest,
+  cps: number,
+  lookbackSec: number,
+  tailFrames = 0,
+): WindowPlan {
   if (!Number.isFinite(cps) || cps <= 0) throw new RangeError(`invalid cps ${cps}`);
   if (!Number.isFinite(lookbackSec) || lookbackSec < 0) {
     throw new RangeError(`invalid lookback ${lookbackSec}`);
@@ -119,11 +132,8 @@ export function windowPlan(req: RenderRequest, cps: number, lookbackSec: number)
   const c1 = req.toBar + req.overlapBars;
   if (c1 <= c0) throw new RangeError(`empty render window [${c0}, ${c1})`);
   const lookbackSecUsed = (req.fromBar - c0) / cps;
-  const frames = expectedFrames(req, cps, lookbackSecUsed);
-  const bytes = frames * maxChannels(req.mode) * 4;
-  if (bytes > MAX_BUFFER_BYTES) {
-    throw new RangeError(`render buffer too large: ${bytes} bytes (max ${MAX_BUFFER_BYTES})`);
-  }
+  const frames = expectedFrames(req, cps, lookbackSecUsed) + tailFrames;
+  checkBufferFrames(frames, req.mode);
   return {
     c0,
     c1,

@@ -10,6 +10,7 @@ use strudeland_host::{
 fn render_request(length: LengthRequest) -> RenderPlanRequest {
     RenderPlanRequest {
         length,
+        preset: None,
         mode: Mode::Mix,
         sample_rate: 44_100,
         include_events: Some(true),

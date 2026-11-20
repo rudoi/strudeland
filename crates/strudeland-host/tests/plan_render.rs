@@ -9,13 +9,14 @@ use std::time::{Duration, Instant};
 use common::{SONG, corpus_song, request};
 use strudeland_engine::EngineJob;
 use strudeland_host::{
-    Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedRender, RenderPlanRequest,
-    RenderRequest,
+    ExportPreset, Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedRender,
+    RenderPlanRequest, RenderRequest,
 };
 
 fn plan_request(length: LengthRequest) -> RenderPlanRequest {
     RenderPlanRequest {
         length,
+        preset: None,
         mode: Mode::Mix,
         sample_rate: 44_100,
         include_events: None,
@@ -112,6 +113,44 @@ fn chunks_equal_plan_job_of_each_chunk_request() {
         }
     }
     assert!(multi >= 2, "the cases must include multi-chunk renders");
+}
+
+#[test]
+fn export_requests_cross_the_bundle_boundary_and_exclude_the_ending() {
+    let host = Host::new().unwrap();
+    let song = corpus_song("song-linear.js");
+    let request = plan_request(LengthRequest::Clip { loops: None });
+    let regular = host.plan_render(&song, &request).unwrap();
+    assert!(regular.export.is_none());
+    for (preset, from, to) in [
+        (ExportPreset::IntroLoop, 0, 6),
+        (ExportPreset::TaggedLoop, 0, 6),
+        (ExportPreset::FoldedLoop, 2, 6),
+        (ExportPreset::OneShot, 0, 12),
+    ] {
+        let planned = host
+            .plan_render(
+                &song,
+                &RenderPlanRequest {
+                    preset: Some(preset),
+                    ..request.clone()
+                },
+            )
+            .unwrap();
+        assert_eq!((planned.window.from_bar, planned.window.to_bar), (from, to));
+        let export = planned.export.unwrap();
+        assert_eq!(
+            export.loop_start_bar,
+            (preset != ExportPreset::OneShot).then_some(2)
+        );
+        let last = &planned.chunks.last().unwrap().plan;
+        assert_eq!(last.c1, to);
+        assert_eq!(
+            last.frames - last.window_start_frame,
+            u64::from(last.to_bar - last.from_bar) * 88_200 + export.tail_frames
+        );
+        assert_eq!(export.tail_frames == 0, preset == ExportPreset::TaggedLoop);
+    }
 }
 
 #[test]

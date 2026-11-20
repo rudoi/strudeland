@@ -11522,7 +11522,13 @@
     }));
   }
   var maxChannels = (mode) => mode === "stems" ? 2 * STEMS_MAX_PAIRS : 2;
-  function windowPlan(req, cps, lookbackSec) {
+  function checkBufferFrames(frames, mode) {
+    const bytes = frames * maxChannels(mode) * 4;
+    if (!Number.isSafeInteger(frames) || frames < 0 || bytes > MAX_BUFFER_BYTES) {
+      throw new RangeError(`render buffer too large: ${bytes} bytes (max ${MAX_BUFFER_BYTES})`);
+    }
+  }
+  function windowPlan(req, cps, lookbackSec, tailFrames = 0) {
     if (!Number.isFinite(cps) || cps <= 0)
       throw new RangeError(`invalid cps ${cps}`);
     if (!Number.isFinite(lookbackSec) || lookbackSec < 0) {
@@ -11533,11 +11539,8 @@
     if (c1 <= c0)
       throw new RangeError(`empty render window [${c0}, ${c1})`);
     const lookbackSecUsed = (req.fromBar - c0) / cps;
-    const frames = expectedFrames(req, cps, lookbackSecUsed);
-    const bytes = frames * maxChannels(req.mode) * 4;
-    if (bytes > MAX_BUFFER_BYTES) {
-      throw new RangeError(`render buffer too large: ${bytes} bytes (max ${MAX_BUFFER_BYTES})`);
-    }
+    const frames = expectedFrames(req, cps, lookbackSecUsed) + tailFrames;
+    checkBufferFrames(frames, req.mode);
     return {
       c0,
       c1,
@@ -17600,6 +17603,36 @@ Defaulting to 2020, but this will stop working in the future.`);
   function lookbackSeconds(events, opts) {
     return deriveLookback(events, opts).lookbackSec;
   }
+  function exportDecay(events, cutoffSec) {
+    const sounding = events.filter((e) => !["~", "-", "_"].includes(e.s));
+    const own = sounding.map((e) => ownSec({ ...e, release: Math.max(e.release, 0.01) }));
+    const feed = busFeedSec(sounding, own);
+    const effects = new Map;
+    for (const e of sounding) {
+      const fx = effects.get(e.orbit) ?? { reverb: 0, time: 0, feedback: 0 };
+      if (e.room)
+        fx.reverb = Math.max(fx.reverb, 1.5 * e.room.size);
+      if (e.delay) {
+        fx.time = Math.max(fx.time, Math.min(1, e.delay.timeSec));
+        fx.feedback = Math.max(fx.feedback, e.delay.feedback);
+      }
+      effects.set(e.orbit, fx);
+    }
+    let historySec = 0;
+    let endSec = cutoffSec;
+    for (const [i2, e] of sounding.entries()) {
+      const fx = effects.get(e.orbit);
+      const repeats = e.delay ? Math.ceil(delayTailSec(1, fx.feedback)) : 0;
+      const echo = e.delay ? fx.time + repeats * (fx.time + 128 / SAMPLE_RATE) : 0;
+      const life = own[i2] + maxFeed(e.busReads, feed) + Math.max(echo, e.room ? fx.reverb : 0);
+      historySec = Math.max(historySec, life);
+      endSec = Math.max(endSec, e.tSec + life);
+    }
+    return {
+      lookbackSec: historySec + LOOKBACK_MARGIN_SEC,
+      tailFrames: Math.ceil((endSec - cutoffSec) * SAMPLE_RATE)
+    };
+  }
   function lookbackBars(lookbackSec, barSec) {
     if (!(barSec > 0))
       throw new RangeError(`barSec must be > 0 (got ${barSec})`);
@@ -17685,7 +17718,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
     return plans;
   }
-  function stochasticCrossings(events, barSec) {
+  function stochasticCrossings(events, barSec, toBar = Infinity) {
     if (!(barSec > 0))
       throw new RangeError(`barSec must be > 0 (got ${barSec})`);
     const out = {};
@@ -17693,7 +17726,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       if (!e.stochastic)
         continue;
       const end = e.tSec + e.durSec + e.release;
-      for (let b = Math.max(0, Math.floor(e.tSec / barSec));b * barSec + 0.000000001 < end; b++) {
+      for (let b = Math.max(0, Math.floor(e.tSec / barSec));b <= toBar && b * barSec + 0.000000001 < end; b++) {
         if (e.tSec < b * barSec - 0.000000001)
           out[b] = (out[b] ?? 0) + 1;
       }
@@ -17702,14 +17735,14 @@ Defaulting to 2020, but this will stop working in the future.`);
   }
   function renderChunkPlans(input) {
     const barSec = 1 / input.cps;
-    const lb = lookbackBars(lookbackSeconds(input.events), barSec);
+    const lb = lookbackBars(input.lookbackSec ?? lookbackSeconds(input.events), barSec);
     return planChunks({
       fromBar: input.fromBar,
       toBar: input.toBar,
       chunkBars: scaleChunkBars(CHUNK_MIN_BARS, lb),
       lookbackBars: lb,
       barSec,
-      avoidSeamBars: stochasticCrossings(input.events, barSec),
+      avoidSeamBars: stochasticCrossings(input.events, barSec, input.toBar),
       ...input.overlapBars === undefined ? {} : { overlapBars: input.overlapBars }
     });
   }
@@ -18093,9 +18126,9 @@ Defaulting to 2020, but this will stop working in the future.`);
       return haps;
     };
   }
-  function planWindow(ctx, request, lookbackSec, schedule, captured) {
-    const plan = windowPlan(request, ctx.cps, lookbackSec);
-    const chunk = plan.c0 === 0 ? schedule : selectHaps(ctx.query(plan.c0, plan.c1));
+  function planWindow(ctx, request, lookbackSec, schedule, captured, scheduleStart = 0, tailFrames = 0) {
+    const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames);
+    const chunk = plan.c0 === scheduleStart ? schedule : selectHaps(ctx.query(plan.c0, plan.c1));
     const planned = planEngineJob(chunk.selected, schedule.selected, plan, request, ctx.cps, ctx.seed);
     const errors = dedupeErrors([...schedule.errors, ...chunk.errors, ...captured]);
     return pageJob(planned, { errors, plan, cps: ctx.cps, structure: ctx.structure });
@@ -18130,8 +18163,13 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (includeEvents !== undefined && typeof includeEvents !== "boolean") {
       throw badRequest("includeEvents must be true or false");
     }
+    if (request.preset !== undefined && (typeof request.preset !== "string" || !["tagged-loop", "intro-loop", "folded-loop", "one-shot"].includes(request.preset)))
+      throw badRequest(`unknown preset ${String(request.preset)}`);
     if (!isObject2(length))
       throw badRequest("length must be an object");
+    if (request.preset !== undefined && request.preset !== "one-shot" && (length.kind !== "clip" || length.loops !== undefined)) {
+      throw new PlanJobError("meta", "loop presets cannot be combined with --section, --length or --loops", "--preset");
+    }
     switch (length.kind) {
       case "clip":
         if (length.loops !== undefined && !isIntIn(length.loops, 1, MAX_LOOPS)) {
@@ -18218,6 +18256,19 @@ Defaulting to 2020, but this will stop working in the future.`);
         return { fromBar: 0, toBar: length.bars, layout: "clip" };
     }
   }
+  function exportWindow(request, structure) {
+    if (!request.preset || request.preset === "one-shot") {
+      return { window: resolveWindow(request.length, structure), loopStartBar: undefined };
+    }
+    const loop = structure.loopIndex === null ? undefined : structure.sections[structure.loopIndex];
+    if (!loop) {
+      throw new PlanJobError("meta", "--preset needs a section with loop: true in meta.sections", "--preset");
+    }
+    const window2 = resolveWindow({ kind: "section", name: loop.name }, structure);
+    if (request.preset !== "folded-loop")
+      window2.fromBar = 0;
+    return { window: window2, loopStartBar: loop.start };
+  }
   function cutSchedule(full, c1) {
     let lo = 0;
     let hi = full.selected.length;
@@ -18240,13 +18291,13 @@ Defaulting to 2020, but this will stop working in the future.`);
     const { cps, seed } = song;
     return asPlanError(() => {
       const structure = loopsApplied(song.structure, loops);
-      const window2 = resolveWindow(request.length, structure);
+      const { window: window2, loopStartBar } = exportWindow(request, structure);
       const { fromBar, toBar, layout } = window2;
+      const musicalFrames = windowFrames(fromBar, toBar, cps, SAMPLE_RATE);
+      if (request.preset)
+        checkBufferFrames(musicalFrames, "mix");
       const query = querySong(rt, layoutSegments(layout, structure));
-      const full = selectHaps(query(0, toBar));
-      const events = eventsFromValues(eventSources(full.selected), cps);
-      const lookbackSec = lookbackSeconds(events);
-      const plans = renderChunkPlans({ fromBar, toBar, events, cps, overlapBars: 0 });
+      const ctx = { query, cps, seed, structure: song.structure };
       const base = {
         code,
         layout,
@@ -18257,24 +18308,58 @@ Defaulting to 2020, but this will stop working in the future.`);
         mode: "mix",
         sampleRate: SAMPLE_RATE
       };
-      const ctx = { query, cps, seed, structure: song.structure };
       const chunks = [];
       const errors = [];
-      for (const plan of plans) {
-        const req = chunkRequest(base, plan);
-        const c1 = req.toBar + req.overlapBars;
-        const schedule = reuseSchedule ? cutSchedule(full, c1) : selectHaps(query(0, c1));
-        const { info, json } = planWindow(ctx, req, plan.lookbackSec, schedule, captured);
-        errors.push(...info.errors);
-        chunks.push({
-          json,
-          plan: {
-            ...info.plan,
-            fromBar: req.fromBar,
-            toBar: req.toBar,
-            lookbackSec: plan.lookbackSec
-          }
+      const allEvents = [];
+      let lookbackSec = 0;
+      let tailFrames = 0;
+      const boundaries = [fromBar];
+      if (request.preset === "intro-loop" && loopStartBar !== undefined && loopStartBar > fromBar) {
+        boundaries.push(loopStartBar);
+      }
+      boundaries.push(toBar);
+      for (let i2 = 1;i2 < boundaries.length; i2++) {
+        const start = boundaries[i2 - 1];
+        const end = boundaries[i2];
+        const isolated = (request.preset === "intro-loop" || request.preset === "folded-loop") && start === loopStartBar;
+        const scheduleStart = isolated ? start : 0;
+        const full = selectHaps(query(scheduleStart, end));
+        const events = eventsFromValues(eventSources(full.selected), cps);
+        if (request.includeEvents)
+          for (const event of events)
+            allEvents.push(event);
+        const engineEvents = request.preset ? events.map((e, j) => ({ ...e, durSec: Number(full.selected[j].hap.duration) / cps })) : events;
+        const decay = request.preset ? exportDecay(engineEvents, end / cps) : undefined;
+        const history = decay?.lookbackSec ?? lookbackSeconds(events);
+        lookbackSec = Math.max(lookbackSec, history);
+        if (end === toBar && decay && request.preset !== "tagged-loop") {
+          tailFrames = decay.tailFrames;
+          checkBufferFrames(musicalFrames + tailFrames, "mix");
+        }
+        const plans = renderChunkPlans({
+          fromBar: start,
+          toBar: end,
+          events: engineEvents,
+          cps,
+          overlapBars: 0,
+          lookbackSec: history
         });
+        for (const plan of plans) {
+          const req = chunkRequest(base, plan);
+          const chunkLookback = isolated ? Math.min(plan.lookbackSec, (req.fromBar - start) / cps) : plan.lookbackSec;
+          const schedule = reuseSchedule ? cutSchedule(full, req.toBar) : selectHaps(query(scheduleStart, req.toBar));
+          const { info, json } = planWindow(ctx, req, chunkLookback, schedule, captured, scheduleStart, req.toBar === toBar ? tailFrames : 0);
+          errors.push(...info.errors);
+          chunks.push({
+            json,
+            plan: {
+              ...info.plan,
+              fromBar: req.fromBar,
+              toBar: req.toBar,
+              lookbackSec: chunkLookback
+            }
+          });
+        }
       }
       return {
         window: window2,
@@ -18282,7 +18367,8 @@ Defaulting to 2020, but this will stop working in the future.`);
         structure,
         lookbackSec,
         errors: dedupeErrors(errors),
-        ...request.includeEvents === true ? { events } : {},
+        ...request.includeEvents === true ? { events: allEvents } : {},
+        ...request.preset ? { export: { ...loopStartBar === undefined ? {} : { loopStartBar }, tailFrames } } : {},
         chunks
       };
     });

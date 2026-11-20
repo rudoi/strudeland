@@ -83,17 +83,17 @@
     "src/lib/levels/levels.ts": "0bea7f385e6be6a3c3b5bd7f05183b59cd944aceb4d6b0afa407cad65aee89ae",
     "src/lib/project/evaluate-options.ts": "1be43ed51809545daece7169439b9e96b310643a854d956cc7d9be7f0438d850",
     "src/lib/project/meta.ts": "9efeb19e0509780b2517c0e04b41b1a1af8496d22b8b3a101cbb6ace65ba6cd2",
-    "src/lib/render/chunks.ts": "75a9692f4157b28d3f5e99476bc7d3e6469b694d4878d5e8a89796e2db142bad",
+    "src/lib/render/chunks.ts": "af0264604ddc36d814a7159600ee914cca3b0378231d25c1891a27723c59eadc",
     "src/lib/render/contract.ts": "87beba2b01a7e1488f072534980accbc334ca74e36ccc38c0a6451475859a17d",
     "src/lib/render/dsp.ts": "9d14ea2c303e21d79699fb658588af9309465e1502cbb2dda4277725d7518d2b",
     "src/lib/render/engine-job.ts": "4a1ebd791339ca89d104febd49002f67bad0c9dffc5d86536a04bab8243ea7f8",
     "src/lib/render/gates/stems.ts": "03cfb82ee58e7f17381224443b6b2709a737a8d73667a28eb17fc9b4a369095c",
     "src/lib/render/gates/types.ts": "c907c180378638b3c22058ed45afaf872ebeb5e8b0e04bba0f972de7785da25f",
-    "src/lib/render/job-plan.ts": "c699e8966c6492ae04f182da7728bb5329bf38ea122b7cbbe0b63cada23092e6",
+    "src/lib/render/job-plan.ts": "5094c2e973146c520003bfb4a653609c06e88212d7b7f277cf7555c08f2a14ee",
     "src/lib/render/logged-errors.ts": "4af126d11de1554b847eabbe2c49c735da7b1caca547458b16e5d605bab352f4",
-    "src/lib/render/lookback.ts": "9824bb594fffb0f99806f525a0411310617270cf1914702eb34a837f7e145be0",
+    "src/lib/render/lookback.ts": "e579d9e16bfe85c73d608f9831f23a19a5c189e65016f3172bfa76b1ac0d5b9a",
     "src/lib/render/page-job.ts": "1266180090585333e5db6ac2d031b39c4e96d8372edf530f45cbb3f6b1e40216",
-    "src/lib/render/plan.ts": "509743092ae6db9b634d8ec1abb259243131dae8292b9b80e7b06f8151f7d810",
+    "src/lib/render/plan.ts": "9d74784daf1060118c7259e6c8245ffd1582c1cd696124e4b37cbdd983612997",
     "src/lib/render/schedule.ts": "affcaa888d46d8d1d89f960a7d4f4e8725b0844a0f8353af3088505eadfb2bac",
     "src/lib/render/thresholds.ts": "5d724732d426a5e17e8a77af9b5f93916d816a286f2333fbbf67bd33c6dfe089",
     "src/lib/strudel/runtime.ts": "f97226420845c784afa9d78ec734aeedb98ec991c7ba509c45c346f2136432c0",
@@ -146,5 +146,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "67d4db6a1c79b8420f7724d7bcb8d6407cd170e4b895715e822540f82ef94f27"
+  "combined": "c3f73401135e9db0e71340d6b13aadc8df93e9d48925ec23fcc12979c7e159dd"
 }

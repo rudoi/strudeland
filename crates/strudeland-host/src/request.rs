@@ -177,11 +177,23 @@ pub enum LengthRequest {
     },
 }
 
+/// Arrangement and decay policy for an offline asset export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExportPreset {
+    TaggedLoop,
+    IntroLoop,
+    FoldedLoop,
+    OneShot,
+}
+
 /// A whole render's planning request: every chunk's engine job in one host call.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenderPlanRequest {
     pub length: LengthRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<ExportPreset>,
     /// Only [`Mode::Mix`] validates.
     pub mode: Mode,
     /// Only [`SAMPLE_RATE`] validates.
@@ -430,6 +442,7 @@ mod tests {
     fn plan_req(length: LengthRequest) -> RenderPlanRequest {
         RenderPlanRequest {
             length,
+            preset: None,
             mode: Mode::Mix,
             sample_rate: 44_100,
             include_events: None,

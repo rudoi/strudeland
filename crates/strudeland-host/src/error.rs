@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Why a host request failed. `Meta`, `Eval` and `Plan` carry the text of the bundle's result
 /// slot whose `kind` matched (the song's `meta` header, its evaluation, or the query and plan);
 /// `MetaFlag` is a `meta` failure of a render's length request that names the CLI flag at fault
-/// (`--length`, `--section`, `--loops`); `Timeout` is a planning that ran past its deadline;
+/// (`--length`, `--section`, `--loops`, `--preset`); `Timeout` is a planning that ran past its deadline;
 /// `Unsettled` is an empty slot after the microtask drain (a promise still pending, for example
 /// an `await` on a timer, which never fires); `Runtime` is everything outside the entry: the
 /// bundle failing to load, an exception thrown outside the entry, a native failure, or a thread

@@ -123,13 +123,21 @@ export function totalContentSec(plans: ChunkPlan[]): number {
 }
 
 /** bar line -> stochastic voices sounding across it (onset before, end after, 1e-9 slack). */
-export function stochasticCrossings(events: RenderEvent[], barSec: number): Record<number, number> {
+export function stochasticCrossings(
+  events: RenderEvent[],
+  barSec: number,
+  toBar = Infinity,
+): Record<number, number> {
   if (!(barSec > 0)) throw new RangeError(`barSec must be > 0 (got ${barSec})`);
   const out: Record<number, number> = {};
   for (const e of events) {
     if (!e.stochastic) continue;
     const end = e.tSec + e.durSec + e.release;
-    for (let b = Math.max(0, Math.floor(e.tSec / barSec)); b * barSec + 1e-9 < end; b++) {
+    for (
+      let b = Math.max(0, Math.floor(e.tSec / barSec));
+      b <= toBar && b * barSec + 1e-9 < end;
+      b++
+    ) {
       if (e.tSec < b * barSec - 1e-9) out[b] = (out[b] ?? 0) + 1;
     }
   }
@@ -142,6 +150,8 @@ export interface RenderChunkInput {
   /** The unmutated events of the schedule [0, toBar): `eventsFromValues` output. */
   events: RenderEvent[];
   cps: number;
+  /** Override the normal lookback when an export uses the full engine decay. */
+  lookbackSec?: number;
   /** Seam overlap bars: 0 for a joined render, the default SEAM_OVERLAP_BARS for the seam gate. */
   overlapBars?: number;
 }
@@ -151,14 +161,14 @@ export interface RenderChunkInput {
  *  batch planner share. Throws as `planChunks` and the lookback helpers do. */
 export function renderChunkPlans(input: RenderChunkInput): ChunkPlan[] {
   const barSec = 1 / input.cps;
-  const lb = lookbackBars(lookbackSeconds(input.events), barSec);
+  const lb = lookbackBars(input.lookbackSec ?? lookbackSeconds(input.events), barSec);
   return planChunks({
     fromBar: input.fromBar,
     toBar: input.toBar,
     chunkBars: scaleChunkBars(CHUNK_MIN_BARS, lb),
     lookbackBars: lb,
     barSec,
-    avoidSeamBars: stochasticCrossings(input.events, barSec),
+    avoidSeamBars: stochasticCrossings(input.events, barSec, input.toBar),
     ...(input.overlapBars === undefined ? {} : { overlapBars: input.overlapBars }),
   });
 }

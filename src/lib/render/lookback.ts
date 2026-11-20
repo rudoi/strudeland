@@ -12,6 +12,7 @@
  * Pure. Ported from the earlier render harness's lookback calculation with unlimited lookback.
  */
 
+import { SAMPLE_RATE } from './contract';
 import type { RenderEvent } from './schedule';
 import {
   CHUNK_LOOKBACK_RATIO,
@@ -136,6 +137,41 @@ export function deriveLookback(events: RenderEvent[], opts: LookbackOptions = {}
 
 export function lookbackSeconds(events: RenderEvent[], opts?: LookbackOptions): number {
   return deriveLookback(events, opts).lookbackSec;
+}
+
+/** Export timing uses the engine's effective hap durations (including clip/legato). The full IR
+ *  is 1.5 times roomsize. Budget the first tap even at zero feedback; each feedback repeat takes the
+ *  delay plus one render quantum, down to -60 dB with the engine's 0.98 feedback ceiling.
+ *  Orbit settings are shared, so allow a wet voice to ring through later changes on its orbit.
+ *  An empty schedule, silence markers or a decay that ends before the cut need no post-roll. */
+export function exportDecay(events: RenderEvent[], cutoffSec: number) {
+  const sounding = events.filter((e) => !['~', '-', '_'].includes(e.s));
+  const own = sounding.map((e) => ownSec({ ...e, release: Math.max(e.release, 0.01) }));
+  const feed = busFeedSec(sounding, own);
+  const effects = new Map<number, { reverb: number; time: number; feedback: number }>();
+  for (const e of sounding) {
+    const fx = effects.get(e.orbit) ?? { reverb: 0, time: 0, feedback: 0 };
+    if (e.room) fx.reverb = Math.max(fx.reverb, 1.5 * e.room.size);
+    if (e.delay) {
+      fx.time = Math.max(fx.time, Math.min(1, e.delay.timeSec));
+      fx.feedback = Math.max(fx.feedback, e.delay.feedback);
+    }
+    effects.set(e.orbit, fx);
+  }
+  let historySec = 0;
+  let endSec = cutoffSec;
+  for (const [i, e] of sounding.entries()) {
+    const fx = effects.get(e.orbit)!;
+    const repeats = e.delay ? Math.ceil(delayTailSec(1, fx.feedback)) : 0;
+    const echo = e.delay ? fx.time + repeats * (fx.time + 128 / SAMPLE_RATE) : 0;
+    const life = own[i]! + maxFeed(e.busReads, feed) + Math.max(echo, e.room ? fx.reverb : 0);
+    historySec = Math.max(historySec, life);
+    endSec = Math.max(endSec, e.tSec + life);
+  }
+  return {
+    lookbackSec: historySec + LOOKBACK_MARGIN_SEC,
+    tailFrames: Math.ceil((endSec - cutoffSec) * SAMPLE_RATE),
+  };
 }
 
 /** Lookback rounded up to whole bars (chunks are planned in bars). Throws if barSec <= 0. */
