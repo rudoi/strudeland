@@ -6,6 +6,11 @@ Give `strudeland render` four per-render presets for game audio. An export can c
 points in a single file, deliver an intro and loop separately, fold a loop's decay into its
 beginning, or let a one-shot decay to silence. The song file remains the source of the arrangement.
 
+Love in the Tower sets the minimum acceptance requirement. Export an intro file and a separate
+loop file. The game plays the intro once, starts the loop at frame zero when the intro ends,
+and repeats the loop file indefinitely. The intro must never replay and any composed ending
+stays outside both files. Deliver and verify this preset first.
+
 ## Scope
 
 Propose `--preset tagged-loop|intro-loop|folded-loop|one-shot`, with the existing render behavior
@@ -14,7 +19,7 @@ as the default when the flag is omitted.
 | Preset | Musical content | Output |
 | --- | --- | --- |
 | `tagged-loop` | Intro and one pass of the designated loop section | One file with forward loop points. Playback reaches EOF at the loop end. |
-| `intro-loop` | The same range, split at the loop start | An intro file when the intro is nonempty and a body file that can loop from frame zero. |
+| `intro-loop` | All bars before the marked loop, then one pass of the loop | Separate intro and loop files. Play the intro once, then repeat the loop file from frame zero. When the song starts at the loop, only the loop file is needed. |
 | `folded-loop` | One isolated pass of the designated loop section plus its decay | One body file. Decay after the last bar is added back into the loop. |
 | `one-shot` | The requested clip, section or length, followed by post-roll | One file without loop markers. Written ending sections play as part of a full clip. |
 
@@ -138,6 +143,11 @@ command reference and embedded CLI skill with the final flags and output.
   wet fixture. Test an echo arriving after a silent gap and a multichunk export with one
   worker and several workers. Check the decoded intro-to-loop transition and wrap with
   leveling on and off.
+- For the Love in the Tower use case, start with WAV and verify that playback of the decoded
+  intro followed by multiple repeats of the decoded loop has the expected order, no extra or
+  missing frames at either boundary, and no repeated intro or ending. Use a fixture with
+  distinguishable intro, loop and ending material. This also gives the game a playback
+  sequence to check in its audio engine.
 - Test the CLI's default and preset paths, JSON, invalid flag combinations, missing loop
   sections, zero intro, MP3 warning, and write failures. Run host parity and the applicable
   render corpus alongside the normal Bun and Rust gates to protect regular renders.
@@ -147,5 +157,7 @@ command reference and embedded CLI skill with the final flags and output.
 - Is the proposed CLI vocabulary right for the four presets?
 - Should `one-shot` and `folded-loop` expose a tail duration override in the first release,
   or use the schedule-derived duration for both?
-- Should the split preset keep the first pass as heard after the intro, as proposed, or
-  make the separate body tail-folded by default?
+- For a wet split export, should the loop body keep the first pass as heard after the intro
+  or be built in isolation with its own tail folded? Keeping the first pass can replay
+  lingering intro effects at every wrap. Folding the isolated body can change the sound
+  of the initial handoff. Check both boundaries on a wet fixture during refinement.
