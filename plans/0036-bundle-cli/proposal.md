@@ -2,27 +2,31 @@
 
 ## Goal
 
-A user who installs the macOS app can run the version-matched `strudeland` CLI without a Rust
-toolchain. The app's **Install command line tool…** menu action creates a user-owned symlink
-and explains how to invoke the command from a terminal.
+Users who install the macOS app or Windows x64 MSI can run the version-matched `strudeland` CLI
+without a Rust toolchain. The macOS app offers an **Install command line tool…** action. Windows
+installs `strudeland.exe` as part of the MSI and offers terminal access through the installer.
 
 ## Scope
 
-- Include the workspace-built CLI in Apple Silicon app bundles and DMGs made by the local
-  packaging command, the unsigned installer workflow, and the signed release workflow.
-- Offer installation from a packaged app without administrator privileges. Document the link
-  location, shell setup, app upgrades and moves, and how to remove the link.
-- Keep Cargo source installation supported. Native CLI installation and PATH management on
-  Windows and Linux are outside this macOS task, as are shell configuration edits and updates
-  to the command line or control protocol.
+- Include the workspace-built CLI in Apple Silicon app bundles and DMGs and the Windows x64
+  MSI, covering local builds, manually built installers, and tagged releases.
+- Offer user-owned symlink installation on macOS and installer-managed PATH setup on Windows.
+  Document terminal setup, upgrades, and removal on each platform.
+- Keep Cargo source installation supported. The Windows NSIS and Ubuntu DEB packaging paths,
+  shell configuration edits, and command or control-protocol changes are outside this task.
 
 ## Architecture
 
-- Use Tauri's [external binary configuration](https://v2.tauri.app/develop/sidecar/) in a
-  macOS packaging overlay for [the app config](../../src-tauri/tauri.conf.json). Stage the
-  target-suffixed input under an ignored directory. Give the sidecar the packaged basename
-  `strudeland-cli` so its executable remains distinct from the app binary, and expose it to
-  terminals under the existing command name `strudeland`.
+- Use Tauri packaging overlays for the DMG and MSI. Stage each CLI using Tauri's target-triple
+  naming rules under an ignored directory. On macOS, package it as `strudeland-cli` alongside
+  the app executable. On Windows, package it as `strudeland.exe` and give the MSI's GUI
+  executable a distinct name if required. Preserve the product and shortcut names and the
+  MSI upgrade identity. [Tauri external binaries](https://v2.tauri.app/develop/sidecar/)
+- Use the MSI template's support for external binaries and WiX extensions. The pinned template
+  defines a PATH-labeled feature that references the sidecar components. Verify the generated
+  MSI's Environment table and use a WiX fragment to author PATH setup where required.
+  [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/#customizing-the-wix-installer)
+  [Pinned WiX template](https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v2.12.4/crates/tauri-bundler/src/bundle/windows/msi/main.wxs)
 - Keep the overlay out of plain Cargo checks, `tauri dev`, and the release workflow's
   `--no-bundle` compile. Tauri's Cargo build helper copies configured external binaries
   during app compilation, so a bundle-only hook cannot supply inputs for an ordinary combined
@@ -42,18 +46,20 @@ Build the existing `strudeland` binary from
 [the CLI package](../../crates/strudeland-cli/Cargo.toml) with Cargo's lockfile, using the same
 checkout and the app bundle's target and debug or release profile. Resolve the output from Cargo
 and reuse its configured target directory. A shared Bun entry point prepares the sidecar and
-drives local macOS packaging. Route [the stable debug signing helper](../../scripts/app-signed.ts),
-[manual DMG builds](../../.github/workflows/installers.yml), and
-[the split release build](../../.github/workflows/release.yml) through the same staging logic.
+drives local macOS and Windows MSI packaging. Route [the stable debug signing helper](../../scripts/app-signed.ts),
+[manual DMG and MSI builds](../../.github/workflows/installers.yml), and
+[the split macOS release build](../../.github/workflows/release.yml) through the same staging logic.
+The Windows release already reuses the manual MSI build job.
 Preserve the signing helper's open behavior and the release workflow's signing and notarization
 steps. Fail the build if Cargo or staging fails so an old staged file cannot be silently packaged.
 
 Extend [installer verification](../../scripts/stage-installer.sh) to inspect the mounted DMG,
 check the nested executable's architecture and signature, and compare its `--version` with the
-release version. Run an offline CLI smoke command from the bundle. Verify the identified app
-executable is distinct from the CLI.
+release version. On Windows, extract the actual MSI payload and run its x64 CLI with the same
+version check. Run an offline CLI smoke command from both packages and verify the GUI and CLI
+executables are distinct.
 
-### Installing from the app
+### Installing on macOS
 
 Show the menu entry when running from a macOS app bundle with the CLI present. The dialog names
 the destination, `~/.local/bin/strudeland`, and lets the user cancel before writing. Encourage
@@ -68,13 +74,23 @@ Report the full destination and give instructions for adding `~/.local/bin` to t
 PATH. A replacement app installed at the same path keeps the link usable. A moved app requires
 the user to remove the old link and run the action from the new location.
 
+### Installing on Windows
+
+Use the MSI to install the CLI with the app and expose `strudeland` in a newly opened terminal.
+Keep the existing per-machine MSI scope. Prefer an MSI-owned PATH component that appends a
+single entry and removes it on uninstall. Verify how custom install locations are handled before
+adding an entry to machine PATH. Use a protected installer-owned directory for any machine PATH
+entry. If the supported MSI extension cannot enforce that, refine a user-scoped PATH action
+instead of adding the arbitrary app install directory to machine PATH.
+[WiX Environment element](https://docs.firegiant.com/wix3/xsd/wix/environment/)
+
 ## Dependencies
 
 - The CLI and local control protocol already ship as source. The embedded CLI runs the same
   binary with the same control-socket discovery and offline commands.
-- The existing macOS installer job has the native Rust toolchain and signing and notarization
-  steps. The CLI brings the existing V8 and encoder build dependencies, including CMake and a
-  C compiler. Check both installer entry points have those build prerequisites.
+- The existing installer jobs provide the native Rust toolchain, WiX for the MSI, and the
+  macOS signing and notarization steps. Verify that each runner has the CLI's V8 and encoder
+  prerequisites, including CMake and a native compiler.
 - Rust's Unix symlink API and Tauri's existing menu, path, and dialog APIs cover installation.
 
 ## Risks and validation
@@ -82,6 +98,10 @@ the user to remove the old link and run the action from the new location.
 - A stale artifact or mismatched target could produce a CLI that launches on the build host
   alone. Check target/profile selection and walk the packaged DMG on Apple Silicon, including
   the ad-hoc signing path and the signed release path when authorized.
+- On Windows, test a clean MSI install, upgrade from the currently shipped MSI, custom install
+  location, and uninstall. Verify app shortcuts launch the GUI and a fresh PowerShell or cmd
+  session resolves `strudeland` to the installed CLI. Check that PATH retains unrelated
+  entries and drops the MSI-managed entry on removal.
 - The app may run from a DMG or from an App Translocation path. Verify these launches never
   install a temporary target and that the copied app can install successfully.
 - Test link creation and repeat installation in temporary directories. Cover a missing CLI,
@@ -98,9 +118,8 @@ the user to remove the old link and run the action from the new location.
 
 - The proposal uses `~/.local/bin` with explicit PATH instructions. Confirm that destination
   and the native app menu placement.
-- The initial delivery is macOS-only. Windows and Linux currently use the documented Cargo
-  installation path.
+- Verify the pinned MSI's PATH behavior and select the smallest supported WiX configuration
+  that works with upgrades, custom install locations, and uninstall.
 
-**Recommended complexity:** Medium. Keep a reference and interface pass before sequencing.
-Skip fracture and the separate loss check because one proposal can cover both coherent stages:
-producing the bundle and installing from it.
+**Recommended complexity.** Medium. Keep a reference and interface pass before sequencing.
+The proposal covers shared CLI staging and the platform-specific installation steps.
