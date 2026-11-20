@@ -282,22 +282,7 @@ impl Project {
         suffix: Option<&str>,
         ext: &str,
     ) -> Result<PathBuf, ProjectError> {
-        if !matches!(ext, "wav" | "mp3" | "ogg" | "opus") {
-            return Err(ProjectError::InvalidRenderName(ext.to_string()));
-        }
-        if !is_new_stem(stem) {
-            return Err(ProjectError::InvalidSongName(stem.to_string()));
-        }
-        let name = match suffix {
-            None => format!("{stem}.{ext}"),
-            Some(suffix) => {
-                let slug = slugify(suffix);
-                if slug.is_empty() {
-                    return Err(ProjectError::InvalidRenderName(suffix.to_string()));
-                }
-                format!("{stem}-{slug}.{ext}")
-            }
-        };
+        let name = render_filename(stem, suffix, ext)?;
         let dir = self.root.join(RENDERS_DIR);
         if fs::symlink_metadata(&dir).is_ok() {
             check_dir(&dir, RENDERS_DIR, &name)?;
@@ -314,6 +299,20 @@ impl Project {
     /// file is replaced. A path elsewhere, or a symlinked `renders/` or file, is
     /// `PathOutsideProject`.
     pub fn write_render(&self, path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
+        self.publish_render(path, bytes, atomic_write_bytes)
+    }
+
+    /// Publishes a new render atomically. An existing destination is never replaced.
+    pub fn create_render(&self, path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
+        self.publish_render(path, bytes, atomic_create_bytes)
+    }
+
+    fn publish_render(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        publish: fn(&Path, &[u8]) -> Result<(), ProjectError>,
+    ) -> Result<(), ProjectError> {
         let dir = self.root.join(RENDERS_DIR);
         let name = path
             .file_name()
@@ -335,7 +334,7 @@ impl Project {
         if fs::symlink_metadata(path).is_ok_and(|m| redirects(&m)) {
             return Err(outside());
         }
-        atomic_write_bytes(path, bytes)
+        publish(path, bytes)
     }
 
     /// Re-reads and re-validates `project.json` of this project's folder, returning a fresh
@@ -718,6 +717,43 @@ fn write_new(path: &Path, contents: &str) -> Result<(), ProjectError> {
         .map_err(|e| ProjectError::io(path, e))
 }
 
+/// The portable basename used for a project render in any destination.
+pub fn render_filename(
+    stem: &str,
+    suffix: Option<&str>,
+    ext: &str,
+) -> Result<String, ProjectError> {
+    if !matches!(ext, "wav" | "mp3" | "ogg" | "opus") {
+        return Err(ProjectError::InvalidRenderName(ext.to_string()));
+    }
+    if !is_new_stem(stem) {
+        return Err(ProjectError::InvalidSongName(stem.to_string()));
+    }
+    Ok(match suffix {
+        None => format!("{stem}.{ext}"),
+        Some(suffix) => {
+            let slug = slugify(suffix);
+            if slug.is_empty() {
+                return Err(ProjectError::InvalidRenderName(suffix.to_string()));
+            }
+            format!("{stem}-{slug}.{ext}")
+        }
+    })
+}
+
+/// Whether an output already exists as a replaceable regular file.
+pub fn render_exists(path: &Path) -> Result<bool, ProjectError> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_file() && !redirects(&meta) => Ok(true),
+        Ok(_) => Err(ProjectError::io(
+            path,
+            io::Error::other("not a regular output file"),
+        )),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(ProjectError::io(path, e)),
+    }
+}
+
 const RENDERS_DIR: &str = "renders";
 
 /// Each run of characters outside `[A-Za-z0-9_-]` becomes one `-`; leading and trailing `-` are
@@ -755,7 +791,8 @@ pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProjectError>
     write_and_publish(path, bytes, |from, to| fs::rename(from, to))
 }
 
-pub(crate) fn atomic_create_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
+/// Atomically publishes bytes only if the path is still absent.
+pub fn atomic_create_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
     write_and_publish(path, bytes, move_noreplace)
 }
 

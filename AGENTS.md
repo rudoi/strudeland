@@ -59,7 +59,7 @@ builds. Browser parity, live timing benchmarks, and installer builds run separat
 The [contributor guide](CONTRIBUTING.md#verify-your-changes) lists the local commands.
 
 `cargo test`/`clippy`/`check` do not need a built frontend (`dist/`). Only `tauri build` does, and it
-runs `bun run build` itself. The first cargo build takes a few minutes. Building `strudeland-render` (and so `strudeland-cli`)
+runs `bun run build` itself. The first cargo build takes a few minutes. Building `strudeland-render` (and so `strudeland-app` and `strudeland-cli`)
 needs `cmake` and a C compiler (libopus, LAME, libvorbis), and `cargo test -p strudeland-cli` needs
 the V8 download the host brings.
 
@@ -102,6 +102,11 @@ the V8 download the host brings.
   the `SongError`-returning song commands, and the `prefs_get`/`prefs_set` commands),
   `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events).
   Further crates go in `crates/` and are added to the root `Cargo.toml` workspace.
+- Desktop audio export in `src/lib/export/` and `src-tauri/src/export_audio.rs` uses the shared
+  `strudeland-render` pipeline. The dialog captures the active editor source, previews resolved
+  output paths, and receives progress over a channel. Only the export API calls Tauri for this
+  feature. The native command confirms replacements and atomically publishes new files without
+  replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
   atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,

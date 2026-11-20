@@ -4280,6 +4280,7 @@ dependencies = [
  "strudeland-live",
  "strudeland-project",
  "strudeland-record",
+ "strudeland-render",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

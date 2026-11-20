@@ -14,7 +14,7 @@ use crate::{
     RenderOutput, RenderedAudio, Summary, finish_file, ms_since, render_audio_for,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportRole {
     Intro,

@@ -46,7 +46,7 @@ pub use output::{
 };
 pub use render::MAX_WARNINGS;
 pub use strudeland_host::{
-    ExportPreset, HostError, LengthRequest, MAX_TIMEOUT_SEC, timeout_from_secs,
+    ExportPreset, HostError, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC, timeout_from_secs,
 };
 pub use summary::{Progress, RenderOutput, RenderedAudio, Summary, Timings};
 
