@@ -1,19 +1,23 @@
 use std::sync::{Mutex, MutexGuard};
 
 #[cfg(target_os = "macos")]
-use tauri::AppHandle;
-use tauri::{Manager, WebviewWindow, ipc::Channel};
+use tauri::{AppHandle, Emitter};
+use tauri::{Manager, WebviewWindow};
 use tokio::sync::OwnedMutexGuard;
 
 use crate::export_audio::ExportState;
+
+#[cfg(target_os = "macos")]
+const REQUEST_EVENT: &str = "app://quit-requested";
 
 #[derive(Default)]
 pub struct QuitState(Mutex<QuitRequest>);
 
 #[derive(Default)]
 struct QuitRequest {
-    listener: Option<Channel<u32>>,
+    #[cfg(any(target_os = "macos", test))]
     next_id: u32,
+    ready: bool,
     pending: Option<u32>,
     exit_permit: Option<OwnedMutexGuard<()>>,
 }
@@ -24,31 +28,28 @@ impl QuitState {
     }
 
     pub fn detach(&self) {
-        self.listen(None);
+        self.set_ready(false);
     }
 
-    fn listen(&self, listener: Option<Channel<u32>>) {
+    fn set_ready(&self, ready: bool) {
         let mut state = self.lock();
         state.pending = None;
-        state.listener = listener;
+        state.ready = ready;
     }
 
     #[cfg(any(target_os = "macos", test))]
-    fn request(&self) {
-        let (listener, id) = {
+    fn request(&self, send: impl FnOnce(u32) -> tauri::Result<()>) {
+        let id = {
             let mut state = self.lock();
-            if state.pending.is_some() || state.exit_permit.is_some() {
+            if !state.ready || state.pending.is_some() || state.exit_permit.is_some() {
                 return;
             }
-            let Some(listener) = state.listener.clone() else {
-                return;
-            };
             let id = state.next_id;
             state.next_id = id.wrapping_add(1);
             state.pending = Some(id);
-            (listener, id)
+            id
         };
-        if let Err(error) = listener.send(id) {
+        if let Err(error) = send(id) {
             let mut state = self.lock();
             if state.pending == Some(id) {
                 state.pending = None;
@@ -59,7 +60,7 @@ impl QuitState {
 
     fn reply(&self, id: u32, approved: bool, exports: &ExportState) -> Result<bool, &'static str> {
         let mut state = self.lock();
-        if state.pending != Some(id) {
+        if !state.ready || state.pending != Some(id) {
             return Ok(false);
         }
         state.pending = None;
@@ -82,11 +83,11 @@ impl QuitRequest {
 }
 
 #[tauri::command]
-pub fn app_quit_listen(window: WebviewWindow, requests: Channel<u32>) -> Result<(), &'static str> {
+pub fn app_quit_listen(window: WebviewWindow) -> Result<(), &'static str> {
     if window.label() != "main" {
         return Err("only the main window can handle application Quit");
     }
-    window.state::<QuitState>().listen(Some(requests));
+    window.state::<QuitState>().set_ready(true);
     Ok(())
 }
 
@@ -108,9 +109,12 @@ pub fn app_quit_reply(window: WebviewWindow, id: u32, approved: bool) -> Result<
 fn request(app: &AppHandle) {
     let quit = app.state::<QuitState>();
     if app.get_webview_window("main").is_some() {
-        quit.request();
-    } else if quit.lock().allow_exit(&app.state::<ExportState>()).is_ok() {
-        app.exit(0);
+        quit.request(|id| app.emit_to("main", REQUEST_EVENT, id));
+    } else {
+        let approved = quit.lock().allow_exit(&app.state::<ExportState>()).is_ok();
+        if approved {
+            app.exit(0);
+        }
     }
 }
 
@@ -173,34 +177,27 @@ pub(super) mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    };
 
     #[test]
     fn duplicate_cancelled_and_stale_quit_requests() {
         let quit = QuitState::default();
         let exports = ExportState::default();
-        let ids = Arc::new(Mutex::new(Vec::new()));
-        let requests = Arc::clone(&ids);
-        quit.listen(Some(Channel::new(move |payload| {
-            requests
-                .lock()
-                .unwrap()
-                .push(payload.deserialize::<u32>().unwrap());
+        let ids = Mutex::new(Vec::new());
+        let send = |id| {
+            ids.lock().unwrap().push(id);
             Ok(())
-        })));
-        quit.request();
-        quit.request();
+        };
+        quit.set_ready(true);
+        quit.request(send);
+        quit.request(send);
         assert_eq!(*ids.lock().unwrap(), [0]);
         assert!(!quit.reply(0, false, &exports).unwrap());
-        quit.request();
+        quit.request(send);
         assert!(!quit.reply(0, true, &exports).unwrap());
         assert_eq!(*ids.lock().unwrap(), [0, 1]);
         quit.detach();
         assert!(!quit.reply(1, true, &exports).unwrap());
-        quit.request();
+        quit.request(send);
         assert_eq!(*ids.lock().unwrap(), [0, 1]);
     }
 
@@ -208,12 +205,12 @@ mod tests {
     fn active_export_blocks_exit_and_approved_exit_reserves_export() {
         let quit = QuitState::default();
         let exports = ExportState::default();
-        quit.listen(Some(Channel::new(|_| Ok(()))));
+        quit.set_ready(true);
         let job = exports.reserve().unwrap();
-        quit.request();
+        quit.request(|_| Ok(()));
         assert!(quit.reply(0, true, &exports).is_err());
         drop(job);
-        quit.request();
+        quit.request(|_| Ok(()));
         assert!(quit.reply(1, true, &exports).unwrap());
         assert!(exports.reserve().is_err());
         assert!(!quit.reply(1, true, &exports).unwrap());
@@ -222,16 +219,9 @@ mod tests {
     #[test]
     fn a_delivery_error_releases_the_pending_request() {
         let quit = QuitState::default();
-        let failed = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&failed);
-        quit.listen(Some(Channel::new(move |_| {
-            if !flag.swap(true, Ordering::Relaxed) {
-                return Err(tauri::Error::WindowNotFound);
-            }
-            Ok(())
-        })));
-        quit.request();
-        quit.request();
+        quit.set_ready(true);
+        quit.request(|_| Err(tauri::Error::WindowNotFound));
+        quit.request(|_| Ok(()));
         assert_eq!(quit.lock().pending, Some(1));
     }
 }

@@ -6,15 +6,15 @@
   termination selector to the currently installed Tao delegate class on the main thread after
   checking the class identity and checking that no implementation already exists.
 - Return cancel to AppKit immediately when the app queues a decision for the webview. The quit
-  state tracks the main-window request channel, the pending request ID, and the final export
-  permit. Page navigation removes the channel and invalidates the pending request.
+  state tracks whether the main-window event listener is ready, the pending request ID, and
+  the final export permit. Page navigation clears readiness and invalidates the pending request.
 - Only the main webview can register or answer. Accept a single matching reply. Cancel or
   delivery error clears the pending request, and stale replies have no effect. A main window
   without a ready listener cancels Quit. Without a main window, proceed only if the export
   permit is available.
 - A positive reply acquires and retains the export permit before triggering the existing Tauri
   exit and cleanup. A busy permit rejects approval and allows a fresh Quit after export.
-  Never hold the quit-state lock while sending a channel message or requesting Tauri exit.
+  Never hold the quit-state lock while emitting an event or requesting Tauri exit.
 
 ## Webview behavior
 
