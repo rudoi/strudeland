@@ -34,7 +34,7 @@ strudeland-render = { path = "../crates/strudeland-render", features = ["host-ji
 rustix = { version = "1.1.6", features = ["fs"] }
 # Features beyond what tauri and wry already enable would pull new crates; keep them explicit.
 objc2 = "0.6.5"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSDictionary", "NSError", "NSString"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSData", "NSDictionary", "NSError", "NSString", "objc2-core-services"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSBitmapImageRep", "NSImage", "NSImageRep"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKSnapshotConfiguration", "WKWebView"] }
 block2 = "0.6.2"

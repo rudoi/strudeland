@@ -156,6 +156,8 @@ export interface Session {
   activeText(): string | null;
   /** True if the caller may proceed (no dirty songs, discard, or every save succeeded). */
   guardUnsaved(): Promise<boolean>;
+  /** Allows one unsaved decision at a time across window close and application Quit. */
+  guardShutdown(): Promise<boolean>;
 }
 
 export interface SessionDeps {
@@ -963,6 +965,18 @@ export function createSession(deps: SessionDeps): Session {
     return ok;
   }
 
+  let guardingShutdown = false;
+
+  async function guardShutdown(): Promise<boolean> {
+    if (guardingShutdown) return false;
+    guardingShutdown = true;
+    try {
+      return await guardUnsaved();
+    } finally {
+      guardingShutdown = false;
+    }
+  }
+
   // ---- public ----
 
   async function switchSong(path: string): Promise<void> {
@@ -1158,7 +1172,7 @@ export function createSession(deps: SessionDeps): Session {
             // An export can start while the unsaved-changes guard writes one or more songs.
             if (
               canCloseWindow?.() === false ||
-              !(await guardUnsaved()) ||
+              !(await guardShutdown()) ||
               canCloseWindow?.() === false
             ) {
               e.preventDefault();
@@ -1381,5 +1395,6 @@ export function createSession(deps: SessionDeps): Session {
     activeText: () => (active ? textOf(active) : null),
 
     guardUnsaved,
+    guardShutdown,
   };
 }

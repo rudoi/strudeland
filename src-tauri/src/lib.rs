@@ -1,3 +1,4 @@
+mod app_quit;
 #[cfg(target_os = "macos")]
 mod cli_install;
 mod commands;
@@ -24,12 +25,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(project::ProjectState::default())
+        .manage(app_quit::QuitState::default())
         .manage(export_audio::ExportState::default())
         .manage(playback::PlaybackState::default())
         .manage(Arc::clone(&bridge))
         // A reload or HMR of the main webview: requests answer `not ready` until it attaches again.
         .on_page_load(|webview, payload| {
             if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Started) {
+                webview.state::<app_quit::QuitState>().detach();
                 webview.state::<Arc<control::Bridge>>().detach();
                 if let Some(recorder) = webview.try_state::<recording::RecorderState>() {
                     recording::on_reload(&recorder.0);
@@ -41,6 +44,8 @@ pub fn run() {
         })
         .setup(move |app| {
             #[cfg(target_os = "macos")]
+            app_quit::macos::install(app.handle())?;
+            #[cfg(target_os = "macos")]
             cli_install::register(app.handle())?;
             let recorder = recording::system_state(app.handle());
             let core = Arc::clone(&recorder.0);
@@ -51,6 +56,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_quit::app_quit_listen,
+            app_quit::app_quit_reply,
             commands::app_info,
             project_menu::export_audio_set_available,
             export_audio::export_audio_pick_folder,

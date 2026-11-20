@@ -2385,6 +2385,18 @@ describe('openPath', () => {
 // ---------------------------------------------------------------- guard
 
 describe('unsaved guard (window close)', () => {
+  test('application quit and window close share one unsaved prompt', async () => {
+    const h = await opened();
+    h.type('// dirty');
+    const choice = Promise.withResolvers<'save' | 'discard' | 'cancel'>();
+    h.api.confirmUnsaved = () => choice.promise;
+    const quit = h.session.guardShutdown();
+    expect(await h.closeWindow()).toBe(true);
+    choice.resolve('cancel');
+    expect(await quit).toBe(false);
+    expect(await h.session.guardShutdown()).toBe(false);
+  });
+
   test('an active operation blocks window close before the unsaved prompt', async () => {
     const h = setup();
     let exporting = true;

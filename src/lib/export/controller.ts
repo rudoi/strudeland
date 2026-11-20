@@ -99,6 +99,8 @@ interface DialogState {
   activity: Activity;
   failure: Failure | null;
   result: ExportResult | null;
+  cancelled: boolean;
+  quit: 'ask' | 'waiting' | 'result' | 'settling' | null;
 }
 
 export const loopMode = (mode: Mode): mode is Exclude<ExportPreset, 'one-shot'> =>
@@ -155,10 +157,14 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     activity: { kind: 'idle' },
     result: null,
     failure: null,
+    cancelled: false,
+    quit: null,
   };
   const store = writable(state);
   let revision = 0;
   let disposed = false;
+  let hasUnacknowledgedOutcome = false;
+  let resolveQuit: ((approved: boolean) => void) | undefined;
 
   function update(change: Partial<DialogState>) {
     if (disposed) return;
@@ -184,19 +190,23 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     }
   }
 
+  const canClose = () => !state.quit && state.activity.kind === 'idle';
+
   function select(options: Partial<Options>) {
-    if (disposed || state.activity.kind !== 'idle') return;
+    if (disposed || !canClose()) return;
+    hasUnacknowledgedOutcome = false;
     update({
       options: { ...state.options, ...options },
       preview: { kind: 'idle' },
       result: null,
       failure: null,
+      cancelled: false,
     });
     void refresh();
   }
 
   async function pickFolder() {
-    if (disposed || state.activity.kind !== 'idle') return;
+    if (disposed || !canClose()) return;
     update({ activity: { kind: 'picking' } });
     try {
       const folder = await api.pickFolder();
@@ -242,34 +252,65 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
   }
 
   async function start() {
-    if (
-      disposed ||
-      state.activity.kind !== 'idle' ||
-      state.preview.kind !== 'ready' ||
-      state.result
-    )
-      return;
+    if (disposed || !canClose() || state.preview.kind !== 'ready' || state.result) return;
     const { files, request } = state.preview;
     let receivingProgress = true;
+    hasUnacknowledgedOutcome = false;
     try {
-      update({ activity: { kind: 'planning' }, failure: null });
+      update({ activity: { kind: 'planning' }, failure: null, cancelled: false });
       const result = await api.start(request, song.source, files, (progress) => {
         if (receivingProgress) onProgress(progress);
       });
+      hasUnacknowledgedOutcome = true;
       update({
         activity: { kind: 'idle' },
         result: result && { ...result, warnings: [...new Set(result.warnings)] },
+        cancelled: result === null,
+        quit: outcomeDecision(),
       });
     } catch (error) {
+      hasUnacknowledgedOutcome = true;
       update({
         activity: { kind: 'idle' },
         preview: { kind: 'idle' },
         failure: failureFrom(error),
+        quit: outcomeDecision(),
       });
       void refresh();
     } finally {
       receivingProgress = false;
     }
+  }
+
+  function outcomeDecision(): DialogState['quit'] {
+    return state.quit === 'ask' || state.quit === 'waiting' ? 'result' : state.quit;
+  }
+
+  function requestQuit(): Promise<boolean> {
+    if (disposed || state.quit || state.activity.kind === 'picking') return Promise.resolve(false);
+    const idle = state.activity.kind === 'idle';
+    if (idle && !hasUnacknowledgedOutcome) {
+      update({ quit: 'settling' });
+      return Promise.resolve(true);
+    }
+    // IPC can deliver the export result before the Quit event, even if Quit arrived first.
+    return new Promise<boolean>((resolve) => {
+      resolveQuit = resolve;
+      update({ quit: idle ? 'result' : 'ask' });
+    });
+  }
+
+  function answerQuit(choice: 'wait' | 'cancel' | 'continue') {
+    if (choice === 'wait') {
+      if (state.quit === 'ask') update({ quit: 'waiting' });
+      return;
+    }
+    if (!resolveQuit || (choice === 'continue' && state.quit !== 'result')) return;
+    if (state.quit === 'result') hasUnacknowledgedOutcome = false;
+    update({ quit: 'settling' });
+    const resolve = resolveQuit;
+    resolveQuit = undefined;
+    resolve(choice === 'continue');
   }
 
   return {
@@ -278,9 +319,14 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     select,
     pickFolder,
     start,
-    canClose: () => state.activity.kind === 'idle',
+    canClose,
+    requestQuit,
+    answerQuit,
+    finishQuit: () => update({ quit: null }),
     dispose: () => {
       disposed = true;
+      resolveQuit?.(false);
+      resolveQuit = undefined;
     },
   };
 }

@@ -102,6 +102,10 @@ loop includes any intro, and folded loop starts at the loop's first bar.
 The result shows the Godot loop offset in seconds when the file has loop points. Use WAV for
 sample-exact repeats. MP3 encoder padding can leave a gap.
 
+On macOS, Quit during an export offers **Wait for Export** and **Cancel Quit**. If you wait, the
+dialog shows the outcome and lists any files already written before you decide whether to
+continue quitting. Strudeland still prompts you about unsaved songs.
+
 ## Command line
 
 The CLI controls the running app and works with song files and voice memos from a shell.
