@@ -69,7 +69,7 @@ the text and the editor keeps its vim mode.
 | `strudeland events [--bars N\|N-M] [--section NAME] [--all] [--limit N]` | the evaluated song's events with bar, beat, value and source position |
 | `strudeland screenshot [PATH]` | PNG of the app window; prints `wrote PATH (WxH)` |
 | `strudeland docs NAME` / `docs --search TERM` / `docs --list` | Strudel function docs (exactly one of the three) |
-| `strudeland render SONG [--out PATH] [--format F] [--preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` | render a song file to audio, offline (see Rendering) |
+| `strudeland render SONG [--out PATH] [--format F] [--stems orbit\|voice\|instrument \| --preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` | render a song file to audio, offline (see Rendering) |
 | `strudeland memo list [--project DIR]` / `strudeland memo show NAME [--project DIR]` | list the project's voice memos / show one memo's timing and settings, offline (see Memos) |
 | `strudeland transcribe NAME [--project DIR] [--grid G] [--bpm N] [--meter N/D] [--bar1 S] [--shift MS] [--key ROOT:SCALE] [--tuning CENTS] [--start S --end S \| --bars A-B] [--debug]` | turn a voice memo into proposed Strudel code, offline; never writes a song (see Transcribing memos) |
 | `strudeland ping` | is the app running and ready |
@@ -445,6 +445,37 @@ SONG **as it is on disk**, not the app's editor buffer: unsaved edits are not re
 Progress lines go to stderr; stdout gets the summary (path, size, seconds, bars, loudness before
 and after, true peak, timings), or with `--json` one line of camelCase JSON (`path`, `format`,
 `bytes`, `window`, `frames`, `seconds`, `loudness`, `timings`, `warnings`, ...).
+
+### Stem sets
+
+Use `strudeland render SONG --stems voice --out MIX_DIR` to export a pre-master reference
+mix and aligned stems. The usual clip, section, length and loop-count flags select the range.
+
+- `orbit` groups by numeric orbit, including the default orbit, and includes its effects.
+- `voice` groups by `.label(...)`. Successive notes and chords with the same label share a stem
+  across orbits, and missing or empty labels go in an unlabeled stem.
+- `instrument` groups by the engine's resolved sound name, including defaults and supported bank
+  prefixes.
+
+Voice and instrument exports include shared-effects stems by orbit. Soloing a shared-effects
+stem can include subtraction of direct audio when an orbit filter is active.
+
+Every WAV is stereo 32-bit float at 44.1 kHz, with unity gain and no loudness adjustment or
+limiting. Import the files at the same timeline position. The unity-gain sum of the stems
+reconstructs `mix.wav` within floating-point rounding. Peaks can exceed full scale. Omit
+`--preset`, `--lufs`, `--true-peak`, `--mp3-mode` and `--quality`. The compatible explicit settings
+are `--format wav`, `--bit-depth 32f` and `--loudness off`. Incompatible settings exit 4.
+
+`--out` names a new directory. In a project, the default is `renders/<song>-stems`, with the
+usual range suffix before `-stems` when a range flag is given. Outside a project, supply `--out`.
+An existing path fails with exit 1. The set contains `mix.wav`, numbered stem WAVs and
+`stems.json`, which maps filenames to group identities and records the range, sample rate and
+frame count. The manifest is written last. On a partial write, stderr names the files already
+published and stdout is empty. Choose a new directory to retry.
+
+Stem JSON includes `grouping`, `directory`, `files` (published paths including the manifest),
+`reference` (`pre-master`) and `summary`. The human summary also identifies the reference mix and
+lists the published paths.
 
 ### Export presets
 
