@@ -132,6 +132,9 @@ pub(super) mod macos {
     use objc2_foundation::{NSAppleEventDescriptor, NSAppleEventManager};
     use tauri::AppHandle;
 
+    type TerminateCallback =
+        extern "C-unwind" fn(&AnyObject, Sel, &NSApplication) -> NSApplicationTerminateReply;
+
     static APP: OnceLock<AppHandle> = OnceLock::new();
     // Apple SDK AERegistry.h: kCoreEventClass, kAEQuitApplication, and kAEQuitReason.
     const CORE_EVENT: u32 = u32::from_be_bytes(*b"aevt");
@@ -155,11 +158,11 @@ pub(super) mod macos {
         // SAFETY: AppKit expects an NSUInteger reply and passes self, the selector, and the
         // application object. Add only the missing optional delegate method to Tao's class.
         let added = unsafe {
-            let callback: extern "C-unwind" fn(_, _, _) -> _ = should_terminate;
+            let callback: TerminateCallback = should_terminate;
             ffi::class_addMethod(
                 std::ptr::from_ref(class).cast_mut(),
                 selector,
-                std::mem::transmute::<_, Imp>(callback),
+                std::mem::transmute::<TerminateCallback, Imp>(callback),
                 c"Q@:@".as_ptr(),
             )
         };
