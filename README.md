@@ -87,6 +87,21 @@ root `.gitignore`.
 Previously tracked files stay in Git until you remove them from the index. Earlier commits may
 still contain them. Review recordings and their timing sidecars before sharing a project.
 
+## Export audio
+
+Open a song and choose **File → Export Audio…** to render the current editor buffer, including
+unsaved edits. Choose WAV, MP3, Ogg Vorbis, or Opus. Check the filenames in the preview before
+exporting to the project's `renders/` folder or another folder.
+
+Standard render and one-shot can export the clip, one section, or a length in bars. One-shot
+lets the notes and effects decay. Mark a section with `loop: true` to use the loop modes.
+**Intro + loop** writes an opening and a repeat. Play the opening once, then repeat the second
+file from its start. **Tagged loop** and **folded loop** mark a repeat in a single file. Tagged
+loop includes any intro, and folded loop starts at the loop's first bar.
+
+The result shows the Godot loop offset in seconds when the file has loop points. Use WAV for
+sample-exact repeats. MP3 encoder padding can leave a gap.
+
 ## Command line
 
 The CLI controls the running app and works with song files and voice memos from a shell.

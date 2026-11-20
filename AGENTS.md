@@ -102,6 +102,11 @@ the V8 download the host brings.
   the `SongError`-returning song commands, and the `prefs_get`/`prefs_set` commands),
   `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events).
   Further crates go in `crates/` and are added to the root `Cargo.toml` workspace.
+- Desktop audio export uses the shared `strudeland-render` pipeline. The Export Audio dialog
+  captures the active editor source, previews resolved output paths, and receives progress from
+  a native background job. Only the export API calls Tauri for this feature. The desktop writer
+  requires approval for replacing previewed files and publishes new files atomically without
+  replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
   atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,

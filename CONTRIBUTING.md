@@ -74,8 +74,8 @@ Debian package. PR checks run the frontend and Rust suites. The Actions download
 SHA-256 checksum, the exact source revision, and third-party notices. The DMG uses an ad-hoc
 signature and the MSI is unsigned. The DMG and MSI include the CLI built from the same revision.
 Installer verification runs the packaged CLI's version and an offline command. The macOS
-sidecar runs V8 in interpreter mode under hardened runtime. The DMG check renders a short
-fixture using that sidecar.
+app and sidecar run V8 in interpreter mode under hardened runtime. The DMG check renders a short
+fixture using the sidecar.
 
 To build locally, run `bun install --frozen-lockfile` first. On Apple Silicon, run
 `bun run app:bundle dmg --adhoc`. On Windows x64, run `bun run app:bundle msi`. On Ubuntu,
