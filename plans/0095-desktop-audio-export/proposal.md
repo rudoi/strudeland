@@ -1,5 +1,8 @@
 # Export audio from the desktop app
 
+Implemented and approved for squash merge in PR #10. See the
+[implementation and validation record](implementation.md).
+
 ## Goal
 
 Let a musician export the active song from Strudeland's File menu. The dialog should explain what
@@ -97,7 +100,7 @@ would change the shared export contract for CLI users as well.
   Include an intro-less song to verify the two-file contract. Capture the dialog and result for
   visual inspection and record the app build used for the smoke test.
 
-## Open questions
+## Questions addressed in refinement
 
 - Confirm that the dialog follows the current shared first-pass contract where the task brief
   differs.
