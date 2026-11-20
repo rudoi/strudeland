@@ -38,9 +38,18 @@ pub(crate) fn plan(
 /// Parses every chunk's job (once; the workers render these) and refuses the render when any job
 /// has unsupported signatures. Nothing is rendered when this fails.
 pub(crate) fn check(planned: &PlannedRender) -> Result<Vec<EngineJob>, RenderError> {
-    let mut jobs = Vec::with_capacity(planned.chunks.len());
+    let repeat = planned
+        .export
+        .as_ref()
+        .and_then(|export| export.repeat.as_ref());
+    let mut jobs = Vec::with_capacity(planned.chunks.len() + repeat.map_or(0, |p| p.chunks.len()));
     let mut signatures = Vec::new();
-    for (i, chunk) in planned.chunks.iter().enumerate() {
+    for (i, chunk) in planned
+        .chunks
+        .iter()
+        .chain(repeat.into_iter().flat_map(|p| &p.chunks))
+        .enumerate()
+    {
         let job = EngineJob::from_json(&chunk.json)
             .map_err(|e| RenderError::Render(format!("chunk {i}: job: {e}")))?;
         signatures.extend(unsupported_signatures(&job));

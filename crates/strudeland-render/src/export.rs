@@ -10,7 +10,7 @@ use crate::join::window_frames;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
 use crate::{
-    ExportPreset, Format, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
+    ExportPreset, Format, LoopAudio, Loudness, OutputOptions, Progress, RenderError, RenderOptions,
     RenderOutput, RenderedAudio, Summary, finish_file, ms_since, render_audio_for,
 };
 
@@ -51,7 +51,7 @@ pub fn render_export(
     preset: ExportPreset,
     progress: &dyn Fn(Progress),
 ) -> Result<Vec<ExportFile>, RenderError> {
-    let (mut audio, loop_start_bar) = render_audio_for(code, opts, Some(preset), progress)?;
+    let (mut audio, loop_audio) = render_audio_for(code, opts, Some(preset), progress)?;
     if preset == ExportPreset::OneShot {
         trim_silent_post_roll(&mut audio)?;
         return Ok(vec![ExportFile {
@@ -62,7 +62,10 @@ pub fn render_export(
     }
 
     let window = audio.summary.window;
-    let start_bar = loop_start_bar.ok_or_else(|| render_error("the plan has no loop start"))?;
+    let LoopAudio {
+        start_bar,
+        isolated_body,
+    } = loop_audio.ok_or_else(|| render_error("the plan has no loop start"))?;
     if !(window.from_bar..window.to_bar).contains(&start_bar) {
         return Err(render_error("loop start is outside the planned window"));
     }
@@ -74,48 +77,59 @@ pub fn render_export(
         return Err(render_error("loop has no frames"));
     }
     let measure_start = Instant::now();
-    if matches!(preset, ExportPreset::IntroLoop | ExportPreset::FoldedLoop) {
-        fold_tail(&mut audio.channels, start..end)?;
-    }
-
-    check_input(&audio.channels)?;
     let sample_rate = audio.summary.sample_rate;
-    let program = measure(&audio.channels, sample_rate);
-    let wrap = wrap_peak(&audio.channels, start..end)?;
+    let body_frames = end - start;
+    let (mut opening, mut repeat) = match isolated_body {
+        Some(body) if start > 0 => (audio.channels, body),
+        None if start == 0 => {
+            let opening = audio
+                .channels
+                .iter()
+                .map(|ch| copy_opening(ch, end))
+                .collect::<Result<Vec<_>, _>>()?;
+            (opening, audio.channels)
+        }
+        _ => return Err(render_error("the plan has inconsistent loop history")),
+    };
+    fold_tail(&mut repeat, 0..body_frames)?;
+    join_opening(&mut opening, &repeat, end, sample_rate)?;
+
+    check_input(&opening)?;
+    let program = measure(&opening, sample_rate);
+    let repeat_range = end..end + body_frames;
+    let wrap = wrap_peak(&opening, repeat_range.clone())?;
     let loop_peak = program.true_peak_db.max(wrap);
     let parts = match preset {
-        ExportPreset::IntroLoop if start > 0 => {
-            let body = audio
-                .channels
-                .iter_mut()
-                .map(|ch| ch.split_off(start))
-                .collect();
+        ExportPreset::IntroLoop => {
+            for ch in &mut opening {
+                ch.truncate(end);
+            }
             vec![
                 Part {
                     role: ExportRole::Intro,
-                    channels: audio.channels,
-                    bars: window.from_bar..start_bar,
+                    channels: opening,
+                    bars: window.from_bar..window.to_bar,
                     loop_range: None,
                 },
                 Part {
                     role: ExportRole::Loop,
-                    channels: body,
+                    channels: repeat,
                     bars: start_bar..window.to_bar,
-                    loop_range: Some(0..end - start),
+                    loop_range: Some(0..body_frames),
                 },
             ]
         }
-        ExportPreset::IntroLoop | ExportPreset::FoldedLoop => vec![Part {
+        ExportPreset::FoldedLoop => vec![Part {
             role: ExportRole::Loop,
-            channels: audio.channels,
+            channels: opening,
             bars: window.from_bar..window.to_bar,
-            loop_range: Some(0..end),
+            loop_range: Some(repeat_range),
         }],
         ExportPreset::TaggedLoop => vec![Part {
             role: ExportRole::Single,
-            channels: audio.channels,
+            channels: opening,
             bars: window.from_bar..window.to_bar,
-            loop_range: Some(start..end),
+            loop_range: Some(repeat_range),
         }],
         ExportPreset::OneShot => return Err(render_error("unexpected one-shot preset")),
     };
@@ -126,6 +140,53 @@ pub fn render_export(
 
 fn render_error(message: &str) -> RenderError {
     RenderError::Render(message.into())
+}
+
+fn copy_opening(channel: &[f32], frames: usize) -> Result<Vec<f32>, RenderError> {
+    let opening = channel
+        .get(..frames)
+        .ok_or_else(|| render_error("opening extends past the rendered PCM"))?;
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(frames)
+        .map_err(|_| render_error("cannot allocate the loop opening"))?;
+    copy.extend_from_slice(opening);
+    Ok(copy)
+}
+
+/// Bring the last few milliseconds of the opening to the same phase and effect
+/// state as the repeat's end. The repeat stays independent of the opening.
+fn join_opening(
+    opening: &mut [Vec<f32>],
+    repeat: &[Vec<f32>],
+    opening_frames: usize,
+    sample_rate: u32,
+) -> Result<(), RenderError> {
+    if opening.len() != repeat.len() {
+        return Err(render_error("opening and repeat channel counts differ"));
+    }
+    for (first, periodic) in opening.iter_mut().zip(repeat) {
+        if first.len() != opening_frames || first.len() < periodic.len() {
+            return Err(render_error("invalid loop opening length"));
+        }
+        // 10 ms, limited to the latter half of even a very short loop.
+        let blend_frames = (sample_rate as usize / 100).min(periodic.len() / 2);
+        let fade = first.iter_mut().rev().zip(periodic.iter().rev());
+        for (i, (dst, &src)) in fade.take(blend_frames).enumerate() {
+            let x = 1.0 - i as f64 / blend_frames as f64;
+            let weight = x * x * (3.0 - 2.0 * x);
+            *dst = if i == 0 {
+                src
+            } else {
+                let a = f64::from(*dst);
+                (a + (f64::from(src) - a) * weight) as f32
+            };
+        }
+        first
+            .try_reserve_exact(periodic.len())
+            .map_err(|_| render_error("cannot allocate the combined loop export"))?;
+        first.extend_from_slice(periodic);
+    }
+    Ok(())
 }
 
 fn trim_silent_post_roll(audio: &mut RenderedAudio) -> Result<(), RenderError> {

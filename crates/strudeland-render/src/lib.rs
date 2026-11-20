@@ -32,7 +32,8 @@ mod summary;
 
 use std::time::Instant;
 
-use strudeland_host::{ChunkWindow, PlannedRender, SAMPLE_RATE};
+use strudeland_engine::{EngineJob, Rendered};
+use strudeland_host::{ChunkWindow, PlannedRender, PlannedWindow, SAMPLE_RATE};
 
 pub use error::{ExitClass, RenderError, Unsupported};
 pub use export::{ExportFile, ExportRole, LoopPoints, render_export};
@@ -67,19 +68,30 @@ pub fn render_audio(
     render_audio_for(code, opts, None, progress).map(|(audio, _)| audio)
 }
 
+struct LoopAudio {
+    start_bar: u32,
+    isolated_body: Option<Vec<Vec<f32>>>,
+}
+
 fn render_audio_for(
     code: &str,
     opts: &RenderOptions,
     preset: Option<ExportPreset>,
     progress: &dyn Fn(Progress),
-) -> Result<(RenderedAudio, Option<u32>), RenderError> {
+) -> Result<(RenderedAudio, Option<LoopAudio>), RenderError> {
     let started = Instant::now();
     render::validate_jobs(opts.jobs)?;
     let (planned, plan_ms) = plan::plan(code, opts, preset)?;
+    let chunk_count = planned.chunks.len()
+        + planned
+            .export
+            .as_ref()
+            .and_then(|export| export.repeat.as_ref())
+            .map_or(0, |repeat| repeat.chunks.len());
     progress(Progress::Planned {
-        chunks: planned.chunks.len(),
+        chunks: chunk_count,
     });
-    let jobs = plan::check(&planned)?;
+    let mut jobs = plan::check(&planned)?;
     let PlannedRender {
         window,
         cps,
@@ -91,23 +103,45 @@ fn render_audio_for(
         export,
     } = planned;
     let tail_frames = export.as_ref().map_or(0, |export| export.tail_frames);
-    let loop_start_bar = export.and_then(|export| export.loop_start_bar);
+    let loop_start_bar = export.as_ref().and_then(|export| export.loop_start_bar);
+    let repeat = export.and_then(|export| export.repeat);
+    let repeat_jobs = jobs.split_off(chunks.len());
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
     let workers = render::workers_for(opts.jobs, chunks.len());
 
     let render_started = Instant::now();
-    // The window is allocated before the renders and each chunk's content is copied in as it
-    // arrives, so the joined song and the chunks in flight are all that is held at once.
-    let mut joiner = join::Joiner::for_plans_with_tail(&window, cps, &chunks, 2, tail_frames)?;
-    let engine_errors = render::render_chunks(
-        jobs,
+    let Rendered {
+        channels,
+        errors: mut engine_errors,
+    } = render_window(
+        &window,
+        cps,
         &chunks,
+        tail_frames,
+        jobs,
         workers,
-        strudeland_engine::render,
-        &mut joiner,
-        progress,
+        &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
-    let channels = joiner.finish()?;
+    let (isolated_body, repeat_workers) = if let Some(repeat) = repeat {
+        let from_bar = loop_start_bar
+            .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
+        let body_window = PlannedWindow { from_bar, ..window };
+        let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
+        let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
+        let body = render_window(
+            &body_window,
+            cps,
+            &body_chunks,
+            repeat.tail_frames,
+            repeat_jobs,
+            repeat_workers,
+            &|event| report_chunk(progress, event, chunks.len(), chunk_count),
+        )?;
+        engine_errors.extend(body.errors);
+        (Some(body.channels), repeat_workers)
+    } else {
+        (None, 0)
+    };
     let render_ms = ms_since(render_started);
 
     let frames = join::window_frames(window.from_bar, window.to_bar, cps)
@@ -120,8 +154,8 @@ fn render_audio_for(
         frames,
         seconds: frames as f64 / f64::from(SAMPLE_RATE),
         sample_rate: SAMPLE_RATE,
-        chunks: chunks.len(),
-        jobs: workers,
+        chunks: chunk_count,
+        jobs: workers.max(repeat_workers),
         loudness: None,
         timings: Timings {
             plan_ms,
@@ -143,8 +177,44 @@ fn render_audio_for(
             plan_errors,
             summary,
         },
-        loop_start_bar,
+        loop_start_bar.map(|start_bar| LoopAudio {
+            start_bar,
+            isolated_body,
+        }),
     ))
+}
+
+fn report_chunk(progress: &dyn Fn(Progress), event: Progress, offset: usize, count: usize) {
+    if let Progress::ChunkRendered { index, .. } = event {
+        progress(Progress::ChunkRendered {
+            index: offset + index,
+            of: count,
+        });
+    }
+}
+
+fn render_window(
+    window: &PlannedWindow,
+    cps: f64,
+    chunks: &[ChunkWindow],
+    tail_frames: u64,
+    jobs: Vec<EngineJob>,
+    workers: usize,
+    progress: &dyn Fn(Progress),
+) -> Result<Rendered, RenderError> {
+    let mut joiner = join::Joiner::for_plans_with_tail(window, cps, chunks, 2, tail_frames)?;
+    let errors = render::render_chunks(
+        jobs,
+        chunks,
+        workers,
+        strudeland_engine::render,
+        &mut joiner,
+        progress,
+    )?;
+    Ok(Rendered {
+        channels: joiner.finish()?,
+        errors,
+    })
 }
 
 /// Steps 5 and 6: level and encode a joined buffer, verifying and correcting a lossy file's

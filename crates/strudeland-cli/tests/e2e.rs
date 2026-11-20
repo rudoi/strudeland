@@ -410,13 +410,13 @@ $: song(meta, {
     );
     let intro = wav_chunk(&intro, b"data").unwrap();
     let body = wav_chunk(&body, b"data").unwrap();
-    assert_eq!(intro.len(), 44_100 * 4);
+    assert_eq!(intro.len(), 2 * 44_100 * 4);
     assert_eq!(body.len(), 44_100 * 4);
 
-    // Play the intro once, then the body twice. Count positive zero crossings in the
-    // middle half second of each asset to check that only the body pitch repeats.
+    // The opening holds the intro and first pass. Count positive zero crossings
+    // in each bar to check that the marked asset repeats only the body pitch.
     let playback = [intro, body, body].concat();
-    for (bar, crossings) in [110, 220, 220].into_iter().enumerate() {
+    for (bar, crossings) in [110, 220, 220, 220].into_iter().enumerate() {
         let start = bar * 44_100 + 11_025;
         let samples: Vec<_> = playback[start * 4..(start + 22_050) * 4]
             .chunks_exact(4)
