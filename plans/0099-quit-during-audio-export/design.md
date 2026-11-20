@@ -1,5 +1,8 @@
 # Quit and export contract
 
+Implemented for the macOS desktop app. The [implementation log](implementation.md) records
+validation and smoke coverage. [Pull request #11](https://github.com/rudoi/strudeland/pull/11)
+
 ## Native lifecycle
 
 - Keep the existing AppKit Quit action and intercept its delegate callback. Add the missing
