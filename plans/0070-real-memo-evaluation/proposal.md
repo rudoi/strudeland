@@ -31,9 +31,15 @@ existing one-to-one onset-and-pitch scorer in
    the first group is a pickup or a full bar of silence. Score only the agreed
    portion and document what remains unannotated.
 3. Report onset-and-pitch precision, recall, and F1 at 50 ms and 100 ms.
-   Compare misses with the pitch frames, detected onsets, and snapped grid times
-   to distinguish pitch errors, false or missing attacks, and quantization errors.
-4. Propose targeted changes after the reference is available. Reuse the synthetic
+   Use the corrected grid as the musical reference. Score raw and snapped onsets
+   separately. Report a fitted alignment alongside the original alignment and
+   count any re-attacked ties as separate playback events.
+4. Investigate two failure modes exposed by the first annotation. The circular
+   phase estimator in `suggest.rs` cannot see whole-step offsets. Any automatic
+   correction needs an independent timing anchor. In `segment.rs`, trace how
+   runs with little or no voicing become notes, and check whether filtering them
+   would preserve soft attacks and genuine pickups.
+5. Reuse the synthetic
    suite and use additional annotated memos or a held-out phrase to check whether
    observed gains carry beyond the first case.
 
