@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { ProjectMenuAction } from './api';
+import type { ProjectAction } from './api';
 import type { Session } from './session';
 
 type ProjectSession = Pick<Session, 'openProject' | 'openRecent' | 'newProject'>;
@@ -39,7 +39,8 @@ export function createProjectActions(session: ProjectSession) {
 
   return {
     folder: { subscribe: folder.subscribe },
-    run: (action: ProjectMenuAction) =>
+    isBusy: () => busy,
+    run: (action: ProjectAction) =>
       runOnce(() =>
         action === 'openProject' ? session.openProject() : session.newProject(askName),
       ),

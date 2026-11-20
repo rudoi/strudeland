@@ -1,10 +1,13 @@
 <script lang="ts">
   import { createApp } from './lib/app';
   import { createProjectActions } from './lib/project/actions';
-  import { onProjectMenu, type ProjectMenuAction } from './lib/project/api';
+  import { onProjectMenu, type ProjectAction, type ProjectMenuAction } from './lib/project/api';
   import { matchShortcut, primaryModifier } from './lib/project/ui';
+  import { setExportMenuAvailable } from './lib/export/api';
+  import { captureExportSong, type ExportSong } from './lib/export/controller';
   import ConflictBar from './components/ConflictBar.svelte';
   import Editor from './components/Editor.svelte';
+  import ExportAudio from './components/ExportAudio.svelte';
   import NewProject from './components/NewProject.svelte';
   import NewSong from './components/NewSong.svelte';
   import SongList from './components/SongList.svelte';
@@ -29,10 +32,29 @@
 
   let newSongOpen = $state(false);
   let projectsReady = $state(false);
+  let exportSong = $state.raw<ExportSong | null>(null);
   const conflict = $derived($store.songs.find((s) => s.path === $store.active)?.conflict ?? null);
+  const exportAvailable = $derived(
+    projectsReady &&
+      $store.project !== null &&
+      $store.active !== null &&
+      session.activeText() !== null,
+  );
 
-  function runProjectAction(action: ProjectMenuAction) {
-    if (projectsReady) void projectActions.run(action);
+  $effect(() => {
+    if (projectsReady) void setExportMenuAvailable(exportAvailable).catch(console.error);
+  });
+
+  function runProjectAction(action: ProjectAction) {
+    if (projectsReady && !exportSong) void projectActions.run(action);
+  }
+
+  function onMenuAction(action: ProjectMenuAction) {
+    if (action !== 'exportAudio') {
+      runProjectAction(action);
+    } else if (exportAvailable && !exportSong && !projectActions.isBusy()) {
+      exportSong = captureExportSong($store, session.activeText());
+    }
   }
 
   // Reopen the last project before allowing the menu or shortcut to switch it.
@@ -43,10 +65,13 @@
       .init()
       .then(async () => {
         if (destroyed || !$store.available) return;
+        const stop = await onProjectMenu(onMenuAction);
+        if (destroyed) {
+          stop();
+          return;
+        }
+        unlisten = stop;
         projectsReady = true;
-        const stop = await onProjectMenu(runProjectAction);
-        if (destroyed) stop();
-        else unlisten = stop;
       })
       .catch(console.error);
     return () => {
@@ -74,6 +99,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
+    if (exportSong) return;
     if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }
@@ -130,6 +156,10 @@
     oncreate={projectActions.create}
     oncancel={projectActions.cancel}
   />
+{/if}
+
+{#if exportSong}
+  <ExportAudio song={exportSong} onclose={() => (exportSong = null)} />
 {/if}
 
 <style>
