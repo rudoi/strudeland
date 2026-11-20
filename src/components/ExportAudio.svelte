@@ -259,7 +259,7 @@
           </label>
         {:else if $store.result}
           <span class="complete">export complete</span>
-        {:else if quit === 'result' && !$store.failure}
+        {:else if $store.cancelled}
           <span>export cancelled</span>
         {/if}
       </div>

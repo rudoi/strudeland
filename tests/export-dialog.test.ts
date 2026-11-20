@@ -278,6 +278,21 @@ describe('export dialog', () => {
     expect(dialog.canClose()).toBe(true);
   });
 
+  test('lets the user review a result that overtakes the native Quit event', async () => {
+    const { api, dialog, state } = setup();
+    await dialog.refresh();
+    api.start.mockRejectedValueOnce({ message: 'destination full', written: [opening.path] });
+    await dialog.start();
+    const quit = dialog.requestQuit();
+    expect(state().quit).toBe('result');
+    expect(state().failure?.written).toEqual([opening.path]);
+    dialog.answerQuit('cancel');
+    expect(await quit).toBe(false);
+    dialog.finishQuit();
+    expect(await dialog.requestQuit()).toBe(true);
+    expect(state().failure?.written).toEqual([opening.path]);
+  });
+
   test('cancels Quit while waiting without interrupting replacement or export', async () => {
     const { api, dialog, state } = setup();
     await dialog.refresh();
@@ -304,9 +319,14 @@ describe('export dialog', () => {
       quit: 'result',
       failure: null,
       result: null,
+      cancelled: true,
     });
     dialog.answerQuit('continue');
     expect(await retry).toBe(true);
+    dialog.finishQuit();
+    expect(state().cancelled).toBe(true);
+    await dialog.start();
+    expect(state().cancelled).toBe(false);
   });
 
   test('an idle quit prevents a late start and a native folder picker refuses quit', async () => {

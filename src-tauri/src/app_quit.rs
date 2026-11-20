@@ -108,7 +108,11 @@ pub fn app_quit_reply(window: WebviewWindow, id: u32, approved: bool) -> Result<
 #[cfg(target_os = "macos")]
 fn request(app: &AppHandle) {
     let quit = app.state::<QuitState>();
-    if app.get_webview_window("main").is_some() {
+    if let Some(window) = app.get_webview_window("main") {
+        // A Dock Quit can arrive while the window containing the decision is minimized.
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
         quit.request(|id| app.emit_to("main", REQUEST_EVENT, id));
     } else {
         let approved = quit.lock().allow_exit(&app.state::<ExportState>()).is_ok();
@@ -125,9 +129,14 @@ pub(super) mod macos {
     use objc2::runtime::{AnyObject, Imp, Sel};
     use objc2::{MainThreadMarker, ffi, sel};
     use objc2_app_kit::{NSApplication, NSApplicationTerminateReply};
+    use objc2_foundation::{NSAppleEventDescriptor, NSAppleEventManager};
     use tauri::AppHandle;
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
+    // Apple SDK AERegistry.h: kCoreEventClass, kAEQuitApplication, and kAEQuitReason.
+    const CORE_EVENT: u32 = u32::from_be_bytes(*b"aevt");
+    const QUIT_APPLICATION: u32 = u32::from_be_bytes(*b"quit");
+    const QUIT_REASON: u32 = u32::from_be_bytes(*b"why?");
 
     pub fn install(app: &AppHandle) -> Result<(), &'static str> {
         let main = MainThreadMarker::new().ok_or("install Quit handler on the main thread")?;
@@ -165,12 +174,74 @@ pub(super) mod macos {
         _: Sel,
         _: &NSApplication,
     ) -> NSApplicationTerminateReply {
+        if NSAppleEventManager::sharedAppleEventManager()
+            .currentAppleEvent()
+            .is_some_and(|event| is_system_quit(&event))
+        {
+            // Keep AppKit's acknowledgement of logout, restart, and shutdown.
+            return NSApplicationTerminateReply::TerminateNow;
+        }
         if let Some(app) = APP.get() {
             super::request(app);
         }
         // Let the ordinary event loop deliver IPC and export progress. The approved reply
         // exits through Tauri, which runs the app's existing shutdown path.
         NSApplicationTerminateReply::TerminateCancel
+    }
+
+    fn is_system_quit(event: &NSAppleEventDescriptor) -> bool {
+        if event.eventClass() != CORE_EVENT || event.eventID() != QUIT_APPLICATION {
+            return false;
+        }
+        event
+            .attributeDescriptorForKeyword(QUIT_REASON)
+            .or_else(|| event.paramDescriptorForKeyword(QUIT_REASON))
+            .is_some_and(|reason| {
+                let code = match &reason.descriptorType().to_be_bytes() {
+                    b"enum" => reason.enumCodeValue(),
+                    b"type" => reason.typeCodeValue(),
+                    b"long" => reason.int32Value() as u32,
+                    _ => return false,
+                };
+                matches!(
+                    &code.to_be_bytes(),
+                    b"logo" | b"rlgo" | b"rest" | b"rrst" | b"shut" | b"rsdn"
+                )
+            })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn identifies_system_quit_without_classifying_an_ordinary_quit_as_system() {
+            let target = NSAppleEventDescriptor::currentProcessDescriptor();
+            let event =
+                NSAppleEventDescriptor::appleEventWithEventClass_eventID_targetDescriptor_returnID_transactionID(
+                    CORE_EVENT,
+                    QUIT_APPLICATION,
+                    Some(&target),
+                    -1,
+                    0,
+                );
+            assert!(!is_system_quit(&event));
+            event.setParamDescriptor_forKeyword(
+                &NSAppleEventDescriptor::descriptorWithTypeCode(u32::from_be_bytes(*b"rest")),
+                QUIT_REASON,
+            );
+            assert!(is_system_quit(&event));
+            event.setAttributeDescriptor_forKeyword(
+                &NSAppleEventDescriptor::descriptorWithEnumCode(u32::from_be_bytes(*b"rlgo")),
+                QUIT_REASON,
+            );
+            assert!(is_system_quit(&event));
+            event.setAttributeDescriptor_forKeyword(
+                &NSAppleEventDescriptor::descriptorWithEnumCode(u32::from_be_bytes(*b"xxxx")),
+                QUIT_REASON,
+            );
+            assert!(!is_system_quit(&event));
+        }
     }
 }
 

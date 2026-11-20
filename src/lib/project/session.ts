@@ -156,7 +156,7 @@ export interface Session {
   activeText(): string | null;
   /** True if the caller may proceed (no dirty songs, discard, or every save succeeded). */
   guardUnsaved(): Promise<boolean>;
-  /** Serializes the unsaved decision shared by window close and application Quit. */
+  /** Allows one unsaved decision at a time across window close and application Quit. */
   guardShutdown(): Promise<boolean>;
 }
 
