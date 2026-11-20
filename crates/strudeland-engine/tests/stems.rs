@@ -259,3 +259,102 @@ fn capture_refuses_an_overflowing_mix_even_when_each_orbit_is_finite() {
             .contains("non-finite stem reference mix")
     );
 }
+
+#[test]
+fn orbit_stems_keep_merger_rounding_when_two_outputs_share_one_channel() {
+    let j = job(
+        json!([
+            {"s":"one","orbit":1,"gain":0.25},
+            {"s":"one","orbit":2,"gain":1e7,"pan":0},
+            {"s":"one","orbit":2,"gain":-1e7,"pan":1}
+        ]),
+        &[(0, 0.0, 0.1), (1, 0.0, 0.1), (2, 0.0, 0.1)],
+        json!([{"orbit":1,"channels":[0,1]},{"orbit":2,"channels":[0,0]}]),
+    );
+    let layout = StemLayout::for_jobs(std::slice::from_ref(&j), StemGrouping::Orbit);
+    let result = capture(&j, &layout);
+    let quiet = pair(&result, &layout, StemId::Orbit("1".into()));
+    let folded = pair(&result, &layout, StemId::Orbit("2".into()));
+    assert!(quiet[0][500] > 0.0);
+    assert_eq!(result.channels[0][500], 0.0);
+    assert_eq!(folded[0][500], -quiet[0][500]);
+    assert_eq!(folded[1][500], 0.0);
+}
+
+#[test]
+fn orbit_stems_keep_quiet_signals_on_single_and_reinforcing_routes() {
+    let mut j = job(
+        json!([
+            {"s":"one","orbit":1,"gain":1e7},
+            {"s":"one","orbit":2,"gain":0.001}
+        ]),
+        &[(0, 0.0, 0.1), (1, 0.0, 0.1)],
+        stereo(&[1, 2]),
+    );
+    let layout = StemLayout::for_jobs(std::slice::from_ref(&j), StemGrouping::Orbit);
+    let result = capture(&j, &layout);
+    let loud = pair(&result, &layout, StemId::Orbit("1".into()));
+    let quiet = pair(&result, &layout, StemId::Orbit("2".into()));
+    assert_eq!(result.channels[0][500], loud[0][500]);
+    assert!(quiet[0][500] > 0.0);
+
+    j.orbits[1].channels = vec![0, 0];
+    let folded = capture(&j, &layout);
+    let routed = pair(&folded, &layout, StemId::Orbit("2".into()));
+    assert_eq!(folded.channels[0][500], loud[0][500]);
+    assert_eq!(routed[0][500], quiet[0][500] + quiet[1][500]);
+    assert_eq!(routed[1][500], 0.0);
+}
+
+#[test]
+fn shared_effects_retain_quiet_audio_below_a_double_precision_ulp() {
+    let j = job(
+        json!([
+            {"s":"triangle","orbit":1,"label":"quiet","gain":0.25},
+            {"s":"one","orbit":2,"label":"loud","gain":1e18},
+            {"s":"one","orbit":3,"label":"loud","gain":-1e18}
+        ]),
+        &[(0, 0.0, 0.1), (1, 0.0, 0.1), (2, 0.0, 0.1)],
+        stereo(&[1, 2, 3]),
+    );
+    for (grouping, quiet) in [
+        (StemGrouping::Voice, StemId::Voice("quiet".into())),
+        (
+            StemGrouping::Instrument,
+            StemId::Instrument("triangle".into()),
+        ),
+    ] {
+        let layout = StemLayout::for_jobs(std::slice::from_ref(&j), grouping);
+        let r = capture(&j, &layout);
+        let signal = pair(&r, &layout, quiet)[0][500];
+        assert!(signal.abs() > 0.001);
+        assert_eq!(r.channels[0][500], 0.0);
+        assert_eq!(
+            pair(&r, &layout, StemId::Effects("2".into()))[0][500],
+            -signal
+        );
+    }
+}
+
+#[test]
+fn shared_effects_preserve_a_quiet_part_through_successive_large_cancellations() {
+    let j = job(
+        json!([
+            {"s":"one","orbit":1,"label":"loud","gain":1e18},
+            {"s":"one","orbit":2,"label":"quiet","gain":0.25},
+            {"s":"one","orbit":2,"label":"loud","gain":1e36},
+            {"s":"one","orbit":3,"label":"loud","gain":-1e36}
+        ]),
+        &[(0, 0.0, 0.1), (1, 0.0, 0.1), (2, 0.0, 0.1), (3, 0.0, 0.1)],
+        stereo(&[1, 2, 3]),
+    );
+    let layout = StemLayout::for_jobs(std::slice::from_ref(&j), StemGrouping::Voice);
+    let r = capture(&j, &layout);
+    let quiet = pair(&r, &layout, StemId::Voice("quiet".into()))[0][500];
+    assert!(quiet > 0.0);
+    assert_eq!(r.channels[0][500], 0.0);
+    assert_eq!(
+        pair(&r, &layout, StemId::Effects("2".into()))[0][500],
+        -quiet
+    );
+}

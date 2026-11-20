@@ -8,7 +8,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use strudeland_engine::{StemId, wav};
 use strudeland_host::{ChunkWindow, PlannedWindow};
-use strudeland_project::{Project, render_filename};
+use strudeland_project::{Project, RenderSet, render_filename};
 
 use crate::output::{io_error, render_suffix};
 use crate::{
@@ -105,31 +105,19 @@ impl StemTarget {
         )
     }
 
-    fn reserve(&self) -> Result<(), RenderError> {
-        match &self.destination {
-            Destination::Project(project) => project
-                .create_render_set(&self.path)
-                .map_err(|e| io_error(&self.path, e)),
-            _ => {
+    fn reserve(&self) -> Result<RenderSet, RenderError> {
+        let set = match &self.destination {
+            Destination::Project(project) => project.create_render_set(&self.path),
+            Destination::Explicit | Destination::ChosenFolder => {
                 self.check_parent()?;
-                fs::create_dir(&self.path).map_err(|e| io_at(&self.path, e))
+                RenderSet::reserve(&self.path)
             }
         }
-    }
-
-    fn publish(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, RenderError> {
-        let path = self.path.join(name);
-        match &self.destination {
-            Destination::Project(project) => {
-                project.create_render_set_file(&self.path, name, bytes)
-            }
-            destination => {
-                check_directory(&self.path, matches!(destination, Destination::ChosenFolder))?;
-                strudeland_project::atomic_create_bytes(&path, bytes)
-            }
+        .map_err(|e| io_error(&self.path, e))?;
+        if matches!(self.destination, Destination::ChosenFolder) {
+            check_directory(&self.path, true)?;
         }
-        .map_err(|e| io_error(&path, e))?;
-        Ok(std::path::absolute(&path).unwrap_or(path))
+        Ok(set)
     }
 }
 
@@ -276,8 +264,9 @@ pub(crate) fn validate_budget(
         .checked_add(in_flight)
         .and_then(|f| f.checked_mul(channels as u64 * 4))
         .ok_or_else(err)?;
-    // Include the per-worker quantum scratch and the writer's interleave and header buffers.
-    let scratch = workers as u64 * channels as u64 * strudeland_engine::QUANTUM as u64 * 4;
+    // Include per-worker planar sums and the fixed stereo accumulator for shared FX.
+    let scratch =
+        workers as u64 * (channels as u64 * strudeland_engine::QUANTUM as u64 * 4 + (32 << 10));
     let extra = scratch + u64::from(wav_size) + (1 << 16);
     if pcm
         .checked_add(extra)
@@ -367,10 +356,13 @@ pub fn render_stems(
     let capacity = stereo_data_size(summary.frames)?;
     let mut bytes = Vec::with_capacity(capacity as usize + STEREO_WAV_HEADER_BYTES);
 
-    target.reserve()?;
+    let set = target.reserve()?;
     let mut files = Vec::with_capacity(manifest.stems.len() + 2);
     let mut written = |name, bytes: &[u8]| -> Result<(), RenderError> {
-        let path = target.publish(name, bytes)?;
+        let path = target.path().join(name);
+        set.create_file(name, bytes)
+            .map_err(|e| io_error(&path, e))?;
+        let path = std::path::absolute(&path).unwrap_or(path);
         progress(Progress::Written { path: path.clone() });
         files.push(path);
         Ok(())
@@ -389,6 +381,8 @@ pub fn render_stems(
     }
     progress(Progress::Encoded { pass: 1 });
     written(MANIFEST_NAME, &manifest_bytes)?;
+    set.check_current()
+        .map_err(|e| io_error(target.path(), e))?;
     summary.format = Some(Format::Wav);
     summary.bytes = Some(bytes_written);
     summary.timings.encode_ms = encode_ms;

@@ -118,6 +118,38 @@ fn a_competing_manifest_leaves_published_files_and_reports_the_conflict() {
     assert!(target.check_available().is_err());
 }
 
+#[cfg(unix)]
+#[test]
+fn replacing_the_reserved_directory_cannot_complete_an_incomplete_set() {
+    let tmp = tempfile::tempdir().unwrap();
+    let directory = tmp.path().join("stems");
+    let moved = tmp.path().join("moved");
+    let opts = options(window(0, 1, Layout::Linear));
+    let target = resolve_stem_output(Some(&directory), Path::new("song.js"), &opts.length).unwrap();
+    let recorder = Recorder::new();
+    let result = render_stems("s('sine')", &opts, StemGrouping::Orbit, &target, &|event| {
+        if let Progress::Written { path } = &event
+            && path.ends_with("mix.wav")
+        {
+            fs::rename(&directory, &moved).unwrap();
+            fs::create_dir(&directory).unwrap();
+        }
+        recorder.record(event);
+    });
+    assert!(matches!(result, Err(RenderError::Io { path, source })
+        if path == directory && source.to_string().contains("reserved render directory changed")));
+    assert!(moved.join("mix.wav").is_file());
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+    assert_eq!(
+        recorder
+            .events()
+            .iter()
+            .filter(|event| matches!(event, Progress::Written { .. }))
+            .count(),
+        1
+    );
+}
+
 #[test]
 fn project_path_is_previewable_and_silence_produces_only_a_mix() {
     let tmp = tempfile::tempdir().unwrap();

@@ -122,6 +122,54 @@ impl Default for DirectSum {
     }
 }
 
+/// An exact signed sum of finite f32 terms in units of the smallest f32 subnormal (2^-149).
+/// A term contributes at most 24 significand bits shifted left by at most 63 inside a bin.
+/// Each of the at most 2^32 scheduled value indices can contribute two routes and two terms
+/// per destination, so even all their contributions to one bin fit comfortably in an i128.
+#[derive(Clone, Copy, Default)]
+struct Residual([i128; 4]);
+
+impl Residual {
+    fn add(&mut self, sample: f32) {
+        if !sample.is_finite() {
+            // The owning mix or direct stem already records the export failure.
+            return;
+        }
+        let bits = sample.to_bits();
+        let exponent = (bits >> 23) & 0xff;
+        let fraction = bits & 0x007f_ffff;
+        let significand = i128::from(if exponent == 0 {
+            fraction
+        } else {
+            fraction | (1 << 23)
+        });
+        let shift = exponent.saturating_sub(1);
+        let magnitude = significand << (shift % 64);
+        self.0[(shift / 64) as usize] += if bits >> 31 == 0 {
+            magnitude
+        } else {
+            -magnitude
+        };
+    }
+
+    fn sample(mut self) -> f32 {
+        // Carry before rounding. Balanced digits keep each lower bin below half a unit of
+        // the next bin, so conversion cannot lose a small residual to cancellation.
+        const RADIX: i128 = 1 << 64;
+        for i in 0..self.0.len() - 1 {
+            let carry = (self.0[i] + RADIX / 2) >> 64;
+            self.0[i] -= carry << 64;
+            self.0[i + 1] += carry;
+        }
+        let units = self
+            .0
+            .iter()
+            .rev()
+            .fold(0.0, |sum, &bin| sum * RADIX as f64 + bin as f64);
+        (units * f64::from(f32::from_bits(1))) as f32
+    }
+}
+
 pub(crate) struct StemCapture {
     pub(crate) channels: Vec<Vec<f32>>,
     /// Orbit stem (orbit mode) or shared-effects stem (voice and instrument modes).
@@ -206,10 +254,10 @@ impl StemCapture {
     }
 
     pub(crate) fn begin(&mut self, slots: &[Slot]) {
+        self.previous_mix = [[0.0; QUANTUM]; 2];
         if !self.groups_direct() {
             return;
         }
-        self.previous_mix = [[0.0; QUANTUM]; 2];
         for voices in &mut self.voices {
             voices.clear();
         }
@@ -234,9 +282,8 @@ impl StemCapture {
         let Some(orbit_stem) = self.orbit_stem[k] else {
             return;
         };
-        let (finished, _) = orbit.output();
         let Some(gains) = gains else {
-            add_routed(&mut self.channels, orbit_stem, start, orbit, finished, None);
+            self.record_orbit(start, orbit_stem, orbit, mix);
             return;
         };
 
@@ -252,13 +299,13 @@ impl StemCapture {
             sum_stereo(&mut sum.samples, &mut sum.silent, input);
         }
         // Start with what this orbit actually added to the stereo mixer. Subtract what each
-        // direct group actually adds to its exported stem. Measuring both differences in f64
-        // retains mixer rounding in the effects stem, even when the same label later cancels
-        // across orbits and exposes a much quieter part.
-        let mut residual = [[0.0; QUANTUM]; 2];
+        // direct group actually adds to its exported stem. Keeping the individual terms
+        // retains mixer rounding even when much louder signals cancel across orbits.
+        let mut residual = [[Residual::default(); QUANTUM]; 2];
         for ((delta, old), new) in residual.iter_mut().zip(&mut self.previous_mix).zip(mix) {
             for ((d, a), b) in delta.iter_mut().zip(&mut *old).zip(new) {
-                *d = f64::from(*b) - f64::from(*a);
+                d.add(*b);
+                d.add(-*a);
             }
             *old = *new;
         }
@@ -271,13 +318,13 @@ impl StemCapture {
             }
             let mut post = [[0.0; QUANTUM]; 2];
             pan_to_target_value(&sum.samples, 0.0, &mut post);
-            add_routed(
+            add_direct(
                 &mut self.channels,
                 group,
                 start,
                 orbit,
                 &post,
-                Some(&mut residual),
+                &mut residual,
             );
             sum.silent = [true; 2]; // sum_stereo copies the first non-silent connection.
         }
@@ -287,38 +334,105 @@ impl StemCapture {
                 .iter_mut()
                 .zip(values)
             {
-                *d += *x as f32;
+                *d += x.sample();
+            }
+        }
+    }
+
+    fn record_orbit(&mut self, start: usize, group: usize, orbit: &Orbit, mix: &[[f32; QUANTUM]]) {
+        let (finished, _) = orbit.output();
+        for (ch, current) in mix.iter().enumerate() {
+            let previous = std::mem::replace(&mut self.previous_mix[ch], *current);
+            let mut inputs = orbit.routes().iter().filter(|&&(_, merge)| merge == ch);
+            let Some(&(split, _)) = inputs.next() else {
+                continue;
+            };
+            let routed = if let Some(&(other, _)) = inputs.next() {
+                std::array::from_fn(|i| {
+                    fold_orbit(
+                        finished[split][i],
+                        finished[other][i],
+                        previous[i],
+                        current[i],
+                    )
+                })
+            } else {
+                finished[split]
+            };
+            for (dst, x) in self.channels[2 * group + ch][start..]
+                .iter_mut()
+                .zip(routed)
+            {
+                *dst += x;
             }
         }
     }
 }
 
+/// Two splitter outputs routed to the same channel. Preserve the orbit's own signal unless
+/// cancellation between its two sides exposes rounding that the exported stems cannot explain.
+fn fold_orbit(left: f32, right: f32, before: f32, after: f32) -> f32 {
+    let folded = left + right;
+    if left.is_sign_positive() == right.is_sign_positive() {
+        return folded;
+    }
+    let previous = f64::from(before);
+    let current = f64::from(after);
+    let contribution = f64::from(folded);
+    let delta = current - previous;
+    // A float mix of the existing signal and folded stem can round at this scale. Using the
+    // separately routed sides as the scale would hide cancellation of a much quieter orbit.
+    let tolerance = f64::from(f32::EPSILON) * (previous.abs() + current.abs() + contribution.abs());
+    if (delta - contribution).abs() > tolerance {
+        delta as f32
+    } else {
+        folded
+    }
+}
+
 /// Add this quantum through the orbit's splitter/merger connections. Zipping a 128-frame
 /// source with the remaining destination also truncates the last quantum.
-fn add_routed(
+fn add_direct(
     channels: &mut [Vec<f32>],
     group: usize,
     start: usize,
     orbit: &Orbit,
     source: &Stereo,
-    mut residual: Option<&mut [[f64; QUANTUM]; 2]>,
+    residual: &mut [[Residual; QUANTUM]; 2],
 ) {
     for &(split, merge) in orbit.routes() {
         let dst = &mut channels[2 * group + merge][start..];
-        if let Some(remaining) = residual.as_deref_mut() {
-            for ((d, x), r) in dst
-                .iter_mut()
-                .zip(&source[split])
-                .zip(&mut remaining[merge])
-            {
-                let old = *d;
-                *d += x;
-                *r -= f64::from(*d) - f64::from(old);
+        for ((d, x), r) in dst.iter_mut().zip(&source[split]).zip(&mut residual[merge]) {
+            let old = *d;
+            *d += x;
+            r.add(-*d);
+            r.add(old);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Residual;
+
+    #[test]
+    fn residual_recovers_subnormals_after_cancellation_at_every_bin_boundary() {
+        let tiny = f32::from_bits(1);
+        for sign in [1.0, -1.0] {
+            let mut sum = Residual::default();
+            sum.add(sign * tiny);
+            // These normals have significand shifts 64, 128 and 192 in subnormal units.
+            // Their half values fall into the preceding bin, forcing cross-bin carries.
+            let scales = [2.0f32.powi(-62), 4.0, 2.0f32.powi(66), f32::MAX];
+            for &x in &scales {
+                sum.add(sign * x);
             }
-        } else {
-            for (d, x) in dst.iter_mut().zip(&source[split]) {
-                *d += x;
+            for &x in &scales {
+                let half = -sign * (x * 0.5);
+                sum.add(half);
+                sum.add(half);
             }
+            assert_eq!(sum.sample(), sign * tiny);
         }
     }
 }
