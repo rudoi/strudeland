@@ -2,6 +2,7 @@
 mod cli_install;
 mod commands;
 mod control;
+mod export_audio;
 mod playback;
 mod project;
 mod project_menu;
@@ -23,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(project::ProjectState::default())
+        .manage(export_audio::ExportState::default())
         .manage(playback::PlaybackState::default())
         .manage(Arc::clone(&bridge))
         // A reload or HMR of the main webview: requests answer `not ready` until it attaches again.
@@ -50,6 +52,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            project_menu::export_audio_set_available,
+            export_audio::export_audio_pick_folder,
+            export_audio::export_audio_preview,
+            export_audio::export_audio_start,
             project::project_create,
             project::project_open,
             project::project_info,

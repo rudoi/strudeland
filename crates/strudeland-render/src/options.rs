@@ -65,7 +65,7 @@ pub enum OnOff {
 }
 
 /// An output format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
     Wav,

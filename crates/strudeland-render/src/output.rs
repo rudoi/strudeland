@@ -102,18 +102,7 @@ pub fn resolve_export_output(
     preset: ExportPreset,
     role: ExportRole,
 ) -> Result<OutputTarget, RenderError> {
-    let suffix = match (preset, role) {
-        (ExportPreset::IntroLoop, ExportRole::Intro) => "intro",
-        (ExportPreset::IntroLoop, ExportRole::Loop) => "loop",
-        (ExportPreset::TaggedLoop, ExportRole::Single) => "tagged-loop",
-        (ExportPreset::FoldedLoop, ExportRole::Loop) => "folded-loop",
-        (ExportPreset::OneShot, ExportRole::Single) => "one-shot",
-        _ => {
-            return Err(RenderError::Render(
-                "invalid output role for export preset".into(),
-            ));
-        }
-    };
+    let suffix = export_suffix(length, preset, role)?;
     if let Some(path) = out {
         if preset != ExportPreset::IntroLoop {
             return Ok(OutputTarget::file(path));
@@ -128,13 +117,33 @@ pub fn resolve_export_output(
         name.push(format!("-{suffix}.{}", format.ext()));
         return Ok(OutputTarget::file(path.with_file_name(name)));
     }
-    let suffix = if preset == ExportPreset::OneShot {
+    project_output(song, Some(&suffix), format)
+}
+
+/// The suffix for a preset asset in a default filename. Both the CLI and desktop use this rule.
+pub fn export_suffix(
+    length: &LengthRequest,
+    preset: ExportPreset,
+    role: ExportRole,
+) -> Result<String, RenderError> {
+    let suffix = match (preset, role) {
+        (ExportPreset::IntroLoop, ExportRole::Intro) => "intro",
+        (ExportPreset::IntroLoop, ExportRole::Loop) => "loop",
+        (ExportPreset::TaggedLoop, ExportRole::Single) => "tagged-loop",
+        (ExportPreset::FoldedLoop, ExportRole::Loop) => "folded-loop",
+        (ExportPreset::OneShot, ExportRole::Single) => "one-shot",
+        _ => {
+            return Err(RenderError::Render(
+                "invalid output role for export preset".into(),
+            ));
+        }
+    };
+    Ok(if preset == ExportPreset::OneShot {
         render_suffix(length)
             .map_or_else(|| suffix.to_owned(), |length| format!("{length}-{suffix}"))
     } else {
         suffix.to_owned()
-    };
-    project_output(song, Some(&suffix), format)
+    })
 }
 
 fn project_output(
