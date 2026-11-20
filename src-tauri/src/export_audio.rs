@@ -29,7 +29,7 @@ pub struct ExportState {
 }
 
 impl ExportState {
-    fn reserve(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, ExportError> {
+    pub(super) fn reserve(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, ExportError> {
         Arc::clone(&self.running)
             .try_lock_owned()
             .map_err(|_| problem("an audio export is already running"))
