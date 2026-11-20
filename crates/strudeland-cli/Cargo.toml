@@ -1,6 +1,6 @@
 [package]
 name = "strudeland-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "strudeland command line: drive the running app over its control socket, and render songs to audio files"
 authors = ["Andrew Rudoi"]
 edition = "2024"
