@@ -229,4 +229,100 @@ describe('export dialog', () => {
     expect(state().result).toEqual({ ...result, warnings: ['repeat', 'other'] });
     expect(dialog.canClose()).toBe(true);
   });
+
+  test('waits for the export and requires a separate decision after the result is visible', async () => {
+    const { api, dialog, state } = setup();
+    await dialog.refresh();
+    const exportDone = Promise.withResolvers<ExportResult>();
+    api.start.mockReturnValueOnce(exportDone.promise);
+    const running = dialog.start();
+    const quit = dialog.requestQuit();
+    expect(state().quit).toBe('ask');
+    dialog.answerQuit('continue');
+    expect(state().quit).toBe('ask');
+    expect(await dialog.requestQuit()).toBe(false);
+    dialog.answerQuit('wait');
+    expect(state().quit).toBe('waiting');
+
+    exportDone.resolve(result);
+    await running;
+    expect(state().quit).toBe('result');
+    expect(state().result).toEqual(result);
+    expect(dialog.canClose()).toBe(false);
+    dialog.select({ format: 'opus' });
+    expect(state().options.format).toBe('wav');
+    dialog.answerQuit('continue');
+    expect(await quit).toBe(true);
+    expect(state().quit).toBe('settling');
+    dialog.finishQuit();
+    expect(dialog.canClose()).toBe(true);
+  });
+
+  test('reports a partial write even when the export finishes before the wait decision', async () => {
+    const { api, dialog, state } = setup();
+    await dialog.refresh();
+    const exportDone = Promise.withResolvers<ExportResult>();
+    api.start.mockReturnValueOnce(exportDone.promise);
+    const running = dialog.start();
+    const quit = dialog.requestQuit();
+    exportDone.reject({ message: 'destination full', written: [opening.path] });
+    await running;
+    expect(state().quit).toBe('result');
+    expect(state().failure).toEqual({ message: 'destination full', written: [opening.path] });
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledTimes(1);
+    dialog.answerQuit('cancel');
+    expect(await quit).toBe(false);
+    dialog.finishQuit();
+    expect(state().failure?.written).toEqual([opening.path]);
+    expect(dialog.canClose()).toBe(true);
+  });
+
+  test('cancels Quit while waiting without interrupting replacement or export', async () => {
+    const { api, dialog, state } = setup();
+    await dialog.refresh();
+    const exportDone = Promise.withResolvers<ExportResult | null>();
+    api.start.mockImplementationOnce((_request, _source, _preview, progress) => {
+      progress({ kind: 'confirming' });
+      return exportDone.promise;
+    });
+    const running = dialog.start();
+    const quit = dialog.requestQuit();
+    dialog.answerQuit('wait');
+    dialog.answerQuit('cancel');
+    expect(await quit).toBe(false);
+    dialog.finishQuit();
+    expect(state().activity.kind).toBe('confirming');
+    expect(dialog.canClose()).toBe(false);
+
+    const retry = dialog.requestQuit();
+    dialog.answerQuit('wait');
+    exportDone.resolve(null);
+    await running;
+    expect(state()).toMatchObject({
+      activity: { kind: 'idle' },
+      quit: 'result',
+      failure: null,
+      result: null,
+    });
+    dialog.answerQuit('continue');
+    expect(await retry).toBe(true);
+  });
+
+  test('an idle quit prevents a late start and a native folder picker refuses quit', async () => {
+    const { api, dialog } = setup();
+    await dialog.refresh();
+    expect(await dialog.requestQuit()).toBe(true);
+    await dialog.start();
+    expect(api.start).not.toHaveBeenCalled();
+    dialog.finishQuit();
+
+    const folder = Promise.withResolvers<string | null>();
+    api.pickFolder.mockReturnValueOnce(folder.promise);
+    const picking = dialog.pickFolder();
+    expect(await dialog.requestQuit()).toBe(false);
+    folder.resolve(null);
+    await picking;
+    expect(dialog.canClose()).toBe(true);
+  });
 });

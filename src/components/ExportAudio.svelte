@@ -26,7 +26,8 @@
   const store = untrack(() => controller.store);
   const options = $derived($store.options);
   const activity = $derived($store.activity);
-  const locked = $derived(activity.kind !== 'idle');
+  const quit = $derived($store.quit);
+  const locked = $derived(activity.kind !== 'idle' || quit !== null);
   const sections = source.structure?.sections ?? [];
   const loopIndex = source.structure?.loopIndex ?? null;
   const markedLoop = loopIndex === null ? undefined : sections[loopIndex];
@@ -58,7 +59,8 @@
   aria-labelledby="export-audio-title"
   oncancel={(event) => {
     event.preventDefault();
-    dismiss();
+    if (quit) controller.answerQuit('cancel');
+    else dismiss();
   }}
 >
   <form onsubmit={(event) => (event.preventDefault(), void controller.start())}>
@@ -257,10 +259,26 @@
           </label>
         {:else if $store.result}
           <span class="complete">export complete</span>
+        {:else if quit === 'result' && !$store.failure}
+          <span>export cancelled</span>
         {/if}
       </div>
       <div class="actions">
-        {#if $store.result}
+        {#if quit === 'ask'}
+          <Button onclick={() => controller.answerQuit('cancel')}>cancel quit</Button>
+          <Button variant="primary" onclick={() => controller.answerQuit('wait')}>
+            wait for export
+          </Button>
+        {:else if quit === 'waiting'}
+          <Button onclick={() => controller.answerQuit('cancel')}>cancel quit</Button>
+        {:else if quit === 'result'}
+          <Button onclick={() => controller.answerQuit('cancel')}>keep app open</Button>
+          <Button variant="primary" onclick={() => controller.answerQuit('continue')}>
+            continue quitting
+          </Button>
+        {:else if quit === 'settling'}
+          <Button disabled>please wait</Button>
+        {:else if $store.result}
           <Button variant="primary" onclick={dismiss}>done</Button>
         {:else}
           <Button disabled={locked} onclick={dismiss}>close</Button>

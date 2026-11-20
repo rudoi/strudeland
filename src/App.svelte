@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createApp } from './lib/app';
+  import { listenForAppQuit, replyToAppQuit } from './lib/app-quit';
   import { createProjectActions } from './lib/project/actions';
   import { onProjectMenu, type ProjectAction, type ProjectMenuAction } from './lib/project/api';
   import { matchShortcut, primaryModifier } from './lib/project/ui';
@@ -33,6 +34,7 @@
   let newSongOpen = $state(false);
   let projectsReady = $state(false);
   let nativeMenuReady = $state(false);
+  let quitting = false;
   let exportDialog = $state.raw<{
     song: ExportSong;
     controller: ReturnType<typeof createExportDialog>;
@@ -47,15 +49,37 @@
   });
 
   function runProjectAction(action: ProjectAction) {
-    if (projectsReady && !exportDialog) void projectActions.run(action);
+    if (projectsReady && !quitting && !exportDialog) void projectActions.run(action);
   }
 
   function onMenuAction(action: ProjectMenuAction) {
     if (action !== 'exportAudio') {
       runProjectAction(action);
-    } else if (exportAvailable && !exportDialog && !projectActions.isBusy()) {
+    } else if (exportAvailable && !quitting && !exportDialog && !projectActions.isBusy()) {
       const song = captureExportSong($store, session.activeText());
       if (song) exportDialog = { song, controller: createExportDialog(song, exportApi) };
+    }
+  }
+
+  async function onAppQuit(id: number) {
+    if (quitting) {
+      await replyToAppQuit(id, false);
+      return;
+    }
+    quitting = true;
+    const controller = exportDialog?.controller;
+    let approved = false;
+    try {
+      if (!controller || (await controller.requestQuit())) {
+        approved = await session.guardShutdown();
+      }
+    } finally {
+      try {
+        await replyToAppQuit(id, approved);
+      } finally {
+        controller?.finishQuit();
+        quitting = false;
+      }
     }
   }
 
@@ -63,8 +87,9 @@
   onMount(() => {
     let destroyed = false;
     let unlisten: (() => void) | undefined;
+    let unlistenQuit: (() => void) | undefined;
     void session
-      .init(() => exportDialog?.controller.canClose() ?? true)
+      .init(() => !quitting && (exportDialog?.controller.canClose() ?? true))
       .then(async () => {
         if (destroyed || !$store.available) return;
         projectsReady = true;
@@ -75,12 +100,18 @@
         }
         unlisten = stop;
         nativeMenuReady = true;
+        const stopQuit = await listenForAppQuit((id) => {
+          if (!destroyed) void onAppQuit(id).catch(console.error);
+        });
+        if (destroyed) stopQuit();
+        else unlistenQuit = stopQuit;
       })
       .catch(console.error);
     return () => {
       destroyed = true;
       projectActions.destroy();
       unlisten?.();
+      unlistenQuit?.();
     };
   });
 
@@ -102,7 +133,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (exportDialog) return;
+    if (quitting || exportDialog) return;
     if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }

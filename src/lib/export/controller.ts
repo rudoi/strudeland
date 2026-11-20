@@ -99,6 +99,7 @@ interface DialogState {
   activity: Activity;
   failure: Failure | null;
   result: ExportResult | null;
+  quit: 'ask' | 'waiting' | 'result' | 'settling' | null;
 }
 
 export const loopMode = (mode: Mode): mode is Exclude<ExportPreset, 'one-shot'> =>
@@ -155,10 +156,12 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     activity: { kind: 'idle' },
     result: null,
     failure: null,
+    quit: null,
   };
   const store = writable(state);
   let revision = 0;
   let disposed = false;
+  let resolveQuit: ((approved: boolean) => void) | undefined;
 
   function update(change: Partial<DialogState>) {
     if (disposed) return;
@@ -184,8 +187,10 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     }
   }
 
+  const canClose = () => !state.quit && state.activity.kind === 'idle';
+
   function select(options: Partial<Options>) {
-    if (disposed || state.activity.kind !== 'idle') return;
+    if (disposed || !canClose()) return;
     update({
       options: { ...state.options, ...options },
       preview: { kind: 'idle' },
@@ -196,7 +201,7 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
   }
 
   async function pickFolder() {
-    if (disposed || state.activity.kind !== 'idle') return;
+    if (disposed || !canClose()) return;
     update({ activity: { kind: 'picking' } });
     try {
       const folder = await api.pickFolder();
@@ -242,13 +247,7 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
   }
 
   async function start() {
-    if (
-      disposed ||
-      state.activity.kind !== 'idle' ||
-      state.preview.kind !== 'ready' ||
-      state.result
-    )
-      return;
+    if (disposed || !canClose() || state.preview.kind !== 'ready' || state.result) return;
     const { files, request } = state.preview;
     let receivingProgress = true;
     try {
@@ -259,17 +258,47 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
       update({
         activity: { kind: 'idle' },
         result: result && { ...result, warnings: [...new Set(result.warnings)] },
+        quit: outcomeDecision(),
       });
     } catch (error) {
       update({
         activity: { kind: 'idle' },
         preview: { kind: 'idle' },
         failure: failureFrom(error),
+        quit: outcomeDecision(),
       });
       void refresh();
     } finally {
       receivingProgress = false;
     }
+  }
+
+  function outcomeDecision(): DialogState['quit'] {
+    return state.quit === 'ask' || state.quit === 'waiting' ? 'result' : state.quit;
+  }
+
+  function requestQuit(): Promise<boolean> {
+    if (disposed || state.quit || state.activity.kind === 'picking') return Promise.resolve(false);
+    if (state.activity.kind === 'idle') {
+      update({ quit: 'settling' });
+      return Promise.resolve(true);
+    }
+    return new Promise<boolean>((resolve) => {
+      resolveQuit = resolve;
+      update({ quit: 'ask' });
+    });
+  }
+
+  function answerQuit(choice: 'wait' | 'cancel' | 'continue') {
+    if (choice === 'wait') {
+      if (state.quit === 'ask') update({ quit: 'waiting' });
+      return;
+    }
+    if (!resolveQuit || (choice === 'continue' && state.quit !== 'result')) return;
+    update({ quit: 'settling' });
+    const resolve = resolveQuit;
+    resolveQuit = undefined;
+    resolve(choice === 'continue');
   }
 
   return {
@@ -278,9 +307,14 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     select,
     pickFolder,
     start,
-    canClose: () => state.activity.kind === 'idle',
+    canClose,
+    requestQuit,
+    answerQuit,
+    finishQuit: () => update({ quit: null }),
     dispose: () => {
       disposed = true;
+      resolveQuit?.(false);
+      resolveQuit = undefined;
     },
   };
 }
