@@ -19,12 +19,14 @@ The desktop-only commands use the following interface through the export API:
 - Preview returns an ordered array of `{ role, path, exists }`. Use `single`, `intro`, or
   `loop` for the role. Show the split opening first, including for a song with no intro.
 - `export_audio_start({ request, source, preview, onProgress })` accepts that exact preview.
-  The UI asks before passing a preview that lists existing files. The native worker checks
-  the target set and collision status again before it renders. Unapproved paths are always
+  Rust checks the targets and asks in a native dialog before replacing any existing files.
+  Cancellation returns null. The worker checks the target set and collision status again
+  before rendering. Unapproved paths are always
   published with atomic no-replace. Result files carry `{ role, path, godotLoopOffset }` with
   a nullable offset in seconds. The result is `{ files, warnings }`. A failed command returns
   `{ message, written }` with any paths already published.
-- Progress payloads are `{ kind:'planned', chunks }`, `{ kind:'chunkRendered', index, of }`,
+- Progress payloads are `{ kind:'confirming' }`, `{ kind:'planning' }`,
+  `{ kind:'planned', chunks }`, `{ kind:'chunkRendered', index, of }`,
   `{ kind:'encoded', pass }`, `{ kind:'writing' }` and `{ kind:'written', path }`. The UI counts chunk messages and
   treats encoding and writing as indeterminate. It can show planning as soon as it submits.
 
