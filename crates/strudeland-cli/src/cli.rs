@@ -3,9 +3,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{ArgGroup, Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use strudeland_ctl::BarRange;
-use strudeland_render::{BitDepth, Format, MAX_TIMEOUT_SEC, Mp3Mode, timeout_from_secs};
+use strudeland_render::{
+    BitDepth, ExportPreset, Format, MAX_TIMEOUT_SEC, Mp3Mode, timeout_from_secs,
+};
 use strudeland_transcribe::GridDivision;
 
 #[derive(Parser, Debug, Clone, PartialEq)]
@@ -130,13 +132,17 @@ pub enum Command {
 pub struct RenderArgs {
     /// The song file; its contents on disk are rendered, not unsaved editor edits.
     pub song: PathBuf,
-    /// Where to write the audio (default in a project:
-    /// renders/<song>[-<section>|-len<N>|-loops<N>].<ext>).
+    /// Output path (default: the project's renders/ folder). For intro-loop, this is the
+    /// base path used to name the -intro and -loop files.
     #[arg(long, value_name = "PATH")]
     pub out: Option<PathBuf>,
     /// The format (default: from the --out extension, else wav).
     #[arg(long, value_name = "FORMAT", value_enum)]
     pub format: Option<Format>,
+    /// Export loop assets or a one-shot with decay. Loop presets require a marked loop section
+    /// and select their own bars.
+    #[arg(long, value_name = "PRESET", value_enum)]
+    pub preset: Option<Preset>,
     /// Render one section of the song, once.
     #[arg(long, value_name = "NAME", conflicts_with_all = ["length", "loops"])]
     pub section: Option<String>,
@@ -184,6 +190,29 @@ pub struct RenderArgs {
 
 /// `--loudness on|off` (shared with the `strudeland-render` harness binary).
 pub use strudeland_render::OnOff;
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Preset {
+    /// Preserve the intro and mark the loop region through the end of one file.
+    TaggedLoop,
+    /// Export a separate intro and a repeatable loop body.
+    IntroLoop,
+    /// Export the loop body with its decay folded back into the loop.
+    FoldedLoop,
+    /// Append the scheduled decay to the selected clip, section or length.
+    OneShot,
+}
+
+impl From<Preset> for ExportPreset {
+    fn from(preset: Preset) -> Self {
+        match preset {
+            Preset::TaggedLoop => Self::TaggedLoop,
+            Preset::IntroLoop => Self::IntroLoop,
+            Preset::FoldedLoop => Self::FoldedLoop,
+            Preset::OneShot => Self::OneShot,
+        }
+    }
+}
 
 fn parse_finite(s: &str, what: &str) -> Result<f64, String> {
     let v: f64 = s
@@ -465,6 +494,7 @@ mod tests {
     fn render_defaults() {
         let a = render(&[]).unwrap();
         assert_eq!(a.song, PathBuf::from("song.js"));
+        assert_eq!(a.preset, None);
         assert_eq!(
             (a.out, a.format, a.section, a.length, a.loops),
             (None, None, None, None, None)
@@ -538,6 +568,7 @@ mod tests {
     fn render_bad_values_are_usage_errors() {
         for args in [
             &["--format", "flac"][..],
+            &["--preset", "loop"],
             &["--length", "0"],
             &["--length", "100001"],
             &["--length", "x"],

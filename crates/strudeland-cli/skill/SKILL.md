@@ -69,7 +69,7 @@ the text and the editor keeps its vim mode.
 | `strudeland events [--bars N\|N-M] [--section NAME] [--all] [--limit N]` | the evaluated song's events with bar, beat, value and source position |
 | `strudeland screenshot [PATH]` | PNG of the app window; prints `wrote PATH (WxH)` |
 | `strudeland docs NAME` / `docs --search TERM` / `docs --list` | Strudel function docs (exactly one of the three) |
-| `strudeland render SONG [--out PATH] [--format F] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` | render a song file to an audio file, offline (see Rendering) |
+| `strudeland render SONG [--out PATH] [--format F] [--preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` | render a song file to audio, offline (see Rendering) |
 | `strudeland memo list [--project DIR]` / `strudeland memo show NAME [--project DIR]` | list the project's voice memos / show one memo's timing and settings, offline (see Memos) |
 | `strudeland transcribe NAME [--project DIR] [--grid G] [--bpm N] [--meter N/D] [--bar1 S] [--shift MS] [--key ROOT:SCALE] [--tuning CENTS] [--start S --end S \| --bars A-B] [--debug]` | turn a voice memo into proposed Strudel code, offline; never writes a song (see Transcribing memos) |
 | `strudeland ping` | is the app running and ready |
@@ -407,7 +407,7 @@ PATH writes a new file in the temp dir. Open the printed path with the Read tool
 
 ## Rendering
 
-`strudeland render SONG` renders a song file to an audio file (wav, mp3, ogg or opus). It works
+`strudeland render SONG` renders a song file to audio (wav, mp3, ogg or opus). It works
 offline: the app does not need to be running, and `--timeout` and `--socket` are ignored. It reads
 SONG **as it is on disk**, not the app's editor buffer: unsaved edits are not rendered, so run
 `strudeland save` first (or give the path of a file you just wrote).
@@ -432,7 +432,7 @@ SONG **as it is on disk**, not the app's editor buffer: unsaved edits are not re
 - Encoders: wav is 24-bit by default (`--bit-depth 16|24|32f`); mp3 is CBR 320 kbps (`--mp3-mode
   vbr` with `--quality 0` to `9` for V0 to V9); ogg is quality 6 (`--quality -1` to `10`); opus is
   160 kbps (`--quality` is kbps, 6 to 510). A flag that does not fit the format is exit 4.
-- The window ends with a hard cut: no reverb tail or fade, also for the last section.
+- A render without a preset cuts at the musical end of the window.
 - `--section` plays the earlier sections' sound into the start of the section; a sound the engine
   cannot play in that lookback region fails the render too.
 - Unsupported sounds fail the whole render with exit 1, nothing written, listing each as
@@ -445,6 +445,38 @@ SONG **as it is on disk**, not the app's editor buffer: unsaved edits are not re
 Progress lines go to stderr; stdout gets the summary (path, size, seconds, bars, loudness before
 and after, true peak, timings), or with `--json` one line of camelCase JSON (`path`, `format`,
 `bytes`, `window`, `frames`, `seconds`, `loudness`, `timings`, `warnings`, ...).
+
+### Export presets
+
+Use `--preset` to export loop assets or append decay to a one-shot.
+
+| Preset | Output |
+| --- | --- |
+| `tagged-loop` | One file with the intro, one loop pass, and a marker for the loop through the end of the file. |
+| `intro-loop` | Play the intro file once, then repeat the loop file from frame zero. The intro stops at the musical boundary and the loop starts with its own effects history. When the song starts at the loop, only the loop file is written. |
+| `folded-loop` | One file with the isolated loop body. Decay from the end folds back into the loop. The marker covers the whole file. |
+| `one-shot` | The requested clip, section or length followed by automatic decay. A full clip includes any composed ending. |
+
+The loop presets require one section marked `loop: true` and select their own bars before and
+through that section. A composed ending stays outside those files. Combining a loop preset with
+`--section`, `--length` or `--loops` is a usage error (exit 4). `one-shot` accepts the usual length
+flags.
+
+Project defaults add the preset to single-file names. `intro-loop` adds `-intro` and `-loop` to
+the song stem by default, or to the stem of `--out`. For example, `--out music.wav` produces
+`music-intro.wav` and `music-loop.wav`. The split pair is encoded before either file is written.
+Each file is replaced atomically. If the second write fails, stderr names the completed and failed
+paths, stdout is empty, and the command exits 1. You can retry the same command.
+
+Preset JSON wraps the output in `{preset, files}`. Each file includes its regular summary fields,
+`path`, `role` (`intro`, `loop` or `single`), and `loopPoints`. `loopPoints` is `null` for files
+without a marker. When present, it contains decoded `startFrame`, `lengthFrames`, `sampleRate`
+and `godotLoopOffset` in seconds. Human output also reports the range, rate and offset. MP3 loop
+exports warn that players may introduce a gap if they leave encoder delay or padding in place.
+
+In Godot, use **Detect from WAV** for WAV loop markers. For Ogg Vorbis and MP3, enable **Loop**
+and set **Loop Offset** to `godotLoopOffset`. Leave looping disabled for the intro file.
+[Godot audio import settings](https://docs.godotengine.org/en/4.5/tutorials/assets_pipeline/importing_audio_samples.html)
 
 ## Strudel docs
 
@@ -508,7 +540,7 @@ $: song(meta, {
 | 1 | the app returned an error, a render failed, an evaluate failed, audio is suspended, `--expect-file` did not match, `docs` found nothing, a `memo` was not found or has a bad sidecar, a `transcribe` memo not found, bad sidecar or unreadable WAV, or a refusal such as unsaved edits, an existing song name or a busy app | read the `error:`/`warning:` line and act on it; do not blindly retry |
 | 2 | the app is not running | ask the user to launch strudeland |
 | 3 | timeout, or the app is not ready | re-run with a larger `--timeout`, e.g. `--timeout 30`; the message ends `(raise it with --timeout)` |
-| 4 | usage error: bad flags, unreadable or non-UTF-8 file, no input for `code set`, a `render` length request the song cannot meet (`--length`, `--section`, `--loops`), a `memo` name that is not valid, no project found for `memo`, a `transcribe` flag the memo cannot satisfy (a bar span without a known grid, a grid that does not divide the bar, a bad key or meter, a memo over 10 minutes without a span) | fix the command line |
+| 4 | usage error: bad flags, unreadable or non-UTF-8 file, no input for `code set`, a `render` length or preset request the song cannot meet (`--length`, `--section`, `--loops`, `--preset`), a `memo` name that is not valid, no project found for `memo`, a `transcribe` flag the memo cannot satisfy (a bar span without a known grid, a grid that does not divide the bar, a bad key or meter, a memo over 10 minutes without a span) | fix the command line |
 
 ## Setup
 
