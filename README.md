@@ -8,7 +8,7 @@ patterns, arrange them into sections, and keep your songs in a regular folder.
 - Edit patterns with live note highlighting, an oscilloscope, and optional Vim keybindings.
 - Arrange songs with named sections, loops, and per-song tempo and meter.
 - Keep songs, reusable instruments, voice memos, and renders together in a project.
-- Export synth arrangements to WAV, MP3, Ogg Vorbis, or Opus.
+- Export synth arrangements to WAV, MP3, Ogg Vorbis, or Opus, or export aligned WAV stems.
 
 Get the Apple Silicon DMG or Windows x64 MSI from [GitHub Releases](https://github.com/rudoi/strudeland/releases)
 when available. Open the DMG and drag Strudeland to Applications, or run the MSI on Windows.
@@ -102,6 +102,12 @@ loop includes any intro, and folded loop starts at the loop's first bar.
 The result shows the Godot loop offset in seconds when the file has loop points. Use WAV for
 sample-exact repeats. MP3 encoder padding can leave a gap.
 
+Choose **Stems** to export by orbit, voice label (`.label('lead')`), or instrument sound.
+The files share one start frame and duration. Import the numbered stereo WAVs at the same
+position to reconstruct `mix.wav` at unity gain. `stems.json` identifies each file.
+Voice and instrument exports include separate shared effects for each orbit. All files
+are pre-master 32-bit float WAVs. Each export creates a set directory in the chosen folder.
+
 On macOS, Quit during an export offers **Wait for Export** and **Cancel Quit**. If you wait, the
 dialog shows the outcome and lists any files already written before you decide whether to
 continue quitting. Strudeland still prompts you about unsaved songs.
@@ -125,6 +131,7 @@ strudeland --version
 strudeland --help
 strudeland render songs/main.js --format wav
 strudeland render songs/main.js --preset intro-loop --out soundtrack.wav
+strudeland render songs/main.js --stems voice --out soundtrack-stems
 ```
 
 Mark the loop section with `loop: true` in the song's metadata. The split preset always writes
