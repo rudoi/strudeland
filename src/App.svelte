@@ -74,7 +74,7 @@
     e.preventDefault();
     e.stopPropagation();
     if (shortcut === 'openProject') runProjectAction(shortcut);
-    else if ($store.project) newSongOpen = true;
+    else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }
 </script>
 
