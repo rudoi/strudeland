@@ -27,3 +27,7 @@
   respective environments.
 - The final locked Rust workspace test run passed with 2,113 tests and six opt-in tests
   ignored. Workspace Clippy with warnings denied and the Rust format check passed.
+- Hosted PR checks passed on macOS, Windows and Ubuntu. The manual installer workflow
+  built and verified the Apple Silicon DMG, Windows x64 MSI, and Ubuntu amd64 DEB. The Windows
+  verifier checked the MSI PATH registration and ran the CLI from the extracted payload.
+  [Hosted installer run](https://github.com/rudoi/strudeland/actions/runs/44678740241)

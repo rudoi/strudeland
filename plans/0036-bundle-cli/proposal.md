@@ -1,5 +1,7 @@
 # Bundle the Strudeland command line tool
 
+Implemented and verified in [PR #5](https://github.com/rudoi/strudeland/pull/5).
+
 ## Goal
 
 Users who install the macOS app or Windows x64 MSI can run the version-matched `strudeland` CLI
