@@ -72,13 +72,15 @@ See the [upstream Windows issue](https://github.com/oven-sh/bun/issues/27977).
 Run **Installers** manually to build an Apple Silicon DMG, a Windows x64 MSI, and an Ubuntu amd64
 Debian package. PR checks run the frontend and Rust suites. The Actions downloads include a
 SHA-256 checksum, the exact source revision, and third-party notices. The DMG uses an ad-hoc
-signature and the MSI is unsigned.
+signature and the MSI is unsigned. The DMG and MSI include the CLI built from the same revision.
+Installer verification runs the packaged CLI's version and an offline command. The macOS
+sidecar runs V8 in interpreter mode under hardened runtime. The DMG check renders a short
+fixture using that sidecar.
 
-To build locally, run `bun install --frozen-lockfile` first. On macOS, run
-`bun run tauri build --ci --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked`.
-On Windows, run `bun run tauri build --ci --no-sign --bundles msi -- --locked`. On Ubuntu, use
-`bun run tauri build --ci --no-sign --bundles deb -- --locked`. Tauri writes installers under
-`target/release/bundle`.
+To build locally, run `bun install --frozen-lockfile` first. On Apple Silicon, run
+`bun run app:bundle dmg --adhoc`. On Windows x64, run `bun run app:bundle msi`. On Ubuntu,
+use `bun run tauri build --ci --no-sign --bundles deb -- --locked`.
+Tauri writes installers under `release/bundle` in Cargo's configured target directory.
 
 ## Releases
 
