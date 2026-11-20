@@ -52,12 +52,14 @@ drives local macOS and Windows MSI packaging. Route [the stable debug signing he
 The Windows release already reuses the manual MSI build job.
 Preserve the signing helper's open behavior and the release workflow's signing and notarization
 steps. Fail the build if Cargo or staging fails so an old staged file cannot be silently packaged.
+The macOS sidecar uses V8's interpreter mode under hardened runtime and the existing signing
+entitlements. The ordinary source build and Windows MSI keep the default V8 mode.
 
 Extend [installer verification](../../scripts/stage-installer.sh) to inspect the mounted DMG,
 check the nested executable's architecture and signature, and compare its `--version` with the
 release version. On Windows, extract the actual MSI payload and run its x64 CLI with the same
 version check. Run an offline CLI smoke command from both packages and verify the GUI and CLI
-executables are distinct.
+executables are distinct. Render a corpus fixture from the signed macOS sidecar to exercise V8.
 
 ### Installing on macOS
 
