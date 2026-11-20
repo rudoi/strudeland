@@ -178,7 +178,7 @@ pub(super) mod macos {
             .currentAppleEvent()
             .is_some_and(|event| is_system_quit(&event))
         {
-            // Keep AppKit's acknowledgement of logout, restart, and shutdown.
+            // Keep AppKit's acknowledgement of system-wide termination.
             return NSApplicationTerminateReply::TerminateNow;
         }
         if let Some(app) = APP.get() {
@@ -205,7 +205,7 @@ pub(super) mod macos {
                 };
                 matches!(
                     &code.to_be_bytes(),
-                    b"logo" | b"rlgo" | b"rest" | b"rrst" | b"shut" | b"rsdn"
+                    b"quia" | b"logo" | b"rlgo" | b"rest" | b"rrst" | b"shut" | b"rsdn"
                 )
             })
     }
@@ -241,6 +241,11 @@ pub(super) mod macos {
                 QUIT_REASON,
             );
             assert!(!is_system_quit(&event));
+            event.setAttributeDescriptor_forKeyword(
+                &NSAppleEventDescriptor::descriptorWithEnumCode(u32::from_be_bytes(*b"quia")),
+                QUIT_REASON,
+            );
+            assert!(is_system_quit(&event));
         }
     }
 }
