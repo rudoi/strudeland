@@ -804,7 +804,8 @@ note("~ ~ ~ a3").{voice}.release(0.01)"#
 #[test]
 fn a_short_hot_loop_still_respects_the_static_peak_ceiling() {
     use strudeland_render::{ExportPreset, render_export};
-    let code = r#"const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
+    // Both passes together must stay below the 400 ms loudness gating window.
+    let code = r#"const meta = { bpm: 360, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
 song(meta, { body: s('square').gain(4) })"#;
     let mut opts = options(LengthRequest::Clip { loops: None });
     opts.output.loudness = Loudness::default();

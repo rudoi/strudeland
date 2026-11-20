@@ -104,7 +104,10 @@ fn render_audio_for(
     } = planned;
     let tail_frames = export.as_ref().map_or(0, |export| export.tail_frames);
     let loop_start_bar = export.as_ref().and_then(|export| export.loop_start_bar);
-    let repeat = export.and_then(|export| export.repeat);
+    let repeat = export.and_then(|export| export.repeat).map(|repeat| {
+        let chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
+        (chunks, repeat.tail_frames)
+    });
     let repeat_jobs = jobs.split_off(chunks.len());
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
     let workers = render::workers_for(opts.jobs, chunks.len());
@@ -122,17 +125,16 @@ fn render_audio_for(
         workers,
         &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
-    let (isolated_body, repeat_workers) = if let Some(repeat) = repeat {
+    let (isolated_body, repeat_workers) = if let Some((body_chunks, body_tail_frames)) = repeat {
         let from_bar = loop_start_bar
             .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
         let body_window = PlannedWindow { from_bar, ..window };
-        let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
         let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
         let body = render_window(
             &body_window,
             cps,
             &body_chunks,
-            repeat.tail_frames,
+            body_tail_frames,
             repeat_jobs,
             repeat_workers,
             &|event| report_chunk(progress, event, chunks.len(), chunk_count),

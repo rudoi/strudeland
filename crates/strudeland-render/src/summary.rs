@@ -42,9 +42,9 @@ pub struct Summary {
     pub format: Option<Format>,
     /// The encoded size; `None` until [`finish`](crate::finish).
     pub bytes: Option<u64>,
-    /// The rendered window: `[fromBar, toBar)` 0-based layout bars and the layout.
+    /// The authored window: `[fromBar, toBar)` 0-based layout bars and the layout.
     pub window: PlannedWindow,
-    /// `window_frames(window.from_bar, window.to_bar, cps)`.
+    /// Physical frames at `sample_rate`, including any appended repeat or decay.
     pub frames: u64,
     /// `frames / sample_rate`.
     pub seconds: f64,
