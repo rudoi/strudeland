@@ -51,6 +51,7 @@
       .catch(console.error);
     return () => {
       destroyed = true;
+      projectActions.destroy();
       unlisten?.();
     };
   });
@@ -126,7 +127,7 @@
 {#if $newProjectFolder !== null}
   <NewProject
     folder={$newProjectFolder}
-    oncreate={(name) => void projectActions.create(name)}
+    oncreate={projectActions.create}
     oncancel={projectActions.cancel}
   />
 {/if}

@@ -1,18 +1,18 @@
-import { get, writable } from 'svelte/store';
+import { writable } from 'svelte/store';
 import type { ProjectMenuAction } from './api';
 import type { Session } from './session';
 
-type ProjectSession = Pick<
-  Session,
-  'openProject' | 'openRecent' | 'pickNewProjectFolder' | 'createProject'
->;
+type ProjectSession = Pick<Session, 'openProject' | 'openRecent' | 'newProject'>;
 
 /** One project picker or creation flow at a time, across the menu, shortcut, and welcome screen. */
 export function createProjectActions(session: ProjectSession) {
   const folder = writable<string | null>(null);
   let busy = false;
+  let destroyed = false;
+  let finishNaming: ((name: string | null) => void) | undefined;
 
-  async function whileBusy(action: () => Promise<void>) {
+  async function runOnce(action: () => Promise<void>) {
+    if (busy || destroyed) return;
     busy = true;
     try {
       await action();
@@ -21,30 +21,37 @@ export function createProjectActions(session: ProjectSession) {
     }
   }
 
+  async function askName(dir: string): Promise<string | null> {
+    if (destroyed) return null;
+    return new Promise((resolve) => {
+      finishNaming = resolve;
+      folder.set(dir);
+    });
+  }
+
+  function finish(name: string | null) {
+    const resolve = finishNaming;
+    if (!resolve) return;
+    finishNaming = undefined;
+    folder.set(null);
+    resolve(name);
+  }
+
   return {
     folder: { subscribe: folder.subscribe },
-    async run(action: ProjectMenuAction) {
-      if (busy || get(folder) !== null) return;
-      await whileBusy(async () => {
-        if (action === 'openProject') await session.openProject();
-        else folder.set(await session.pickNewProjectFolder());
-      });
-    },
-    async openRecent(path: string) {
-      if (busy || get(folder) !== null) return;
-      await whileBusy(() => session.openRecent(path));
-    },
-    async create(name: string) {
-      const dir = get(folder);
+    run: (action: ProjectMenuAction) =>
+      runOnce(() =>
+        action === 'openProject' ? session.openProject() : session.newProject(askName),
+      ),
+    openRecent: (path: string) => runOnce(() => session.openRecent(path)),
+    create(name: string) {
       const trimmed = name.trim();
-      if (busy || dir === null || !trimmed) return;
-      await whileBusy(async () => {
-        folder.set(null);
-        await session.createProject(dir, trimmed);
-      });
+      if (trimmed) finish(trimmed);
     },
-    cancel() {
-      if (!busy) folder.set(null);
+    cancel: () => finish(null),
+    destroy() {
+      destroyed = true;
+      finish(null);
     },
   };
 }
