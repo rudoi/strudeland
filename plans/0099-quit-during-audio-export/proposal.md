@@ -50,8 +50,8 @@ the existing Save, Discard, and Cancel prompt before the app exits.
    [`ExportError.written`](../../src-tauri/src/export_audio.rs). Keep the outcome stable while
    this decision is pending.
 3. Before exiting, run the existing unsaved guard. Cancelling the prompt or failing to save
-   keeps the app open and leaves the export outcome available. When there is no active export,
-   go directly to the unsaved guard.
+   keeps the app open and leaves the export outcome available. When there is no active export
+   or unacknowledged outcome in the open dialog, go directly to the unsaved guard.
 4. Track the pending request on the native side and accept completion only from the main
    webview for that request. Account for an export submitted just before Quit and the gap
    between the native worker releasing its permit and the frontend receiving its result.
@@ -91,6 +91,8 @@ Tao version in an early macOS smoke test.
 - Use the main webview's listener registration and page-load reset to scope request IDs to the
   live handler. The final exit takes the same native permit as export start and holds it
   until process shutdown.
+- If a result reaches the open dialog before Quit, ask the user to acknowledge it before
+  closing. Tauri can deliver the two messages in either order.
 
 Recommended complexity is **medium**. Keep singletonization and a light loss check. The proposal
 fits in one document, so skip fracture.

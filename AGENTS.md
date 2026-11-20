@@ -107,6 +107,10 @@ the V8 download the host brings.
   output paths, and receives progress over a channel. Only the export API calls Tauri for this
   feature. The native command confirms replacements and atomically publishes new files without
   replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
+- Application Quit on macOS starts in `src-tauri/src/app_quit.rs`. The AppKit callback defers to
+  the webview through `src/lib/app-quit.ts`. The export dialog shows the wait decision and final
+  outcome. The project session's `guardShutdown` shares the unsaved prompt with window close.
+  An approved native exit holds the export permit through Tauri shutdown.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
   atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,
