@@ -1456,10 +1456,7 @@ impl Voice {
         orbit: &mut Orbit,
         buses: &BusBank,
     ) -> Result<(Voice, Option<VoiceError>), VoiceError> {
-        let s = params
-            .s
-            .as_ref()
-            .map_or_else(|| "triangle".to_string(), js_to_string);
+        let s = sound_name(params.s.as_ref());
         let bus_index = |key: &str| {
             buses
                 .index_of(key)
@@ -2268,7 +2265,7 @@ pub fn apply_gain(gain: &mut Param, quantum_start: u64, buf: &mut [f32; QUANTUM]
     }
 }
 
-/// A value as an `s` string, for messages.
+/// The engine's `s` string, including the default for an absent value.
 pub fn sound_name(s: Option<&Value>) -> String {
     s.map_or_else(|| "triangle".to_string(), js_to_string)
 }

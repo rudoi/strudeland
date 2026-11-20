@@ -130,16 +130,6 @@ pub struct ExportPlan {
 /// Resolves the flags before any work, so a bad flag or a missing `--out` fails fast. Creates
 /// nothing: a project's `renders/` is created only when the file is written.
 pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
-    let preset = args.preset.map(ExportPreset::from);
-    if args.stems.is_none()
-        && matches!(preset, Some(p) if p != ExportPreset::OneShot)
-        && (args.section.is_some() || args.length.is_some() || args.loops.is_some())
-    {
-        return Err(usage(
-            "--preset",
-            "loop presets select their own bars; omit --section, --length and --loops",
-        ));
-    }
     let length = if let Some(name) = &args.section {
         LengthRequest::Section { name: name.clone() }
     } else if let Some(bars) = args.length {
@@ -147,20 +137,24 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
     } else {
         LengthRequest::Clip { loops: args.loops }
     };
-    let output = if args.stems.is_some() {
-        stem_options(args)?
+    let (output, destination) = if let Some(grouping) = args.stems {
+        let output = stem_options(args)?;
+        let target = resolve_stem_output(args.out.as_deref(), &args.song, &length)?;
+        (output, Destination::Stems { grouping, target })
     } else {
-        mix_options(args)?
-    };
-    let format = output.encoder.format();
-    let out = args.out.as_deref();
-    let destination = match (args.stems, preset) {
-        (Some(grouping), _) => Destination::Stems {
-            grouping,
-            target: resolve_stem_output(out, &args.song, &length)?,
-        },
-        (None, None) => Destination::Standard(resolve_output(out, &args.song, &length, format)?),
-        (None, Some(preset)) => {
+        let preset = args.preset.map(ExportPreset::from);
+        if matches!(preset, Some(p) if p != ExportPreset::OneShot)
+            && (args.section.is_some() || args.length.is_some() || args.loops.is_some())
+        {
+            return Err(usage(
+                "--preset",
+                "loop presets select their own bars; omit --section, --length and --loops",
+            ));
+        }
+        let output = mix_options(args)?;
+        let format = output.encoder.format();
+        let out = args.out.as_deref();
+        let destination = if let Some(preset) = preset {
             let resolve =
                 |role| resolve_export_output(out, &args.song, &length, format, preset, role);
             let primary_role = match preset {
@@ -174,7 +168,10 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
                     .then(|| resolve(ExportRole::Intro))
                     .transpose()?,
             })
-        }
+        } else {
+            Destination::Standard(resolve_output(out, &args.song, &length, format)?)
+        };
+        (output, destination)
     };
     Ok(Plan {
         opts: RenderOptions {

@@ -56,6 +56,14 @@
   }
 </script>
 
+{#snippet pathList(paths: string[])}
+  <ul class="file-list">
+    {#each paths as path (path)}
+      <li class="path mono">{path}</li>
+    {/each}
+  </ul>
+{/snippet}
+
 <dialog
   bind:this={dialog}
   aria-labelledby="export-audio-title"
@@ -238,11 +246,7 @@
                 : 'output files'}
           </h3>
           {#if result && 'paths' in result}
-            <ul class="file-list">
-              {#each result.paths as path (path)}
-                <li class="path mono">{path}</li>
-              {/each}
-            </ul>
+            {@render pathList(result.paths)}
           {:else if target && 'directory' in target}
             <span class="path mono">{target.directory}</span>
           {:else if files}
@@ -277,11 +281,7 @@
           {#if $store.failure.written.length}
             <div>
               <p class="label">files already written</p>
-              <ul class="file-list">
-                {#each $store.failure.written as path (path)}
-                  <li class="path mono">{path}</li>
-                {/each}
-              </ul>
+              {@render pathList($store.failure.written)}
             </div>
           {/if}
         {/if}

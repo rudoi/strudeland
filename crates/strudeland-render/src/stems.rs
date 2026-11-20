@@ -242,6 +242,13 @@ fn check_directory(path: &Path, canonical: bool) -> Result<(), RenderError> {
     Ok(())
 }
 
+fn stereo_data_size(frames: u64) -> Result<u32, RenderError> {
+    usize::try_from(frames)
+        .ok()
+        .and_then(|frames| wav::data_size(2, frames))
+        .ok_or_else(|| RenderError::Encode("a stem WAV would exceed the RIFF size limit".into()))
+}
+
 /// Conservative peak for joined PCM, channel buffers in flight and the single WAV being encoded.
 pub(crate) fn validate_budget(
     stem_count: usize,
@@ -260,10 +267,7 @@ pub(crate) fn validate_budget(
         "stem audio exceeds the 512 MiB buffer limit; select a shorter range or use fewer workers".into(),
     )
     };
-    let wav_size = usize::try_from(frames)
-        .ok()
-        .and_then(|frames| wav::data_size(2, frames))
-        .ok_or_else(|| RenderError::Encode("a stem WAV would exceed the RIFF size limit".into()))?;
+    let wav_size = stereo_data_size(frames)?;
     let chunk_frames = chunks.iter().map(|chunk| chunk.frames).max().unwrap_or(0);
     let in_flight = chunk_frames
         .checked_mul(workers as u64 + 1)
@@ -360,6 +364,8 @@ pub fn render_stems(
     let mut manifest_bytes = serde_json::to_vec_pretty(&manifest)
         .map_err(|e| RenderError::Encode(format!("stem manifest: {e}")))?;
     manifest_bytes.push(b'\n');
+    let capacity = stereo_data_size(summary.frames)?;
+    let mut bytes = Vec::with_capacity(capacity as usize + STEREO_WAV_HEADER_BYTES);
 
     target.reserve()?;
     let mut files = Vec::with_capacity(manifest.stems.len() + 2);
@@ -374,11 +380,7 @@ pub fn render_stems(
     let names = std::iter::once(MIX_NAME).chain(manifest.stems.iter().map(|s| s.file.as_str()));
     for (name, channels) in names.zip(audio.channels.chunks_exact(2)) {
         let encoding = Instant::now();
-        let frames = channels.first().map_or(0, Vec::len);
-        let capacity = wav::data_size(2, frames).ok_or_else(|| {
-            RenderError::Encode("a stem WAV would exceed the RIFF size limit".into())
-        })?;
-        let mut bytes = Vec::with_capacity(capacity as usize + STEREO_WAV_HEADER_BYTES);
+        bytes.clear();
         wav::write_f32(&mut bytes, channels, summary.sample_rate)
             .map_err(|e| RenderError::Encode(format!("{name}: {e}")))?;
         encode_ms += ms_since(encoding);

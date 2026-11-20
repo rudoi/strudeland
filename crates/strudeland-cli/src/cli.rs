@@ -136,7 +136,7 @@ pub struct RenderArgs {
     /// For intro-loop, this is the base path used to name the -intro and -loop files.
     #[arg(long, value_name = "PATH")]
     pub out: Option<PathBuf>,
-    /// The format (default: from the --out extension, else wav).
+    /// The mix format (default: from the --out extension, else wav).
     #[arg(long, value_name = "FORMAT", value_enum)]
     pub format: Option<Format>,
     /// Export loop assets or a one-shot with decay. Loop presets require a marked loop section

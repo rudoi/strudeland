@@ -139,7 +139,11 @@ pub(crate) struct StemCapture {
 impl StemCapture {
     pub(crate) fn new(job: &EngineJob, layout: &StemLayout) -> Result<Self, JobError> {
         let groups_direct = layout.grouping != StemGrouping::Orbit;
-        let mut value_stem = vec![None; job.values.len()];
+        let mut value_stem = if groups_direct {
+            vec![None; job.values.len()]
+        } else {
+            Vec::new()
+        };
         for (index, id, orbit) in scheduled_groups(job, layout.grouping) {
             let required = |id: &StemId| {
                 layout
@@ -147,8 +151,9 @@ impl StemCapture {
                     .binary_search(id)
                     .map_err(|_| JobError::new(format!("missing stem in render layout: {id:?}")))
             };
-            value_stem[index] = Some(required(&id)?);
+            let group = required(&id)?;
             if groups_direct {
+                value_stem[index] = Some(group);
                 required(&StemId::Effects(orbit))?;
             }
         }
@@ -186,7 +191,11 @@ impl StemCapture {
             orbit_stem,
             value_stem,
             direct,
-            voices: vec![Vec::new(); job.orbits.len()],
+            voices: if groups_direct {
+                vec![Vec::new(); job.orbits.len()]
+            } else {
+                Vec::new()
+            },
             active: Vec::new(),
             previous_mix: [[0.0; QUANTUM]; 2],
         })
