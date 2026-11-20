@@ -88,13 +88,15 @@ the V8 download the host brings.
 - `src/lib/project/` projects: `meta.ts` (static `meta` header parse), `api.ts` (the only module
   that calls Tauri for projects: commands, events, dialogs, window), `session.ts` (open project,
   songs, dirty state, hot-reload and conflict rules; tested with the fake in
-  `tests/helpers/fake-project-api.ts`), `meta-write.ts` (minimal-diff edits of header values),
+  `tests/helpers/fake-project-api.ts`), `actions.ts` (shared open and create actions for the File
+  menu, keyboard shortcut, and welcome screen), `meta-write.ts` (minimal-diff edits of header values),
   `timeline.ts` (pure helpers for `Timeline.svelte`).
 - `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs) and
   `store.ts` (the prefs store, the one frontend copy of a pref).
 - `src-tauri/` the Rust app crate (`strudeland-app`): `project.rs` (commands, open-project state, and
-  the `SongError`-returning song commands, and the `prefs_get`/`prefs_set` commands), `watcher.rs` (`project://changed` events). Further crates go in `crates/` and are added to the
-  root `Cargo.toml` workspace.
+  the `SongError`-returning song commands, and the `prefs_get`/`prefs_set` commands),
+  `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events).
+  Further crates go in `crates/` and are added to the root `Cargo.toml` workspace.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
   atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,

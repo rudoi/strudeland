@@ -64,6 +64,11 @@ If capture timing is unavailable, the recorder can keep the audio as a gridless 
 
 ## Projects
 
+Use **File → New Project…** to choose a folder and name a new project. Use **File → Open Project…**
+or Command+O on macOS (Ctrl+O on Windows and Ubuntu) to open an existing project folder.
+Both commands work while a project is already open. Strudeland prompts you about unsaved edits
+before switching.
+
 Songs are plain Strudel scripts in `songs/*.js`. A song’s `meta` header sets its tempo, meter, and
 sections. The editor watches the project for changes on disk.
 
