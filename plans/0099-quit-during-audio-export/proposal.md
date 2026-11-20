@@ -29,6 +29,8 @@ the existing Save, Discard, and Cancel prompt before the app exits.
   progress and IPC. After approval, enter Tauri's normal exit path so
   [`RunEvent::Exit`](../../src-tauri/src/lib.rs) still cleans up playback, recording, and the
   control socket. [Apple's description of the run loop during termination](https://developer.apple.com/documentation/appkit/nsapplication/terminate%28_%3A%29)
+- Use the export dialog footer for the two decisions so the current result stays visible.
+  This also avoids adding a second native sheet alongside an open replacement prompt.
 - Own the user decision at [the application shell](../../src/App.svelte). Reuse
   [`session.guardUnsaved()`](../../src/lib/project/session.ts) and the result already presented by
   [`ExportAudio.svelte`](../../src/components/ExportAudio.svelte). Keep Tauri IPC at the API
@@ -79,12 +81,16 @@ Tao version in an early macOS smoke test.
   main-window close and export tests. Extend the existing frontend fake API tests and Rust
   export tests for new logic. Run the repository's Rust and frontend checks.
 
-## Open questions
+## Refinement decisions
 
-- The proposal interprets “cancel” as cancelling Quit. Cancelling the export itself would add
-  a separate feature with cooperative cancellation across planning, rendering, and publication.
-- The proposal asks for an explicit click after the export finishes even when it succeeds, so
+- Cancel Quit keeps the export running. Keep that action available while waiting.
+- Require an explicit click after the export finishes even when it succeeds, so
   the user has time to read the result before the app exits.
+- A native destination picker can finish or be dismissed before a new Quit attempt. It does
+  not start an export, so it needs no wait decision or result acknowledgement.
+- Use the main webview's listener registration and page-load reset to scope request IDs to the
+  live handler. The final exit takes the same native permit as export start and holds it
+  until process shutdown.
 
 Recommended complexity is **medium**. Keep singletonization and a light loss check. The proposal
 fits in one document, so skip fracture.
