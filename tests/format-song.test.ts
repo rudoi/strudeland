@@ -15,8 +15,8 @@ function formatted(source: string): string {
     expect(edit.from).toBeGreaterThanOrEqual(end);
     expect(edit.to).toBeGreaterThanOrEqual(edit.from);
     // Atomic changes leave every note and musical delimiter in its own mapped editor range.
-    expect(source.slice(edit.from, edit.to)).toMatch(/^(?:\s*|["`])$/);
-    expect(edit.insert).toMatch(/^(?:\s*|["`])$/);
+    expect(source.slice(edit.from, edit.to)).toMatch(/^\s*["`]?\s*$/);
+    expect(edit.insert).toMatch(/^\s*["`]?\s*$/);
     end = edit.to;
   }
   const next = edits.reduceRight(
@@ -49,7 +49,7 @@ describe('4/4 pattern layout', () => {
     const prefix = '/* 🎵 */\n\t$: note(';
     const suffix = ").s('piano') // original comment";
     const source = prefix + '"' + THIRTY_TWO + '"' + suffix;
-    const expected = prefix + '`\n\t  ' + ROW + '\n\t  ' + ROW + '\n\t`' + suffix;
+    const expected = prefix + '`\n\t  ' + ROW + '\n\t  ' + ROW + '\n\t`)\n\t  ' + suffix.slice(1);
     expect(formatted(source)).toBe(expected);
     for (const quote of ['"', '`']) {
       const script = '(' + quote + THIRTY_TWO + quote + ')';
@@ -132,8 +132,6 @@ describe('4/4 pattern layout', () => {
     const scripts = [
       q + '; n(1)',
       'function f(){' + q + ';return 1}',
-      'const meta = {title: ' + q + '}; n(1)',
-      'const meta = {custom: {nested: [' + q + ']}}; n(1)',
       "s('" + THIRTY_TWO + "')",
       'const obj = {' + q + ': 1, [' + t + ']: 2}; obj[' + q + ']',
       'class C { ' + q + ' = 1; [' + t + '](){} }',
@@ -144,6 +142,10 @@ describe('4/4 pattern layout', () => {
       'const regex = /' + THIRTY_TWO + '/;',
     ];
     for (const input of scripts) expect(formatSong(input)).toEqual([]);
+    expect(formatted('const meta = {title: ' + q + '}; n(1)')).toContain('title: ' + q);
+    expect(formatted('const meta = {custom: {nested: [' + q + ']}}; n(1)')).toContain(
+      'custom: {nested: [' + q + ']}',
+    );
   });
 
   test('reports unsupported syntax individually, and never changes the mini language', () => {
@@ -201,7 +203,7 @@ describe('4/4 pattern layout', () => {
       'const meta = { bpm: -1 }; ',
       'const meta = {title: 10}; ',
     ]) {
-      expect(formatSong(prefix + song)).toEqual([]);
+      expect(formatted(prefix + song)).toEndWith(song);
     }
     expect(formatSong(song + '; f(')).toEqual([]);
     const languages = getLanguages();

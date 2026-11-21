@@ -1,20 +1,16 @@
 import { parse, type AnyNode, type Comment } from 'acorn';
+import { ChangeSet } from '@codemirror/state';
 import { mini2ast } from '@strudel/mini';
 import { getLanguages } from '@strudel/transpiler';
 import { staticStructure } from '../project/evaluate-options';
 import { parseMeta } from '../project/meta';
+import { formatScript, scriptOptions } from './format-script';
 
 export interface FormatEdit {
   from: number;
   to: number;
   insert: string;
 }
-
-const scriptOptions = {
-  ecmaVersion: 2022,
-  sourceType: 'script',
-  allowAwaitOutsideFunction: true,
-} as const;
 
 // The mini parser accepts a quoted body. Its offsets therefore include the opening quote,
 // just like offsets in the source literal (whether delimited by double quotes or backticks).
@@ -317,8 +313,7 @@ function verified(source: string, script: AnyNode, choices: Candidate[]): Format
   }
 }
 
-/** Localized, ordered CodeMirror changes. Never evaluates the song or starts audio. */
-export function formatSong(source: string): readonly FormatEdit[] {
+function formatMini(source: string): FormatEdit[] {
   try {
     if (getLanguages().has('minilang')) return [];
     const comments: Comment[] = [];
@@ -375,4 +370,37 @@ export function formatSong(source: string): readonly FormatEdit[] {
   } catch {
     return [];
   }
+}
+
+/** Localized, ordered CodeMirror changes. Never evaluates the song or starts audio. */
+export function formatSong(source: string): readonly FormatEdit[] {
+  const mini = formatMini(source);
+  // A mini edit can remove a line before a later receiver. Establish line breaks first,
+  // then let JavaScript and mini indentation settle against the same layout.
+  let text = apply(source, mini);
+  let changes = ChangeSet.of(mini, source.length, '\n');
+  function add(edits: FormatEdit[]) {
+    changes = changes.compose(ChangeSet.of(edits, text.length, '\n'));
+    text = apply(text, edits);
+  }
+
+  for (let pass = 0; pass < 3; pass++) {
+    const script = formatScript(text);
+    if (!script.length) {
+      if (pass === 0) return mini;
+      break;
+    }
+    add(script);
+    const aligned = formatMini(text);
+    if (!aligned.length) break;
+    if (pass === 2) return mini;
+    add(aligned);
+  }
+
+  const edits: FormatEdit[] = [];
+  changes.iterChanges((from, to, _fromB, _toB, inserted) => {
+    const insert = inserted.toString();
+    if (source.slice(from, to) !== insert) edits.push({ from, to, insert });
+  });
+  return edits;
 }

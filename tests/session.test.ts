@@ -1034,6 +1034,7 @@ describe('format on save', () => {
     expect(await h.session.save()).toBe(true);
     const formatted = h.doc();
     expect(formatted).toContain('note(`\n');
+    expect(formatted).toEndWith("\n`)\n  .s('sine')\n");
     expect(h.fake.files().get(PA)).toBe(formatted);
     const newNote = formatted.indexOf('d4');
     expect(view.state.selection.main.from).toBe(newNote);
@@ -1057,6 +1058,7 @@ describe('format on save', () => {
     const saving = h.session.saveAndEvaluate();
     const formatted = h.doc();
     expect(formatted).toContain('note(`\n');
+    expect(formatted).toEndWith("\n`)\n  .s('sine')\n");
     h.type('// typed later');
     h.fake.emit({ changed: [PA] });
     await flush();
@@ -1078,6 +1080,7 @@ describe('format on save', () => {
     expect(h.doc()).toBe(A);
     await h.session.switchSong(PB);
     expect(h.doc()).toContain('note(`\n');
+    expect(h.doc()).toEndWith("\n`)\n  .s('sine')\n");
     expect(h.doc()).toBe(h.fake.files().get(PB)!);
     expect(h.undoView()).toBe(true);
     expect(h.doc()).toBe(source);
