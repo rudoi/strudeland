@@ -4,8 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Prefs {
   vim: boolean;
   auditionNotes: boolean;
+  formatOnSave: boolean;
 }
-export const DEFAULT_PREFS: Prefs = { vim: false, auditionNotes: false };
+export const DEFAULT_PREFS: Prefs = { vim: false, auditionNotes: false, formatOnSave: false };
 
 export interface PrefsApi {
   /** Best effort on the Rust side: a missing or corrupt file gives the defaults. */
