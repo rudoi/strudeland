@@ -136,3 +136,12 @@ templates. Use a targeted formatter for this scope. See
 Recommended workflow complexity is **medium**. The formatter, save transaction and preferences
 span multiple parts of the app. Keep singletonization and a light loss check. The proposal fits
 in one document, so skip fracture after refinement.
+
+## Automated refinement
+
+The user authorized one automated refinement pass and advancement through PR creation to
+the review gate. Keep the proposed layout and opt-in scope. Use one change per separator
+or delimiter so CodeMirror can map individual tokens. Do not buffer formatting behind an
+asynchronous parser. Isolate the session save behavior from any higher-level action that
+might evaluate or display a document. The [implementation contract](design.md) specifies
+the save snapshot and preference hydration rules.
