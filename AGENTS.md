@@ -86,7 +86,8 @@ the V8 download the host brings.
   and fixed synths from the local syntax. `note-audition-queue.ts` settles the edit before
   `src/lib/audio/note-audition.ts` plays a bounded preview on the Web Audio graph.
   `visuals.ts` outlines the sounding audition token independently of evaluated highlights.
-  `format-song.ts` computes localized mini-notation edits, applied by the project session on save.
+  `format-script.ts` computes token-gap edits for chains and song structures, and `format-song.ts`
+  combines them with localized mini-notation edits. The project session applies both on save.
   `src/components/`
   Svelte UI, built from the primitives in `src/components/ui/` (`Button`, `Chip`, `Dot`, `Notice`,
   `Field`, `ListRow`, `Link`, `Menu`, `MenuItem`, `MasterMeter`, `Scope`). `src/styles/` the global CSS:

@@ -10,17 +10,19 @@ edge keeps that spine as written. Independently nested arguments may still quali
 
 Format fields of the supported leading metadata header, entries in its sections array, and fields
 of a literal parts object passed to `song(meta, …)`. Use one entry per line and compact simple
-section objects. Expand direct calls to `stack`, `seq`, and `cat` when an argument contains a
-qualifying chain. Align items one level beyond the opener's line and the closing delimiter with
-the opener. This decision depends on the syntax and still holds after a chain is already split.
+section objects, retaining rows in multiline entries with comments. Preserve grouping parentheses
+around these containers. Expand direct calls to `stack`, `seq`, and `cat` when an argument
+contains a qualifying chain that can expand or already spans multiple lines. Align items one level
+beyond the opener's line and the closing delimiter with the opener. This decision depends on the
+syntax and still holds after a chain is already split.
 Leave ordinary helper calls compact around their arguments unless another rule applies inside them.
 
 Apply group and chain edits only at whitespace gaps between known tokens. Preserve blank lines
 when reindenting existing line breaks. Leave comment-crossing gaps in place and preserve comments
 and raw literals byte for byte. Treat tagged and interpolated templates as opaque. Match the
 supported leading header using the existing metadata range reader, and leave an invalid header
-alone while visiting other statements. Preserve the first document line-ending style for inserted
-JavaScript line breaks, with LF as the fallback.
+alone while visiting other statements. Use the first line ending outside literal tokens for
+inserted JavaScript line breaks, with LF as the fallback.
 
 ## Integration
 
