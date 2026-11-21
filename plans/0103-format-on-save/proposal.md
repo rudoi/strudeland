@@ -23,7 +23,8 @@ on one row with four groups of four, each group occupying one beat.
 - Add an app-wide **Format on Save** preference, off by default. Start with ordinary 4/4
   patterns written as 16 or 32 equal, explicit steps in a flat sequence. Include equivalent
   flat sequences inside the already-present bracketed bars of a bare slow sequence such as
-  `<[bar one] [bar two]>`. Keep those brackets and the existing bar order.
+  `<[bar one] [bar two]>`. Keep those brackets and the existing bar order. Apply this
+  layout when all its bars are eligible, leaving mixed or complex sequences intact.
 - A step is a bare mini atom or rest. Leave weighted steps, repeats, speed modifiers, ties,
   tuplets expressed through nesting, stacked or random alternatives, and compound or odd
   meters to a later design. Existing tokens, delimiters inside mini, and note lengths are
