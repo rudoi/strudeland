@@ -53,3 +53,8 @@ The user confirmed two-space chain indentation and authorized automatic refineme
 layout, opt-in control, and single-effect behavior follow the proposal. Independent review identified
 the output-indent and cross-pass stability cases above. No native or transport behavior needs a new
 interface.
+
+## Delivery status
+
+Implemented and validated in [PR #17](https://github.com/rudoi/strudeland/pull/17).
+The [delivery record](000-prompt.md) lists the checks and desktop smoke evidence.
