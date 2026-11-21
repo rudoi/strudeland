@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { EditorView } from '@codemirror/view';
-import { get, writable, type Readable, type Writable } from 'svelte/store';
+import { writable, type Readable, type Writable } from 'svelte/store';
 import type { AudioGraph } from './audio/backend';
 import { createMemoPlayer } from './audio/memo-player';
 import { createMetronome } from './audio/metronome';
@@ -88,7 +88,6 @@ export function createApp(
   const vimMode = createVimMode();
   let view: EditorView | undefined;
   let runtime!: Runtime;
-  let audition: ReturnType<typeof createAuditionQueue> | undefined;
   const visuals = createVisuals({ getView: () => view, getScheduler: () => runtime.scheduler });
   const superdough = createSuperdoughBackend();
   // The Rust engine plays through the app; in a plain browser every song plays on superdough.
@@ -99,7 +98,7 @@ export function createApp(
       await prebake();
       captureAuditionSynths();
     },
-    hooks: { ...visuals, onPlaybackRequest: () => audition?.stop() },
+    hooks: { ...visuals, onPlaybackRequest: () => audition.stop() },
     limiter: loadLimiter(),
   });
   const scopeClock = createScopeClock((buf) => runtime.readScope(buf));
@@ -113,30 +112,27 @@ export function createApp(
   let recording: RecordingController | undefined;
   let memos: Memos | undefined;
   let playRequests = 0;
-  const taking = (): boolean => takeRunning(recording ? get(recording.store).phase : null);
-  const memoAudible = () => {
-    const status = memos ? get(memos.player).status : 'idle';
-    return status === 'loading' || status === 'playing';
-  };
+  let takeActive = false;
+  let memoActive = false;
   const canAudition = () =>
     Boolean(view) &&
     playRequests === 0 &&
     prefs.auditionNotes() &&
     runtime.canAudition() &&
-    !taking() &&
-    !memoAudible();
+    !takeActive &&
+    !memoActive;
   const player = createNoteAuditionPlayer({ graph: () => superdough.graph?.() ?? null });
-  audition = createAuditionQueue({
+  const audition = createAuditionQueue({
     eligible: canAudition,
-    prepare: () => runtime.prepareAudition(),
-    play: (note) => void player.play(note),
-    stop: () => player.stop(),
+    prepare: runtime.prepareAudition,
+    play: player.play,
+    stop: player.stop,
   });
   function evaluateDoc(): void {
-    if (taking()) return;
-    audition?.stop();
-    memos?.stopPlayback();
+    if (takeActive) return;
+    audition.stop();
     playRequests++;
+    memos?.stopPlayback();
     void session.saveAndEvaluate().finally(() => playRequests--);
   }
   const hooks: EditorHooks = {
@@ -144,7 +140,7 @@ export function createApp(
     onEvaluate: evaluateDoc,
     onDocChange: () => session.docChanged(),
     auditionEnabled: canAudition,
-    onAuditionEdit: (edit) => audition?.edit(edit),
+    onAuditionEdit: audition.edit,
     vim: prefs.vim,
   };
   const session = createSession({
@@ -154,19 +150,19 @@ export function createApp(
     isTauri: inTauri,
     prepareState: (s) => withKeymap(s, prefs.vim()),
     onShown: (v) => {
-      audition?.stop();
+      audition.stop();
       vimMode.attach(v);
     },
     // A project switch stops the memo and the take first.
     beforeProjectChange: async () => {
-      audition?.stop();
+      audition.stop();
       memos?.stopPlayback();
       await recording?.stop();
     },
   });
   const restoreVimWrite = defineVimWrite(() => void session.save());
   let unprefs: (() => void) | null = prefs.store.subscribe(({ vim, auditionNotes }) => {
-    if (!auditionNotes) audition?.stop();
+    if (!auditionNotes) audition.stop();
     if (view && setKeymap(view, vim)) vimMode.attach(view);
   });
   const ready = prefs.load();
@@ -174,10 +170,12 @@ export function createApp(
     ({ recording, memos } = createRecording(recordingApi, superdough, runtime, session, api));
   }
   const unrecording = recording?.store.subscribe(({ phase }) => {
-    if (takeRunning(phase)) audition?.stop();
+    takeActive = takeRunning(phase);
+    if (takeActive) audition.stop();
   });
   const unmemo = memos?.player.subscribe(({ status }) => {
-    if (status === 'loading' || status === 'playing') audition?.stop();
+    memoActive = status === 'loading' || status === 'playing';
+    if (memoActive) audition.stop();
   });
   if (inTauri()) syncWindowTitle(session, api);
   const control = writable<ControlInfo>({ status: 'off', path: null, detail: null });
@@ -189,7 +187,7 @@ export function createApp(
           runtime,
           vim: prefs.vim,
           playback: {
-            taking,
+            taking: () => takeActive,
             stopMemo: () => memos?.stopPlayback(),
             stopTake: () => recording?.stop() ?? Promise.resolve(),
           },
@@ -211,13 +209,13 @@ export function createApp(
       return saved;
     },
     attachView(v) {
-      audition?.stop();
+      audition.stop();
       view = v;
       session.attachView(v);
       vimMode.attach(v);
     },
     prepareNoteAudition(target) {
-      if (!canAudition() || !(target instanceof Node) || !view?.contentDOM.contains(target)) {
+      if (!(target instanceof Node) || !view?.contentDOM.contains(target) || !canAudition()) {
         return false;
       }
       void runtime.prepareAudition();
@@ -228,7 +226,7 @@ export function createApp(
     recording,
     memos,
     destroy() {
-      audition?.stop();
+      audition.stop();
       unrecording?.();
       unmemo?.();
       if (unprefs) {

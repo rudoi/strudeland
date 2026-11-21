@@ -1,13 +1,14 @@
 import { ensureSyntaxTree } from '@codemirror/language';
 import type { EditorState, Transaction } from '@codemirror/state';
-import type { SyntaxNode, Tree } from '@lezer/common';
 import { noteToMidi } from '@strudel/core';
 import { mini2ast } from '@strudel/mini';
 import { isAuditionSound } from '../audio/audition-sound';
+import type { AuditionRequest } from '../audio/note-audition';
 
-type Voice = { pitch: number; sound: string; controls: Readonly<Record<string, number>> };
+type Tree = NonNullable<ReturnType<typeof ensureSyntaxTree>>;
+type SyntaxNode = Tree['topNode'];
 type Span = { from: number; to: number };
-export type NoteAuditionEdit = Voice & Span & { kind: 'note' | 'confirm' };
+export type NoteAuditionEdit = AuditionRequest & Span & { kind: 'note' | 'confirm' };
 
 type VoicePitch = Span & { pitch: number };
 type MiniOp = { type_: string; arguments_: { amount?: MiniNode | number } };

@@ -342,6 +342,41 @@ test('a switch whose new engine does not come up stops with a notice', async () 
   });
 });
 
+test('audition stays unavailable through a delayed engine handoff', async () => {
+  const ready: ((running: boolean) => void)[] = [];
+  const { rt, tick } = fake({
+    rust: true,
+    rustResume: () => new Promise<boolean>((resolve) => ready.push(resolve)),
+  });
+  expect(await rt.evaluate(SONG)).toBe(true);
+  tick(5);
+  expect(await rt.evaluate(SONG, { engine: 'rust' })).toBe(true);
+  tick(20);
+  expect(snap(rt)).toMatchObject({ started: false, engine: 'rust' });
+  expect(rt.canAudition()).toBe(false);
+  expect(await rt.prepareAudition()).toBe(false);
+  for (const resume of ready) resume(true);
+  await settle();
+  expect(snap(rt)).toMatchObject({ started: true, engine: 'rust' });
+  rt.stop();
+  expect(rt.canAudition()).toBe(true);
+});
+
+test('with Rust selected, audition resumes only the preview graph and reuses it', async () => {
+  const { rt, b, rb } = fake({ rust: true });
+  expect(await rt.evaluate(PLAIN, { engine: 'rust', autostart: false })).toBe(true);
+  const rustResumes = rb.resumes;
+  expect(await rt.prepareAudition()).toBe(true);
+  expect(await rt.prepareAudition()).toBe(true);
+  expect(b.resumes).toBe(1);
+  expect(rb.resumes).toBe(rustResumes);
+  b.running = false;
+  expect(await rt.prepareAudition()).toBe(false);
+  expect(b.resumes).toBe(2);
+  expect(rb.resumes).toBe(rustResumes);
+  rt.stop();
+});
+
 test('without a rust backend a rust song plays on superdough, from evaluate and from start', async () => {
   const { b, rt, tick } = fake();
   expect(await rt.evaluate(PLAIN, { engine: 'rust' })).toBe(true);

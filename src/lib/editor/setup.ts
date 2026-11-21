@@ -125,7 +125,7 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     ...(hooks?.onAuditionEdit
       ? [
           EditorView.updateListener.of((update) => {
-            if (!hooks.auditionEnabled?.() || (!update.docChanged && !update.selectionSet)) return;
+            if ((!update.docChanged && !update.selectionSet) || !hooks.auditionEnabled?.()) return;
             const [transaction] = update.transactions;
             hooks.onAuditionEdit?.(
               update.docChanged && update.transactions.length === 1

@@ -28863,7 +28863,7 @@ Please check with "npm ls @strudel/core".`);
     let queued = 0;
     let starts = 0;
     let auditionResume;
-    const canAudition = () => !state2.started && queued === 0 && starts === 0;
+    const canAudition = () => !state2.started && !swapping && draining.size === 0 && queued === 0 && starts === 0;
     return {
       scheduler: r.scheduler,
       store: {
@@ -28952,10 +28952,12 @@ Please check with "npm ls @strudel/core".`);
           return Promise.resolve(false);
         const backend = opts.backends.superdough;
         return auditionResume ??= (async () => {
-          const ready = await (active() === backend ? resumeAudio() : resumeBackend(backend));
-          if (!ready)
+          if (backend.isRunning()) {
+            await backend.init();
+          } else if (!await (active() === backend ? resumeAudio() : resumeBackend(backend))) {
             return false;
-          await Promise.all([backend.init(), ensurePrebaked()]);
+          }
+          await ensurePrebaked();
           return true;
         })().catch((error) => {
           console.error(error);
