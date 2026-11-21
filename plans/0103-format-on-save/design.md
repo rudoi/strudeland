@@ -43,3 +43,8 @@ Accept the vendored leaf-range end behavior only if note starts and visible high
 still behave correctly across rows. Track an existing leaf-range defect separately
 unless it interferes with the feature. Keitora #104 tracks the existing defect. Keep Rust file writes byte-exact and retain control
 API save outcomes. The embedded CLI skill documents the opt-in desktop behavior.
+
+## Delivery status
+
+Implemented and validated in [PR #16](https://github.com/rudoi/strudeland/pull/16).
+The [delivery record](000-prompt.md) lists the local checks and desktop smoke evidence.
