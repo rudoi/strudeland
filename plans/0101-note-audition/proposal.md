@@ -40,3 +40,7 @@ The first pass favors predictable local voice resolution. A reusable instrument 
 The proposed typing pause makes `g3` audible without requiring a space or cursor movement. Refine the timing by ear with rapid entry and Vim insert mode. Confirm whether the toolbar placement and default-off preference fit the intended workflow.
 
 Recommended workflow complexity is medium. Skip Fracture, verify the editor and audio contracts during Singletonize, and do a light Loss Check before sequencing.
+
+## Refinement decisions
+
+The first release uses the pattern at the edit site, with one fixed synth and explicit octave. Use approximately 120 ms to settle a typed pitch and a roughly 160 ms preview gate, with a short bounded release. Accept a delimiter as confirmation only when a candidate is pending. Reuse the existing shared bootstrap and master graph, including when the song is configured for Rust. A pending preview belongs to the active editor buffer and is invalidated on a buffer change, transport start request, or recording/memo activity. Skill-driven refinement confirmed these defaults for implementation.

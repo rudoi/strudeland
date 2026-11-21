@@ -1,0 +1,9 @@
+# Design verification
+
+[Editor setup](../../src/lib/editor/setup.ts) installs the JavaScript language and an update listener. The [project session](../../src/lib/project/session.ts) uses separate programmatic update annotations and replaces the state when switching songs. Use a typing-only transaction check and a local syntax tree walk. Strudel’s [mini parser](../../vendor/strudel/packages/mini/mini.mjs) includes modifier leaves, so inspect structural pattern sources separately. Strudel’s [pitch parser](../../vendor/strudel/packages/core/util.mjs) supplies a default octave, so check for an explicit octave before converting.
+
+[Runtime](../../src/lib/strudel/runtime.ts) already memoizes prebake and owns the transitions into both evaluate-and-play and start. Reuse a single-flight bootstrap and cancel audition before a transition can schedule audio. [Superdough synths](../../vendor/strudel/packages/superdough/synth.mjs) return handles with a node and stop method. Route those through a bounded output gain on the existing [master graph](../../src/lib/audio/superdough.ts). The browser window’s existing gesture handler resumes the active song engine, so the audition must enter the Superdough resume path itself when needed.
+
+[App preferences](../../src/lib/prefs/store.ts) serialize whole snapshots. Loading concurrently with a user toggle must preserve independently touched fields and queue writes after the initial snapshot is known. The [native file](../../crates/strudeland-project/src/prefs.rs) already defaults missing fields and keeps schema 1.
+
+All original requirements are retained. Refinement selects a local interpretation for the selected voice, gives note completion a bounded settling interval and defines which instruments can be previewed. Arbitrary song execution, transport mutations and inferred custom instruments remain outside the contract. The desktop audio path still requires validation.
