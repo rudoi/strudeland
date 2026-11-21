@@ -64,3 +64,28 @@ transcriptions in local storage.
 
 Recommended complexity is small for the initial annotation and scoring pass.
 Reassess implementation complexity after identifying which stages need changes.
+
+## Refined implementation
+
+The first local reference is an eight-bar intended-performance transcription.
+Keep it as the first private fixture and run identical default and user-aligned
+settings before and after implementation. Additional independently annotated
+takes are needed before tuning pitch thresholds or generalizing from this score.
+
+- Reject a proposed note in `segment::note_of` when none of its frames has both
+  a decoded pitch and the existing minimum voiced probability. Preserve attack
+  times, low amplitudes and pieces with even one supported frame. Compare an
+  isolated unsupported piece and a quiet, minimally supported pickup.
+- Preserve sustained notes in `notation::render_notation`. Quantized reports
+  retain the per-bar parts and `tiedToNext` field for existing consumers. For
+  visible ties, join only the exact contiguous continuation and render the
+  resulting weighted sequence over the same number of cycles. Notes and scale
+  degrees use the same timing. Keep existing output for passages without ties.
+- Keep the sidecar downbeat and current shift controls. A whole-grid-step offset
+  fits the same grid, and the local recording did not yield an independent
+  audible timing anchor. Evaluate the user-aligned offset explicitly. Keep
+  semitone ambiguities as alternatives. A tuning sweep changed individual
+  spellings without improving the overall match.
+
+Medium complexity. The segmentation and notation changes can be tested
+independently. Publication stops at human PR review.
