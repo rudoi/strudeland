@@ -430,7 +430,7 @@ describe('vim keybindings', () => {
       '/p': { name: 'p', files: { [MAIN]: '$: s("a")\n', 'songs/x.js': A } },
     });
     fake.last = '/p';
-    const prefs = fakePrefsApi(initial);
+    const prefs = fakePrefsApi({ formatOnSave: false, ...initial });
     const gate = prefs.deferGet();
     const app = createApp(api, () => true, null, null, prefs);
     app.runtime.stop = () => {};
@@ -549,9 +549,23 @@ describe('vim keybindings', () => {
     prefs.failSet = false;
     await app.prefs.setVim(true);
     expect(get(app.prefs.store).error).toBeNull();
-    expect(prefs.saved).toEqual([{ vim: true, auditionNotes: false }]);
+    expect(prefs.saved).toEqual([{ vim: true, auditionNotes: false, formatOnSave: false }]);
     // Only the user's toggle focuses; a pref change by itself does not.
     expect(focused).toEqual([]);
+    app.destroy();
+  });
+
+  test('Vim write uses the loaded formatting preference', async () => {
+    const { app, view, gate, fake } = await withPrefs({ vim: true, formatOnSave: true });
+    gate.resolve();
+    await app.ready;
+    const steps = Array(32).fill('bd').join(' ');
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: `$: s("${steps}")` } });
+    Vim.handleEx(cmOf(view), 'w');
+    await tick();
+    const formatted = view.state.doc.toString();
+    expect(formatted).toContain('s(`\n');
+    expect(fake.files().get(MAIN)).toBe(formatted);
     app.destroy();
   });
 
