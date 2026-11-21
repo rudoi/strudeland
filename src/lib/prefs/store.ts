@@ -12,17 +12,20 @@ export interface PrefsStore {
   /** The current value, synchronously. */
   vim(): boolean;
   auditionNotes(): boolean;
+  formatOnSave(): boolean;
   /** Loads the initial preference snapshot. Never rejects. */
   load(): Promise<void>;
   /** Never rejects. */
   setVim(on: boolean): Promise<void>;
   /** Never rejects. */
   setAuditionNotes(on: boolean): Promise<void>;
+  /** Never rejects. */
+  setFormatOnSave(on: boolean): Promise<void>;
 }
 
 export function createPrefs(api: PrefsApi | null): PrefsStore {
   const state = writable<PrefsState>({ ...DEFAULT_PREFS, error: null });
-  // One subscription keeps both synchronous accessors current.
+  // One subscription keeps the synchronous accessors current.
   let current: Prefs = DEFAULT_PREFS;
   state.subscribe((s) => (current = s));
   let edits: Partial<Prefs> = {};
@@ -66,6 +69,7 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     store: { subscribe: state.subscribe },
     vim: () => current.vim,
     auditionNotes: () => current.auditionNotes,
+    formatOnSave: () => current.formatOnSave,
     async load() {
       try {
         await loadInitial();
@@ -75,5 +79,6 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     },
     setVim: (on) => set('vim', on),
     setAuditionNotes: (on) => set('auditionNotes', on),
+    setFormatOnSave: (on) => set('formatOnSave', on),
   };
 }

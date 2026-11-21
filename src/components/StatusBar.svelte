@@ -127,15 +127,28 @@
       audio suspended: click to enable
     </Button>
   {/if}
-  <button
-    class="pressable vim"
-    type="button"
-    aria-pressed={$ps.vim}
-    title="vim keybindings"
-    onclick={() => void toggleVim()}
-  >
-    <Chip tone={chip.tone} lit={chip.lit}>{chip.label}</Chip>
-  </button>
+  <div class="editor-prefs">
+    {#if $ss.available}
+      <button
+        class="pressable"
+        type="button"
+        aria-pressed={$ps.formatOnSave}
+        title="Align dense mini-notation patterns when saving"
+        onclick={() => void prefs.setFormatOnSave(!$ps.formatOnSave)}
+      >
+        <Chip lit={$ps.formatOnSave}>Format on Save</Chip>
+      </button>
+    {/if}
+    <button
+      class="pressable"
+      type="button"
+      aria-pressed={$ps.vim}
+      title="vim keybindings"
+      onclick={() => void toggleVim()}
+    >
+      <Chip tone={chip.tone} lit={chip.lit}>{chip.label}</Chip>
+    </button>
+  </div>
   <span class="hint">
     {#if info}
       <span title={formatStrudel(info.strudel)}>strudeland {info.version}</span>
@@ -175,9 +188,13 @@
     margin: 0;
     accent-color: var(--accent);
   }
-  /* The chip pushes itself and the credit after it to the right. */
-  .vim {
+  .editor-prefs {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .editor-prefs button {
     padding: 0;
     border: none;
     border-radius: var(--radius-pill);

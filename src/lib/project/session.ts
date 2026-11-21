@@ -4,6 +4,7 @@ import type { EditorView } from '@codemirror/view';
 import { get, writable, type Readable } from 'svelte/store';
 import type { EvalOutcome } from '../control/protocol';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
+import { formatSong } from '../editor/format-song';
 import { attachState } from '../editor/visuals';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
@@ -116,7 +117,7 @@ export interface Session {
   openPath(path: string, opts: { discard: boolean }): Promise<OpenOutcome>;
   /** Active song; false and `error` set on failure. False without an active song. */
   save(): Promise<boolean>;
-  /** Cmd-Enter: save if dirty, then evaluate the doc as it was when called. */
+  /** Cmd-Enter: save if dirty, then evaluate the captured source with any save formatting. */
   saveAndEvaluate(): Promise<void>;
   /** Resolve a `changed` conflict by keeping the editor text. Defaults to the active song. */
   keepMine(path?: string): void;
@@ -166,6 +167,8 @@ export interface SessionDeps {
   /** setup.ts `createEditorState`, bound to the runtime and hooks. */
   createState: (doc: string) => EditorState;
   isTauri: () => boolean;
+  /** Whether a save should format eligible mini-notation in the editor. */
+  formatOnSave?: () => boolean;
   /**
    * Awaited before another project is opened or created while one is open (after the unsaved
    * guard), so whatever belongs to the open project (a recording take) can finish first. Errors
@@ -590,36 +593,46 @@ export function createSession(deps: SessionDeps): Session {
   }
 
   /**
-   * Write a song's text (LF line breaks, as the editor holds it); on success it becomes the disk
-   * text. Sets `error` on failure. A write that
-   * resolves after the project changed leaves the new project alone (and its `PROJECT_CHANGED`
-   * rejection is no error): it returns false. A write waits for a rename or delete of the path; if
-   * the song is gone afterwards (moved or dropped) it returns false without writing or an error.
+   * Optionally format and write the captured text, returning the saved source or null on failure.
+   * A pending rename/delete must settle before we can edit the buffer or write the file.
    */
-  async function write(path: string, text: string): Promise<boolean> {
-    while (moving.has(path)) await moving.get(path);
-    if (!project || !songs.has(path)) return false;
+  async function write(path: string, text: string): Promise<string | null> {
     const gen = generation;
+    const song = songs.get(path);
+    const shouldFormat = deps.formatOnSave?.();
+    while (moving.has(path)) await moving.get(path);
+    if (!project || gen !== generation || !song || songs.get(path) !== song) return null;
+    const state = shouldFormat ? stateOf(path) : null;
+    if (state?.doc.toString() === text) {
+      const edits = formatSong(text);
+      if (edits.length > 0) {
+        const formatted = apply(path, {
+          changes: edits,
+          userEvent: 'format',
+          annotations: isolateHistory.of('full'),
+        });
+        text = formatted?.toString() ?? text;
+      }
+    }
     const done = settled();
     const entry = { text, gen, done: done.promise };
     inflight.set(path, entry);
     try {
       await api.saveSong(project.root, path, text);
     } catch (e) {
-      if (gen !== generation && errorMessage(e) === PROJECT_CHANGED) return false;
+      if (gen !== generation && errorMessage(e) === PROJECT_CHANGED) return null;
       error = errorMessage(e);
       emit();
-      return false;
+      return null;
     } finally {
       if (inflight.get(path) === entry) inflight.delete(path);
       done.resolve();
     }
-    if (gen !== generation) return false;
-    const song = songs.get(path);
-    if (song) settle(song, text); // a save overwrites the disk and re-creates a deleted file
+    if (gen !== generation) return null;
+    settle(song, text); // a save overwrites the disk and re-creates a deleted file
     error = null;
     emit();
-    return true;
+    return text;
   }
 
   /** Read a song not read yet and give it an editor state. False (and `error` set) if it fails. */
@@ -879,14 +892,17 @@ export function createSession(deps: SessionDeps): Session {
     }
   }
 
-  /** Apply a transaction to a song: dispatched on the view if shown, else to the stash. */
-  function apply(path: string, spec: TransactionSpec): void {
+  /** Apply a transaction to the view or stash and return its resulting document. */
+  function apply(path: string, spec: TransactionSpec): Text | null {
+    const state = stateOf(path);
+    if (!state) return null;
+    const transaction = state.update(spec);
     if (view && shown === path) {
-      view.dispatch(spec);
-      return;
+      view.dispatch(transaction);
+    } else {
+      songs.get(path)!.editorState = transaction.state;
     }
-    const song = songs.get(path);
-    if (song?.editorState) song.editorState = song.editorState.update(spec).state;
+    return transaction.newDoc;
   }
 
   /**
@@ -960,7 +976,7 @@ export function createSession(deps: SessionDeps): Session {
     let ok = true;
     for (const path of dirty) {
       const text = textOf(path);
-      if (text === null || !(await write(path, text))) ok = false;
+      if (text === null || (await write(path, text)) === null) ok = false;
     }
     return ok;
   }
@@ -1111,7 +1127,7 @@ export function createSession(deps: SessionDeps): Session {
     for (const path of paths) {
       const text = textOf(path);
       if (text === null) continue; // never read: nothing of ours to write
-      if (await write(path, text)) {
+      if ((await write(path, text)) !== null) {
         saved.push(path);
         continue;
       }
@@ -1264,15 +1280,15 @@ export function createSession(deps: SessionDeps): Session {
     async save() {
       if (!active) return false;
       const path = active;
-      return write(path, textOf(path)!);
+      return (await write(path, textOf(path)!)) !== null;
     },
 
     async saveAndEvaluate() {
       if (!active) return;
       const path = active;
       const doc = textOf(path)!; // read when the key is pressed
-      if (isDirty(path) && !(await write(path, doc))) return;
-      await evaluateSong(path, doc);
+      const source = isDirty(path) ? await write(path, doc) : doc;
+      if (source !== null) await evaluateSong(path, source);
     },
 
     keepMine(path) {

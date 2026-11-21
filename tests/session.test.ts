@@ -73,6 +73,7 @@ function setup(
     prepareState?: (state: EditorState) => EditorState;
     onShown?: (view: InstanceType<typeof EditorView>) => void;
     vim?: () => boolean;
+    formatOnSave?: () => boolean;
   } = {},
 ) {
   const { api, fake } = fakeProjectApi(PROJECTS);
@@ -92,6 +93,7 @@ function setup(
       });
     },
     isTauri: () => opts.tauri ?? true,
+    formatOnSave: opts.formatOnSave,
     beforeProjectChange: opts.beforeProjectChange,
     prepareState: opts.prepareState,
     onShown: opts.onShown,
@@ -998,6 +1000,138 @@ describe('save', () => {
     expect(await h.session.save()).toBe(false);
     expect(h.fake.calls).toEqual([]);
     expect(h.st().error).toBeNull();
+  });
+});
+
+describe('format on save', () => {
+  const steps = Array(31).fill('c4').concat('d4').join(' ');
+  const source = `$: note("${steps}").s('sine')\n`;
+
+  function replaceSong(h: Awaited<ReturnType<typeof opened>>, text: string) {
+    const view = h.view!;
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+  }
+
+  test('the default writes eligible source byte for byte', async () => {
+    const h = await opened();
+    replaceSong(h, source);
+    expect(await h.session.save()).toBe(true);
+    expect(h.fake.files().get(PA)).toBe(source);
+  });
+
+  test('explicit save formats a clean song in one undo step and maps live locations', async () => {
+    const h = setup({ formatOnSave: () => true });
+    h.fake.disk.get('/p')!.files.set(PA, source);
+    await h.session.init();
+    await h.session.saveAndEvaluate();
+    expect(h.rt.evaluated).toEqual([source]); // clean Play does not format
+    const view = h.view!;
+    const note = source.indexOf('d4');
+    view.dispatch({ selection: { anchor: note, head: note + 2 } });
+    updateMiniLocations(view, [[note, note + 2]]);
+    h.rt.setStarted(true);
+
+    expect(await h.session.save()).toBe(true);
+    const formatted = h.doc();
+    expect(formatted).toContain('note(`\n');
+    expect(h.fake.files().get(PA)).toBe(formatted);
+    const newNote = formatted.indexOf('d4');
+    expect(view.state.selection.main.from).toBe(newNote);
+    expect(view.state.selection.main.to).toBe(newNote + 2);
+    highlightMiniLocations(view, 0, [located(note, note + 2)]);
+    expect(highlighted(view)).toContainEqual([newNote, newNote + 2]);
+    expect(h.rt.evaluated).toEqual([source]);
+    expect(h.item(PA)?.dirty).toBe(false);
+    expect(await h.session.save()).toBe(true);
+    expect(undoDepth(view.state)).toBe(1);
+    expect(h.undoView()).toBe(true);
+    expect(h.doc()).toBe(source);
+    expect(h.item(PA)?.dirty).toBe(true);
+  });
+
+  test('evaluates the formatted snapshot through an in-flight watcher echo', async () => {
+    const h = await opened({ formatOnSave: () => true });
+    replaceSong(h, source);
+    const hold = deferred();
+    h.fake.holdSaves = hold.promise;
+    const saving = h.session.saveAndEvaluate();
+    const formatted = h.doc();
+    expect(formatted).toContain('note(`\n');
+    h.type('// typed later');
+    h.fake.emit({ changed: [PA] });
+    await flush();
+    expect(h.item(PA)?.conflict).toBeNull();
+    hold.resolve();
+    await saving;
+    expect(h.fake.files().get(PA)).toBe(formatted);
+    expect(h.rt.evaluated).toEqual([formatted]);
+    expect(h.doc()).toBe(formatted + '// typed later');
+    expect(h.item(PA)?.dirty).toBe(true);
+  });
+
+  test('control saves format stashed state and leave the visible song alone', async () => {
+    const h = await opened({ formatOnSave: () => true });
+    await h.session.switchSong(PB);
+    replaceSong(h, source);
+    await h.session.switchSong(PA);
+    expect(await h.session.saveSongs({ path: PB })).toEqual({ ok: true, saved: [PB] });
+    expect(h.doc()).toBe(A);
+    await h.session.switchSong(PB);
+    expect(h.doc()).toContain('note(`\n');
+    expect(h.doc()).toBe(h.fake.files().get(PB)!);
+    expect(h.undoView()).toBe(true);
+    expect(h.doc()).toBe(source);
+  });
+
+  test.each([false, true])(
+    'a save waiting for a failed rename keeps its snapshot (later edit: %s)',
+    async (edited) => {
+      let enabled = true;
+      const h = await opened({ formatOnSave: () => enabled });
+      replaceSong(h, source);
+      const entered = deferred();
+      const release = deferred();
+      h.api.renameSong = async () => {
+        entered.resolve();
+        await release.promise;
+        throw new Error('rename failed');
+      };
+      const renaming = rejection(h.session.renameSong(PA, 'rename-target'));
+      await entered.promise;
+      const saving = h.session.save();
+      enabled = false;
+      if (edited) h.type('// typed while waiting');
+      release.resolve();
+
+      expect(await renaming).toEqual(new Error('rename failed'));
+      expect(await saving).toBe(true);
+      if (edited) {
+        expect(h.fake.files().get(PA)).toBe(source);
+        expect(h.doc()).toBe(source + '// typed while waiting');
+        expect(h.item(PA)?.dirty).toBe(true);
+      } else {
+        expect(h.doc()).toContain('note(`\n');
+        expect(h.doc()).toBe(h.fake.files().get(PA)!);
+        expect(h.item(PA)?.dirty).toBe(false);
+      }
+    },
+  );
+
+  test('a failed save leaves an undoable buffer and editing errors can still be saved', async () => {
+    const h = await opened({ formatOnSave: () => true });
+    replaceSong(h, source);
+    h.fake.failSave.add(PA);
+    expect(await h.session.save()).toBe(false);
+    expect(h.doc()).toContain('note(`\n');
+    expect(h.fake.files().get(PA)).toBe(A);
+    expect(h.item(PA)?.dirty).toBe(true);
+    expect(h.undoView()).toBe(true);
+    expect(h.doc()).toBe(source);
+    const incomplete = source + 'note(';
+    replaceSong(h, incomplete);
+    h.fake.failSave.delete(PA);
+    expect(await h.session.save()).toBe(true);
+    expect(h.fake.files().get(PA)).toBe(incomplete);
   });
 });
 

@@ -1,4 +1,4 @@
-//! App preferences, stored as `{ "schema": 1, "vim": false, "auditionNotes": false }` in the app data dir.
+//! App preferences, stored in the app data dir with `"schema": 1`.
 //!
 //! Later preferences are added as fields with defaults, with no schema bump.
 
@@ -23,6 +23,8 @@ pub struct Prefs {
     pub vim: bool,
     /// Preview typed notes while song playback is stopped.
     pub audition_notes: bool,
+    /// Format supported Strudel patterns when saving a song.
+    pub format_on_save: bool,
 }
 
 /// The on-disk shape.
@@ -74,6 +76,7 @@ mod tests {
         assert_eq!(Prefs::load(&dir.path().join(PREFS_FILE)), Prefs::default());
         assert!(!Prefs::default().vim);
         assert!(!Prefs::default().audition_notes);
+        assert!(!Prefs::default().format_on_save);
     }
 
     #[test]
@@ -122,6 +125,17 @@ mod tests {
         let prefs = Prefs::load(&file);
         assert!(prefs.vim);
         assert!(!prefs.audition_notes);
+        assert!(!prefs.format_on_save);
+
+        fs::write(
+            &file,
+            r#"{ "schema": 1, "vim": true, "auditionNotes": true }"#,
+        )
+        .unwrap();
+        let prefs = Prefs::load(&file);
+        assert!(prefs.vim);
+        assert!(prefs.audition_notes);
+        assert!(!prefs.format_on_save);
     }
 
     #[test]
@@ -139,6 +153,7 @@ mod tests {
         let prefs = Prefs {
             vim: true,
             audition_notes: true,
+            format_on_save: true,
         };
         prefs.save(&file).unwrap();
         let text = fs::read_to_string(&file).unwrap();
@@ -146,6 +161,7 @@ mod tests {
         assert!(text.contains("\"schema\": 1"));
         assert!(text.contains("\"vim\": true"));
         assert!(text.contains("\"auditionNotes\": true"));
+        assert!(text.contains("\"formatOnSave\": true"));
         assert_eq!(Prefs::load(&file), prefs);
         Prefs::default().save(&file).unwrap();
         assert_eq!(Prefs::load(&file), Prefs::default());

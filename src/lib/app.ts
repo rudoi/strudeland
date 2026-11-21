@@ -156,6 +156,7 @@ export function createApp(
     runtime,
     createState: (doc) => createEditorState(doc, runtime, hooks),
     isTauri: inTauri,
+    formatOnSave: prefs.formatOnSave,
     prepareState: (s) => withKeymap(s, prefs.vim()),
     onShown: (v) => {
       audition.stop();

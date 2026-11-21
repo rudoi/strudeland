@@ -78,6 +78,10 @@ note gets the playback outline while the preview sounds.
 A brief pause or a delimiter completes the note. The checkbox starts off and remembers your
 choice. Sample instruments and computed sounds are outside the preview's supported patterns.
 
+Turn on **Format on Save** in the status bar to align explicit 16- or 32-step 4/4 patterns.
+A 32-step bar becomes two rows of 16 steps with visible beat spacing. Formatting keeps the
+pattern's timing and can be undone in one step. The setting starts off.
+
 Playing or rendering a song evaluates its JavaScript. Review songs from other people before
 running them, and stop playback before applying changes you haven’t reviewed.
 
