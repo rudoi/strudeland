@@ -106,7 +106,9 @@ test('aligns a combiner to its opening parenthesis even when it starts on a sepa
 test('compacts simple section objects and keeps commented sections on separate lines', () => {
   const source = [
     'const meta={sections:[{',
-    "  name:'intro',bars:2},",
+    '  name:',
+    "   'intro',bars:2},",
+    "  {name:'middle', /* inline */ bars:2},",
     "  {name:'body',",
     '   // memo',
     '   bars:4,loop:true}]}',
@@ -116,6 +118,7 @@ test('compacts simple section objects and keeps commented sections on separate l
       'const meta = {',
       '  sections: [',
       "    { name: 'intro', bars: 2 },",
+      "    { name: 'middle', /* inline */ bars: 2 },",
       '    {',
       "      name: 'body',",
       '   // memo',
@@ -124,6 +127,24 @@ test('compacts simple section objects and keeps commented sections on separate l
       '    }',
       '  ]',
       '}',
+    ].join('\n'),
+  );
+});
+
+test('lays out grouping-wrapped sections and song parts while retaining their parentheses', () => {
+  const input =
+    'const meta={sections:([({name:\'intro\',bars:2})])}\n$: song((meta),({intro:note("c4").gain(.8)}))';
+  expect(formatted(input)).toBe(
+    [
+      'const meta = {',
+      '  sections: ([',
+      "    ({ name: 'intro', bars: 2 })",
+      '  ])',
+      '}',
+      '$: song((meta), ({',
+      '  intro: note("c4")',
+      '    .gain(.8)',
+      '}))',
     ].join('\n'),
   );
 });

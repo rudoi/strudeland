@@ -30,6 +30,11 @@ interface Gap {
 const lineBreak = /\r\n|[\r\n\u2028\u2029]/;
 const patternGroups = new Set(['stack', 'seq', 'cat']);
 
+function ungroup(node: AnyNode): AnyNode {
+  while (node.type === 'ParenthesizedExpression') node = node.expression;
+  return node;
+}
+
 function readScript(source: string) {
   const tokens: Token[] = [];
   const comments: Comment[] = [];
@@ -198,8 +203,9 @@ function collectGaps(
       }
       const colon = tokenAfter(property.key.end);
       if (colon.type === tokTypes.colon) {
-        space(property.key.end, colon.start, '');
-        space(colon.end, property.value.start, ' ');
+        const spacing = multiline ? space : gap;
+        spacing(property.key.end, colon.start, '');
+        spacing(colon.end, property.value.start, ' ');
       }
     }
   }
@@ -216,7 +222,7 @@ function collectGaps(
   function metadata(node: ObjectExpression) {
     object(node, true);
     for (const property of node.properties) {
-      if (property.type !== 'Property' || property.value.type !== 'ArrayExpression') continue;
+      if (property.type !== 'Property') continue;
       const key = property.key;
       if (
         (key.type === 'Identifier' ? key.name : key.type === 'Literal' ? key.value : null) !==
@@ -224,22 +230,26 @@ function collectGaps(
       ) {
         continue;
       }
-      const list = property.value;
+      const list = ungroup(property.value);
+      if (list.type !== 'ArrayExpression') continue;
       group(
         tokenAfter(list.start),
         list.elements.filter((item) => item !== null),
         list.start,
         true,
       );
-      for (const item of list.elements) {
+      for (const element of list.elements) {
+        const item = element && ungroup(element);
         if (item?.type !== 'ObjectExpression') continue;
-        const simple = item.properties.every(
-          (prop) =>
-            prop.type === 'Property' &&
-            (prop.value.type === 'Literal' || prop.value.type === 'UnaryExpression'),
-        );
-        const hasComment = comments.some(({ start }) => item.start < start && start < item.end);
-        object(item, !simple || hasComment);
+        const simple = item.properties.every((prop) => {
+          if (prop.type !== 'Property') return false;
+          const value = ungroup(prop.value);
+          return value.type === 'Literal' || value.type === 'UnaryExpression';
+        });
+        const multilineCommented =
+          lineBreak.test(source.slice(item.start, item.end)) &&
+          comments.some(({ start }) => item.start < start && start < item.end);
+        object(item, !simple || multilineCommented);
       }
     }
   }
@@ -251,18 +261,17 @@ function collectGaps(
     }
     if (node.callee.type !== 'Identifier') return hasChain;
     const [first, second] = node.arguments;
-    if (
-      node.callee.name === 'song' &&
-      first?.type === 'Identifier' &&
-      first.name === 'meta' &&
-      second?.type === 'ObjectExpression'
-    ) {
-      const comma = tokenAfter(first.end);
-      if (comma.type === tokTypes.comma) {
-        space(first.end, comma.start, '');
-        space(comma.end, second.start, ' ');
+    if (node.callee.name === 'song' && first && second) {
+      const meta = ungroup(first);
+      const parts = ungroup(second);
+      if (meta.type === 'Identifier' && meta.name === 'meta' && parts.type === 'ObjectExpression') {
+        const comma = tokenAfter(first.end);
+        if (comma.type === tokTypes.comma) {
+          space(first.end, comma.start, '');
+          space(comma.end, second.start, ' ');
+        }
+        object(parts, true);
       }
-      object(second, true);
     }
     if (hasChain && patternGroups.has(node.callee.name)) {
       const open = tokenAfter(node.callee.end);
@@ -299,10 +308,9 @@ function collectGaps(
         receiver = receiver.object;
       }
     }
-    let unwrapped: AnyNode = receiver;
-    while (unwrapped.type === 'ParenthesizedExpression') unwrapped = unwrapped.expression;
     const qualifies =
-      !blocked && methods.length >= (baseCall || unwrapped.type === 'CallExpression' ? 1 : 2);
+      !blocked &&
+      methods.length >= (baseCall || ungroup(receiver).type === 'CallExpression' ? 1 : 2);
     let expanded = false;
     if (qualifies) {
       for (const { from, dot } of methods) {
