@@ -137,6 +137,39 @@ test('unsaved audition outlines the exact token and leaves playback locations av
   view.destroy();
 });
 
+test('a restored song does not show an audition that ended while it was stashed', () => {
+  const state = (doc: string) =>
+    EditorState.create({ doc, extensions: [highlightExtension, auditionHighlight] });
+  const view = new EditorView({ state: state('note("g3")'), parent: document.body });
+  const endAudition = highlightAudition(view, { from: 6, to: 8 });
+  const stashed = view.state;
+
+  attachState(view, state('note("c3")'));
+  endAudition();
+  attachState(view, stashed);
+  expect(view.dom.querySelector('.cm-audition-note')).toBeNull();
+  expect(highlighted(view)).toEqual([]);
+  view.destroy();
+});
+
+test('delimiters and unrelated edits retain the outline, while extending the note clears it', () => {
+  const view = new EditorView({
+    doc: 'note("g3")',
+    extensions: auditionHighlight,
+    parent: document.body,
+  });
+  const mark = () => view.contentDOM.querySelector('.cm-audition-note')?.textContent;
+  highlightAudition(view, { from: 6, to: 8 });
+  view.dispatch({ changes: { from: 8, insert: ' ' } });
+  expect(mark()).toBe('g3');
+  view.dispatch({ changes: { from: 0, insert: '// draft\n' } });
+  expect(mark()).toBe('g3');
+  view.dispatch({ changes: { from: 17, insert: '0' } });
+  expect(view.state.doc.toString()).toContain('g30');
+  expect(mark()).toBeUndefined();
+  view.destroy();
+});
+
 test('clearHighlights drops the mini-notation locations', () => {
   const view = new EditorView({
     doc: 'note("c e")',

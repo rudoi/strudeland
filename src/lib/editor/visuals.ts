@@ -2,6 +2,7 @@ import { StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
 import {
   highlightMiniLocations,
+  setMiniLocations,
   updateMiniLocations,
   updateSliderWidgets,
   updateWidgets,
@@ -43,16 +44,33 @@ const soundingNote = Decoration.mark({
   class: 'cm-audition-note',
   attributes: { style: 'outline: solid 2px var(--foreground)' },
 });
+const miniAtomCharacter = /[\w#-]/;
+
 export const auditionHighlight = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(value, transaction) {
-    if (transaction.docChanged) return Decoration.none;
     for (const effect of transaction.effects) {
       if (!effect.is(auditionLocation)) continue;
       const range = effect.value;
       return range ? Decoration.set(soundingNote.range(range.from, range.to)) : Decoration.none;
     }
-    return value;
+    if (!transaction.docChanged || !value.size) return value;
+    const previous = value.iter();
+    let touched = false;
+    transaction.changes.iterChangedRanges((from, to) => {
+      if (from < previous.to && to > previous.from) touched = true;
+    });
+    if (touched) return Decoration.none;
+
+    const mapped = value.map(transaction.changes);
+    if (!mapped.size) return mapped;
+    const { from, to } = mapped.iter();
+    const doc = transaction.newDoc;
+    const before = doc.sliceString(Math.max(0, from - 1), from);
+    const after = doc.sliceString(to, Math.min(doc.length, to + 1));
+    return miniAtomCharacter.test(before) || miniAtomCharacter.test(after)
+      ? Decoration.none
+      : mapped;
   },
   provide: (field) => EditorView.decorations.from(field),
 });
@@ -69,7 +87,7 @@ export function highlightAudition(view: EditorView, range: { from: number; to: n
 
 /** Drop mini-notation highlights, e.g. after swapping a song's state into the view. */
 export function clearHighlights(view: EditorView): void {
-  updateMiniLocations(view, []);
+  view.dispatch({ effects: [setMiniLocations.of([]), auditionLocation.of(null)] });
 }
 
 /**
