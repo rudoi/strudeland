@@ -1,4 +1,5 @@
 import { claudeMark } from './claude-mark';
+import { inspectNoteAudition, type NoteAuditionEdit } from './note-audition';
 import { registerStrudelandSettings, STRUDELAND_THEME } from './theme';
 import { exitInsert } from './vim-mode';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
@@ -45,6 +46,10 @@ export interface EditorHooks {
   onEvaluate?: () => void;
   /** Any transaction that changes the document. */
   onDocChange?: () => void;
+  /** Whether to inspect editor updates for an audition; read before parsing. */
+  auditionEnabled?: () => boolean;
+  /** A typed pitch or delimiter, or null when the edit invalidates a pending pitch. */
+  onAuditionEdit?: (edit: NoteAuditionEdit | null) => void;
   /** Whether new states start with vim keybindings; read for each new state. Default: off. */
   vim?: () => boolean;
 }
@@ -117,6 +122,19 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     drawSelection({ cursorBlinkRate: 0 }),
     strudelKeymap(runtime, hooks),
     ...(hooks?.onDocChange ? [docChangeListener(hooks.onDocChange)] : []),
+    ...(hooks?.onAuditionEdit
+      ? [
+          EditorView.updateListener.of((update) => {
+            if (!hooks.auditionEnabled?.() || (!update.docChanged && !update.selectionSet)) return;
+            const [transaction] = update.transactions;
+            hooks.onAuditionEdit?.(
+              update.docChanged && update.transactions.length === 1
+                ? inspectNoteAudition(transaction)
+                : null,
+            );
+          }),
+        ]
+      : []),
     claudeMark,
   ];
 }

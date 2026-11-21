@@ -28861,6 +28861,9 @@ Please check with "npm ls @strudel/core".`);
     }
     let queue = Promise.resolve();
     let queued = 0;
+    let starts = 0;
+    let auditionResume;
+    const canAudition = () => !state2.started && queued === 0 && starts === 0;
     return {
       scheduler: r.scheduler,
       store: {
@@ -28875,6 +28878,7 @@ Please check with "npm ls @strudel/core".`);
           patch({ evalError: "Nothing to evaluate: the editor is empty." });
           return Promise.resolve(false);
         }
+        opts.hooks?.onPlaybackRequest?.();
         const tempo = {
           cps: evalOpts?.cps ?? defaultCps,
           meter: evalOpts?.meter ?? DEFAULT_METER,
@@ -28931,10 +28935,33 @@ Please check with "npm ls @strudel/core".`);
         queue = run2.catch(() => {});
         return run2;
       },
-      stop: () => void stop(),
-      start,
+      stop() {
+        opts.hooks?.onPlaybackRequest?.();
+        stop();
+      },
+      start(startOpts) {
+        opts.hooks?.onPlaybackRequest?.();
+        starts++;
+        return start(startOpts).finally(() => starts--);
+      },
       cycleTime,
       resumeAudio,
+      canAudition,
+      prepareAudition() {
+        if (!canAudition())
+          return Promise.resolve(false);
+        const backend = opts.backends.superdough;
+        return auditionResume ??= (async () => {
+          const ready = await (active() === backend ? resumeAudio() : resumeBackend(backend));
+          if (!ready)
+            return false;
+          await Promise.all([backend.init(), ensurePrebaked()]);
+          return true;
+        })().catch((error) => {
+          console.error(error);
+          return false;
+        }).finally(() => auditionResume = undefined);
+      },
       transport,
       position,
       query,

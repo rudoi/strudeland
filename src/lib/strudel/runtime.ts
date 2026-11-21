@@ -127,6 +127,8 @@ export interface RuntimeHooks {
   beforeEval?: () => void | Promise<void>;
   afterEval?: (r: { code: string; pattern: any; meta: any }) => void;
   onToggle?: (started: boolean) => void;
+  /** Called synchronously when evaluation, playback or stop is requested. */
+  onPlaybackRequest?: () => void;
   /** Called for every scheduled hap, before it is routed. Synchronous; a throw is logged only. */
   onSchedule?: (hap: Hap, t: number, cps: number, route: ScheduleRoute) => void;
 }
@@ -157,6 +159,10 @@ export interface Runtime {
   cycleTime(cycle: number): number | null;
   /** Call from a user gesture. Resolves true iff audio is running. Never throws. */
   resumeAudio(): Promise<boolean>;
+  /** Whether a stopped editor may audition a note on its own audio graph. */
+  canAudition(): boolean;
+  /** Prepares the preview graph and shared synth registry. Call from a user gesture. */
+  prepareAudition(): Promise<boolean>;
   /** Start-from, loop and release for `song()`; reset to the start on every stop. */
   readonly transport: Transport;
   /** The scheduler's cycle (clamped >= 0) and where the evaluated song is at it. */
@@ -780,6 +786,9 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   let queue: Promise<unknown> = Promise.resolve();
   /** Evaluates called and not finished: an engine switch waits for them (one may revert it). */
   let queued = 0;
+  let starts = 0;
+  let auditionResume: Promise<boolean> | undefined;
+  const canAudition = () => !state.started && queued === 0 && starts === 0;
 
   return {
     scheduler: r.scheduler,
@@ -795,6 +804,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         patch({ evalError: 'Nothing to evaluate: the editor is empty.' });
         return Promise.resolve(false);
       }
+      opts.hooks?.onPlaybackRequest?.();
       const tempo = {
         cps: evalOpts?.cps ?? defaultCps,
         meter: evalOpts?.meter ?? DEFAULT_METER,
@@ -858,10 +868,33 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       queue = run.catch(() => {});
       return run;
     },
-    stop: () => void stop(),
-    start,
+    stop() {
+      opts.hooks?.onPlaybackRequest?.();
+      stop();
+    },
+    start(startOpts) {
+      opts.hooks?.onPlaybackRequest?.();
+      starts++;
+      return start(startOpts).finally(() => starts--);
+    },
     cycleTime,
     resumeAudio,
+    canAudition,
+    prepareAudition() {
+      if (!canAudition()) return Promise.resolve(false);
+      const backend = opts.backends.superdough;
+      return (auditionResume ??= (async () => {
+        const ready = await (active() === backend ? resumeAudio() : resumeBackend(backend));
+        if (!ready) return false;
+        await Promise.all([backend.init(), ensurePrebaked()]);
+        return true;
+      })()
+        .catch((error) => {
+          console.error(error);
+          return false;
+        })
+        .finally(() => (auditionResume = undefined)));
+    },
     transport,
     position,
     query,

@@ -18,6 +18,8 @@ function fakeRuntime() {
       evaluate: async (c: string) => (calls.push('eval:' + c), true),
       stop: () => void calls.push('stop'),
       resumeAudio: async () => true,
+      canAudition: () => true,
+      prepareAudition: async () => true,
       start: async () => true,
       cycleTime: () => null,
       transport: {

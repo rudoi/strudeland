@@ -120,14 +120,14 @@
   onDestroy(() => app.destroy());
   import.meta.hot?.dispose(() => app.destroy());
 
-  // Gesture rule: every pointerdown/keydown makes sure audio runs (a no-op when it does).
-  function onGesture() {
-    void app.runtime.resumeAudio();
+  // Unlock the editor's preview graph on its own gestures. Other gestures resume song audio.
+  function onGesture(event: Event) {
+    if (!app.prepareNoteAudition(event.target)) void app.runtime.resumeAudio();
   }
 
   // Capture app shortcuts before the editor can consume Ctrl-O or Ctrl-N in Vim mode.
   function onKeydown(e: KeyboardEvent) {
-    onGesture();
+    onGesture(e);
     if (e.defaultPrevented) return;
     const shortcut = matchShortcut(e, shortcutModifier);
     if (!shortcut) return;
