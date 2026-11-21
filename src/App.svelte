@@ -122,6 +122,8 @@
 
   // Unlock the editor's preview graph on its own gestures. Other gestures resume song audio.
   function onGesture(event: Event) {
+    if (event.target instanceof Element && event.target.closest('[data-note-audition-toggle]'))
+      return;
     if (!app.prepareNoteAudition(event.target)) void app.runtime.resumeAudio();
   }
 

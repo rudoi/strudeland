@@ -65,7 +65,7 @@
 </script>
 
 <footer>
-  <label class="audition">
+  <label class="audition" data-note-audition-toggle>
     <input
       type="checkbox"
       checked={$ps.auditionNotes}
