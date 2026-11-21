@@ -1,5 +1,5 @@
-import type { EditorState } from '@codemirror/state';
-import type { EditorView } from '@codemirror/view';
+import { StateEffect, StateField, type EditorState } from '@codemirror/state';
+import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
 import {
   highlightMiniLocations,
   updateMiniLocations,
@@ -37,6 +37,35 @@ export interface VisualsOptions {
 
 /** Painters need history and lookahead; without any, only the present moment is drawn. */
 export const PAINTER_DRAW_TIME: DrawTime = [-2, 2];
+
+const auditionLocation = StateEffect.define<{ from: number; to: number } | null>();
+const soundingNote = Decoration.mark({
+  class: 'cm-audition-note',
+  attributes: { style: 'outline: solid 2px var(--foreground)' },
+});
+export const auditionHighlight = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    if (transaction.docChanged) return Decoration.none;
+    for (const effect of transaction.effects) {
+      if (!effect.is(auditionLocation)) continue;
+      const range = effect.value;
+      return range ? Decoration.set(soundingNote.range(range.from, range.to)) : Decoration.none;
+    }
+    return value;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+/** Outline an unsaved note without replacing the evaluated song's mini locations. */
+export function highlightAudition(view: EditorView, range: { from: number; to: number }) {
+  view.dispatch({ effects: auditionLocation.of(range) });
+  return () => {
+    if (view.state.field(auditionHighlight, false)?.size) {
+      view.dispatch({ effects: auditionLocation.of(null) });
+    }
+  };
+}
 
 /** Drop mini-notation highlights, e.g. after swapping a song's state into the view. */
 export function clearHighlights(view: EditorView): void {

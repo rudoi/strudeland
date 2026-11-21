@@ -4,6 +4,8 @@
 
 With **Audition notes** enabled, type `g3` in a Strudel note pattern and hear a short G3 on that pattern’s instrument while the song is stopped. The editor and transport stay where they are. This works on unsaved text, including a song that has never been played.
 
+Use the same default outline as Strudel playback to mark the auditioned token while its preview voice sounds. Start the outline after audio connects and clear it when preview audio ends or is cancelled. The outline belongs to the current editor document, independently of the locations recorded by the last evaluation.
+
 ## Scope
 
 Place a labeled checkbox in [StatusBar.svelte](../../src/components/StatusBar.svelte), beneath the editor. Keep it unchecked by default and remember the preference across desktop launches. “Selected voice” means the pattern being edited, including separate voices in a stack or song section. The checkbox remains available during playback.

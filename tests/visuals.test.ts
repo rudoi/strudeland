@@ -5,8 +5,14 @@ GlobalRegistrator.register();
 afterAll(() => GlobalRegistrator.unregister());
 
 const { EditorView } = await import('@codemirror/view');
-const { createVisuals, PAINTER_DRAW_TIME } = await import('../src/lib/editor/visuals');
-const { attachState, clearHighlights } = await import('../src/lib/editor/visuals');
+const {
+  auditionHighlight,
+  attachState,
+  clearHighlights,
+  createVisuals,
+  highlightAudition,
+  PAINTER_DRAW_TIME,
+} = await import('../src/lib/editor/visuals');
 const { EditorState } = await import('@codemirror/state');
 const { highlightExtension, highlightMiniLocations, updateMiniLocations } =
   await import('@strudel/codemirror');
@@ -100,6 +106,35 @@ const located = (start: number, end: number) => ({
   value: {},
   whole: { begin: 0 },
   context: { locations: [{ start, end }] },
+});
+
+test('unsaved audition outlines the exact token and leaves playback locations available', () => {
+  const doc = 'note("c3 g3")';
+  const view = new EditorView({
+    doc,
+    extensions: [highlightExtension, auditionHighlight],
+    parent: document.body,
+  });
+  updateMiniLocations(view, [[6, 8]]);
+
+  const clear = highlightAudition(view, { from: 9, to: 11 });
+  const outlined = view.dom.querySelector<HTMLElement>('.cm-audition-note');
+  expect(outlined?.textContent).toBe('g3');
+  const auditionStyle = outlined?.getAttribute('style');
+  expect(auditionStyle).toContain('var(--foreground)');
+  clear();
+  expect(view.dom.querySelector('.cm-audition-note')).toBeNull();
+
+  highlightMiniLocations(view, 0, [located(6, 8)]);
+  expect(highlighted(view)).toEqual([[6, 8]]);
+  const playbackMark = view.contentDOM.querySelector('span[style*="outline"]');
+  expect(playbackMark?.textContent).toBe('c3');
+  expect(playbackMark?.getAttribute('style')).toBe(auditionStyle);
+  highlightAudition(view, { from: 9, to: 11 });
+  view.dispatch({ changes: { from: 9, to: 11, insert: 'b3' } });
+  expect(view.dom.querySelector('.cm-audition-note')).toBeNull();
+  expect(highlighted(view)).toEqual([[6, 8]]);
+  view.destroy();
 });
 
 test('clearHighlights drops the mini-notation locations', () => {

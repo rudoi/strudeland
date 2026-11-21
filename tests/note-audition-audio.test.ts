@@ -56,20 +56,25 @@ test('a replacement cuts the sounding voice and an old ended event cannot cancel
       return handle;
     },
   });
-  await player.play(note);
+  const clearFirst = mock();
+  const clearSecond = mock();
+  await player.play(note, () => clearFirst);
   const firstOutput = audio.gains()[1];
   audio.setTime(4);
-  await player.play({ ...note, controls: { gain: 0.25 } });
+  await player.play({ ...note, controls: { gain: 0.25 } }, () => clearSecond);
   const secondOutput = audio.gains()[3];
   expect((secondOutput as unknown as GainNode).gain.value).toBe(0.125);
   expect(firstOutput.disconnected).toBe(true);
   expect(handles[0].stop).toHaveBeenCalledWith(4);
   triggers[0]();
   expect(secondOutput.disconnected).toBe(false);
+  expect(clearFirst).toHaveBeenCalledTimes(1);
+  expect(clearSecond).not.toHaveBeenCalled();
   player.stop();
   player.stop();
   expect(secondOutput.disconnected).toBe(true);
   expect(handles[1].stop).toHaveBeenCalledTimes(1);
+  expect(clearSecond).toHaveBeenCalledTimes(1);
 });
 
 for (const change of ['stop', 'supersede', 'rebuild graph'] as const) {
@@ -84,7 +89,8 @@ for (const change of ['stop', 'supersede', 'rebuild graph'] as const) {
       graph: () => graph,
       lookup: (name) => () => (name === 'sine' ? second : pending),
     });
-    const playing = player.play(note);
+    const onSounding = mock();
+    const playing = player.play(note, onSounding);
     if (change === 'stop') player.stop();
     if (change === 'supersede') await player.play({ ...note, sound: 'sine' });
     if (change === 'rebuild graph') graph = fakeAudioGraph().graph;
@@ -92,6 +98,7 @@ for (const change of ['stop', 'supersede', 'rebuild graph'] as const) {
     await playing;
     expect(audio.gains()[0].connects).toEqual([]);
     expect(first.stop).toHaveBeenCalledTimes(1);
+    expect(onSounding).not.toHaveBeenCalled();
     expect(audio.destination.connects).toHaveLength(change === 'supersede' ? 1 : 0);
     player.stop();
     if (change === 'supersede') expect(second.stop).toHaveBeenCalledTimes(1);
@@ -114,6 +121,22 @@ test('invalid pitches, unsupported names, absent graph and unavailable worklets 
   await player.play(note);
   expect(trigger).toHaveBeenCalledTimes(1);
   expect(audio.destination.connects).toHaveLength(0);
+});
+
+test('shows the outline only for an audible connected voice and clears it on natural end', async () => {
+  const audio = fakeAudioGraph();
+  const trigger = mock((_when, _value, _ended: () => void) => synth(audio.graph.context));
+  const player = createNoteAuditionPlayer({ graph: () => audio.graph, lookup: () => trigger });
+  const clear = mock();
+  const onSounding = mock(() => clear);
+  await player.play({ ...note, controls: { gain: 0 } }, onSounding);
+  expect(onSounding).not.toHaveBeenCalled();
+  await player.play(note, onSounding);
+  expect(onSounding).toHaveBeenCalledTimes(1);
+  expect(clear).not.toHaveBeenCalled();
+  trigger.mock.calls[1][2]();
+  player.stop();
+  expect(clear).toHaveBeenCalledTimes(1);
 });
 
 test('a registered built-in name that a song subsequently redefines stays silent', async () => {

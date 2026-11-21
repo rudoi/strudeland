@@ -13,7 +13,7 @@ import { createControlHandler, replyTo, type ControlHandler } from './control/ha
 import type { ControlInfo, ControlRequest } from './control/protocol';
 import { createEditorState, setKeymap, withKeymap, type EditorHooks } from './editor/setup';
 import { createVimMode, defineVimWrite, type VimMode } from './editor/vim-mode';
-import { createVisuals } from './editor/visuals';
+import { createVisuals, highlightAudition } from './editor/visuals';
 import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
 import { createPrefs, type PrefsStore } from './prefs/store';
 import { createTauriProjectApi, type ProjectApi } from './project/api';
@@ -125,7 +125,15 @@ export function createApp(
   const audition = createAuditionQueue({
     eligible: canAudition,
     prepare: runtime.prepareAudition,
-    play: player.play,
+    play(note) {
+      const editor = view;
+      const doc = editor?.state.doc;
+      void player.play(note, () => {
+        if (editor && view === editor && editor.state.doc === doc) {
+          return highlightAudition(editor, note);
+        }
+      });
+    },
     stop: player.stop,
   });
   function evaluateDoc(): void {

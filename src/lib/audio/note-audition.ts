@@ -51,14 +51,21 @@ export function createNoteAuditionPlayer(deps: {
     cancelVoice?.();
   }
 
-  async function play({ pitch, sound, controls }: AuditionRequest): Promise<void> {
+  async function play(
+    { pitch, sound, controls }: AuditionRequest,
+    onSounding?: () => (() => void) | undefined,
+  ): Promise<void> {
     stop();
     let graph: AudioGraph | null = null;
     let output: GainNode | undefined;
     let handle: SynthHandle | undefined;
+    let clearHighlight: (() => void) | undefined;
     function ended(): void {
       if (cancelVoice === cancel) cancelVoice = undefined;
       output?.disconnect();
+      const clear = clearHighlight;
+      clearHighlight = undefined;
+      clear?.();
     }
     function cancel(): void {
       ended();
@@ -90,6 +97,7 @@ export function createNoteAuditionPlayer(deps: {
       output.gain.value = 0.5 * Math.min(1, Math.max(0, gain));
       handle.node.connect(output);
       output.connect(graph.destination);
+      if (output.gain.value > 0) clearHighlight = onSounding?.();
     } catch {
       // Preview is best effort while the graph is being rebuilt or a worklet is unavailable.
       cancel();
