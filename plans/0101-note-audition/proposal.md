@@ -6,7 +6,7 @@ With **Audition notes** enabled, type `g3` in a Strudel note pattern and hear a 
 
 ## Scope
 
-Place a labeled checkbox near Play and Stop in [Toolbar.svelte](../../src/components/Toolbar.svelte). Keep it unchecked by default and remember the preference across desktop launches. “Selected voice” means the pattern being edited, including separate voices in a stack or song section. The checkbox remains available during playback.
+Place a labeled checkbox in [StatusBar.svelte](../../src/components/StatusBar.svelte), beneath the editor. Keep it unchecked by default and remember the preference across desktop launches. “Selected voice” means the pattern being edited, including separate voices in a stack or song section. The checkbox remains available during playback.
 
 Start with explicit-octave pitch names in mini-notation, including accidentals and chords. Support `note("g3").s("supersaw")` and `s("sine*4").note("g3")`, including the `sound` alias. These cover the forms in the [project templates](../../crates/strudeland-project/src/template.rs). An unambiguous note pattern that omits the sound uses the existing triangle default.
 
@@ -37,10 +37,12 @@ Cover typed completion and replacement, chord atoms, invalid notes, modifier arg
 
 The first pass favors predictable local voice resolution. A reusable instrument function or a sample-based line stays silent. Confirm whether sample instruments or project instrument helpers are needed for the first release, since they change how the preview voice is resolved and loaded.
 
-The proposed typing pause makes `g3` audible without requiring a space or cursor movement. Refine the timing by ear with rapid entry and Vim insert mode. Confirm whether the toolbar placement and default-off preference fit the intended workflow.
+The proposed typing pause makes `g3` audible without requiring a space or cursor movement. Refine the timing by ear with rapid entry and Vim insert mode.
 
 Recommended workflow complexity is medium. Skip Fracture, verify the editor and audio contracts during Singletonize, and do a light Loss Check before sequencing.
 
 ## Refinement decisions
 
 The first release uses the pattern at the edit site, with one fixed synth and explicit octave. Use approximately 120 ms to settle a typed pitch and a roughly 160 ms preview gate, with a short bounded release. Accept a delimiter as confirmation only when a candidate is pending. Reuse the existing shared bootstrap and master graph, including when the song is configured for Rust. A pending preview belongs to the active editor buffer and is invalidated on a buffer change, transport start request, or recording/memo activity. Skill-driven refinement confirmed these defaults for implementation.
+
+The first smoke capture showed that a toolbar checkbox crowded the scope and backend indicator at the default window width. The status bar has room for this editor preference and keeps playback controls in view.
