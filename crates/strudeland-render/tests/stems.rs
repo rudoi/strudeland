@@ -100,8 +100,12 @@ fn a_competing_manifest_leaves_published_files_and_reports_the_conflict() {
         }
         recorder.record(event);
     });
-    assert!(matches!(result, Err(RenderError::Io { path, source })
-        if path == manifest && source.kind() == std::io::ErrorKind::AlreadyExists));
+    let error = result.expect_err("a competing manifest must prevent completion");
+    assert!(
+        matches!(&error, RenderError::Io { path, source }
+            if path == &manifest && source.kind() == std::io::ErrorKind::AlreadyExists),
+        "{error:?}"
+    );
     assert_eq!(fs::read(&manifest).unwrap(), b"competing file");
     let written: Vec<_> = recorder
         .events()

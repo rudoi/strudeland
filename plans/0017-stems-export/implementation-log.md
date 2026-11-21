@@ -18,3 +18,5 @@
 ## Review
 
 Independent simplify and high-thoroughness correctness passes covered the engine, pipeline, project storage, CLI and desktop interfaces. Review fixes cover folded-channel cancellation, three-scale cancellation, a directory swap between files, and a move during temporary file writing. Follow-up review checked the fixes and the platform guards. Main advanced by an ignore-file update during development. Rebase left the reviewed code diff unchanged.
+
+During finalization, Windows CI surfaced a mismatch between the canonical write path and the requested path in a manifest collision error. The Windows writer still uses the canonical directory. It now reports member I/O errors at the requested path while preserving the underlying error.

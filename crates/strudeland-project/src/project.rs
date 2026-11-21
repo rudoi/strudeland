@@ -115,6 +115,10 @@ impl RenderSet {
         let result = write_and_publish(&self.canonical.join(name), bytes, |from, to| {
             self.check_identity()?;
             move_noreplace(from, to)
+        })
+        .map_err(|error| match error {
+            ProjectError::Io { source, .. } => ProjectError::io(&path, source),
+            other => other,
         });
         #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         let result = {

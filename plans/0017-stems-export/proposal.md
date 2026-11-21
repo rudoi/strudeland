@@ -1,5 +1,7 @@
 # Task 17 — Stems export
 
+Implemented in the CLI and desktop Export Audio dialog.
+
 ## Goal
 
 Export a stereo reference mix and a set of stereo stems from the Rust renderer. Every file in the set starts at the same song position and has the same sample rate and frame count. A DAW can import the set at one position, and the unity-gain sum of the stems reproduces the reference mix within floating-point rounding.
