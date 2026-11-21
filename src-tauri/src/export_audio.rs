@@ -12,8 +12,9 @@ use strudeland_project::{
 };
 use strudeland_render::output::{export_suffix, render_suffix};
 use strudeland_render::{
-    EncoderOptions, ExportFile, ExportPreset, ExportRole, Format, LengthRequest, Loudness,
-    MAX_BARS, OutputOptions, Progress, RenderOptions, render, render_export,
+    BitDepth, EncoderOptions, ExportFile, ExportPreset, ExportRole, Format, LengthRequest,
+    Loudness, MAX_BARS, OutputOptions, Progress, RenderOptions, StemGrouping, StemTarget, render,
+    render_export, render_stems, resolve_project_stem_output, resolve_stem_output_in,
 };
 use tauri::{Manager, State, WebviewWindow, ipc::Channel};
 use tauri_plugin_dialog::{
@@ -67,6 +68,7 @@ pub struct ExportRequest {
     folder: Option<PathBuf>,
     format: Format,
     preset: Option<ExportPreset>,
+    stems: Option<StemGrouping>,
     length: LengthRequest,
 }
 
@@ -78,6 +80,32 @@ pub struct PreviewFile {
     exists: bool,
 }
 
+/// A mix previews its individual paths. Stems are discovered during planning, so only
+/// their common directory is available when the dialog opens.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ExportPreview {
+    Mix(Vec<PreviewFile>),
+    Stems { directory: PathBuf },
+}
+
+#[derive(Debug)]
+enum Targets {
+    Mix(Vec<PreviewFile>),
+    Stems(StemGrouping, StemTarget),
+}
+
+impl Targets {
+    fn preview(&self) -> ExportPreview {
+        match self {
+            Self::Mix(files) => ExportPreview::Mix(files.clone()),
+            Self::Stems(_, target) => ExportPreview::Stems {
+                directory: target.path().into(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FinishedFile {
@@ -87,9 +115,17 @@ pub struct FinishedFile {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ExportResult {
-    files: Vec<FinishedFile>,
-    warnings: Vec<String>,
+#[serde(untagged)]
+pub enum ExportResult {
+    Mix {
+        files: Vec<FinishedFile>,
+        warnings: Vec<String>,
+    },
+    Stems {
+        directory: PathBuf,
+        paths: Vec<PathBuf>,
+        warnings: Vec<String>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -129,11 +165,7 @@ impl From<Progress> for ExportProgress {
 }
 
 impl ExportRequest {
-    fn targets(
-        &self,
-        project: &Project,
-        state: &ExportState,
-    ) -> Result<Vec<PreviewFile>, ExportError> {
+    fn targets(&self, project: &Project, state: &ExportState) -> Result<Targets, ExportError> {
         match &self.length {
             LengthRequest::Clip { loops: None } => (),
             _ if self
@@ -147,13 +179,25 @@ impl ExportRequest {
             _ => return Err(problem("choose a valid clip, section, or length in bars")),
         }
         let song = project.resolve(&self.song_path).map_err(problem)?;
+        if let Some(folder) = &self.folder {
+            state.check_folder(folder)?;
+        }
+        if let Some(grouping) = self.stems {
+            if self.preset.is_some() || self.format != Format::Wav {
+                return Err(problem("stem sets require a standard range and WAV format"));
+            }
+            let target = match &self.folder {
+                Some(folder) => resolve_stem_output_in(folder, &song, &self.length),
+                None => resolve_project_stem_output(project, &song, &self.length),
+            }
+            .map_err(problem)?;
+            target.check_available().map_err(problem)?;
+            return Ok(Targets::Stems(grouping, target));
+        }
         let stem = song
             .file_stem()
             .and_then(|s| s.to_str())
             .ok_or_else(|| problem("invalid song filename"))?;
-        if let Some(folder) = &self.folder {
-            state.check_folder(folder)?;
-        }
 
         let roles: &[ExportRole] = match self.preset {
             Some(ExportPreset::IntroLoop) => &[ExportRole::Intro, ExportRole::Loop],
@@ -181,24 +225,38 @@ impl ExportRequest {
                 let exists = render_exists(&path).map_err(problem)?;
                 Ok(PreviewFile { role, path, exists })
             })
-            .collect()
+            .collect::<Result<_, _>>()
+            .map(Targets::Mix)
     }
 
-    fn render(
-        &self,
-        source: &str,
-        progress: &dyn Fn(Progress),
-    ) -> Result<Vec<ExportFile>, ExportError> {
-        let options = RenderOptions {
+    fn options(&self) -> RenderOptions {
+        RenderOptions {
             length: self.length.clone(),
             jobs: None,
             plan_timeout: Some(Duration::from_secs(120)),
             include_events: false,
-            output: OutputOptions {
-                loudness: Loudness::default(),
-                encoder: EncoderOptions::default_for(self.format),
+            output: if self.stems.is_some() {
+                OutputOptions {
+                    loudness: Loudness::Off,
+                    encoder: EncoderOptions::Wav {
+                        bit_depth: BitDepth::F32,
+                    },
+                }
+            } else {
+                OutputOptions {
+                    loudness: Loudness::default(),
+                    encoder: EncoderOptions::default_for(self.format),
+                }
             },
-        };
+        }
+    }
+
+    fn render_mix(
+        &self,
+        source: &str,
+        progress: &dyn Fn(Progress),
+    ) -> Result<Vec<ExportFile>, ExportError> {
+        let options = self.options();
         if let Some(preset) = self.preset {
             render_export(source, &options, preset, progress).map_err(problem)
         } else {
@@ -238,11 +296,11 @@ fn checked_targets(
     projects: &ProjectState,
     state: &ExportState,
     request: &ExportRequest,
-    preview: &[PreviewFile],
-) -> Result<(Arc<Project>, Vec<PreviewFile>), ExportError> {
+    preview: &ExportPreview,
+) -> Result<(Arc<Project>, Targets), ExportError> {
     let project = projects.current_for(&request.root).map_err(problem)?;
     let targets = request.targets(&project, state)?;
-    if targets != preview {
+    if &targets.preview() != preview {
         return Err(problem(
             "the output files changed; review the new preview before exporting",
         ));
@@ -255,16 +313,37 @@ fn run(
     state: &ExportState,
     request: &ExportRequest,
     source: &str,
-    preview: &[PreviewFile],
+    preview: &ExportPreview,
     replacement_approved: bool,
     progress: &dyn Fn(ExportProgress),
 ) -> Result<ExportResult, ExportError> {
     let (project, targets) = checked_targets(projects, state, request, preview)?;
+    let targets = match targets {
+        Targets::Mix(files) => files,
+        Targets::Stems(grouping, target) => {
+            let written = std::cell::RefCell::new(Vec::new());
+            let set = render_stems(source, &request.options(), grouping, &target, &|event| {
+                if let Progress::Written { path } = &event {
+                    written.borrow_mut().push(path.clone());
+                }
+                progress(event.into());
+            })
+            .map_err(|error| ExportError {
+                message: error.to_string(),
+                written: written.into_inner(),
+            })?;
+            return Ok(ExportResult::Stems {
+                directory: set.directory,
+                paths: set.files,
+                warnings: set.summary.warnings,
+            });
+        }
+    };
     if !replacement_approved && targets.iter().any(|file| file.exists) {
         return Err(problem("replacement requires confirmation"));
     }
 
-    let rendered = request.render(source, &|p| progress(p.into()))?;
+    let rendered = request.render_mix(source, &|p| progress(p.into()))?;
     if !rendered
         .iter()
         .map(|f| f.role)
@@ -296,7 +375,7 @@ fn run(
             }
         }
     }
-    Ok(ExportResult { files, warnings })
+    Ok(ExportResult::Mix { files, warnings })
 }
 
 #[tauri::command]
@@ -333,9 +412,9 @@ pub async fn export_audio_preview(
     projects: State<'_, ProjectState>,
     state: State<'_, ExportState>,
     request: ExportRequest,
-) -> Result<Vec<PreviewFile>, ExportError> {
+) -> Result<ExportPreview, ExportError> {
     let project = projects.current_for(&request.root).map_err(problem)?;
-    request.targets(&project, &state)
+    Ok(request.targets(&project, &state)?.preview())
 }
 
 const REPLACE: &str = "Replace";
@@ -370,21 +449,24 @@ pub async fn export_audio_start(
     window: WebviewWindow,
     request: ExportRequest,
     source: String,
-    preview: Vec<PreviewFile>,
+    preview: ExportPreview,
     on_progress: Channel<ExportProgress>,
 ) -> Result<Option<ExportResult>, ExportError> {
     let permit = window.state::<ExportState>().reserve()?;
-    let (_, targets) = checked_targets(
+    checked_targets(
         &window.state::<ProjectState>(),
         &window.state::<ExportState>(),
         &request,
         &preview,
     )?;
-    let existing: Vec<_> = targets
-        .iter()
-        .filter(|file| file.exists)
-        .map(|file| file.path.display().to_string())
-        .collect();
+    let existing: Vec<_> = match &preview {
+        ExportPreview::Mix(files) => files
+            .iter()
+            .filter(|file| file.exists)
+            .map(|file| file.path.display().to_string())
+            .collect(),
+        ExportPreview::Stems { .. } => Vec::new(),
+    };
     let mut replacement_approved = false;
     if !existing.is_empty() {
         let _ = on_progress.send(ExportProgress::Confirming);
@@ -401,7 +483,7 @@ pub async fn export_audio_start(
             &window.state::<ExportState>(),
             &request,
             &source,
-            &targets,
+            &preview,
             replacement_approved,
             &|event| {
                 let _ = on_progress.send(event);
@@ -443,6 +525,7 @@ mod tests {
                 format: Format::Wav,
                 folder: None,
                 preset: Some(ExportPreset::IntroLoop),
+                stems: None,
                 length: LengthRequest::Clip { loops: None },
             };
             Self {
@@ -455,7 +538,10 @@ mod tests {
         }
 
         fn preview(&self) -> Vec<PreviewFile> {
-            self.request.targets(&self.project, &self.state).unwrap()
+            match self.request.targets(&self.project, &self.state).unwrap() {
+                Targets::Mix(files) => files,
+                _ => panic!("expected mix files"),
+            }
         }
 
         fn run(
@@ -470,7 +556,7 @@ mod tests {
                 &self.state,
                 &self.request,
                 source,
-                preview,
+                &ExportPreview::Mix(preview.to_owned()),
                 replacement_approved,
                 progress,
             )
@@ -614,6 +700,108 @@ mod tests {
     const INTRO_BODY: &str = "const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'intro', bars: 1 }, { name: 'body', bars: 1, loop: true }] };\nsong(meta, { intro: note('a3').s('sine'), body: note('a4').s('sine') })";
 
     #[test]
+    fn stem_preview_rejects_incompatible_settings_and_occupied_destinations() {
+        let mut f = Fixture::new();
+        f.request.stems = Some(StemGrouping::Voice);
+        assert!(f.request.targets(&f.project, &f.state).is_err(), "preset");
+        f.request.preset = None;
+        f.request.format = Format::Ogg;
+        assert!(
+            f.request.targets(&f.project, &f.state).is_err(),
+            "compressed format"
+        );
+        f.request.format = Format::Wav;
+        // The editor still holds the buffer after an external deletion.
+        fs::remove_file(f.project.resolve(&f.request.song_path).unwrap()).unwrap();
+        let preview = f.request.targets(&f.project, &f.state).unwrap().preview();
+        let ExportPreview::Stems { directory } = &preview else {
+            panic!("expected stem set")
+        };
+        assert_eq!(directory, &f.project.root().join("renders/main-stems"));
+        assert!(!directory.exists());
+        fs::create_dir(directory).unwrap();
+        let marker = directory.join("keep");
+        fs::write(&marker, "original").unwrap();
+        assert!(
+            run(
+                &f.projects,
+                &f.state,
+                &f.request,
+                "unreachable",
+                &preview,
+                true,
+                &|_| panic!()
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read(marker).unwrap(), b"original");
+        f.pick();
+        let picked = f.request.targets(&f.project, &f.state).unwrap().preview();
+        assert_eq!(
+            picked,
+            ExportPreview::Stems {
+                directory: f.request.folder.unwrap().join("main-stems")
+            }
+        );
+    }
+
+    #[test]
+    fn stem_export_lists_written_paths_and_reports_collisions_after_publication() {
+        let mut f = Fixture::new();
+        f.request.preset = None;
+        f.request.stems = Some(StemGrouping::Orbit);
+        for collision in [false, true] {
+            if collision {
+                f.pick();
+            }
+            let preview = f.request.targets(&f.project, &f.state).unwrap().preview();
+            let ExportPreview::Stems { directory } = &preview else {
+                panic!("expected stem set")
+            };
+            let manifest = directory.join("stems.json");
+            let published = RefCell::new(Vec::new());
+            let result = run(
+                &f.projects,
+                &f.state,
+                &f.request,
+                BODY,
+                &preview,
+                false,
+                &|event| {
+                    if let ExportProgress::Written { path } = event {
+                        published.borrow_mut().push(path);
+                        if collision && published.borrow().len() == 1 {
+                            fs::write(&manifest, b"competing file").unwrap();
+                        }
+                    }
+                },
+            );
+            let published = published.into_inner();
+            if collision {
+                let error = result.unwrap_err();
+                assert!(!published.is_empty());
+                assert_eq!(error.written, published);
+                assert_eq!(fs::read(&manifest).unwrap(), b"competing file");
+            } else {
+                let ExportResult::Stems {
+                    directory: finished,
+                    paths,
+                    ..
+                } = result.unwrap()
+                else {
+                    panic!("expected stems")
+                };
+                assert_eq!(finished, *directory);
+                assert_eq!(paths, published);
+                assert_eq!(paths.last(), Some(&manifest));
+                assert!(paths.contains(&directory.join("mix.wav")));
+                assert!(paths.len() >= 3);
+                assert!(paths.iter().all(|file| file.is_file()));
+            }
+        }
+    }
+
+    #[test]
     fn split_wavs_include_the_first_pass_and_encoded_loop_markers() {
         let f = Fixture::new();
         for (source, opening_frames, approve_replacement) in
@@ -626,7 +814,10 @@ mod tests {
                     events.borrow_mut().push(event)
                 })
                 .unwrap();
-            let [opening, repeat] = &result.files[..] else {
+            let ExportResult::Mix { files, .. } = result else {
+                panic!("expected mix result")
+            };
+            let [opening, repeat] = &files[..] else {
                 panic!("expected two files");
             };
             assert_eq!(opening.role, ExportRole::Intro);

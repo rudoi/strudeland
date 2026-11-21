@@ -34,6 +34,7 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Check the live player's dropout budget (release, a dense pattern through the real-time fake output under load: zero underruns and zero late haps) | `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture` |
 | Measure the live batch decode cost at 1/16/64/256 haps per batch (JSON to values and haps; prints a table; the app side is the invoke round trip in `strudeland state`) | `cargo test --release -p strudeland-live --test ipc_decode -- --ignored --nocapture` |
 | Render a song file to audio (offline, no app needed; defaults -23 LUFS (EBU R128), -1 dBTP, wav 24-bit; exit 1 render failed, 4 bad length request) | `cargo run -p strudeland-cli -- render <song> [--out PATH] [--format F] [--preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` |
+| Export an aligned pre-master mix and stereo float WAV stems (new directory in the project's renders folder by default) | `cargo run -p strudeland-cli -- render <song> --stems orbit\|voice\|instrument [--out DIR] [--section NAME \| --length N] [--loops N] [--jobs N] [--plan-timeout SECS]` |
 | List a project's voice memos / show one's timing (offline; project from --project, the cwd, then the running app; exit 1 not found or bad sidecar, 4 no project) | `cargo run -p strudeland-cli -- memo list [--project DIR]`, `… -- memo show <name> [--project DIR]` |
 | Transcribe a voice memo to Strudel code (offline; project as for memo; exit 1 not found, bad sidecar or unreadable WAV, 4 usage: bad flags, no project, `--bars` without a known grid, a grid that does not divide the bar, `--debug` without `--json`, a memo over 10 minutes without a span) | `cargo run -p strudeland-cli -- transcribe <name> [--project DIR] [--grid 4\|8\|16\|8t\|16t] [--bpm N] [--meter N/D] [--bar1 S] [--shift MS] [--key ROOT:SCALE] [--tuning CENTS] [--start S --end S \| --bars A-B] [--debug --json]` |
 | Score the transcriber on the synthetic evaluation set (release; prints the per-tier table) | `cargo run --release -p strudeland-transcribe --features eval --example eval` |
@@ -107,6 +108,7 @@ the V8 download the host brings.
   output paths, and receives progress over a channel. Only the export API calls Tauri for this
   feature. The native command confirms replacements and atomically publishes new files without
   replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
+  For stems, the dialog previews a new set directory and reports the published paths.
 - Application Quit on macOS starts in `src-tauri/src/app_quit.rs`. The AppKit callback defers to
   the webview through `src/lib/app-quit.ts`. The export dialog shows the wait decision and final
   outcome. The project session's `guardShutdown` shares the unsaved prompt with window close.
@@ -209,13 +211,16 @@ the V8 download the host brings.
   library: `plan` (host to jobs, refusal of unsupported material), `render` (the worker pool),
   `join` (sample-exact joiner), `level/` (`loudness.rs`, `true_peak.rs`, `limiter.rs`), `encode/`
   (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `export`
-  (one-time loop openings, isolated repeats with post-roll folding, and shared static gain), `output`
+  (one-time loop openings, isolated repeats with post-roll folding, and shared static gain),
+  `stems` (directory and buffer limits, pre-master float WAV sets and manifest), `output`
   (default paths, atomic write), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness
   binary (`render`, `bench`); its README has the formats, defaults and licences, and
   `tests/vectors/` is written by `render:vectors`. `crates/strudeland-cli/src/render.rs` is
   `strudeland render` (options, progress, summary, exit codes). `scripts/render/batch-render.ts`
   and `loudness-vectors.ts` are the harness side (`--planner batch`, `render:vectors`);
   `crates/strudeland-project` also gives songs their project lookup and `renders/` paths.
+  The engine's `stems` module captures orbit, labeled voice and resolved instrument groups
+  from the same offline graph that renders the reference mix.
 - `tests/bench/` (`live-pressure.js`, the synthetic scheduler and live-test fixture) and `scripts/bench/scheduler.ts`
   (the scheduler bench); `vendor/strudel/PATCHES.md` already covers the `fraction.mjs` patch.
 - Voice memos: `crates/strudeland-record/` microphone capture

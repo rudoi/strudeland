@@ -46,6 +46,28 @@ runs it and it is not a `strudeland` subcommand.
 
 Without a preset, the render ends at the requested musical boundary.
 
+## Stem sets
+
+Use `strudeland render song.js --stems orbit|voice|instrument`, or select **Stems** in Export
+Audio. The usual standard render ranges apply. The default project directory name includes
+the song and range, with a `-stems` suffix. The CLI's `--out` takes a new directory path.
+Every file is stereo, 44.1 kHz, 32-bit float WAV. The export applies no mastering or
+normalization, so samples can exceed integer full scale.
+
+Use `mix.wav` as a reference. At unity gain the numbered stems reproduce it within
+floating-point rounding. Orbit stems include their effects. Voice groups use `.label(...)`
+and share an unlabeled group when the label is empty or absent. Instrument groups use the
+sound name the Rust engine resolves. Both have a shared-effects stem per orbit. That stem
+contains the difference between the processed orbit and its direct signal, so a shared
+filter can put negative contributions in it. A bus reader's sound belongs to the reader's
+group. The catalog includes lookback events, so a group can have a silent file.
+
+`stems.json` identifies the files and records the window, frame count, and sample rate. The
+manifest is written last. If a write fails, already-published files are reported and remain
+in the chosen directory. An existing destination is refused. A set is limited to 128 stems
+and a 512 MiB audio buffer budget. Shorter ranges or fewer parallel workers reduce memory
+pressure on large exports.
+
 ## Game audio presets
 
 Use `strudeland render song.js --preset PRESET`. The loop presets use the section marked

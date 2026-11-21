@@ -68,7 +68,7 @@ Every voice feeds its orbit (`orbit.rs`, superdough's `Orbit` and `SuperdoughOut
 of `job.orbits` are created up front in that order, each a stereo summing node (mono voices
 up-mixed to both channels), a gain of 1, a pan-0 `StereoPannerNode` (its stereo law adds the
 right channel times `cos(pi/2)`, about 6.1e-17, to the left) and a splitter whose two outputs go
-to the merger channels `channels[i] % count` (stems alias past 16 pairs; a mono job gets both
+to the merger channels `channels[i] % count` (the browser harness aliases stems past 16 pairs; a mono job gets both
 sides on its one channel). A voice connects `post` (the last gain) or, with `dry`, `Gain(dry)` of
 it; its delay send feeds the orbit's feedback delay and its reverb send creates or updates the
 orbit's reverb and feeds its convolver. A hap finds its orbit by `orbit_number`; superdough keys
@@ -77,6 +77,14 @@ in the engine. Blink keeps a summing junction's connections in a hash set, so th
 voices (and orbits sharing a channel) in is not defined; the engine adds them in connection order,
 so sums of three or more voices can differ from Chromium's in the last bit (Chromium's own order
 also changes between runs).
+
+Offline stem export builds one `StemLayout` across the scheduled haps of all checked stereo mix
+jobs, including lookback. Each `render_with_stems` call returns the ordinary stereo mix followed
+by a stereo pair for every layout entry. Orbit stems capture the routed orbit outputs by numeric
+identity. Voice and instrument stems sum the connected direct signals after the orbit's duck gain
+and fixed panner. The orbit's shared-effects pair carries the difference from its contribution to
+the mix, including delay, reverb, orbit filtering, and merger rounding. A bus reader contributes
+the audio it reads to its own stem.
 
 The orbit's feedback delay (`delay.rs`, superdough's `FeedbackDelayNode` and `Orbit.getDelay`) is
 created by the first hap with a delay send (`delay > 0 && delaytime > 0 && delayfeedback > 0`):

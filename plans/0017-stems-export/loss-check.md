@@ -1,0 +1,3 @@
+# Requirements comparison
+
+Compared the first [proposal](proposal.md) on the task branch with the refined proposal and the [engine](engine.md), [pipeline](pipeline.md), and [interface](interfaces.md) contracts. All three grouping modes, single-graph capture, pre-master float reconstruction, shared effects, alignment, CLI and desktop delivery, path confinement, and failure reporting are retained. Refinement made filenames, format compatibility, memory limits, and completion semantics explicit. Compressed, mastered, and loop stem exports remain outside the first release. No original requirement was dropped.

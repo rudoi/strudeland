@@ -490,6 +490,13 @@ fn run_render(
                 .write(&files, backend, &lines, json)
                 .map_err(Failure::Render)?
         }
+        Destination::Stems { grouping, target } => {
+            let export = backend
+                .render_stems(&code, &plan.opts, grouping, &target, &progress)
+                .map_err(Failure::Render)?;
+            lines.warnings(&export.summary.warnings);
+            render::stems_summary(&export, grouping, json)
+        }
     };
     let _ = env.stdout.write_all(summary.as_bytes());
     let _ = env.stdout.flush();

@@ -66,6 +66,7 @@ use crate::modulate::OrbitParam;
 use crate::panner::{Stereo, StereoPanner};
 use crate::param::{Param, ParamError, ParamInputs, idl_float};
 use crate::reverb::{Convolver, IrCache, IrError, IrPlan, Reverb};
+use crate::stems::StemCapture;
 use crate::voice::{GainNode, VoiceOutput};
 
 /// One automation event `offlineDuck` scheduled (JS `GainPoint`): a held value, or the end of an
@@ -618,15 +619,28 @@ impl Orbit {
 
     /// [`Orbit::finish`] with the modulator connections into the `djf` worklet's `value`.
     pub fn finish_with(&mut self, quantum_start: u64, djf_inputs: &ParamInputs) -> (&Stereo, bool) {
+        self.finish_observing_gain(quantum_start, djf_inputs, None)
+    }
+
+    fn finish_observing_gain(
+        &mut self,
+        quantum_start: u64,
+        djf_inputs: &ParamInputs,
+        gains: Option<&mut [f32; QUANTUM]>,
+    ) -> (&Stereo, bool) {
         let mut silent = self.sum_silent[0] && self.sum_silent[1];
         // The summing node's bus: zeros when silent (it was zeroed by `begin`).
         let mut work = self.sum;
         if let Some(djf) = &mut self.djf {
             silent = djf.process_with(quantum_start, &mut work, djf_inputs);
         }
-        silent = self
-            .output
-            .process(quantum_start, &mut work, silent, &ParamInputs::NONE);
+        silent = self.output.process_observing_gain(
+            quantum_start,
+            &mut work,
+            silent,
+            &ParamInputs::NONE,
+            gains,
+        );
         self.out_silent = self
             .panner
             .process(quantum_start, &work, silent, &mut self.out);
@@ -773,6 +787,17 @@ impl OrbitBank {
         orbit_of: &[usize],
         dest: &mut [[f32; QUANTUM]],
     ) {
+        self.process_with_stems(quantum_start, outputs, orbit_of, dest, None);
+    }
+
+    pub(crate) fn process_with_stems(
+        &mut self,
+        quantum_start: u64,
+        outputs: &[VoiceOutput],
+        orbit_of: &[usize],
+        dest: &mut [[f32; QUANTUM]],
+        mut capture: Option<&mut StemCapture>,
+    ) {
         let inputs = &mut self.inputs;
         OrbitInputs::fill_all(inputs, self.orbits.len(), outputs, orbit_of);
         for (k, o) in self.orbits.iter_mut().enumerate() {
@@ -791,13 +816,20 @@ impl OrbitBank {
         for d in dest.iter_mut() {
             d.fill(0.0);
         }
-        for (o, inputs) in self.orbits.iter_mut().zip(inputs.iter()) {
-            o.finish_with(quantum_start, &inputs.djf);
+        for (k, (o, inputs)) in self.orbits.iter_mut().zip(inputs.iter()).enumerate() {
+            let mut gains = capture
+                .as_ref()
+                .filter(|c| c.groups_direct())
+                .map(|_| [0.0; QUANTUM]);
+            o.finish_observing_gain(quantum_start, &inputs.djf, gains.as_mut());
             let (out, out_silent) = (&o.out, o.out_silent);
             for &(split, merge) in &o.routes {
                 if let (Some(d), Some(s)) = (dest.get_mut(merge), silent.get_mut(merge)) {
                     sum_channel(d, s, &out[split], out_silent);
                 }
+            }
+            if let Some(c) = capture.as_deref_mut() {
+                c.record(quantum_start as usize, k, o, outputs, gains.as_ref(), dest);
             }
         }
     }

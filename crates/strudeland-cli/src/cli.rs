@@ -6,7 +6,7 @@ use std::time::Duration;
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use strudeland_ctl::BarRange;
 use strudeland_render::{
-    BitDepth, ExportPreset, Format, MAX_TIMEOUT_SEC, Mp3Mode, timeout_from_secs,
+    BitDepth, ExportPreset, Format, MAX_TIMEOUT_SEC, Mp3Mode, StemGrouping, timeout_from_secs,
 };
 use strudeland_transcribe::GridDivision;
 
@@ -132,17 +132,25 @@ pub enum Command {
 pub struct RenderArgs {
     /// The song file; its contents on disk are rendered, not unsaved editor edits.
     pub song: PathBuf,
-    /// Output path (default: the project's renders/ folder). For intro-loop, this is the
-    /// base path used to name the -intro and -loop files.
+    /// Output path (default: the project's renders/ folder). With --stems, use a new directory.
+    /// For intro-loop, this is the base path used to name the -intro and -loop files.
     #[arg(long, value_name = "PATH")]
     pub out: Option<PathBuf>,
-    /// The format (default: from the --out extension, else wav).
+    /// The mix format (default: from the --out extension, else wav).
     #[arg(long, value_name = "FORMAT", value_enum)]
     pub format: Option<Format>,
     /// Export loop assets or a one-shot with decay. Loop presets require a marked loop section
     /// and select their own bars.
     #[arg(long, value_name = "PRESET", value_enum)]
     pub preset: Option<Preset>,
+    /// Export a pre-master reference mix and aligned stereo 32-bit float WAV stems.
+    ///
+    /// Orbit groups by orbit number. Voice groups by .label(), with a group for unlabeled parts.
+    /// Instrument groups by resolved sound name. Voice and instrument include shared-effects
+    /// stems by orbit. Soloing shared effects can include subtraction of direct audio when an
+    /// orbit filter is active. The unity-gain sum reconstructs the pre-master reference mix.
+    #[arg(long, value_name = "GROUPING", value_enum)]
+    pub stems: Option<StemGrouping>,
     /// Render one section of the song, once.
     #[arg(long, value_name = "NAME", conflicts_with_all = ["length", "loops"])]
     pub section: Option<String>,
@@ -495,6 +503,7 @@ mod tests {
         let a = render(&[]).unwrap();
         assert_eq!(a.song, PathBuf::from("song.js"));
         assert_eq!(a.preset, None);
+        assert_eq!(a.stems, None);
         assert_eq!(
             (a.out, a.format, a.section, a.length, a.loops),
             (None, None, None, None, None)
@@ -552,6 +561,17 @@ mod tests {
     }
 
     #[test]
+    fn render_stem_groupings_parse() {
+        for (flag, grouping) in [
+            ("orbit", StemGrouping::Orbit),
+            ("voice", StemGrouping::Voice),
+            ("instrument", StemGrouping::Instrument),
+        ] {
+            assert_eq!(render(&["--stems", flag]).unwrap().stems, Some(grouping));
+        }
+    }
+
+    #[test]
     fn render_flag_conflicts_are_usage_errors() {
         for args in [
             &["--section", "a", "--length", "4"][..],
@@ -569,6 +589,7 @@ mod tests {
         for args in [
             &["--format", "flac"][..],
             &["--preset", "loop"],
+            &["--stems", "label"],
             &["--length", "0"],
             &["--length", "100001"],
             &["--length", "x"],

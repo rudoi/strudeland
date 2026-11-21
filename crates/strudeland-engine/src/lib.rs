@@ -29,6 +29,7 @@ pub(crate) mod pulse;
 pub(crate) mod render;
 pub(crate) mod reverb;
 pub(crate) mod shaper;
+mod stems;
 pub(crate) mod supersaw;
 #[cfg(test)]
 mod test_vectors;
@@ -47,6 +48,7 @@ pub use js::Mulberry32;
 pub use js::number_to_string;
 pub use render::Engine;
 pub use shaper::{DISTORTION_NAMES, distortion_algorithm};
+pub use stems::{StemGrouping, StemId, StemLayout, render_with_stems};
 
 /// The only sample rate the engine renders at.
 pub const SAMPLE_RATE: u32 = 44100;
@@ -63,7 +65,7 @@ pub fn quantum_end_time(quantum_start: u64) -> f64 {
     (quantum_start + QUANTUM_U64) as f64 / SAMPLE_RATE_F64
 }
 
-/// A rendered job: `channels.count` channels of exactly `frames` samples, and the render errors.
+/// A rendered job: planar output channels of exactly `frames` samples, and the render errors.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rendered {
     pub channels: Vec<Vec<f32>>,

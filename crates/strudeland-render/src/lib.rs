@@ -28,11 +28,12 @@ mod options;
 pub mod output;
 mod plan;
 mod render;
+mod stems;
 mod summary;
 
 use std::time::Instant;
 
-use strudeland_engine::{EngineJob, Rendered};
+use strudeland_engine::{EngineJob, Rendered, StemLayout};
 use strudeland_host::{ChunkWindow, PlannedRender, PlannedWindow, SAMPLE_RATE};
 
 pub use error::{ExitClass, RenderError, Unsupported};
@@ -45,6 +46,10 @@ pub use output::{
     OutputTarget, resolve_export_output, resolve_format, resolve_output, write_output,
 };
 pub use render::MAX_WARNINGS;
+pub use stems::{
+    StemExport, StemGrouping, StemTarget, render_stems, resolve_project_stem_output,
+    resolve_stem_output, resolve_stem_output_in,
+};
 pub use strudeland_host::{
     ExportPreset, HostError, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC, timeout_from_secs,
 };
@@ -65,7 +70,7 @@ pub fn render_audio(
     opts: &RenderOptions,
     progress: &dyn Fn(Progress),
 ) -> Result<RenderedAudio, RenderError> {
-    render_audio_for(code, opts, None, progress).map(|(audio, _)| audio)
+    render_audio_for(code, opts, AudioMode::Standard, progress).map(|result| result.audio)
 }
 
 struct LoopAudio {
@@ -73,14 +78,30 @@ struct LoopAudio {
     isolated_body: Option<Vec<Vec<f32>>>,
 }
 
+enum AudioMode {
+    Standard,
+    Preset(ExportPreset),
+    Stems(StemGrouping),
+}
+
+struct PipelineAudio {
+    audio: RenderedAudio,
+    loop_audio: Option<LoopAudio>,
+    stems: Option<StemLayout>,
+}
+
 fn render_audio_for(
     code: &str,
     opts: &RenderOptions,
-    preset: Option<ExportPreset>,
+    mode: AudioMode,
     progress: &dyn Fn(Progress),
-) -> Result<(RenderedAudio, Option<LoopAudio>), RenderError> {
+) -> Result<PipelineAudio, RenderError> {
     let started = Instant::now();
     render::validate_jobs(opts.jobs)?;
+    let preset = match mode {
+        AudioMode::Preset(preset) => Some(preset),
+        _ => None,
+    };
     let (planned, plan_ms) = plan::plan(code, opts, preset)?;
     let chunk_count = planned.chunks.len()
         + planned
@@ -111,18 +132,30 @@ fn render_audio_for(
     let repeat_jobs = jobs.split_off(chunks.len());
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
     let workers = render::workers_for(opts.jobs, chunks.len());
+    let frames = join::window_frames(window.from_bar, window.to_bar, cps)
+        .checked_add(tail_frames)
+        .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
+    let (stems, channels) = if let AudioMode::Stems(grouping) = mode {
+        let layout = StemLayout::for_jobs(&jobs, grouping.into());
+        let channels = stems::validate_budget(layout.ids().len(), frames, &chunks, workers)?;
+        (Some(layout), channels)
+    } else {
+        (None, 2)
+    };
 
     let render_started = Instant::now();
     let Rendered {
-        channels,
+        channels: joined,
         errors: mut engine_errors,
     } = render_window(
-        &window,
-        cps,
+        join::Joiner::for_plans_with_tail(&window, cps, &chunks, channels, tail_frames)?,
         &chunks,
-        tail_frames,
         jobs,
         workers,
+        |job| match &stems {
+            Some(layout) => strudeland_engine::render_with_stems(job, layout),
+            None => strudeland_engine::render(job),
+        },
         &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
     let (isolated_body, repeat_workers) = if let Some((body_chunks, body_tail_frames)) = repeat {
@@ -131,12 +164,17 @@ fn render_audio_for(
         let body_window = PlannedWindow { from_bar, ..window };
         let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
         let body = render_window(
-            &body_window,
-            cps,
+            join::Joiner::for_plans_with_tail(
+                &body_window,
+                cps,
+                &body_chunks,
+                2,
+                body_tail_frames,
+            )?,
             &body_chunks,
-            body_tail_frames,
             repeat_jobs,
             repeat_workers,
+            strudeland_engine::render,
             &|event| report_chunk(progress, event, chunks.len(), chunk_count),
         )?;
         engine_errors.extend(body.errors);
@@ -146,9 +184,6 @@ fn render_audio_for(
     };
     let render_ms = ms_since(render_started);
 
-    let frames = join::window_frames(window.from_bar, window.to_bar, cps)
-        .checked_add(tail_frames)
-        .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
     let summary = Summary {
         format: None,
         bytes: None,
@@ -168,9 +203,9 @@ fn render_audio_for(
         },
         warnings: render::warnings(&plan_errors, &engine_errors),
     };
-    Ok((
-        RenderedAudio {
-            channels,
+    Ok(PipelineAudio {
+        audio: RenderedAudio {
+            channels: joined,
             cps,
             structure,
             lookback_sec,
@@ -179,11 +214,12 @@ fn render_audio_for(
             plan_errors,
             summary,
         },
-        loop_start_bar.map(|start_bar| LoopAudio {
+        loop_audio: loop_start_bar.map(|start_bar| LoopAudio {
             start_bar,
             isolated_body,
         }),
-    ))
+        stems,
+    })
 }
 
 fn report_chunk(progress: &dyn Fn(Progress), event: Progress, offset: usize, count: usize) {
@@ -196,23 +232,14 @@ fn report_chunk(progress: &dyn Fn(Progress), event: Progress, offset: usize, cou
 }
 
 fn render_window(
-    window: &PlannedWindow,
-    cps: f64,
+    mut joiner: join::Joiner,
     chunks: &[ChunkWindow],
-    tail_frames: u64,
     jobs: Vec<EngineJob>,
     workers: usize,
+    render: impl Fn(&EngineJob) -> Result<Rendered, strudeland_engine::JobError> + Sync,
     progress: &dyn Fn(Progress),
 ) -> Result<Rendered, RenderError> {
-    let mut joiner = join::Joiner::for_plans_with_tail(window, cps, chunks, 2, tail_frames)?;
-    let errors = render::render_chunks(
-        jobs,
-        chunks,
-        workers,
-        strudeland_engine::render,
-        &mut joiner,
-        progress,
-    )?;
+    let errors = render::render_chunks(jobs, chunks, workers, render, &mut joiner, progress)?;
     Ok(Rendered {
         channels: joiner.finish()?,
         errors,

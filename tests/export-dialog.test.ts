@@ -94,6 +94,72 @@ describe('export dialog', () => {
     }
   });
 
+  test('stems use the selected grouping and standard range, preserving the mix format', async () => {
+    const { api, dialog, state } = setup();
+    dialog.select({ mode: 'tagged-loop', format: 'mp3', range: 'section', section: 'body' });
+    dialog.select({ mode: 'stems' });
+    for (const grouping of ['orbit', 'voice', 'instrument'] as const) {
+      if (grouping !== 'orbit') dialog.select({ grouping });
+      expect(api.preview).toHaveBeenLastCalledWith({
+        root: editor.root,
+        songPath: editor.songPath,
+        folder: null,
+        stems: grouping,
+        format: 'wav',
+        preset: null,
+        length: { kind: 'section', name: 'body' },
+      });
+    }
+    expect(showMp3Warning(state().options)).toBe(false);
+    dialog.select({ range: 'length', bars: '4' });
+    expect(api.preview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ length: { kind: 'length', bars: 4 } }),
+    );
+    dialog.select({ mode: 'standard' });
+    expect(api.preview).toHaveBeenLastCalledWith({
+      root: editor.root,
+      songPath: editor.songPath,
+      folder: null,
+      format: 'mp3',
+      preset: null,
+      length: { kind: 'length', bars: 4 },
+    });
+  });
+
+  test('quit waits for the stem manifest and then presents the actual written paths', async () => {
+    const { api, dialog, state } = setup();
+    const directory = '/works/renders/main-stems';
+    const paths = ['mix.wav', 'stem-001.wav', 'stems.json'].map((file) => directory + '/' + file);
+    api.preview.mockResolvedValue({ directory });
+    dialog.select({ mode: 'stems' });
+    await next();
+    expect(state().preview).toMatchObject({ kind: 'ready', target: { directory } });
+    const done = Promise.withResolvers<ExportResult>();
+    api.start.mockImplementationOnce((_request, _source, _preview, progress) => {
+      progress({ kind: 'written', path: paths[0] });
+      progress({ kind: 'encoded', pass: 1 });
+      return done.promise;
+    });
+    const writing = dialog.start();
+    expect(api.start).toHaveBeenCalledWith(
+      expect.objectContaining({ stems: 'orbit' }),
+      editor.source,
+      { directory },
+      expect.any(Function),
+    );
+    expect(state().activity.kind).toBe('writing');
+    const quit = dialog.requestQuit();
+    dialog.answerQuit('wait');
+    expect(state().quit).toBe('waiting');
+    expect(dialog.canClose()).toBe(false);
+    done.resolve({ directory, paths, warnings: [] });
+    await writing;
+    expect(state().result).toEqual({ directory, paths, warnings: [] });
+    expect(state().quit).toBe('result');
+    dialog.answerQuit('continue');
+    expect(await quit).toBe(true);
+  });
+
   test('accepts manual clip or loop requests when the static structure is unavailable', async () => {
     const { api, dialog, state } = setup({ ...editor, structure: buildStructure({}) });
     await dialog.refresh();
@@ -145,7 +211,7 @@ describe('export dialog', () => {
     await pending;
     expect(state().preview).toMatchObject({
       kind: 'ready',
-      files: [audio],
+      target: [audio],
       request: { format: 'opus' },
     });
   });
@@ -220,7 +286,7 @@ describe('export dialog', () => {
     render.reject({ message: 'destination full', written: [opening.path] });
     await running;
     expect(state().failure).toEqual({ message: 'destination full', written: [opening.path] });
-    expect(state().preview).toMatchObject({ kind: 'ready', files: [opening, loop] });
+    expect(state().preview).toMatchObject({ kind: 'ready', target: [opening, loop] });
     update({ kind: 'writing' });
     expect(state().activity.kind).toBe('idle');
     api.start.mockResolvedValueOnce({ ...result, warnings: ['repeat', 'repeat', 'other'] });

@@ -13,9 +13,9 @@ mod template;
 pub use error::ProjectError;
 pub use prefs::{PREFS_FILE, Prefs};
 pub use project::{
-    MANIFEST_FILE, Manifest, Project, ProjectInfo, SCHEMA, SONG_EXT, SONGS_DIR, SongEntry,
-    atomic_create_bytes, atomic_write_bytes, is_song_file, is_song_file_name, list_songs,
-    render_exists, render_filename, song_rel_path,
+    MANIFEST_FILE, Manifest, Project, ProjectInfo, RenderSet, SCHEMA, SONG_EXT, SONGS_DIR,
+    SongEntry, atomic_create_bytes, atomic_write_bytes, is_song_file, is_song_file_name,
+    list_songs, render_exists, render_filename, song_rel_path,
 };
 pub use recents::{MAX_RECENTS, RecentProject, Recents};
 pub use recordings::{

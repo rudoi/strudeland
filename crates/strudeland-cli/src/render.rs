@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 use strudeland_render::{
-    DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, ExportFile, ExportPreset,
-    ExportRole, LengthRequest, LoopPoints, Loudness, OutputOptions, OutputTarget, Progress,
-    RenderError, RenderOptions, RenderOutput, Summary, resolve_export_output, resolve_format,
-    resolve_output,
+    BitDepth, DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, ExportFile, ExportPreset,
+    ExportRole, Format, LengthRequest, LoopPoints, Loudness, OutputOptions, OutputTarget, Progress,
+    RenderError, RenderOptions, RenderOutput, StemExport, StemGrouping, StemTarget, Summary,
+    resolve_export_output, resolve_format, resolve_output, resolve_stem_output,
 };
 
 use crate::cli::{OnOff, RenderArgs};
@@ -35,6 +35,16 @@ pub trait RenderBackend {
         preset: ExportPreset,
         progress: &dyn Fn(Progress),
     ) -> Result<Vec<ExportFile>, RenderError>;
+
+    /// Plans, renders and writes a pre-master reference mix and its stems.
+    fn render_stems(
+        &mut self,
+        code: &str,
+        opts: &RenderOptions,
+        grouping: StemGrouping,
+        target: &StemTarget,
+        progress: &dyn Fn(Progress),
+    ) -> Result<StemExport, RenderError>;
 
     /// Writes the encoded file and returns where it went.
     fn write(
@@ -68,6 +78,17 @@ impl RenderBackend for StrudelandBackend {
         strudeland_render::render_export(code, opts, preset, progress)
     }
 
+    fn render_stems(
+        &mut self,
+        code: &str,
+        opts: &RenderOptions,
+        grouping: StemGrouping,
+        target: &StemTarget,
+        progress: &dyn Fn(Progress),
+    ) -> Result<StemExport, RenderError> {
+        strudeland_render::render_stems(code, opts, grouping, target, progress)
+    }
+
     fn write(
         &mut self,
         out: &RenderOutput,
@@ -94,6 +115,10 @@ pub struct Plan {
 pub enum Destination {
     Standard(OutputTarget),
     Export(ExportPlan),
+    Stems {
+        grouping: StemGrouping,
+        target: StemTarget,
+    },
 }
 
 pub struct ExportPlan {
@@ -105,15 +130,6 @@ pub struct ExportPlan {
 /// Resolves the flags before any work, so a bad flag or a missing `--out` fails fast. Creates
 /// nothing: a project's `renders/` is created only when the file is written.
 pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
-    let preset = args.preset.map(ExportPreset::from);
-    if matches!(preset, Some(p) if p != ExportPreset::OneShot)
-        && (args.section.is_some() || args.length.is_some() || args.loops.is_some())
-    {
-        return Err(usage(
-            "--preset",
-            "loop presets select their own bars; omit --section, --length and --loops",
-        ));
-    }
     let length = if let Some(name) = &args.section {
         LengthRequest::Section { name: name.clone() }
     } else if let Some(bars) = args.length {
@@ -121,6 +137,99 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
     } else {
         LengthRequest::Clip { loops: args.loops }
     };
+    let (output, destination) = if let Some(grouping) = args.stems {
+        let output = stem_options(args)?;
+        let target = resolve_stem_output(args.out.as_deref(), &args.song, &length)?;
+        (output, Destination::Stems { grouping, target })
+    } else {
+        let preset = args.preset.map(ExportPreset::from);
+        if matches!(preset, Some(p) if p != ExportPreset::OneShot)
+            && (args.section.is_some() || args.length.is_some() || args.loops.is_some())
+        {
+            return Err(usage(
+                "--preset",
+                "loop presets select their own bars; omit --section, --length and --loops",
+            ));
+        }
+        let output = mix_options(args)?;
+        let format = output.encoder.format();
+        let out = args.out.as_deref();
+        let destination = if let Some(preset) = preset {
+            let resolve =
+                |role| resolve_export_output(out, &args.song, &length, format, preset, role);
+            let primary_role = match preset {
+                ExportPreset::IntroLoop | ExportPreset::FoldedLoop => ExportRole::Loop,
+                ExportPreset::TaggedLoop | ExportPreset::OneShot => ExportRole::Single,
+            };
+            Destination::Export(ExportPlan {
+                preset,
+                primary: resolve(primary_role)?,
+                intro: (preset == ExportPreset::IntroLoop)
+                    .then(|| resolve(ExportRole::Intro))
+                    .transpose()?,
+            })
+        } else {
+            Destination::Standard(resolve_output(out, &args.song, &length, format)?)
+        };
+        (output, destination)
+    };
+    Ok(Plan {
+        opts: RenderOptions {
+            length,
+            jobs: args.jobs,
+            plan_timeout: Some(args.plan_timeout),
+            include_events: false,
+            output,
+        },
+        destination,
+    })
+}
+
+fn stem_options(args: &RenderArgs) -> Result<OutputOptions, RenderError> {
+    let conflicts = [
+        (
+            args.preset.is_some(),
+            "--preset",
+            "omit --preset with --stems",
+        ),
+        (
+            args.format.is_some_and(|f| f != Format::Wav),
+            "--format",
+            "--stems supports only WAV",
+        ),
+        (
+            args.bit_depth.is_some_and(|b| b != BitDepth::F32),
+            "--bit-depth",
+            "--stems uses 32-bit float WAV (32f)",
+        ),
+        (
+            args.loudness == Some(OnOff::On),
+            "--loudness",
+            "--stems exports pre-master audio with loudness off",
+        ),
+        (args.lufs.is_some(), "--lufs", "omit --lufs with --stems"),
+        (
+            args.true_peak.is_some(),
+            "--true-peak",
+            "omit --true-peak with --stems",
+        ),
+    ];
+    if let Some((_, flag, message)) = conflicts.into_iter().find(|(conflict, ..)| *conflict) {
+        return Err(usage(flag, message));
+    }
+    let encoder = EncoderOptions::from_flags(
+        Format::Wav,
+        Some(BitDepth::F32),
+        args.mp3_mode,
+        args.quality,
+    )?;
+    Ok(OutputOptions {
+        loudness: Loudness::Off,
+        encoder,
+    })
+}
+
+fn mix_options(args: &RenderArgs) -> Result<OutputOptions, RenderError> {
     let format = resolve_format(args.format, args.out.as_deref())?;
     let encoder = EncoderOptions::from_flags(format, args.bit_depth, args.mp3_mode, args.quality)?;
     let loudness = if args.loudness == Some(OnOff::Off) {
@@ -140,35 +249,7 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
             true_peak_db: args.true_peak.unwrap_or(DEFAULT_TRUE_PEAK_DB),
         }
     };
-    let out = args.out.as_deref();
-    let destination = match preset {
-        None => Destination::Standard(resolve_output(out, &args.song, &length, format)?),
-        Some(preset) => {
-            let resolve =
-                |role| resolve_export_output(out, &args.song, &length, format, preset, role);
-            let primary_role = match preset {
-                ExportPreset::IntroLoop | ExportPreset::FoldedLoop => ExportRole::Loop,
-                ExportPreset::TaggedLoop | ExportPreset::OneShot => ExportRole::Single,
-            };
-            Destination::Export(ExportPlan {
-                preset,
-                primary: resolve(primary_role)?,
-                intro: (preset == ExportPreset::IntroLoop)
-                    .then(|| resolve(ExportRole::Intro))
-                    .transpose()?,
-            })
-        }
-    };
-    Ok(Plan {
-        opts: RenderOptions {
-            length,
-            jobs: args.jobs,
-            plan_timeout: Some(args.plan_timeout),
-            include_events: false,
-            output: OutputOptions { loudness, encoder },
-        },
-        destination,
-    })
+    Ok(OutputOptions { loudness, encoder })
 }
 
 /// A progress callback that writes one stderr line per step from the calling thread.
@@ -318,6 +399,40 @@ pub fn json_line(summary: &Summary, path: &Path) -> String {
     value.to_string()
 }
 
+pub fn stems_summary(export: &StemExport, grouping: StemGrouping, json: bool) -> String {
+    if json {
+        let files: Vec<_> = export
+            .files
+            .iter()
+            .map(|path| path.to_string_lossy())
+            .collect();
+        return format!(
+            "{}\n",
+            serde_json::json!({
+                "grouping": grouping,
+                "directory": export.directory.to_string_lossy(),
+                "files": files,
+                "reference": "pre-master",
+                "summary": export.summary,
+            })
+        );
+    }
+    let summary = &export.summary;
+    let mut output = format!(
+        "rendered stem set with pre-master reference mix to {}\n  stereo 32-bit float WAV, {} Hz, {} frames, bars {}-{} ({} layout)\n",
+        export.directory.display(),
+        summary.sample_rate,
+        summary.frames,
+        summary.window.from_bar.saturating_add(1),
+        summary.window.to_bar,
+        summary.window.layout.as_str(),
+    );
+    for path in &export.files {
+        output.push_str(&format!("  {}\n", path.display()));
+    }
+    output
+}
+
 /// One decimal; `-inf` prints as `-inf` (Rust's own text for the infinities).
 fn f1(v: f64) -> String {
     if v.is_nan() {
@@ -385,8 +500,8 @@ mod tests {
     use std::time::Duration;
     use strudeland_ctl::{CallError, Method};
     use strudeland_render::HostError;
+    use strudeland_render::Mp3Mode;
     use strudeland_render::level::LoudnessSummary;
-    use strudeland_render::{BitDepth, Format, Mp3Mode};
     use strudeland_render::{Timings, Unsupported};
 
     struct NoTransport;
@@ -438,6 +553,7 @@ mod tests {
     struct Fake {
         result: Option<Result<RenderOutput, RenderError>>,
         export: Option<Result<Vec<ExportFile>, RenderError>>,
+        stems: Option<Result<StemExport, RenderError>>,
         preset: Option<ExportPreset>,
         write_error: Option<RenderError>,
         writes_before_error: usize,
@@ -457,6 +573,7 @@ mod tests {
             Fake {
                 result: Some(r),
                 export: None,
+                stems: None,
                 preset: None,
                 write_error: None,
                 writes_before_error: 0,
@@ -502,6 +619,20 @@ mod tests {
                 progress(p.clone());
             }
             self.export.take().expect("one export")
+        }
+
+        fn render_stems(
+            &mut self,
+            _: &str,
+            _: &RenderOptions,
+            _: StemGrouping,
+            _: &StemTarget,
+            progress: &dyn Fn(Progress),
+        ) -> Result<StemExport, RenderError> {
+            for p in &self.events {
+                progress(p.clone());
+            }
+            self.stems.take().expect("one stem export")
         }
 
         fn write(
@@ -1009,6 +1140,142 @@ mod tests {
             assert!(fake.seen.is_empty(), "{extra:?} must not render");
             assert!(o.stdout.is_empty());
         }
+    }
+
+    #[test]
+    fn incompatible_stem_flags_fail_before_rendering() {
+        let dir = tempfile::tempdir().unwrap();
+        let song = song(dir.path());
+        let out = dir.path().join("set");
+        for (flag, value, message) in [
+            ("--preset", "one-shot", "omit --preset"),
+            ("--format", "opus", "supports only WAV"),
+            ("--bit-depth", "24", "32-bit float"),
+            ("--loudness", "on", "loudness off"),
+            ("--lufs", "-16", "omit --lufs"),
+            ("--true-peak", "-2", "omit --true-peak"),
+            ("--mp3-mode", "vbr", "--mp3-mode only applies"),
+            ("--quality", "2", "--quality does not apply"),
+        ] {
+            let o = run(
+                &[
+                    "render",
+                    &song,
+                    "--stems",
+                    "voice",
+                    "--out",
+                    out.to_str().unwrap(),
+                    flag,
+                    value,
+                ],
+                &mut Fake::ok(),
+            );
+            assert_eq!(o.code, 4, "{flag}: {}", o.stderr);
+            assert!(o.stderr.contains(message), "{flag}: {}", o.stderr);
+            assert!(o.stdout.is_empty());
+            assert!(!out.exists());
+        }
+    }
+
+    #[test]
+    fn stems_use_float_wav_and_resolve_the_project_range_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = strudeland_project::Project::create(&dir.path().join("p"), "t").unwrap();
+        let song = project.root().join("songs/main.js");
+        std::fs::write(&song, "note('c3')").unwrap();
+        let cli = Cli::try_parse_from([
+            "strudeland",
+            "render",
+            song.to_str().unwrap(),
+            "--stems",
+            "instrument",
+            "--section",
+            "body",
+            "--format",
+            "wav",
+            "--bit-depth",
+            "32f",
+            "--loudness",
+            "off",
+        ])
+        .unwrap();
+        let crate::cli::Command::Render(args) = cli.command else {
+            unreachable!();
+        };
+        let plan = plan(&args).unwrap();
+        assert_eq!(
+            plan.opts.length,
+            LengthRequest::Section {
+                name: "body".into()
+            }
+        );
+        assert_eq!(
+            plan.opts.output,
+            OutputOptions {
+                loudness: Loudness::Off,
+                encoder: EncoderOptions::Wav {
+                    bit_depth: BitDepth::F32
+                },
+            },
+        );
+        let Destination::Stems { grouping, target } = plan.destination else {
+            panic!("expected a stem set destination");
+        };
+        assert_eq!(grouping, StemGrouping::Instrument);
+        assert_eq!(
+            target.path(),
+            project.root().join("renders/main-body-stems")
+        );
+        assert!(!target.path().exists());
+    }
+
+    #[test]
+    fn stem_output_identifies_the_reference_and_reports_partial_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let song = song(dir.path());
+        let out = dir.path().join("stems");
+        let mix = out.join("mix.wav");
+        let manifest = out.join("stems.json");
+        let args = [
+            "render",
+            &song,
+            "--out",
+            out.to_str().unwrap(),
+            "--stems",
+            "voice",
+        ];
+        let mut success = Fake {
+            stems: Some(Ok(StemExport {
+                directory: out.clone(),
+                files: vec![mix.clone(), manifest.clone()],
+                summary: summary(Format::Wav, false),
+            })),
+            ..Fake::ok()
+        };
+        let o = run(&args, &mut success);
+        assert_eq!(o.code, 0, "{}", o.stderr);
+        assert!(o.stdout.contains("pre-master reference mix"));
+        assert!(o.stdout.contains(mix.to_str().unwrap()));
+        assert!(o.stdout.contains(manifest.to_str().unwrap()));
+        assert!(o.stderr.contains("warning: w one"));
+
+        let mut failure = Fake {
+            stems: Some(Err(RenderError::Io {
+                path: manifest.clone(),
+                source: std::io::Error::other("disk full"),
+            })),
+            events: vec![Progress::Written { path: mix.clone() }],
+            ..Fake::ok()
+        };
+        let args: Vec<_> = ["--json"].into_iter().chain(args).collect();
+        let o = run(&args, &mut failure);
+        assert_eq!(o.code, 1);
+        assert!(o.stdout.is_empty());
+        assert!(o.stderr.contains(&format!("wrote {}", mix.display())));
+        assert!(
+            o.stderr
+                .contains(&format!("{}: disk full", manifest.display()))
+        );
     }
 
     #[test]

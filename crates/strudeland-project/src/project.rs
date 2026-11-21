@@ -51,10 +51,143 @@ pub struct ProjectInfo {
 }
 
 /// An open project folder.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     root: PathBuf,
     manifest: Manifest,
+}
+
+/// An exclusively created render directory that must stay in place through publication.
+#[derive(Debug)]
+pub struct RenderSet {
+    path: PathBuf,
+    canonical: PathBuf,
+    identity: same_file::Handle,
+}
+
+impl RenderSet {
+    pub fn reserve(path: &Path) -> Result<Self, ProjectError> {
+        let open = || -> io::Result<Self> {
+            fs::create_dir(path)?;
+            let canonical = path.canonicalize()?;
+            let identity = open_render_set(path)?;
+            if !identity.as_file().metadata()?.is_dir() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotADirectory,
+                    "not a directory",
+                ));
+            }
+            Ok(Self {
+                path: path.to_owned(),
+                canonical,
+                identity,
+            })
+        };
+        open().map_err(|e| ProjectError::io(path, e))
+    }
+
+    fn check_identity(&self) -> io::Result<()> {
+        if self.path.canonicalize()? != self.canonical
+            || same_file::Handle::from_path(&self.path)? != self.identity
+        {
+            return Err(io::Error::other("the reserved render directory changed"));
+        }
+        Ok(())
+    }
+
+    pub fn check_current(&self) -> Result<(), ProjectError> {
+        self.check_identity()
+            .map_err(|e| ProjectError::io(&self.path, e))
+    }
+
+    /// Publishes a complete file and refuses an occupied name or a moved set directory.
+    pub fn create_file(&self, name: &str, bytes: &[u8]) -> Result<(), ProjectError> {
+        let path = self.path.join(name);
+        if !windows_file_name(name) || path.parent() != Some(self.path.as_path()) {
+            return Err(ProjectError::PathOutsideProject(path.display().to_string()));
+        }
+        self.check_current()?;
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let result = self
+            .write_at(name, |file| file.write_all(bytes))
+            .map_err(|e| ProjectError::io(&path, e));
+        #[cfg(windows)]
+        let result = write_and_publish(&self.canonical.join(name), bytes, |from, to| {
+            self.check_identity()?;
+            move_noreplace(from, to)
+        })
+        .map_err(|error| match error {
+            ProjectError::Io { source, .. } => ProjectError::io(&path, source),
+            other => other,
+        });
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        let result = {
+            let _ = bytes;
+            Err(ProjectError::io(
+                &path,
+                io::Error::from(io::ErrorKind::Unsupported),
+            ))
+        };
+        result
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn write_at(
+        &self,
+        name: &str,
+        write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+    ) -> io::Result<()> {
+        use rustix::fs::{AtFlags, Mode, OFlags, RenameFlags, openat, renameat_with, unlinkat};
+
+        let dir = self.identity.as_file();
+        let (mut file, temporary) = loop {
+            let temporary = temp_name();
+            let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC;
+            match openat(
+                dir,
+                temporary.as_str(),
+                flags,
+                Mode::from_bits_truncate(0o666),
+            ) {
+                Ok(fd) => break (fs::File::from(fd), temporary),
+                Err(rustix::io::Errno::EXIST) => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let result = (|| {
+            write(&mut file)?;
+            drop(file);
+            self.check_identity()?;
+            renameat_with(dir, temporary.as_str(), dir, name, RenameFlags::NOREPLACE)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = unlinkat(dir, temporary.as_str(), AtFlags::empty());
+        }
+        result
+    }
+}
+
+#[cfg(unix)]
+fn open_render_set(path: &Path) -> io::Result<same_file::Handle> {
+    same_file::Handle::from_path(path)
+}
+
+#[cfg(windows)]
+fn open_render_set(path: &Path) -> io::Result<same_file::Handle> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    // Keep the directory in place until the set is complete. Windows requires
+    // delete sharing to rename or remove a directory with an open handle.
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(path)?;
+    same_file::Handle::from_file(file)
 }
 
 /// How [`link_noclobber`] placed the file.
@@ -305,6 +438,48 @@ impl Project {
     /// Publishes a new render atomically. An existing destination is never replaced.
     pub fn create_render(&self, path: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
         self.publish_render(path, bytes, atomic_create_bytes)
+    }
+
+    /// Resolves the directory for a set of renders without creating it.
+    pub fn render_set_path(&self, name: &str) -> Result<PathBuf, ProjectError> {
+        let dir = self.root.join(RENDERS_DIR);
+        let path = dir.join(name);
+        if !windows_file_name(name) || path.parent() != Some(dir.as_path()) {
+            return Err(ProjectError::PathOutsideProject(path.display().to_string()));
+        }
+        if fs::symlink_metadata(&dir).is_ok() {
+            check_dir(&dir, RENDERS_DIR, name)?;
+        }
+        Ok(path)
+    }
+
+    /// Reserves a new directory directly in this project's renders folder.
+    pub fn create_render_set(&self, path: &Path) -> Result<RenderSet, ProjectError> {
+        let dir = self.root.join(RENDERS_DIR);
+        let name = self.check_render_set_path(path)?;
+        match fs::create_dir(&dir) {
+            Ok(()) => (),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(e) => return Err(ProjectError::io(&dir, e)),
+        }
+        check_dir(&dir, RENDERS_DIR, name)?;
+        let set = RenderSet::reserve(path)?;
+        if set.canonical != path {
+            return Err(ProjectError::PathOutsideProject(path.display().to_string()));
+        }
+        Ok(set)
+    }
+
+    fn check_render_set_path<'a>(&self, path: &'a Path) -> Result<&'a str, ProjectError> {
+        let outside = || ProjectError::PathOutsideProject(path.display().to_string());
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(outside)?;
+        if self.render_set_path(name)? != path {
+            return Err(outside());
+        }
+        Ok(name)
     }
 
     fn publish_render(
@@ -693,9 +868,9 @@ fn device_basename(name: &str) -> bool {
         })
 }
 
-#[cfg(windows)]
 fn windows_file_name(name: &str) -> bool {
-    !name.ends_with([' ', '.'])
+    !name.is_empty()
+        && !name.ends_with([' ', '.'])
         && !name
             .chars()
             .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
@@ -803,8 +978,7 @@ fn write_and_publish(
 ) -> Result<(), ProjectError> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let (mut file, tmp) = loop {
-        let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let tmp = parent.join(format!(".strudeland.tmp-{}-{n}", std::process::id()));
+        let tmp = parent.join(temp_name());
         match fs::File::create_new(&tmp) {
             Ok(file) => break (file, tmp),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -820,6 +994,11 @@ fn write_and_publish(
         let _ = fs::remove_file(&tmp);
         ProjectError::io(path, e)
     })
+}
+
+fn temp_name() -> String {
+    let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!(".strudeland.tmp-{}-{n}", std::process::id())
 }
 
 #[cfg(test)]
@@ -2156,6 +2335,71 @@ mod tests {
         project.write_render(&path, b"two").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"two");
         assert_eq!(dir_names(&renders).len(), 1);
+    }
+
+    #[test]
+    fn render_sets_are_contained_and_never_replace_outputs() {
+        let (_tmp, project) = new_project();
+        assert!(project.render_set_path("../escape").is_err());
+        let set = project.render_set_path("song-stems").unwrap();
+        assert!(!set.exists());
+        let reservation = project.create_render_set(&set).unwrap();
+        assert!(project.create_render_set(&set).is_err());
+        assert!(reservation.create_file("../escape", b"x").is_err());
+        reservation.create_file("mix.wav", b"one").unwrap();
+        assert!(reservation.create_file("mix.wav", b"two").is_err());
+        assert_eq!(fs::read(set.join("mix.wav")).unwrap(), b"one");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn render_set_refuses_a_redirected_directory() {
+        let (tmp, project) = new_project();
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let set = project.render_set_path("song-stems").unwrap();
+        let reservation = project.create_render_set(&set).unwrap();
+        fs::rename(&set, set.with_file_name("moved")).unwrap();
+        test_symlink!(&outside, &set).unwrap();
+        assert!(reservation.create_file("mix.wav", b"x").is_err());
+        assert!(!outside.join("mix.wav").exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn removing_a_temporary_after_a_move_uses_the_held_directory() {
+        let (_tmp, project) = new_project();
+        let set = project.render_set_path("song-stems").unwrap();
+        let moved = set.with_file_name("moved");
+        let reservation = project.create_render_set(&set).unwrap();
+        let result = reservation.write_at("mix.wav", |file| {
+            file.write_all(b"float data")?;
+            let temporary = fs::read_dir(&set)?.next().unwrap()?.file_name();
+            fs::rename(&set, &moved)?;
+            fs::create_dir(&set)?;
+            fs::write(set.join(temporary), b"unrelated data")
+        });
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("directory changed")
+        );
+        assert_eq!(fs::read_dir(&moved).unwrap().count(), 0);
+        let remaining = fs::read_dir(&set).unwrap().next().unwrap().unwrap();
+        assert_eq!(fs::read(remaining.path()).unwrap(), b"unrelated data");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_reserved_render_set_cannot_move_until_the_handle_closes() {
+        let (_tmp, project) = new_project();
+        let set = project.render_set_path("song-stems").unwrap();
+        let moved = set.with_file_name("moved");
+        let reservation = project.create_render_set(&set).unwrap();
+        assert!(fs::rename(&set, &moved).is_err());
+        drop(reservation);
+        fs::rename(&set, &moved).unwrap();
     }
 
     #[test]
