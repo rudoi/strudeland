@@ -1,4 +1,5 @@
 import { closeBrackets, insertBracket } from '@codemirror/autocomplete';
+import { syntaxTreeAvailable } from '@codemirror/language';
 import { javascript } from '@codemirror/lang-javascript';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { expect, test } from 'bun:test';
@@ -86,6 +87,35 @@ test('handles unfinished JavaScript and an unclosed note string', () => {
   });
 });
 
+test('resolves complete local voices in a long song without finishing the document parse', () => {
+  const rest = '\n$: note("a4").s("pulse")'.repeat(2000);
+  for (const [voice, sound] of [
+    ['$: note("g|").s("sine")', 'sine'],
+    ['$: note("g|")\n  .sound("saw")', 'saw'],
+    ['$: note("g|")', 'triangle'],
+  ]) {
+    const tr = type(editor(voice + rest), '3');
+    expect(inspectNoteAudition(tr)).toMatchObject({ pitch: 55, sound });
+    expect(syntaxTreeAvailable(tr.state)).toBe(false);
+  }
+  const comments = '\n// more of the same voice follows'.repeat(1000);
+  expect(edit('$: note("g|")' + comments + '\n.s("pulse")' + rest, '3')).toBeNull();
+  expect(edit('$: note("g|");' + comments + rest, '3')).toMatchObject({ sound: 'triangle' });
+});
+
+test('accepts trailing commas on the sole argument of note and sound calls', () => {
+  expect(edit('sound("triangle*4",).note("g|", /* end */)', '3')).toMatchObject({
+    pitch: 55,
+    sound: 'triangle',
+  });
+  expect(edit('note("g|",).s("pulse", /* end */)', '3')).toMatchObject({
+    pitch: 55,
+    sound: 'pulse',
+  });
+  expect(edit('note("g|",,).s("sine")', '3')).toBeNull();
+  expect(edit('note("g|", "c4",).s("sine")', '3')).toBeNull();
+});
+
 test('operator arguments and non-note strings cannot become candidates', () => {
   for (const source of [
     'note("c4:g|")',
@@ -136,6 +166,36 @@ test('ambiguous voices, transforms, overwritten pitches, and unsupported sounds 
     'customVoice(note("g|"))',
   ])
     expect(edit(source, '3'), source).toBeNull();
+});
+
+test('keeps the edited stack voice through enclosing effects and applies literal outer controls', () => {
+  const stack = 'stack(note("g|").s("sine").gain(.3), note("d4").s("square"))';
+  expect(edit(stack + '.orbit(1)', '3')).toMatchObject({ sound: 'sine', controls: { gain: 0.3 } });
+  expect(edit(stack + '.gain(.2).orbit(1)', '3')).toMatchObject({
+    sound: 'sine',
+    controls: { gain: 0.2 },
+  });
+  for (const suffix of ['.s("pulse")', '.note("d4")', '.add(12)', '.gain(dynamic)']) {
+    expect(edit(stack + suffix, '3')).toBeNull();
+  }
+  expect(edit('note("c4").gain(note("g|").s("sine"))', '3')).toBeNull();
+  expect(
+    edit('note /* pitch */ ("g|"). /* selected sound */ s /* argument */ ("sine")', '3'),
+  ).toMatchObject({ sound: 'sine' });
+});
+
+test('local definitions and function parameters can shadow bare Strudel constructors', () => {
+  for (const source of [
+    'const s = () => sound("square"); s("sine").note("g|")',
+    'function note() { return other }; note("g|")',
+    'function f({s}) { return s("sine").note("g|") }',
+    'const f = sound => sound("sine").note("g|")',
+    'const stack = custom; stack(note("g|"))',
+  ])
+    expect(edit(source, '3'), source).toBeNull();
+  expect(edit('function other(s) { return s(1) }; s("sine").note("g|")', '3')).toMatchObject({
+    sound: 'sine',
+  });
 });
 
 test('accepts a single typed selection replacement and rejects all other change sources', () => {

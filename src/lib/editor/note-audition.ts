@@ -1,4 +1,6 @@
-import { ensureSyntaxTree } from '@codemirror/language';
+import { CompletionContext } from '@codemirror/autocomplete';
+import { localCompletionSource } from '@codemirror/lang-javascript';
+import { ensureSyntaxTree, syntaxTree, syntaxTreeAvailable } from '@codemirror/language';
 import type { EditorState, Transaction } from '@codemirror/state';
 import { noteToMidi } from '@strudel/core';
 import { mini2ast } from '@strudel/mini';
@@ -72,6 +74,7 @@ function onlyArgument(list: SyntaxNode | null) {
       (node.type.isError && node.from === node.to)
     )
       continue;
+    if (node.name === ',') return nextCode(node)?.name === ')' ? arg : null;
     if (arg) return null;
     arg = node;
   }
@@ -82,18 +85,40 @@ function unwrapped(node: SyntaxNode | null): SyntaxNode | null {
   while (node?.name === 'ParenthesizedExpression') node = node.firstChild?.nextSibling ?? null;
   return node;
 }
-function outerCall(note: SyntaxNode) {
-  let node = note;
-  for (;;) {
-    if (node.parent?.name === 'ParenthesizedExpression') {
-      node = node.parent;
-      continue;
-    }
-    const member = node.parent;
-    if (member?.name !== 'MemberExpression' || member.firstChild?.from !== node.from) return node;
-    if (member.parent?.name !== 'CallExpression') return null;
-    node = member.parent;
+function nextCode(node: SyntaxNode) {
+  let next = node.nextSibling;
+  while (next && isComment(next.name)) next = next.nextSibling;
+  return next;
+}
+
+/** Recognize only direct bare calls and ordinary dot-method calls. */
+function readCall(state: EditorState, call: SyntaxNode) {
+  const fn = call.firstChild;
+  if (!fn || call.name !== 'CallExpression') return null;
+  const list = nextCode(fn);
+  if (list?.name !== 'ArgList') return null;
+  const arg = onlyArgument(list);
+  if (fn.name === 'VariableName') {
+    const name = nodeText(state, fn);
+    // CodeMirror caches lexical scope information for completion. Its snapshot must reach this identifier.
+    const identifier = syntaxTree(state).resolveInner(fn.to, -1);
+    if (identifier.name !== fn.name || identifier.from !== fn.from || identifier.to !== fn.to)
+      return null;
+    const scope = localCompletionSource(new CompletionContext(state, fn.to, false));
+    if (!scope || scope.options.some((option) => option.label === name)) return null;
+    return { name, arg, receiver: null };
   }
+  const receiver = fn.firstChild;
+  const dot = receiver && nextCode(receiver);
+  const property = dot && nextCode(dot);
+  if (
+    fn.name !== 'MemberExpression' ||
+    !receiver ||
+    dot?.name !== '.' ||
+    property?.name !== 'PropertyName'
+  )
+    return null;
+  return { name: nodeText(state, property), arg, receiver };
 }
 
 const voiceControls = new Set(['attack', 'decay', 'sustain', 'release', 'gain']);
@@ -152,62 +177,85 @@ function fixedSound(state: EditorState, tree: Tree, arg: SyntaxNode | null) {
 }
 
 function localVoice(state: EditorState, tree: Tree, editedNote: SyntaxNode) {
-  const outer = outerCall(editedNote);
-  if (!outer) return null;
-  // The enclosing arrangement may contain sibling voices. Never take their controls or
-  // guess the result of applying a function or an override to the whole arrangement.
-  for (let parent = outer.parent; parent; parent = parent.parent) {
-    if (parent.name === 'CallExpression') {
-      const fn = parent.firstChild;
-      if (fn?.name !== 'VariableName' || !containers.has(nodeText(state, fn))) return null;
-    }
+  // Reconstruct the edited voice in evaluation order, starting at its root constructor.
+  const chain = [];
+  let call: SyntaxNode | null = editedNote;
+  for (;;) {
+    const part = call && readCall(state, call);
+    if (!part) return null;
+    chain.unshift(part);
+    if (!part.receiver) break;
+    call = unwrapped(part.receiver);
   }
-  const controls: Record<string, number> = {};
-  let sound: string | null = null;
-  let call = unwrapped(outer);
-  while (call?.name === 'CallExpression') {
-    const fn = call.firstChild;
-    if (!fn || fn.nextSibling?.name !== 'ArgList') return null;
-    const member = fn.name === 'MemberExpression';
-    const method = member ? fn.lastChild : fn;
+  if (!['note', 's', 'sound'].includes(chain[0].name)) return null;
+
+  // Ancestors may apply controls to a whole arrangement. Accept modifiers reached through
+  // their receiver only, and never infer a sound or a pitch across a container boundary.
+  let inArrangement = false;
+  for (let node = editedNote; node.parent; node = node.parent) {
+    const parent = node.parent;
     if (
-      !method ||
-      (member
-        ? method.name !== 'PropertyName' || method.prevSibling?.name !== '.'
-        : method.name !== 'VariableName')
+      parent.name === 'MemberExpression' &&
+      (parent.firstChild?.from !== node.from || parent.parent?.name !== 'CallExpression')
     )
       return null;
-    const name = nodeText(state, method);
-    const arg = onlyArgument(call.lastChild);
+    if (parent.name !== 'CallExpression') continue;
+    const part = readCall(state, parent);
+    if (!part) return null;
+    if (!part.receiver) {
+      if (!containers.has(part.name)) return null;
+      inArrangement = true;
+    } else {
+      if (
+        node.name !== 'MemberExpression' ||
+        (inArrangement && !voiceControls.has(part.name) && !ignoredCalls.has(part.name))
+      )
+        return null;
+      chain.push(part);
+    }
+  }
+
+  const controls: Record<string, number> = {};
+  let sound: string | null = null;
+  let pitches = 0;
+  for (const { name, arg } of chain) {
     if (name === 'note') {
-      if (call.from !== editedNote.from || call.to !== editedNote.to) return null;
+      if (++pitches !== 1) return null;
     } else if (name === 's' || name === 'sound') {
       if (sound !== null) return null;
       sound = fixedSound(state, tree, arg);
       if (!sound) return null;
-    } else if (!member) {
-      return null;
     } else if (voiceControls.has(name)) {
       if (!arg || (arg.name !== 'Number' && arg.name !== 'UnaryExpression')) return null;
       const value = Number(nodeText(state, arg));
       if (!Number.isFinite(value)) return null;
-      // Walk from the outside in, where the last setting wins.
-      controls[name] ??= value;
-    } else if (!ignoredCalls.has(name)) {
-      return null;
-    }
-    if (!member) return { sound: sound ?? 'triangle', controls };
-    call = unwrapped(fn.firstChild);
+      controls[name] = value;
+    } else if (!ignoredCalls.has(name)) return null;
   }
-  return null;
+  return { sound: sound ?? 'triangle', controls };
+}
+
+/** At a partial parse boundary a note can still acquire an instrument on a later line. */
+function statementEnded(state: EditorState, node: SyntaxNode) {
+  if (syntaxTreeAvailable(state)) return true;
+  let branch = node;
+  while (branch.parent?.parent) branch = branch.parent;
+  const next = nextCode(branch);
+  if (next && !next.type.isError) return true;
+
+  // A top-level expression (including a Strudel label) may also end explicitly.
+  while (branch.name === 'LabeledStatement' && branch.lastChild) branch = branch.lastChild;
+  return branch.lastChild?.name === ';';
 }
 
 function noteAt(state: EditorState, from: number, to: number) {
-  const tree = ensureSyntaxTree(state, state.doc.length, 20);
+  // Reuse the editor's incremental parse and look a little beyond the edit for a chained sound.
+  const tree = ensureSyntaxTree(state, Math.min(state.doc.length, to + 1024), 10);
   if (!tree) return null;
   let node: SyntaxNode | null = tree.resolveInner(to, -1);
   while (node && node.name !== 'String' && node.name !== 'TemplateString') node = node.parent;
-  if (!node || state.sliceDoc(node.from, node.from + 1) === "'") return null;
+  if (!node || state.sliceDoc(node.from, node.from + 1) === "'" || !statementEnded(state, node))
+    return null;
   const list = node.parent;
   const argument = onlyArgument(list);
   if (argument?.from !== node.from || argument.to !== node.to) return null;
