@@ -240,7 +240,9 @@ low-confidence note), but the JSON is exact:
   rhythm fits clearly better, else `null`) and `suggestedShiftMs` (a `--shift` value that brings
   the notes clearly closer to the grid, else `null`; when `suggestedDivision` is set it is
   measured on that division, so pass the two together). Both only suggest: the notes and code use
-  the grid asked for. `null` when the grid could not be found.
+  the grid asked for. The suggested shift measures timing within a grid step. If a comparison
+  against a known melody shows a whole-step difference, pass that alignment explicitly via
+  `--shift`. `null` when the grid could not be found.
 - `tuning`: `cents` and `source` (`estimated` or `flag`). Positive means the singer was sharp, so
   the note names are already corrected down by that much. A big value (over 40) can put a note
   name a semitone out.
@@ -249,10 +251,13 @@ low-confidence note), but the JSON is exact:
 - `notation`: `note` (mini-notation of note names), `n` and `scale` (scale degrees and the
   `.scale(...)` argument; `null` without a key), `firstBar` and `lastBar`. The code is
   `note("<note>")` or `n("<n>").scale("<scale>")`. `null` without notes or a grid.
+  When a note holds over a barline the pattern can use `[...]/N` to place the whole phrase over
+  N cycles, keeping the hold as one note.
 - `notes`: each has `start` and `end` (raw seconds in the file), `bar`, `step` and `steps` (on the
   grid), `midi`, `name`, `degree`, `cents`, `confidence` (0 to 1, below 0.5 is shaky), its
   `components` (`voiced`, `stability`, `fit`, `onset`), `snapErrorMs` (how far it moved to reach
-  the grid), `tiedToNext` and `alternative`: for a note more than 30 cents from its semitone,
+  the grid), `tiedToNext` (the entry continues into the next bar as one held note) and
+  `alternative`: for a note more than 30 cents from its semitone,
   the neighbouring note it leans toward (`{midi, name}`), else `null`. The pitch is ambiguous
   between the two (a singer's intonation varies by up to half a semitone), so treat `name` and
   `alternative.name` as candidates; the table prints it as `c3/c#3`.
