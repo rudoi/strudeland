@@ -3,7 +3,7 @@
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{SyncSender, sync_channel};
 
 use strudeland_engine::{ErrorKind, JobError, RenderError as EngineRenderError, Rendered};
 use strudeland_host::{ChunkWindow, PlanError};
@@ -54,7 +54,7 @@ type Outcome = (
 );
 
 /// Renders `jobs` with `workers` threads. `render` renders one job; each result is checked
-/// against its plan (2 channels of `plan.frames`) on the worker and sent to the calling thread,
+/// against the output layout and `plan.frames` on the worker and sent to the calling thread,
 /// which copies its content into `joiner` and frees the buffer, and alone calls `progress`
 /// (`ChunkRendered`, in completion order). So at most the window and the chunks in flight are
 /// held at once. The first failure stops workers from starting new chunks; the error of the
@@ -85,9 +85,12 @@ where
     let stop = AtomicBool::new(false);
     let mut results: Vec<Option<Vec<EngineRenderError>>> = (0..of).map(|_| None).collect();
     let mut failure: Option<(usize, RenderError)> = None;
+    let channels = joiner.channels();
 
     std::thread::scope(|scope| -> Result<(), RenderError> {
-        let (sender, inbox) = channel::<Outcome>();
+        // Hand each result directly to the joiner, keeping at most one buffer per
+        // worker plus the buffer being placed by the calling thread.
+        let (sender, inbox) = sync_channel::<Outcome>(0);
         let mut spawned = 0;
         let mut spawn_error = None;
         for w in 0..workers.max(1) {
@@ -97,7 +100,7 @@ where
                 .name(format!("strudeland-render-{w}"))
                 .stack_size(WORKER_STACK)
                 .spawn_scoped(scope, move || {
-                    worker(slots, plans, next, stop, render, &sender)
+                    worker(slots, plans, channels, next, stop, render, &sender)
                 });
             match spawn {
                 Ok(_) => spawned += 1,
@@ -159,10 +162,11 @@ where
 fn worker<J, F>(
     slots: &[Mutex<Option<J>>],
     plans: &[ChunkWindow],
+    channels: usize,
     next: &AtomicUsize,
     stop: &AtomicBool,
     render: &F,
-    sender: &std::sync::mpsc::Sender<Outcome>,
+    sender: &SyncSender<Outcome>,
 ) where
     F: Fn(&J) -> Result<Rendered, JobError>,
 {
@@ -179,7 +183,7 @@ fn worker<J, F>(
             Err(_) => None,
         };
         let outcome = match job {
-            Some(job) => render_one(index, plan, render(&job)),
+            Some(job) => render_one(index, plan, channels, render(&job)),
             None => (
                 Err(RenderError::Render(format!("chunk {index}: job missing"))),
                 Vec::new(),
@@ -198,6 +202,7 @@ fn worker<J, F>(
 fn render_one(
     index: usize,
     plan: &ChunkWindow,
+    channels: usize,
     rendered: Result<Rendered, JobError>,
 ) -> (Result<Vec<Vec<f32>>, RenderError>, Vec<EngineRenderError>) {
     let fail = |m: String| {
@@ -217,9 +222,14 @@ fn render_one(
     {
         return fail(format!("unsupported: {}", e.message));
     }
-    if rendered.channels.len() != 2 {
+    if rendered.channels.len() != channels {
+        let expected = if channels == 2 {
+            "a mix has 2".to_owned()
+        } else {
+            format!("the output layout has {channels}")
+        };
         return fail(format!(
-            "rendered {} channels, a mix has 2",
+            "rendered {} channels, {expected}",
             rendered.channels.len()
         ));
     }

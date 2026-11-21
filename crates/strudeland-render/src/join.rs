@@ -85,6 +85,10 @@ pub struct Joiner {
 }
 
 impl Joiner {
+    pub(crate) fn channels(&self) -> usize {
+        self.out.len()
+    }
+
     /// Checks the chunks' bars against the window and allocates it. Errors (`Render`) when the
     /// window ends past [`MAX_BARS`] or cannot be allocated, there is no chunk, the first does not start at `window.from_bar`, two chunks leave a gap or
     /// overlap, a chunk is empty, the channel counts differ, the last does not end at

@@ -11,7 +11,8 @@ import type {
   ExportRequest,
   ExportResult,
   ExportRole,
-  ExportTarget,
+  ExportPreview,
+  StemGrouping,
 } from './api';
 
 export const MODES = [
@@ -19,6 +20,11 @@ export const MODES = [
     id: 'standard',
     label: 'standard render',
     detail: 'export the selected range as a regular audio file',
+  },
+  {
+    id: 'stems',
+    label: 'stems',
+    detail: 'a pre-master reference mix and aligned stereo stems for your DAW',
   },
   {
     id: 'intro-loop',
@@ -72,6 +78,7 @@ export function captureExportSong(state: SessionState, source: string | null): E
 
 interface Options {
   mode: Mode;
+  grouping: StemGrouping;
   range: Range;
   section: string;
   bars: string;
@@ -81,7 +88,7 @@ interface Options {
 
 type Preview =
   | { kind: 'idle' | 'loading' }
-  | { kind: 'ready'; files: ExportTarget[]; request: ExportRequest }
+  | { kind: 'ready'; target: ExportPreview; request: ExportRequest }
   | { kind: 'error'; message: string };
 
 type Activity =
@@ -104,7 +111,7 @@ interface DialogState {
 }
 
 export const loopMode = (mode: Mode): mode is Exclude<ExportPreset, 'one-shot'> =>
-  mode !== 'standard' && mode !== 'one-shot';
+  mode === 'tagged-loop' || mode === 'intro-loop' || mode === 'folded-loop';
 
 export const showMp3Warning = ({ mode, format }: Options): boolean =>
   loopMode(mode) && format === 'mp3';
@@ -114,14 +121,15 @@ export const roleLabel = (role: ExportRole): string =>
 
 function requestFor(
   song: ExportSong,
-  { mode, range, section, bars, format, folder }: Options,
+  { mode, grouping, range, section, bars, format, folder }: Options,
 ): ExportRequest | null {
-  const args = {
+  const args: Omit<ExportRequest, 'length'> = {
     root: song.root,
     songPath: song.songPath,
     folder,
-    format,
-    preset: mode === 'standard' ? null : mode,
+    format: mode === 'stems' ? 'wav' : format,
+    preset: mode === 'standard' || mode === 'stems' ? null : mode,
+    ...(mode === 'stems' && { stems: grouping }),
   };
   if (loopMode(mode) || range === 'clip') return { ...args, length: { kind: 'clip' } };
   if (range === 'section')
@@ -147,6 +155,7 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
   let state: DialogState = {
     options: {
       mode: 'standard',
+      grouping: 'orbit',
       range: firstSection ? 'clip' : 'length',
       section: firstSection?.name ?? '',
       bars: '',
@@ -182,8 +191,8 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
     }
     update({ preview: { kind: 'loading' } });
     try {
-      const files = await api.preview(request);
-      if (version === revision) update({ preview: { kind: 'ready', files, request } });
+      const target = await api.preview(request);
+      if (version === revision) update({ preview: { kind: 'ready', target, request } });
     } catch (error) {
       if (version === revision)
         update({ preview: { kind: 'error', message: failureFrom(error).message } });
@@ -242,7 +251,8 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
         break;
       }
       case 'encoded':
-        update({ activity: { kind: 'encoding' } });
+        // Stem WAVs are published one at a time. The manifest is still being written.
+        if (state.activity.kind !== 'writing') update({ activity: { kind: 'encoding' } });
         break;
       case 'writing':
       case 'written':
@@ -253,12 +263,12 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
 
   async function start() {
     if (disposed || !canClose() || state.preview.kind !== 'ready' || state.result) return;
-    const { files, request } = state.preview;
+    const { target, request } = state.preview;
     let receivingProgress = true;
     hasUnacknowledgedOutcome = false;
     try {
       update({ activity: { kind: 'planning' }, failure: null, cancelled: false });
-      const result = await api.start(request, song.source, files, (progress) => {
+      const result = await api.start(request, song.source, target, (progress) => {
         if (receivingProgress) onProgress(progress);
       });
       hasUnacknowledgedOutcome = true;

@@ -13,6 +13,7 @@ use crate::noise::NoiseCache;
 use crate::orbit::{DuckControls, OrbitBank};
 use crate::periodic::WaveTables;
 use crate::reverb::IrCache;
+use crate::stems::{StemCapture, StemLayout};
 use crate::voice::{StartInfo, Voice, VoiceOutput, sound_name};
 use crate::{QUANTUM, Rendered};
 
@@ -317,6 +318,10 @@ impl Core {
     /// so a bus is complete before its first reader; then the orbits sum the voices in vector
     /// order. Without buses there is one level: the voices render in vector order.
     pub(crate) fn step(&mut self) {
+        self.step_with_stems(None);
+    }
+
+    fn step_with_stems(&mut self, mut capture: Option<&mut StemCapture>) {
         let q = self.frame;
         let n_voices = self.slots.len();
         if self.outputs.len() < n_voices {
@@ -347,8 +352,16 @@ impl Core {
         self.orbit_of.clear();
         self.orbit_of.extend(self.slots.iter().map(|s| s.orbit));
         self.mix.resize(self.orbits.count(), [0.0; QUANTUM]);
-        self.orbits
-            .process(q, &self.outputs[..n_voices], &self.orbit_of, &mut self.mix);
+        if let Some(c) = capture.as_deref_mut() {
+            c.begin(&self.slots);
+        }
+        self.orbits.process_with_stems(
+            q,
+            &self.outputs[..n_voices],
+            &self.orbit_of,
+            &mut self.mix,
+            capture,
+        );
         // A voice renders its last quantum into the mix, then is freed (order kept).
         if self.alive.contains(&false) {
             retain_flagged(&mut self.slots, &self.alive);
@@ -383,9 +396,10 @@ pub struct Engine<'a> {
     job: &'a EngineJob,
     channels: Vec<Vec<f32>>,
     core: Core,
+    capture: Option<StemCapture>,
 }
 
-fn zeroed(len: usize) -> Result<Vec<f32>, JobError> {
+pub(crate) fn zeroed(len: usize) -> Result<Vec<f32>, JobError> {
     let mut v = Vec::new();
     v.try_reserve_exact(len)
         .map_err(|_| JobError::new(format!("cannot allocate {len} frames")))?;
@@ -405,31 +419,50 @@ impl<'a> Engine<'a> {
             job,
             channels,
             core: Core::new(job.seed, BusGraph::from_job(job), OrbitBank::new(job)),
+            capture: None,
         })
     }
 
+    pub(crate) fn with_stems(job: &'a EngineJob, layout: &StemLayout) -> Result<Self, JobError> {
+        if job.channels.count != 2 || job.channels.multi_channel_orbits {
+            return Err(JobError::new(
+                "stem capture requires a standard stereo mix job",
+            ));
+        }
+        let mut engine = Self::new(job)?;
+        engine.capture = Some(StemCapture::new(job, layout)?);
+        Ok(engine)
+    }
+
     /// Renders the job.
-    pub fn run(mut self) -> Rendered {
+    pub fn run(self) -> Rendered {
+        self.run_observing_overflow().0
+    }
+
+    pub(crate) fn run_observing_overflow(mut self) -> (Rendered, bool) {
         let job = self.job;
         let unsupported = unsupported_signatures_in(job, &self.core.bus_graph);
         if !unsupported.is_empty() {
-            let errors = unsupported
+            self.core.errors = unsupported
                 .into_iter()
                 .map(|u| {
                     let msg = format!("s={} keys={}", u.s, u.keys.join(","));
                     RenderError::new(ErrorKind::Unsupported, msg, Some(u.first_bar))
                 })
                 .collect();
-            return Rendered {
+        } else {
+            self.play();
+        }
+        if let Some(capture) = self.capture {
+            self.channels.extend(capture.channels);
+        }
+        (
+            Rendered {
                 channels: self.channels,
-                errors,
-            };
-        }
-        self.play();
-        Rendered {
-            channels: self.channels,
-            errors: self.core.errors,
-        }
+                errors: self.core.errors,
+            },
+            self.core.mix_overflowed,
+        )
     }
 
     /// The pause loop: render to each pause frame, schedule its haps, settle the IRs; then
@@ -491,7 +524,7 @@ impl<'a> Engine<'a> {
         let frames = self.job.frames;
         while self.core.frame < end {
             let q = self.core.frame;
-            self.core.step();
+            self.core.step_with_stems(self.capture.as_mut());
             let n = (frames.saturating_sub(q)).min(Q) as usize;
             let start = q as usize;
             for (ch, m) in self.channels.iter_mut().zip(self.core.mix.iter()) {

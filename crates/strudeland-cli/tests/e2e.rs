@@ -337,6 +337,66 @@ fn wav_chunk<'a>(wav: &'a [u8], name: &[u8; 4]) -> Option<&'a [u8]> {
 }
 
 #[test]
+fn render_writes_stereo_float_stem_set_and_preserves_an_existing_set() {
+    use std::ffi::OsStr;
+    let dir = tempfile::tempdir().unwrap();
+    let song = dir.path().join("duet.js");
+    std::fs::write(
+        &song,
+        "const meta = { bpm: 120, meter: '4/4' };\n\
+         $: note('c3').s('sine')\n\
+         $: note('e4').s('sine').orbit(7)\n",
+    )
+    .unwrap();
+    // A directory's extension has no bearing on the audio format.
+    let out = dir.path().canonicalize().unwrap().join("duet.mp3");
+    let args = [
+        song.as_os_str(),
+        OsStr::new("--stems"),
+        OsStr::new("orbit"),
+        OsStr::new("--out"),
+        out.as_os_str(),
+        OsStr::new("--length"),
+        OsStr::new("1"),
+        OsStr::new("--json"),
+    ];
+    let result = render(&args);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(0), "{stderr}");
+    let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["grouping"], "orbit");
+    assert_eq!(report["reference"], "pre-master");
+    assert_eq!(report["directory"], out.to_str().unwrap());
+    assert_eq!(report["summary"]["sampleRate"], 44_100);
+    assert_eq!(report["summary"]["frames"], 88_200);
+    let paths =
+        ["mix.wav", "stem-001.wav", "stem-002.wav", "stems.json"].map(|name| out.join(name));
+    assert_eq!(report["files"], serde_json::json!(paths));
+    for path in &paths[..3] {
+        let wav = std::fs::read(path).unwrap();
+        let fmt = wav_chunk(&wav, b"fmt ").unwrap();
+        assert_eq!(&fmt[..4], &[3, 0, 2, 0]); // IEEE float, stereo
+        assert_eq!(u32::from_le_bytes(fmt[4..8].try_into().unwrap()), 44_100);
+        assert_eq!(wav_chunk(&wav, b"data").unwrap().len(), 88_200 * 8);
+    }
+    assert!(stderr.contains("planned 1 chunk(s)"), "{stderr}");
+    assert!(stderr.contains("rendered 1/1"), "{stderr}");
+    for path in &paths {
+        assert!(
+            stderr.contains(&format!("wrote {}", path.display())),
+            "{stderr}"
+        );
+    }
+    let manifest = std::fs::read(&paths[3]).unwrap();
+
+    let repeated = render(&args);
+    let stderr = String::from_utf8_lossy(&repeated.stderr);
+    assert_eq!(repeated.status.code(), Some(1), "{stderr}");
+    assert!(repeated.stdout.is_empty());
+    assert_eq!(std::fs::read(&paths[3]).unwrap(), manifest);
+}
+
+#[test]
 fn render_exports_a_wav_intro_and_repeatable_loop_through_the_real_pipeline() {
     use std::ffi::OsStr;
     let dir = tempfile::tempdir().unwrap();

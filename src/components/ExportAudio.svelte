@@ -31,8 +31,10 @@
   const sections = source.structure?.sections ?? [];
   const loopIndex = source.structure?.loopIndex ?? null;
   const markedLoop = loopIndex === null ? undefined : sections[loopIndex];
+  const target = $derived($store.preview.kind === 'ready' ? $store.preview.target : null);
+  const result = $derived($store.result);
   const files = $derived(
-    $store.result?.files ?? ($store.preview.kind === 'ready' ? $store.preview.files : null),
+    result && 'files' in result ? result.files : Array.isArray(target) ? target : null,
   );
   const canExport = $derived(!locked && $store.preview.kind === 'ready' && !$store.result);
   let dialog: HTMLDialogElement;
@@ -53,6 +55,14 @@
     if (controller.canClose()) onclose();
   }
 </script>
+
+{#snippet pathList(paths: string[])}
+  <ul class="file-list">
+    {#each paths as path (path)}
+      <li class="path mono">{path}</li>
+    {/each}
+  </ul>
+{/snippet}
 
 <dialog
   bind:this={dialog}
@@ -96,21 +106,40 @@
 
       <div class="details">
         <div class="settings">
-          <label class="select-label">
-            <span class="label">format</span>
-            <select
-              class="control"
-              disabled={locked}
-              value={options.format}
-              onchange={(event) =>
-                controller.select({ format: event.currentTarget.value as typeof options.format })}
-            >
-              <option value="wav">WAV</option>
-              <option value="mp3">MP3</option>
-              <option value="ogg">Ogg Vorbis</option>
-              <option value="opus">Opus</option>
-            </select>
-          </label>
+          {#if options.mode === 'stems'}
+            <label class="select-label">
+              <span class="label">group stems by</span>
+              <select
+                class="control"
+                disabled={locked}
+                value={options.grouping}
+                onchange={(event) =>
+                  controller.select({
+                    grouping: event.currentTarget.value as typeof options.grouping,
+                  })}
+              >
+                <option value="orbit">orbit</option>
+                <option value="voice">voice label</option>
+                <option value="instrument">instrument</option>
+              </select>
+            </label>
+          {:else}
+            <label class="select-label">
+              <span class="label">format</span>
+              <select
+                class="control"
+                disabled={locked}
+                value={options.format}
+                onchange={(event) =>
+                  controller.select({ format: event.currentTarget.value as typeof options.format })}
+              >
+                <option value="wav">WAV</option>
+                <option value="mp3">MP3</option>
+                <option value="ogg">Ogg Vorbis</option>
+                <option value="opus">Opus</option>
+              </select>
+            </label>
+          {/if}
           {#if !loopMode(options.mode)}
             <label class="select-label">
               <span class="label">range</span>
@@ -161,6 +190,23 @@
           {/if}
         </div>
 
+        {#if options.mode === 'stems'}
+          <p class="hint">
+            stereo 32-bit float WAV at 44.1 kHz. import the stems at the same position and leave
+            their gains at unity to recreate the pre-master mix. peaks can exceed full scale.
+          </p>
+          {#if options.grouping === 'voice'}
+            <p class="hint">
+              each <code>.label(…)</code> gets a stem. parts without a label share one stem.
+            </p>
+          {/if}
+          {#if options.grouping !== 'orbit'}
+            <p class="hint">
+              each orbit has a shared effects stem for delay, reverb and filter changes. a filter
+              can subtract part of the direct signal on this stem.
+            </p>
+          {/if}
+        {/if}
         {#if loopMode(options.mode) && !markedLoop}
           <Notice tone="warning"
             >loop export needs a section with <code>loop: true</code> in
@@ -193,9 +239,17 @@
 
         <section class="files" aria-labelledby="export-files">
           <h3 class="label" id="export-files">
-            {$store.result ? 'written files' : 'output files'}
+            {result
+              ? 'written files'
+              : options.mode === 'stems'
+                ? 'stem set folder'
+                : 'output files'}
           </h3>
-          {#if files}
+          {#if result && 'paths' in result}
+            {@render pathList(result.paths)}
+          {:else if target && 'directory' in target}
+            <span class="path mono">{target.directory}</span>
+          {:else if files}
             <ul class="file-list">
               {#each files as file (file.path)}
                 <li>
@@ -216,9 +270,9 @@
             <Button size="sm" disabled={locked} onclick={controller.refresh}>refresh preview</Button
             >
           {:else if $store.preview.kind === 'loading'}
-            <p class="hint" role="status">checking filenames…</p>
+            <p class="hint" role="status">checking destination…</p>
           {:else}
-            <p class="hint">enter a positive whole number of bars to preview filenames</p>
+            <p class="hint">enter a positive whole number of bars to preview the destination</p>
           {/if}
         </section>
 
@@ -227,11 +281,7 @@
           {#if $store.failure.written.length}
             <div>
               <p class="label">files already written</p>
-              <ul class="file-list">
-                {#each $store.failure.written as path (path)}
-                  <li class="path mono">{path}</li>
-                {/each}
-              </ul>
+              {@render pathList($store.failure.written)}
             </div>
           {/if}
         {/if}
