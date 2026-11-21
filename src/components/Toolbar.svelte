@@ -11,8 +11,9 @@
   let { app }: { app: App } = $props();
   // `app` is constant for the window's lifetime, so reading it once is correct.
   // svelte-ignore state_referenced_locally
-  const { runtime, recording, session, memos } = app;
+  const { runtime, recording, session, memos, prefs } = app;
   const rt = runtime.store;
+  const prefsStore = prefs.store;
   const recStore = recording?.store ?? readable<RecordingUiState | null>(null);
   // While a take runs, play and stop belong to it.
   const taking = $derived(takeRunning($recStore?.phase ?? null));
@@ -48,6 +49,14 @@
     {$rt.started ? 're-evaluate' : 'play'}
   </Button>
   <Button onclick={stop} disabled={!$rt.started && !taking && !memoAudible}>stop</Button>
+  <label class="audition">
+    <input
+      type="checkbox"
+      checked={$prefsStore.auditionNotes}
+      onchange={(event) => void prefs.setAuditionNotes(event.currentTarget.checked)}
+    />
+    Audition notes
+  </label>
   <RecordControls {recording} {session} {memos} />
   {@render readout($rt.cps.toFixed(3), 'cps')}
   {@render readout(
@@ -76,6 +85,16 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-1-5);
+  }
+  .audition {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+    font-size: var(--fs-ui);
+  }
+  .audition input {
+    margin: 0;
+    accent-color: var(--accent);
   }
   .value {
     display: inline-flex;

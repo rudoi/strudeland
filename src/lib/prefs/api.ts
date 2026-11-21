@@ -3,8 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 // The only module that calls Tauri for app preferences. Mirrors the Rust `Prefs`.
 export interface Prefs {
   vim: boolean;
+  auditionNotes: boolean;
 }
-export const DEFAULT_PREFS: Prefs = { vim: false };
+export const DEFAULT_PREFS: Prefs = { vim: false, auditionNotes: false };
 
 export interface PrefsApi {
   /** Best effort on the Rust side: a missing or corrupt file gives the defaults. */
