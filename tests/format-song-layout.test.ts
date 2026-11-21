@@ -97,6 +97,37 @@ test('expands recognized unqualified combiners and preserves a compact call with
   }
 });
 
+test('aligns a combiner to its opening parenthesis even when it starts on a separate line', () => {
+  expect(formatted('$: stack\n    (s("bd").gain(.8), s("hh"))')).toBe(
+    '$: stack\n    (\n      s("bd")\n        .gain(.8),\n      s("hh")\n    )',
+  );
+});
+
+test('compacts simple section objects and keeps commented sections on separate lines', () => {
+  const source = [
+    'const meta={sections:[{',
+    "  name:'intro',bars:2},",
+    "  {name:'body',",
+    '   // memo',
+    '   bars:4,loop:true}]}',
+  ].join('\n');
+  expect(formatted(source)).toBe(
+    [
+      'const meta = {',
+      '  sections: [',
+      "    { name: 'intro', bars: 2 },",
+      '    {',
+      "      name: 'body',",
+      '   // memo',
+      '   bars: 4,',
+      '      loop: true',
+      '    }',
+      '  ]',
+      '}',
+    ].join('\n'),
+  );
+});
+
 test('uses the resulting receiver line and anchors a chain with a multiline argument at its first line', () => {
   const source = [
     'const a = s("bd").gain(1); const b = s("sd").gain(.8)',

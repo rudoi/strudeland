@@ -5,7 +5,6 @@ import {
   type Comment,
   type Node,
   type ObjectExpression,
-  type Program,
   type Token,
 } from 'acorn';
 import { headerRanges } from '../project/meta';
@@ -138,7 +137,10 @@ function resolveGaps(source: string, gaps: Gap[], newline: string) {
   return { edits, result: result + source.slice(cursor) };
 }
 
-function collectGaps(source: string, ast: Program, tokens: Token[]): Gap[] {
+function collectGaps(
+  source: string,
+  { ast, tokens, comments }: ReturnType<typeof readScript>,
+): Gap[] {
   const gaps: Gap[] = [];
 
   function tokenAfter(pos: number): Token {
@@ -236,8 +238,8 @@ function collectGaps(source: string, ast: Program, tokens: Token[]): Gap[] {
             prop.type === 'Property' &&
             (prop.value.type === 'Literal' || prop.value.type === 'UnaryExpression'),
         );
-        // Existing multiline section entries can contain comments or intentional grouping.
-        object(item, !simple || lineBreak.test(source.slice(item.start, item.end)));
+        const hasComment = comments.some(({ start }) => item.start < start && start < item.end);
+        object(item, !simple || hasComment);
       }
     }
   }
@@ -264,7 +266,7 @@ function collectGaps(source: string, ast: Program, tokens: Token[]): Gap[] {
     }
     if (hasChain && patternGroups.has(node.callee.name)) {
       const open = tokenAfter(node.callee.end);
-      if (open.type === tokTypes.parenL) group(open, node.arguments, node.start, true);
+      if (open.type === tokTypes.parenL) group(open, node.arguments, open.start, true);
     }
     return hasChain;
   }
@@ -356,7 +358,7 @@ function collectGaps(source: string, ast: Program, tokens: Token[]): Gap[] {
 export function formatScript(source: string): FormatEdit[] {
   try {
     const script = readScript(source);
-    const gaps = collectGaps(source, script.ast, script.tokens);
+    const gaps = collectGaps(source, script);
     if (!gaps.length) return [];
     const { edits, result } = resolveGaps(source, gaps, scriptNewline(source, script.tokens));
     return edits.length && sameSyntax(source, script, result) ? edits : [];
