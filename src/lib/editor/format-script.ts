@@ -5,6 +5,7 @@ import {
   type Comment,
   type Node,
   type ObjectExpression,
+  type Program,
   type Token,
 } from 'acorn';
 import { headerRanges } from '../project/meta';
@@ -137,7 +138,7 @@ function resolveGaps(source: string, gaps: Gap[], newline: string) {
   return { edits, result: result + source.slice(cursor) };
 }
 
-function collectGaps(source: string, ast: AnyNode, tokens: Token[]): Gap[] {
+function collectGaps(source: string, ast: Program, tokens: Token[]): Gap[] {
   const gaps: Gap[] = [];
 
   function tokenAfter(pos: number): Token {
@@ -203,7 +204,7 @@ function collectGaps(source: string, ast: AnyNode, tokens: Token[]): Gap[] {
 
   // Use the project's header grammar, including validation and the required leading position.
   const header = headerRanges(source);
-  const first = ast.type === 'Program' ? ast.body[0] : undefined;
+  const first = ast.body[0];
   const leadingDeclaration =
     first?.type === 'VariableDeclaration' &&
     first.kind === 'const' &&
@@ -211,7 +212,6 @@ function collectGaps(source: string, ast: AnyNode, tokens: Token[]): Gap[] {
       ? first.declarations[0]
       : undefined;
   function metadata(node: ObjectExpression) {
-    if (!header || header.start !== node.start) return;
     object(node, true);
     for (const property of node.properties) {
       if (property.type !== 'Property' || property.value.type !== 'ArrayExpression') continue;
@@ -357,6 +357,7 @@ export function formatScript(source: string): FormatEdit[] {
   try {
     const script = readScript(source);
     const gaps = collectGaps(source, script.ast, script.tokens);
+    if (!gaps.length) return [];
     const { edits, result } = resolveGaps(source, gaps, scriptNewline(source, script.tokens));
     return edits.length && sameSyntax(source, script, result) ? edits : [];
   } catch {

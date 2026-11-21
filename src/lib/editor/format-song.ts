@@ -377,7 +377,10 @@ export function formatSong(source: string): readonly FormatEdit[] {
   const mini = formatMini(source);
   // A mini edit can remove a line before a later receiver. Establish line breaks first,
   // then let JavaScript and mini indentation settle against the same layout.
-  let text = apply(source, mini);
+  let text = mini.length ? apply(source, mini) : source;
+  let script = formatScript(text);
+  if (!script.length) return mini;
+
   let changes = ChangeSet.of(mini, source.length, '\n');
   function add(edits: FormatEdit[]) {
     changes = changes.compose(ChangeSet.of(edits, text.length, '\n'));
@@ -385,16 +388,13 @@ export function formatSong(source: string): readonly FormatEdit[] {
   }
 
   for (let pass = 0; pass < 3; pass++) {
-    const script = formatScript(text);
-    if (!script.length) {
-      if (pass === 0) return mini;
-      break;
-    }
     add(script);
     const aligned = formatMini(text);
     if (!aligned.length) break;
     if (pass === 2) return mini;
     add(aligned);
+    script = formatScript(text);
+    if (!script.length) break;
   }
 
   const edits: FormatEdit[] = [];
