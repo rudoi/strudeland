@@ -8,11 +8,11 @@
 //! 2. Notes that snap to the same onset step keep the longest by raw duration (the earliest on a
 //!    tie); the others go to `dropped` with [`SAME_STEP_REASON`].
 //! 3. An overlap cuts the earlier note at the later note's onset.
-//! 4. A note that crosses a barline at or after the origin is split there and the rest
-//!    re-attacked (Strudel's mini-notation has no tie across cycles): every part but the last has
-//!    `tied_to_next`, a continuation starts at the barline's time with a snap error of 0, and a
-//!    warning names the bar it crosses into. Notes before the origin are bar 0, their `step`
-//!    counted within their own bar, and are not split at earlier barlines. Those that start in
+//! 4. A note that crosses a barline at or after the origin is reported in parts. Every part but
+//!    the last has `tied_to_next`, so notation can sustain the note across the barline. A
+//!    continuation starts at the barline's time with a snap error of 0. Notes before the origin
+//!    are bar 0, their `step` counted within their own bar, and are not split at earlier barlines.
+//!    Those that start in
 //!    the bar just before the origin are the pickup bar, which the notation renders as its first
 //!    cycle; those that start earlier are `early`, left out of the notation with a warning.
 //!
@@ -250,16 +250,6 @@ pub fn quantize(
                 alternative: Alternative::of(midi, cents),
                 early: is_early && from < 0,
             });
-            if !last {
-                let into = if to <= 0 {
-                    1
-                } else {
-                    to.div_euclid(bar_steps).saturating_add(1)
-                };
-                warnings.push(format!(
-                    "a note crosses the barline into bar {into}; it is split and re-attacked"
-                ));
-            }
             from = to;
         }
     }
@@ -519,17 +509,13 @@ mod tests {
         assert_eq!((b.start, b.end), (2.5, 3.0));
         assert_eq!((a.midi, b.midi), (67, 67));
         assert_eq!(b.snap_error_ms, Some(0.0));
-        assert_eq!(
-            q.warnings,
-            vec!["a note crosses the barline into bar 2; it is split and re-attacked".to_string()]
-        );
+        assert!(q.warnings.is_empty(), "{:?}", q.warnings);
         // a note over two barlines splits in three
         let q = quantize(&[raw(1.5, 5.0, 60.0)], &grid(0.5), GridDivision::Sixteenth).unwrap();
         assert_eq!(positions(&q), vec![(1, 8, 8), (2, 0, 16), (3, 0, 4)]);
         let ties: Vec<bool> = q.notes.iter().map(|n| n.tied_to_next).collect();
         assert_eq!(ties, [true, true, false]);
-        assert_eq!(q.warnings.len(), 2);
-        assert!(q.warnings[1].contains("into bar 3;"));
+        assert!(q.warnings.is_empty(), "{:?}", q.warnings);
         // the attack's snap error alone counts toward the spread
         assert_eq!(q.timing_spread_ms, 0.0);
     }
@@ -559,10 +545,7 @@ mod tests {
         assert!(q.notes[2].tied_to_next);
         // all three are in the pickup bar (a bar is 2 s): none is early, none warns
         assert_eq!(early(&q), vec![false; 5]);
-        assert_eq!(
-            q.warnings,
-            vec!["a note crosses the barline into bar 1; it is split and re-attacked".to_string()]
-        );
+        assert!(q.warnings.is_empty(), "{:?}", q.warnings);
     }
 
     #[test]

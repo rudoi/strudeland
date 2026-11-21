@@ -146,7 +146,7 @@ pub struct Note {
     pub components: Components,
     /// Quantized start minus raw start, milliseconds.
     pub snap_error_ms: Option<f32>,
-    /// True when the note crosses a barline and is re-attacked in the next bar.
+    /// True when this part of a sustained note continues into the next bar.
     pub tied_to_next: bool,
     /// The neighbouring semitone the note leans toward when its `cents` are beyond
     /// `AMBIGUOUS_CENTS` either way (the pitch is ambiguous between the two); null otherwise.
