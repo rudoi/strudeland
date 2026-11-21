@@ -6,8 +6,8 @@
 //! several bars `<[bar 1] [bar 2] ...>`. The pattern starts at its `first_bar` (the bar the
 //! analysed span starts in, or 0, the pickup bar before bar 1, when the span starts before bar 1
 //! and has notes there), not always at bar 1. Notes without a step (an unresolved grid) are left
-//! out. The scale root comes from the notes from bar 1 on, so a pickup does not move it. A note split at a barline is two events, the second
-//! re-attacked: the mini-notation has no tie across cycles.
+//! out. The scale root comes from the notes from bar 1 on, so a pickup does not move it.
+//! A tie across a barline becomes one weighted event in a sequence slowed to fill all its bars.
 //!
 //! Scale degrees count from the key's root at the octave at or below the median of the rendered
 //! notes (the root's octave contains the median, so most degrees are positive), written
@@ -122,12 +122,10 @@ fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
+type Event<'a> = (u64, Option<&'a Note>);
+
 /// One bar's events, `(length in steps, token)`, the token `None` for a rest.
-fn bar_events<'a>(
-    notes: &[&'a Note],
-    bar: u32,
-    steps_per_bar: u32,
-) -> Vec<(u64, Option<&'a Note>)> {
+fn bar_events<'a>(notes: &[&'a Note], bar: u32, steps_per_bar: u32) -> Vec<Event<'a>> {
     let spb = u64::from(steps_per_bar.max(1));
     let mut in_bar: Vec<&Note> = notes
         .iter()
@@ -160,8 +158,8 @@ fn bar_events<'a>(
     events
 }
 
-/// One bar as tokens: `token` names a note, rests are `~`, lengths reduced by their GCD.
-fn bar_text(events: &[(u64, Option<&Note>)], token: &dyn Fn(&Note) -> String) -> String {
+/// Events as tokens: `token` names a note, rests are `~`, lengths reduced by their GCD.
+fn event_text(events: &[Event<'_>], token: &dyn Fn(&Note) -> String) -> String {
     if events.iter().all(|(_, n)| n.is_none()) {
         return "~".to_string();
     }
@@ -179,16 +177,48 @@ fn bar_text(events: &[(u64, Option<&Note>)], token: &dyn Fn(&Note) -> String) ->
         .join(" ")
 }
 
-/// Bars 1 to `bars` as one pattern: a flat sequence for one bar, `<[..] [..]>` for several.
-fn pattern(bars: &[Vec<(u64, Option<&Note>)>], token: &dyn Fn(&Note) -> String) -> String {
+/// Joins the end of a bar to the start of the following bar when they are parts of one note.
+/// Each bar contains its full duration, so a rest on either side prevents a tie.
+fn join_ties<'a>(bars: &[Vec<Event<'a>>]) -> Option<Vec<Event<'a>>> {
+    let mut joined: Vec<Event<'a>> = Vec::new();
+    let mut has_tie = false;
+    for bar in bars {
+        for (index, &(length, note)) in bar.iter().enumerate() {
+            if index == 0
+                && let Some((previous_length, Some(previous))) = joined.last_mut()
+                && let Some(next) = note
+                && previous.tied_to_next
+                && previous.midi == next.midi
+            {
+                *previous_length += length;
+                // The final part determines whether the sustain reaches the following bar too.
+                *previous = next;
+                has_tie = true;
+            } else {
+                joined.push((length, note));
+            }
+        }
+    }
+    has_tie.then_some(joined)
+}
+
+/// Use one slow sequence for ties, or the compact bar groups for untied patterns.
+fn pattern(
+    bars: &[Vec<Event<'_>>],
+    joined: Option<&[Event<'_>]>,
+    token: &dyn Fn(&Note) -> String,
+) -> String {
+    if let Some(joined) = joined {
+        return format!("[{}]/{}", event_text(joined, token), bars.len());
+    }
     match bars {
         [] => "~".to_string(),
-        [one] => bar_text(one, token),
+        [one] => event_text(one, token),
         many => {
             let groups: Vec<String> = many
                 .iter()
                 .map(|events| {
-                    let text = bar_text(events, token);
+                    let text = event_text(events, token);
                     if text == "~" {
                         text
                     } else {
@@ -203,9 +233,9 @@ fn pattern(bars: &[Vec<(u64, Option<&Note>)>], token: &dyn Fn(&Note) -> String) 
 
 /// The mini-notation of bars `first_bar` to `last_bar` of `notes` at `steps_per_bar` steps per
 /// bar: note names always, scale degrees and the `.scale` argument when `key` is given.
-/// `first_bar` 0 is the pickup bar before bar 1 (the caller leaves out the notes of bar 0 that
-/// are not in it); notes outside the bars are left out, and no bars (`last_bar` below
-/// `first_bar`) is `~`. The result names its `first_bar` and `last_bar`, so a
+/// `first_bar` 0 is the pickup bar before bar 1. Early notes and notes outside the bars are
+/// left out. An empty span (`last_bar` below `first_bar`) is `~`.
+/// The result names its `first_bar` and `last_bar`, so a
 /// pattern of a span later in the memo does not start with empty bars.
 pub fn render_notation(
     notes: &[Note],
@@ -216,17 +246,24 @@ pub fn render_notation(
 ) -> Notation {
     let shown: Vec<&Note> = notes
         .iter()
-        .filter(|n| n.step.is_some() && n.steps.is_some())
+        .filter(|n| !n.early && n.step.is_some() && n.steps.is_some())
         .filter(|n| n.bar.is_some_and(|b| (first_bar..=last_bar).contains(&b)))
         .collect();
-    let per_bar: Vec<Vec<(u64, Option<&Note>)>> = (first_bar..=last_bar)
+    let per_bar: Vec<Vec<Event<'_>>> = (first_bar..=last_bar)
         .map(|bar| bar_events(&shown, bar, steps_per_bar))
         .collect();
-    let note = pattern(&per_bar, &|n: &Note| midi_to_name(n.midi));
+    let joined = if shown.iter().any(|n| n.tied_to_next) {
+        join_ties(&per_bar)
+    } else {
+        None
+    };
+    let note = pattern(&per_bar, joined.as_deref(), &|n| midi_to_name(n.midi));
     let (n, scale) = match key {
         Some(key) => {
             let root = root_for(notes, key);
-            let n = pattern(&per_bar, &|n: &Note| scale_degree(n.midi, root, key));
+            let n = pattern(&per_bar, joined.as_deref(), &|n| {
+                scale_degree(n.midi, root, key)
+            });
             (Some(n), Some(scale_label(key, root)))
         }
         None => (None, None),
@@ -505,14 +542,50 @@ mod tests {
     }
 
     #[test]
-    fn tied_notes_reattack() {
+    fn tied_notes_sustain_in_both_forms() {
         // a c4 from step 12 of bar 1 to step 4 of bar 2, split by quantize
         let mut first = note(1, 12, 4, 60);
         first.tied_to_next = true;
         let notes = [first, note(2, 0, 4, 60), note(2, 4, 4, 62)];
         let n = render_notation(&notes, 16, 1, 2, Some(&key("C:major")));
-        assert_eq!(n.note, "<[~@3 c4] [c4 d4 ~@2]>");
-        assert_eq!(n.n.as_deref(), Some("<[~@3 0] [0 1 ~@2]>"));
+        assert_eq!(n.note, "[~@3 c4@2 d4 ~@2]/2");
+        assert_eq!(n.n.as_deref(), Some("[~@3 0@2 1 ~@2]/2"));
+    }
+
+    #[test]
+    fn tie_chain_preserves_the_pickup_repeat_and_empty_bars() {
+        let mut pickup = note(0, 12, 4, 60);
+        pickup.tied_to_next = true;
+        let mut middle = note(1, 0, 16, 60);
+        middle.tied_to_next = true;
+        let notes = [
+            pickup,
+            middle,
+            note(2, 0, 4, 60),
+            note(2, 4, 4, 60),
+            note(4, 0, 8, 62),
+        ];
+        let n = render_notation(&notes, 16, 0, 5, None);
+        assert_eq!((n.first_bar, n.last_bar), (0, 5));
+        assert_eq!(n.note, "[~@3 c4@6 c4 ~@2 ~@4 d4@2 ~@2 ~@4]/6");
+    }
+
+    #[test]
+    fn ties_stop_at_span_edges_and_require_contiguous_matching_pitch() {
+        let mut first = note(1, 12, 4, 60);
+        first.tied_to_next = true;
+        let notes = [first.clone(), note(2, 0, 4, 60), note(2, 4, 4, 62)];
+        assert_eq!(render_notation(&notes, 16, 1, 1, None).note, "~@3 c4");
+        assert_eq!(render_notation(&notes, 16, 2, 2, None).note, "c4 d4 ~@2");
+        for (step, pitch) in [(0, 62), (4, 60)] {
+            let notes = [first.clone(), note(2, step, 4, pitch)];
+            let n = render_notation(&notes, 16, 1, 2, None);
+            assert!(n.note.starts_with("<[~@3 c4] "), "{n:?}");
+        }
+        first.bar = Some(0);
+        first.early = true;
+        let n = render_notation(&[first, note(1, 0, 4, 60)], 16, 0, 1, None);
+        assert_eq!(n.note, "<~ [c4 ~@3]>");
     }
 
     #[test]

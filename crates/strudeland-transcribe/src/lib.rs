@@ -1037,9 +1037,9 @@ mod tests {
             t.warnings
         );
         let notation = t.notation.as_ref().expect("notation");
-        // bar 0 is the first cycle; the c4 over the barline is split and re-attacked in bar 2
+        // bar 0 is the first cycle, and the last c4 sustains into bar 2
         assert_eq!(
-            notation.note, "<[~@3 c4] [d4 e4 f4 g4 e4 d4 c4@2] [c4 ~@3]>",
+            notation.note, "[~@6 c4@2 d4 e4 f4 g4 e4 d4 c4@4 ~@6]/3",
             "{notation:?}"
         );
         assert_eq!((notation.first_bar, notation.last_bar), (0, 2));

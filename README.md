@@ -139,11 +139,15 @@ strudeland --help
 strudeland render songs/main.js --format wav
 strudeland render songs/main.js --preset intro-loop --out soundtrack.wav
 strudeland render songs/main.js --stems voice --out soundtrack-stems
+strudeland transcribe memo-01 --grid 8
 ```
 
 Mark the loop section with `loop: true` in the song's metadata. The split preset always writes
 `soundtrack-intro.wav` and `soundtrack-loop.wav`. Play the first file once to hear any intro
 and the first pass through the loop. Then repeat `soundtrack-loop.wav` from frame zero.
+
+`strudeland transcribe` proposes Strudel code from a sung or hummed voice memo.
+`--grid 8` uses eighth notes. The generated pattern holds sustained notes across barlines.
 
 The CLI connects to a per-user endpoint.
 

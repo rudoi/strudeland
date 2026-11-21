@@ -29,13 +29,13 @@
 //! (the closer pitch, the earlier on a tie) or are dropped. A note's pitch is the median of its
 //! voiced frames after the first `TUNING_SKIP_MS`, without frames still in a glide (more than
 //! `PITCH_CHANGE_ST` from a first median; a vibrato stays inside that and averages out), with
-//! the tuning subtracted.
+//! the tuning subtracted. A piece needs at least one pitched frame with credible voicing.
 //!
 //! Confidence is the weighted geometric mean `voiced^CONF_W_VOICED * stability^CONF_W_STABILITY *
 //! fit^CONF_W_FIT`, multiplied by `0.5 + 0.5 * onset` for a note that starts at an onset split:
 //!
-//! - `voiced`: the mean voiced probability over the note's frames, a frame below
-//!   `MIN_VOICED_PROB_EMIT` counting 0;
+//! - `voiced`: the mean voiced probability over the note's frames, with unpitched frames
+//!   and frames below `MIN_VOICED_PROB_EMIT` counting 0;
 //! - `stability`: `1 - min(MAD / STABILITY_FULL_ST, 1)`, the median absolute deviation in
 //!   semitones of the pitch frames around the note's pitch (attack skipped, glides kept);
 //! - `fit`: `1 - |cents| / 50`, the distance of the pitch from its nearest semitone.
@@ -492,7 +492,7 @@ fn attacked(onsets: &OnsetTrack, at: usize, hop: f64) -> bool {
     })
 }
 
-/// The note of a piece; `None` when it has no voiced frame.
+/// The note of a piece; `None` when it has no pitched frame with credible voicing.
 fn note_of(
     piece: &Piece,
     track: &PitchTrack,
@@ -501,6 +501,16 @@ fn note_of(
     skip: usize,
 ) -> Option<RawNote> {
     let range = &piece.range;
+    let voiced_sum = range
+        .clone()
+        .filter(|&i| frames.midi[i].is_some())
+        .map(|i| clamp01(track.frames[i].voiced_prob))
+        .filter(|&p| p >= MIN_VOICED_PROB_EMIT)
+        .sum::<f32>();
+    if voiced_sum == 0.0 {
+        return None;
+    }
+    let voiced = clamp01(voiced_sum / range.len() as f32);
     let midi = note_pitch(range, frames, skip)?;
     let deviations: Vec<f32> = spread_frames(range, frames, skip)
         .iter()
@@ -509,16 +519,6 @@ fn note_of(
     let mad = median(&deviations).unwrap_or(0.0);
     let stability = clamp01(1.0 - (mad / STABILITY_FULL_ST).min(1.0));
     let fit = clamp01(1.0 - (midi - midi.round()).abs() * 100.0 / 50.0);
-    let voiced = clamp01(
-        range
-            .clone()
-            .map(|i| {
-                let p = clamp01(track.frames[i].voiced_prob);
-                if p >= MIN_VOICED_PROB_EMIT { p } else { 0.0 }
-            })
-            .sum::<f32>()
-            / range.len().max(1) as f32,
-    );
     let mut confidence =
         voiced.powf(CONF_W_VOICED) * stability.powf(CONF_W_STABILITY) * fit.powf(CONF_W_FIT);
     if let Some(s) = piece.onset {
@@ -1267,11 +1267,28 @@ mod tests {
         assert_eq!(notes.len(), 1);
         let c = &notes[0].components;
         assert!(c.voiced > 0.8 && c.stability > 0.9 && c.fit > 0.9, "{c:?}");
-        // a frame below the voiced-probability gate counts 0
-        let t = track_of(&run(Some(60.0), 20), MIN_VOICED_PROB_EMIT - 0.01);
+    }
+
+    #[test]
+    fn a_piece_needs_a_pitched_frame_with_credible_voicing() {
+        let mut t = track_of(
+            &frames(&[(Some(60.0), 5), (None, 2), (Some(60.0), 5)]),
+            MIN_VOICED_PROB_EMIT - 0.01,
+        );
+        for frame in &mut t.frames {
+            frame.rms = 0.001;
+        }
+        // High voicing probability in a gap cannot support either pitched side.
+        t.frames[5].voiced_prob = 0.9;
+        assert!(segment(&t, &no_onsets(), 0.0).is_empty());
+
+        // A quiet note with just one supported frame keeps both its attack and bridged gap.
+        t.frames[9].voiced_prob = MIN_VOICED_PROB_EMIT;
         let notes = segment(&t, &no_onsets(), 0.0);
-        assert_eq!(notes[0].components.voiced, 0.0);
-        assert_eq!(notes[0].confidence, 0.0);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].start, 0.0);
+        assert!((notes[0].end - 0.12).abs() < 1e-6);
+        assert_eq!(notes[0].components.voiced, MIN_VOICED_PROB_EMIT / 12.0);
     }
 
     #[test]
