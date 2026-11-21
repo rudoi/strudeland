@@ -25,10 +25,10 @@ on one row with four groups of four, each group occupying one beat.
   flat sequences inside the already-present bracketed bars of a bare slow sequence such as
   `<[bar one] [bar two]>`. Keep those brackets and the existing bar order. Apply this
   layout when all its bars are eligible, leaving mixed or complex sequences intact.
-- A step is a bare mini atom or rest. Leave weighted steps, repeats, speed modifiers, ties,
+- A step is a bare mini atom or rest written with ASCII characters. Leave weighted steps, repeats, speed modifiers, ties,
   tuplets expressed through nesting, stacked or random alternatives, and compound or odd
   meters to a later design. Existing tokens, delimiters inside mini, and note lengths are
-  preserved. A newline is presentation and contributes no musical timing.
+  preserved. ASCII gives a predictable editor column width. A newline is presentation and contributes no musical timing.
 - Keep the first release focused on pattern layout. Whole-song JavaScript formatting,
   configuration for grouping, a format-only command, and virtual grid views are outside this
   proposal.

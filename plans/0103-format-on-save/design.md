@@ -14,7 +14,8 @@ escaped source, JavaScript keys, directives, and contexts where a replacement co
 become a tag alone. Verify the resulting script parses and preserves its syntax tree
 outside the intended literals. Compare the mini AST with only locations removed for
 each replacement. Identify atom and rest spans from the vendored grammar, verify the
-slices, then edit separator and delimiter spans only. Preserve existing bracketed bars
+slices and leave candidates with non-ASCII atom spellings unchanged to preserve column
+alignment. Edit separator and delimiter spans only. Preserve existing bracketed bars
 inside a bare slow sequence. Count 16 equal explicit steps for a row or 32 for two rows.
 Use the document's existing line indentation plus two spaces for multiline content and
 keep delimiters and comments outside the literal in their original positions.
