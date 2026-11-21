@@ -425,7 +425,7 @@ describe('vim keybindings', () => {
   const cmOf = (view: EditorView) => vimAdapter(view)!;
 
   /** An app whose prefs load waits until `resolve` (vim on in the prefs file). */
-  async function withPrefs(initial = { vim: true }) {
+  async function withPrefs(initial: { vim: boolean; formatOnSave?: boolean } = { vim: true }) {
     const { api, fake } = fakeProjectApi({
       '/p': { name: 'p', files: { [MAIN]: '$: s("a")\n', 'songs/x.js': A } },
     });
