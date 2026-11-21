@@ -89,3 +89,9 @@ takes are needed before tuning pitch thresholds or generalizing from this score.
 
 Medium complexity. The segmentation and notation changes can be tested
 independently. Publication stops at human PR review.
+
+## Delivery status
+
+The voicing and sustained-notation changes were implemented and approved in
+PR #14. The [validation record](loss-check.md#paired-playback-results) covers
+the approved implementation. Independent annotated takes remain in #100.
