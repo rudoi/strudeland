@@ -16,12 +16,12 @@ can use it on any audio.
 | pitch | `pitch` | `PitchTracker` and `PyinTracker`: pYIN (Mauch and Dixon 2014), 1024-sample frames, 10 ms hop, a 504-state voiced/unvoiced HMM over 20-cent bins, banded Viterbi, f0 refined to the nearest YIN candidate |
 | tuning | `tuning` | the global offset in cents (positive: sharp), a voiced-probability-weighted circular mean over stable frames |
 | onsets | `onset` | spectral flux (SuperFlux maximum filter, decay gate) plus RMS rise, adaptive peak picking |
-| segment | `segment` | notes from voicing runs, sustained pitch changes (snapped back to their onset), glides merged into the note they reach, drifts rejoined, onset splits for repeated pitches at a loudness dip, short notes merged or dropped; confidence components |
+| segment | `segment` | notes from voicing runs, sustained pitch changes (snapped back to their onset), glides merged into the note they reach, drifts rejoined, onset splits for repeated pitches at a loudness dip, short notes merged or dropped; rejects pieces without a pitched frame meeting the voicing threshold |
 | grid | `grid` | flags, then the sidecar, then inference: tempo from the onset autocorrelation, phase from onset alignment |
-| quantize | `quantize` | onsets and offsets snapped to the `--grid` steps, overlaps cut, collisions dropped, barline crossings split and re-attacked, snap errors and the timing spread |
+| quantize | `quantize` | onsets and offsets snapped to the `--grid` steps, overlaps cut, collisions dropped, barline crossings reported as tied parts, snap errors and the timing spread |
 | suggest | `suggest` | a `--grid` division the rhythm fits clearly better (onset gaps against whole steps), and a `--shift` the notes share within a step; warnings and `grid.suggested*` only |
 | key | `key` | Krumhansl–Schmuckler over the 24 major and minor keys, with downbeat and final-note bonuses; or `--key` |
-| notation | `notation` | `note("…")` names and `n("…").scale("…")` degrees, one cycle per bar from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup |
+| notation | `notation` | `note("…")` names and `n("…").scale("…")` degrees, one cycle per bar from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied parts play as one held note |
 | report | `report` | `Transcription` and every serde type (camelCase, nulls kept) |
 
 `eval` is test support, in the library so the tests, the example and other crates share it:
@@ -272,15 +272,18 @@ and `snapErrorMs` / `timingSpread` show a wrong grid or phase.
 
 ## Known differences and limits
 
-- **Synthetic-only evaluation.** The tiers are generated voices (the hummed tier imitates the
-  first real memo's loudness wobble and drift, measured from it, but the memo is not committed); real hummed or sung memos are
-  messier (breathy onsets, scoops, consonants, room noise). The provisional constants need
-  evaluation on real memos.
+- **Synthetic CI coverage.** The tiers use generated voices. Private real-memo comparisons
+  use a separately annotated intended melody and keep the audio and annotation outside the
+  repository. Real voices can include breathy onsets, scoops, consonants and room noise.
+  Additional annotated recordings are needed to tune the provisional constants.
 - **pYIN only.** Evaluate any alternative pitch tracker on this set before replacing pYIN.
 - **One tempo per take.** No tempo changes or rubato inside a memo.
 - **Inferred downbeat.** Phase inference finds the beat grid, but bar 1 is the beat of the first
   strong onset: a melody with a pickup gets its bars shifted. The warning says so and the skill
   asks the user (or pass `--bar1`).
+- **Whole-step alignment.** A timing shift of one grid step leaves the distance of each onset to
+  the grid unchanged. Use `--shift` when an independent timing cue or a reference melody identifies
+  the intended placement.
 - **20-cent bins, refined.** The HMM decodes 20-cent bins; each voiced frame's f0 is the
   interpolated YIN candidate nearest the decoded bin (the bin centre when none is within one
   bin), so the output is not limited to the bin grid.

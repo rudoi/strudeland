@@ -35,8 +35,8 @@ pub const VOICING_SWITCH: f64 = 0.01;
 /// The weight of the global CMND minimum for thresholds no trough falls below (Mauch and Dixon
 /// 2014's `p_a`, librosa's `no_trough_prob`).
 pub const NO_TROUGH_PROB: f64 = 0.01;
-/// A frame's `voiced_prob` only counts toward the confidence mean at or above this; provisional
-/// (#70).
+/// Provisional minimum probability for a pitched frame to support a note and count toward its
+/// confidence.
 pub const MIN_VOICED_PROB_EMIT: f32 = 0.5;
 
 /// The attack of each voiced run that tuning and the note pitch skip, in milliseconds (proposal).

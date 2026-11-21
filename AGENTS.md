@@ -366,6 +366,8 @@ the V8 download the host brings.
   Change the constant and the pinned test together.
 - Transcription: constants live in `crates/strudeland-transcribe/src/consts.rs`; the provisional
   ones are retuned only against real memos and every change goes in the crate README's tuning log.
+  Segmentation requires a pitched frame at the voicing threshold. The report keeps per-bar tie
+  parts, and both forms of generated notation play the joined note as one event.
   The evaluation pins in `tests/eval.rs` are measured, then pinned, and never loosened to absorb a
   defect. `strudeland transcribe` never writes a song and never reads the song file; Claude proposes a
   transcription by writing it unsaved into the song for the user to audition and correct by ear,
