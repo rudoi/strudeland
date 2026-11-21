@@ -331,8 +331,8 @@ tempo when placed in the song at the right bar.
   the user), `tempo and phase inferred` (pass `--bpm` if known), `too few onsets to infer a grid`
   (notes are not quantized, there is no code; pass `--bpm` and `--bar1`), `the take did not follow
   the song's tempo` (the sidecar tempo was replaced by what was heard), `N notes more than a bar before bar 1`
-  (in the JSON as bar 0, not in the code; notes in the pickup bar are in the code), `a note crosses the barline` (it is split and
-  re-attacked), `tuning is X cents off` (see `--tuning`), `no notes found`, `timing spread is X ms`
+  (in the JSON as bar 0; only pickup-bar notes appear in the code),
+  `tuning is X cents off` (see `--tuning`), `no notes found`, `timing spread is X ms`
   (try `--shift` or `--bar1`), `timing fits --grid G better (spread X ms vs Y ms)` (the rhythm
   falls between the requested grid's steps; see `suggestedDivision`), `notes sit ~N ms after the
   grid; try --shift S` (or `before`: the notes share an offset within a step; see

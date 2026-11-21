@@ -13,4 +13,5 @@ and click bleed handling in #72.
 
 The first PR covers the mechanics validated by one private annotation. Additional
 independent annotated takes are needed to tune pitch thresholds and substantiate
-general improvement. Alternative trackers remain under #69.
+general improvement. Collection and holdout comparisons are tracked in #100.
+Alternative trackers remain under #69.
