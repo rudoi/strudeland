@@ -30,16 +30,64 @@ describe('prefs store', () => {
     expect(get(p.store).error).toBeNull();
   });
 
-  it('keeps the defaults when the load fails, without rejecting', async () => {
+  it('shows defaults after a failed startup load and reads saved Vim again before writing', async () => {
     const api = fakePrefsApi({ vim: true });
     api.failGet = true;
     const log = spyOn(console, 'error').mockImplementation(() => {});
     const p = createPrefs(api);
-    await p.load();
+    try {
+      await p.load();
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
     expect(p.vim()).toBe(false);
     expect(get(p.store).error).toBeNull();
-    expect(log).toHaveBeenCalled();
-    log.mockRestore();
+    api.failGet = false;
+    await p.setAuditionNotes(true);
+    expect(p.vim()).toBe(true);
+    expect(api.saved).toEqual([{ vim: true, auditionNotes: true }]);
+  });
+
+  it('retries a failed startup load that a pending save was waiting on', async () => {
+    const api = fakePrefsApi({ vim: true });
+    let rejectRead!: (e: Error) => void;
+    const read = new Promise<never>((_, reject) => (rejectRead = reject));
+    const getSaved = api.get;
+    api.get = () => {
+      api.get = getSaved;
+      return read;
+    };
+    const log = spyOn(console, 'error').mockImplementation(() => {});
+    const p = createPrefs(api);
+    try {
+      const loading = p.load();
+      const saving = p.setAuditionNotes(true);
+      await flush();
+      expect(api.saved).toEqual([]);
+      rejectRead(new Error('read failed'));
+      await Promise.all([loading, saving]);
+    } finally {
+      log.mockRestore();
+    }
+    expect(api.saved).toEqual([{ vim: true, auditionNotes: true }]);
+    expect(get(p.store).error).toBeNull();
+  });
+
+  it('skips writes during read failure and preserves optimistic edits for the next save', async () => {
+    const api = fakePrefsApi({ vim: true });
+    api.failGet = true;
+    const p = createPrefs(api);
+    const saving = p.setAuditionNotes(true);
+    expect(p.auditionNotes()).toBe(true);
+    await saving;
+    expect(api.saved).toEqual([]);
+    expect(get(p.store)).toEqual({ vim: false, auditionNotes: true, error: 'read failed' });
+
+    api.failGet = false;
+    await p.setVim(false);
+    expect(api.saved).toEqual([{ vim: false, auditionNotes: true }]);
+    expect(get(p.store)).toEqual({ vim: false, auditionNotes: true, error: null });
   });
 
   it('saves and updates the store at once', async () => {

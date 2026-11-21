@@ -30,17 +30,15 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
   let chain: Promise<void> = Promise.resolve();
 
   function loadInitial(): Promise<Prefs> {
+    if (!api) return Promise.resolve(DEFAULT_PREFS);
     return (initial ??= (async () => {
-      if (!api) return DEFAULT_PREFS;
-      try {
-        const saved = await api.get();
-        state.update((s) => ({ ...s, ...saved, ...edits }));
-        return saved;
-      } catch (e) {
-        console.error('could not load preferences', e);
-        return DEFAULT_PREFS;
-      }
-    })());
+      const saved = await api.get();
+      state.update((s) => ({ ...s, ...saved, ...edits }));
+      return saved;
+    })().catch((e) => {
+      initial = undefined;
+      throw e;
+    }));
   }
 
   function set(key: keyof Prefs, on: boolean): Promise<void> {
@@ -50,7 +48,9 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
       // Queue each snapshot before notifying subscribers. Wait for untouched fields to load.
       chain = chain.then(async () => {
         try {
-          await api.set({ ...(await loadInitial()), ...snapshot });
+          // A save can join the startup read. Retry if that read fails before writing.
+          const saved = await (initial?.catch(() => loadInitial()) ?? loadInitial());
+          await api.set({ ...saved, ...snapshot });
           state.update((s) => ({ ...s, error: null }));
         } catch (e) {
           state.update((s) => ({ ...s, error: errorMessage(e) }));
@@ -67,7 +67,11 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     vim: () => current.vim,
     auditionNotes: () => current.auditionNotes,
     async load() {
-      await loadInitial();
+      try {
+        await loadInitial();
+      } catch (e) {
+        console.error('could not load preferences', e);
+      }
     },
     setVim: (on) => set('vim', on),
     setAuditionNotes: (on) => set('auditionNotes', on),
