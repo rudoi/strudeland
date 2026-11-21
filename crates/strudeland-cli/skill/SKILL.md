@@ -145,8 +145,8 @@ for the next round.
   `stopped playback` when it was the playing song. It does not switch the editor.
 - `strudeland save [--song S | --all]` writes editor text to disk, only for songs that need it:
   `saved main, verse`, or `nothing to save`. When the desktop app's **Format on Save** setting is
-  enabled, saving can align eligible mini-notation in both the editor and the file. Use this command
-  only when the user asks you to save.
+  enabled, saving can lay out method chains and song structures and align eligible mini-notation
+  in both the editor and the file. Use this command only when the user asks you to save.
 - `strudeland project open PATH [--discard]` opens the project in PATH (relative to the current
   directory) in the app: `opened demo (/path)`, or `demo is already open`. A path that is not a
   project fails with `error: … is not a strudeland project (no project.json)`.

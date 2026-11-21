@@ -133,7 +133,7 @@
         class="pressable"
         type="button"
         aria-pressed={$ps.formatOnSave}
-        title="Align dense mini-notation patterns when saving"
+        title="Lay out Strudel chains, song sections, and dense mini-notation when saving"
         onclick={() => void prefs.setFormatOnSave(!$ps.formatOnSave)}
       >
         <Chip lit={$ps.formatOnSave}>Format on Save</Chip>

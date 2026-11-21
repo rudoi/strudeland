@@ -561,11 +561,14 @@ describe('vim keybindings', () => {
     gate.resolve();
     await app.ready;
     const steps = Array(32).fill('bd').join(' ');
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: `$: s("${steps}")` } });
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: `$: s("${steps}").gain(.8)` },
+    });
     Vim.handleEx(cmOf(view), 'w');
     await tick();
     const formatted = view.state.doc.toString();
     expect(formatted).toContain('s(`\n');
+    expect(formatted).toEndWith('\n`)\n  .gain(.8)');
     expect(fake.files().get(MAIN)).toBe(formatted);
     app.destroy();
   });
