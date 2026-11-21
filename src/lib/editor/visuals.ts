@@ -44,7 +44,8 @@ const soundingNote = Decoration.mark({
   class: 'cm-audition-note',
   attributes: { style: 'outline: solid 2px var(--foreground)' },
 });
-const miniAtomCharacter = /[\w#-]/;
+// Krill's step_char grammar determines whether adjacent text joins the marked atom.
+const miniAtomCharacter = /[\p{L}\p{Nl}0-9~#.^_-]/u;
 
 export const auditionHighlight = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -66,9 +67,9 @@ export const auditionHighlight = StateField.define<DecorationSet>({
     if (!mapped.size) return mapped;
     const { from, to } = mapped.iter();
     const doc = transaction.newDoc;
-    const before = doc.sliceString(Math.max(0, from - 1), from);
-    const after = doc.sliceString(to, Math.min(doc.length, to + 1));
-    return miniAtomCharacter.test(before) || miniAtomCharacter.test(after)
+    const before = [...doc.sliceString(Math.max(0, from - 2), from)].at(-1);
+    const [after] = doc.sliceString(to, Math.min(doc.length, to + 2));
+    return miniAtomCharacter.test(before ?? '') || miniAtomCharacter.test(after ?? '')
       ? Decoration.none
       : mapped;
   },

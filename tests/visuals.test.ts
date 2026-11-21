@@ -167,6 +167,12 @@ test('delimiters and unrelated edits retain the outline, while extending the not
   view.dispatch({ changes: { from: 17, insert: '0' } });
   expect(view.state.doc.toString()).toContain('g30');
   expect(mark()).toBeUndefined();
+
+  view.dispatch({ changes: { from: 17, to: 18, insert: '' } });
+  highlightAudition(view, { from: 15, to: 17 });
+  view.dispatch({ changes: { from: 17, insert: '.5' } });
+  expect(view.state.doc.toString()).toContain('g3.5');
+  expect(mark()).toBeUndefined();
   view.destroy();
 });
 
