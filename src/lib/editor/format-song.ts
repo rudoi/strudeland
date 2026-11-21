@@ -57,7 +57,8 @@ function rowAtoms(sequence: MiniNode): MiniAtom[] | undefined {
   const atoms: MiniAtom[] = [];
   for (const child of children) {
     const atom = bareElement(child);
-    if (atom?.type_ !== 'atom') return;
+    // One code unit is one editor column for printable ASCII atoms.
+    if (atom?.type_ !== 'atom' || !/^[!-~]+$/.test(atom.source_)) return;
     atoms.push(atom);
   }
   return atoms;
@@ -99,7 +100,7 @@ function miniStructure(node: MiniNode): string {
   return JSON.stringify(node, (key, value) => (key === 'location_' ? undefined : value));
 }
 
-function formatLiteral(literal: string, indent: string): FormatEdit[] {
+function formatLiteral(literal: string, indent: string, followsAsi: boolean): FormatEdit[] {
   if (literal.length < 33 || literal.includes('\\')) return [];
   const quoted = '"' + literal.slice(1, -1) + '"';
   const root: MiniNode = mini2ast(quoted);
@@ -107,6 +108,7 @@ function formatLiteral(literal: string, indent: string): FormatEdit[] {
   const bars = flat ? [flat] : barsInSlowSequence(root);
   if (!bars) return [];
   const multiline = !flat || flat.length === 32;
+  if (multiline && followsAsi && literal[0] === '"') return [];
   const quote = multiline ? '`' : literal[0];
   const edits: FormatEdit[] = [];
   function change(from: number, to: number, insert: string) {
@@ -188,10 +190,34 @@ interface Candidate {
   edits: FormatEdit[];
 }
 
-function candidates(source: string, script: AnyNode, comments: Comment[]): Candidate[] {
+function cannotAcceptTag(node: AnyNode): boolean {
+  switch (node.type) {
+    case 'DebuggerStatement':
+    case 'BreakStatement':
+    case 'ContinueStatement':
+      return true;
+    case 'ReturnStatement':
+      return node.argument === null;
+    case 'VariableDeclaration':
+      return node.declarations.at(-1)?.init === null;
+    case 'UpdateExpression':
+      return !node.prefix;
+    default:
+      return false;
+  }
+}
+
+function songLiterals(
+  source: string,
+  script: AnyNode,
+  comments: Comment[],
+  tagBoundaries: Map<number, number>,
+): AnyNode[] {
   const disabled = miniDisabledRanges(comments, source.length);
   const literals: AnyNode[] = [];
   function visit(node: AnyNode) {
+    // These statement endings cannot make the following template a tag argument.
+    if (tagBoundaries.has(node.end) && cannotAcceptTag(node)) tagBoundaries.delete(node.end);
     if (node.type === 'TaggedTemplateExpression') return;
     if (
       node.type === 'VariableDeclarator' &&
@@ -217,17 +243,25 @@ function candidates(source: string, script: AnyNode, comments: Comment[]): Candi
     }
   }
   visit(script);
+  return literals.sort((a, b) => a.start - b.start);
+}
+
+function candidates(source: string, literals: AnyNode[], afterAsi: Set<number>): Candidate[] {
   const found: Candidate[] = [];
   let previousEnd = -1;
   let previousIndent = '';
-  for (const node of literals.sort((a, b) => a.start - b.start)) {
+  for (const node of literals) {
     const line = node.start - node.loc!.start.column;
     // A previous multiline literal may move the rest of its closing line onto another
     // indentation level. Lay out subsequent literals against that same resulting line.
     const indent =
       line < previousEnd ? previousIndent : /^[ \t]*/.exec(source.slice(line, node.start))![0];
     try {
-      const edits = formatLiteral(source.slice(node.start, node.end), indent);
+      const edits = formatLiteral(
+        source.slice(node.start, node.end),
+        indent,
+        afterAsi.has(node.start),
+      );
       if (!edits.length) continue;
       found.push({
         node,
@@ -288,22 +322,56 @@ export function formatSong(source: string): readonly FormatEdit[] {
   try {
     if (getLanguages().has('minilang')) return [];
     const comments: Comment[] = [];
-    const script = parse(source, { ...scriptOptions, locations: true, onComment: comments });
+    // A backtick after an implicit semicolon can attach to the preceding expression.
+    // Acorn reports the inserted semicolon at the previous token's end, before consuming
+    // the following token; comments and blank lines never affect this adjacency.
+    const tagBoundaries = new Map<number, number>();
+    let insertedAt: number | undefined;
+    let previousEnd = -1;
+    const script = parse(source, {
+      ...scriptOptions,
+      locations: true,
+      onComment: comments,
+      onInsertedSemicolon(pos) {
+        insertedAt = pos;
+      },
+      onToken(token) {
+        if (insertedAt === previousEnd && source[token.start] === '"') {
+          tagBoundaries.set(previousEnd, token.start);
+        }
+        previousEnd = token.end;
+      },
+    });
     const { meta, error } = parseMeta(source);
     const { meter } = staticStructure(meta);
     if (error || meter.num !== 4 || meter.den !== 4) return [];
-    const all = candidates(source, script, comments);
+    const literals = songLiterals(source, script, comments, tagBoundaries);
+    const afterAsi = new Set(tagBoundaries.values());
+    const all = candidates(source, literals, afterAsi);
     if (!all.length) return [];
     const edits = verified(source, script, all);
     if (edits || all.length === 1) return edits ?? [];
-    // Isolate the rare unsafe substitution so independent literals still get their layout.
-    return (
-      verified(
-        source,
-        script,
-        all.filter((c) => verified(source, script, [c])),
-      ) ?? []
+    // Only split groups that failed verification. One unsafe conversion among hundreds
+    // of independent expressions takes logarithmically many full-script checks.
+    const unsafe = new Set<AnyNode>();
+    function isolate(group: Candidate[]) {
+      if (group.length === 1) {
+        unsafe.add(group[0].node);
+        return;
+      }
+      const middle = Math.floor(group.length / 2);
+      for (const part of [group.slice(0, middle), group.slice(middle)]) {
+        if (!verified(source, script, part)) isolate(part);
+      }
+    }
+    isolate(all);
+    // Recompute indentation without discarded edits that could have moved a closing line.
+    const safe = candidates(
+      source,
+      literals.filter((node) => !unsafe.has(node)),
+      afterAsi,
     );
+    return verified(source, script, safe) ?? [];
   } catch {
     return [];
   }

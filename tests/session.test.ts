@@ -1083,6 +1083,40 @@ describe('format on save', () => {
     expect(h.doc()).toBe(source);
   });
 
+  test.each([false, true])(
+    'a save waiting for a failed rename keeps its snapshot (later edit: %s)',
+    async (edited) => {
+      let enabled = true;
+      const h = await opened({ formatOnSave: () => enabled });
+      replaceSong(h, source);
+      const entered = deferred();
+      const release = deferred();
+      h.api.renameSong = async () => {
+        entered.resolve();
+        await release.promise;
+        throw new Error('rename failed');
+      };
+      const renaming = rejection(h.session.renameSong(PA, 'rename-target'));
+      await entered.promise;
+      const saving = h.session.save();
+      enabled = false;
+      if (edited) h.type('// typed while waiting');
+      release.resolve();
+
+      expect(await renaming).toEqual(new Error('rename failed'));
+      expect(await saving).toBe(true);
+      if (edited) {
+        expect(h.fake.files().get(PA)).toBe(source);
+        expect(h.doc()).toBe(source + '// typed while waiting');
+        expect(h.item(PA)?.dirty).toBe(true);
+      } else {
+        expect(h.doc()).toContain('note(`\n');
+        expect(h.doc()).toBe(h.fake.files().get(PA)!);
+        expect(h.item(PA)?.dirty).toBe(false);
+      }
+    },
+  );
+
   test('a failed save leaves an undoable buffer and editing errors can still be saved', async () => {
     const h = await opened({ formatOnSave: () => true });
     replaceSong(h, source);

@@ -606,13 +606,12 @@ export function createSession(deps: SessionDeps): Session {
     if (state?.doc.toString() === text) {
       const edits = formatSong(text);
       if (edits.length > 0) {
-        const changes = state.changes(edits);
-        apply(path, {
-          changes,
+        const formatted = apply(path, {
+          changes: edits,
           userEvent: 'format',
           annotations: isolateHistory.of('full'),
         });
-        text = changes.apply(state.doc).toString();
+        text = formatted?.toString() ?? text;
       }
     }
     const done = settled();
@@ -893,14 +892,17 @@ export function createSession(deps: SessionDeps): Session {
     }
   }
 
-  /** Apply a transaction to a song: dispatched on the view if shown, else to the stash. */
-  function apply(path: string, spec: TransactionSpec): void {
+  /** Apply a transaction to the view or stash and return its resulting document. */
+  function apply(path: string, spec: TransactionSpec): Text | null {
+    const state = stateOf(path);
+    if (!state) return null;
+    const transaction = state.update(spec);
     if (view && shown === path) {
-      view.dispatch(spec);
-      return;
+      view.dispatch(transaction);
+    } else {
+      songs.get(path)!.editorState = transaction.state;
     }
-    const song = songs.get(path);
-    if (song?.editorState) song.editorState = song.editorState.update(spec).state;
+    return transaction.newDoc;
   }
 
   /**

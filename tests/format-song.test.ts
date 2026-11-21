@@ -84,13 +84,23 @@ describe('4/4 pattern layout', () => {
       'q',
       'r',
       'x',
-      'β',
+      'y',
       'z',
-      'é',
+      'w',
     ];
     const output = formatted('s("' + words.join(' ') + '")');
     expect(output).toContain('kick  sn    hh    -      ~');
-    expect(output.match(/[\w#βé~-]+/gu)).toEqual(['s', ...words]);
+    expect(output.match(/[\w#~-]+/gu)).toEqual(['s', ...words]);
+  });
+
+  test('skips patterns with non-ASCII atoms and preserves Unicode surrounding eligible literals', () => {
+    const unicodePatterns = ['鼓', 'β', 'é']
+      .map((atom) => '  音("' + SIXTEEN.replace('c4', atom) + '");')
+      .join('\n');
+    const before = '/* 🎶 */\n' + unicodePatterns + '\n';
+    expect(formatted(before + '  音("' + SIXTEEN + '");')).toBe(
+      before + '  音("' + SIXTEENTHS + '");',
+    );
   });
 
   test('preserves CRLF outside the mini and gives each token its exact source start', () => {
@@ -206,10 +216,62 @@ describe('4/4 pattern layout', () => {
   });
 
   test('a template cannot absorb the preceding expression across ASI, even with optional chaining or a comment', () => {
-    for (const previous of ['p()', 'foo?.bar', 'x = 1n']) {
+    for (const previous of ['p()', 'foo?.bar', 'x = 1n', '(i++)']) {
       const unsafe = previous + '\n/* bare */ "' + THIRTY_TWO + '".slow(1);\n';
       const safe = 'n("' + THIRTY_TWO + '")';
       expect(formatted(unsafe + safe)).toBe(unsafe + formatted(safe));
     }
+  });
+  test('a song with hundreds of consecutive ASI boundaries preserves the dangerous quotes on every save', () => {
+    const standalone = Array.from(
+      { length: 512 },
+      (_, i) => '"' + THIRTY_TWO + '".p(' + i + ')',
+    ).join('\n');
+    const hazards = 'previous()\n// section\n' + standalone + '\n';
+    // The 16-step string keeps double quotes, and an explicit semicolon permits a new template.
+    const last = '"' + SIXTEEN + '".p(512);\n"' + THIRTY_TWO + '".p(513)';
+    expect(formatted(hazards + last)).toBe(
+      hazards + '"' + SIXTEENTHS + '".p(512);\n`\n  ' + ROW + '\n  ' + ROW + '\n`.p(513)',
+    );
+  });
+  test('formats a standalone pattern after statements that cannot accept a template', () => {
+    for (const statement of [
+      'let scratch',
+      'debugger',
+      'i++',
+      'i--',
+      'const last = i++',
+      'x = i++',
+    ]) {
+      const source = statement + '\n"' + THIRTY_TWO + '".p(2)';
+      expect(formatted(source)).toBe(statement + '\n`\n  ' + ROW + '\n  ' + ROW + '\n`.p(2)');
+    }
+  });
+  test('isolates distant ASI hazards among independent patterns and preserves following indentation', () => {
+    const safe = '  note("' + THIRTY_TWO + '");\n';
+    const row = '  note(`\n    ' + ROW + '\n    ' + ROW + '\n  `);\n';
+    const hazard = '  current?.voice\n    "' + THIRTY_TWO + '".mix(1); ';
+    const shared = 'stack(`' + SIXTEEN + '\n         `, "' + THIRTY_TWO + '");\n';
+    const sharedResult =
+      'stack(`' + SIXTEENTHS + '`, `\n      ' + ROW + '\n      ' + ROW + '\n    `);\n';
+    const original = [
+      safe.repeat(16),
+      hazard,
+      shared,
+      safe.repeat(32),
+      hazard,
+      shared,
+      safe.repeat(16),
+    ];
+    const expected = [
+      row.repeat(16),
+      hazard,
+      sharedResult,
+      row.repeat(32),
+      hazard,
+      sharedResult,
+      row.repeat(16),
+    ];
+    expect(formatted(original.join(''))).toBe(expected.join(''));
   });
 });

@@ -11,6 +11,7 @@ const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
 const { vimAdapter } = await import('../src/lib/editor/vim-mode');
 import type { EditorView } from '@codemirror/view';
+import type { Prefs } from '../src/lib/prefs/api';
 import { fakePrefsApi } from './helpers/fake-prefs-api';
 import { fakeControlApi } from './helpers/fake-control-api';
 import { fakeProjectApi, flush, tick } from './helpers/fake-project-api';
@@ -425,12 +426,12 @@ describe('vim keybindings', () => {
   const cmOf = (view: EditorView) => vimAdapter(view)!;
 
   /** An app whose prefs load waits until `resolve` (vim on in the prefs file). */
-  async function withPrefs(initial: { vim: boolean; formatOnSave?: boolean } = { vim: true }) {
+  async function withPrefs(initial: Partial<Prefs> = { vim: true }) {
     const { api, fake } = fakeProjectApi({
       '/p': { name: 'p', files: { [MAIN]: '$: s("a")\n', 'songs/x.js': A } },
     });
     fake.last = '/p';
-    const prefs = fakePrefsApi({ formatOnSave: false, ...initial });
+    const prefs = fakePrefsApi(initial);
     const gate = prefs.deferGet();
     const app = createApp(api, () => true, null, null, prefs);
     app.runtime.stop = () => {};
