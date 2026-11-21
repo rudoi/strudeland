@@ -1,4 +1,4 @@
-//! App preferences, stored as `{ "schema": 1, "vim": false }` in the app data dir.
+//! App preferences, stored as `{ "schema": 1, "vim": false, "auditionNotes": false }` in the app data dir.
 //!
 //! Later preferences are added as fields with defaults, with no schema bump.
 
@@ -21,6 +21,8 @@ const PREFS_SCHEMA: u32 = 1;
 pub struct Prefs {
     /// Vim keybindings in the editor.
     pub vim: bool,
+    /// Preview typed notes while song playback is stopped.
+    pub audition_notes: bool,
 }
 
 /// The on-disk shape.
@@ -71,6 +73,7 @@ mod tests {
         let dir = tempdir();
         assert_eq!(Prefs::load(&dir.path().join(PREFS_FILE)), Prefs::default());
         assert!(!Prefs::default().vim);
+        assert!(!Prefs::default().audition_notes);
     }
 
     #[test]
@@ -105,36 +108,47 @@ mod tests {
         let dir = tempdir();
         let file = dir.path().join(PREFS_FILE);
         fs::write(&file, r#"{ "schema": 1, "vim": true, "future": [1, 2] }"#).unwrap();
-        assert_eq!(Prefs::load(&file), Prefs { vim: true });
+        assert!(Prefs::load(&file).vim);
     }
 
     #[test]
-    fn missing_vim_key_defaults() {
+    fn missing_keys_default() {
         let dir = tempdir();
         let file = dir.path().join(PREFS_FILE);
         fs::write(&file, r#"{ "schema": 1 }"#).unwrap();
-        assert_eq!(Prefs::load(&file), Prefs { vim: false });
+        assert_eq!(Prefs::load(&file), Prefs::default());
+
+        fs::write(&file, r#"{ "schema": 1, "vim": true }"#).unwrap();
+        let prefs = Prefs::load(&file);
+        assert!(prefs.vim);
+        assert!(!prefs.audition_notes);
     }
 
     #[test]
     fn save_creates_the_parent_dir() {
         let dir = tempdir();
         let file = dir.path().join("a/b").join(PREFS_FILE);
-        Prefs { vim: true }.save(&file).unwrap();
-        assert_eq!(Prefs::load(&file), Prefs { vim: true });
+        Prefs::default().save(&file).unwrap();
+        assert!(file.is_file());
     }
 
     #[test]
     fn round_trip_writes_pretty_json_with_a_newline() {
         let dir = tempdir();
         let file = dir.path().join(PREFS_FILE);
-        Prefs { vim: true }.save(&file).unwrap();
+        let prefs = Prefs {
+            vim: true,
+            audition_notes: true,
+        };
+        prefs.save(&file).unwrap();
         let text = fs::read_to_string(&file).unwrap();
         assert!(text.ends_with("}\n"));
         assert!(text.contains("\"schema\": 1"));
         assert!(text.contains("\"vim\": true"));
-        Prefs { vim: false }.save(&file).unwrap();
-        assert_eq!(Prefs::load(&file), Prefs { vim: false });
+        assert!(text.contains("\"auditionNotes\": true"));
+        assert_eq!(Prefs::load(&file), prefs);
+        Prefs::default().save(&file).unwrap();
+        assert_eq!(Prefs::load(&file), Prefs::default());
     }
 
     #[test]
@@ -143,13 +157,13 @@ mod tests {
         // The parent "directory" is a file, so it cannot be created.
         let blocker = dir.path().join("blocker");
         fs::write(&blocker, "x").unwrap();
-        let err = Prefs { vim: true }
+        let err = Prefs::default()
             .save(&blocker.join(PREFS_FILE))
             .unwrap_err();
         assert!(matches!(err, ProjectError::Io { .. }));
         // The target itself is a directory, so the rename fails.
         let file = dir.path().join("target");
         fs::create_dir(&file).unwrap();
-        assert!(Prefs { vim: true }.save(&file).is_err());
+        assert!(Prefs::default().save(&file).is_err());
     }
 }

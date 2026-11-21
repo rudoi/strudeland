@@ -82,7 +82,11 @@ the V8 download the host brings.
   must not reach `src/lib/audio/`).
   `src/lib/editor/` CodeMirror setup, visuals and
   `theme.ts` (the strudeland theme, registered in Strudel's theme registry), `vim-mode.ts` (the vim
-  mode store, `vimChip`, the `:w` ex command). `src/components/`
+  mode store, `vimChip`, the `:w` ex command). `note-audition.ts` resolves typed pitch atoms
+  and fixed synths from the local syntax. `note-audition-queue.ts` settles the edit before
+  `src/lib/audio/note-audition.ts` plays a bounded preview on the Web Audio graph.
+  `visuals.ts` outlines the sounding audition token independently of evaluated highlights.
+  `src/components/`
   Svelte UI, built from the primitives in `src/components/ui/` (`Button`, `Chip`, `Dot`, `Notice`,
   `Field`, `ListRow`, `Link`, `Menu`, `MenuItem`, `MasterMeter`, `Scope`). `src/styles/` the global CSS:
   `tokens.css` (palette, roles, domain sets and scales; the only file with colour literals),

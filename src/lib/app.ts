@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { EditorView } from '@codemirror/view';
-import { get, writable, type Readable, type Writable } from 'svelte/store';
+import { writable, type Readable, type Writable } from 'svelte/store';
 import type { AudioGraph } from './audio/backend';
 import { createMemoPlayer } from './audio/memo-player';
 import { createMetronome } from './audio/metronome';
@@ -13,7 +13,7 @@ import { createControlHandler, replyTo, type ControlHandler } from './control/ha
 import type { ControlInfo, ControlRequest } from './control/protocol';
 import { createEditorState, setKeymap, withKeymap, type EditorHooks } from './editor/setup';
 import { createVimMode, defineVimWrite, type VimMode } from './editor/vim-mode';
-import { createVisuals } from './editor/visuals';
+import { createVisuals, highlightAudition } from './editor/visuals';
 import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
 import { createPrefs, type PrefsStore } from './prefs/store';
 import { createTauriProjectApi, type ProjectApi } from './project/api';
@@ -22,6 +22,8 @@ import { createTauriRecordingApi, type RecordingApi } from './recording/api';
 import { createBackingStarter } from './recording/backing';
 import { createRecordingController, type RecordingController } from './recording/controller';
 import { takeRunning } from './recording/memo-ui';
+import { captureAuditionSynths, createNoteAuditionPlayer } from './audio/note-audition';
+import { createAuditionQueue } from './editor/note-audition-queue';
 import { createMemos, type Memos } from './recording/memos';
 import { loadLimiter, saveLimiter } from './audio/limiter-pref';
 import { createScopeClock, type ScopeClock } from './scope/clock';
@@ -54,6 +56,8 @@ export interface App {
   toggleVim(): Promise<void>;
   /** The editor view (or undefined when it is destroyed); the session shows the active song in it. */
   attachView(view: EditorView | undefined): void;
+  /** Unlock preview audio on a gesture in the editor. */
+  prepareNoteAudition(target: EventTarget | null): boolean;
   /**
    * Save and evaluate the active song (the toolbar's play and Cmd-Enter); stops a playing memo
    * first. Does nothing while a take runs: play and stop belong to it.
@@ -90,8 +94,11 @@ export function createApp(
   const rust = inTauri() ? createRustBackend(tauriPlaybackApi) : undefined;
   runtime = createRuntime({
     backends: { superdough, rust },
-    prebake,
-    hooks: visuals,
+    async prebake() {
+      await prebake();
+      captureAuditionSynths();
+    },
+    hooks: { ...visuals, onPlaybackRequest: () => audition.stop() },
     limiter: loadLimiter(),
   });
   const scopeClock = createScopeClock((buf) => runtime.readScope(buf));
@@ -104,16 +111,44 @@ export function createApp(
   });
   let recording: RecordingController | undefined;
   let memos: Memos | undefined;
-  const taking = (): boolean => takeRunning(recording ? get(recording.store).phase : null);
+  let playRequests = 0;
+  let takeActive = false;
+  let memoActive = false;
+  const canAudition = () =>
+    Boolean(view) &&
+    playRequests === 0 &&
+    prefs.auditionNotes() &&
+    runtime.canAudition() &&
+    !takeActive &&
+    !memoActive;
+  const player = createNoteAuditionPlayer({ graph: () => superdough.graph?.() ?? null });
+  const audition = createAuditionQueue({
+    eligible: canAudition,
+    prepare: runtime.prepareAudition,
+    play(note) {
+      const editor = view;
+      const doc = editor?.state.doc;
+      void player.play(note, () => {
+        if (editor && view === editor && editor.state.doc === doc) {
+          return highlightAudition(editor, note);
+        }
+      });
+    },
+    stop: player.stop,
+  });
   function evaluateDoc(): void {
-    if (taking()) return;
+    if (takeActive) return;
+    audition.stop();
+    playRequests++;
     memos?.stopPlayback();
-    void session.saveAndEvaluate();
+    void session.saveAndEvaluate().finally(() => playRequests--);
   }
   const hooks: EditorHooks = {
     onSave: () => void session.save(),
     onEvaluate: evaluateDoc,
     onDocChange: () => session.docChanged(),
+    auditionEnabled: canAudition,
+    onAuditionEdit: audition.edit,
     vim: prefs.vim,
   };
   const session = createSession({
@@ -122,21 +157,34 @@ export function createApp(
     createState: (doc) => createEditorState(doc, runtime, hooks),
     isTauri: inTauri,
     prepareState: (s) => withKeymap(s, prefs.vim()),
-    onShown: (v) => vimMode.attach(v),
+    onShown: (v) => {
+      audition.stop();
+      vimMode.attach(v);
+    },
     // A project switch stops the memo and the take first.
     beforeProjectChange: async () => {
+      audition.stop();
       memos?.stopPlayback();
       await recording?.stop();
     },
   });
   const restoreVimWrite = defineVimWrite(() => void session.save());
-  let unprefs: (() => void) | null = prefs.store.subscribe(({ vim }) => {
+  let unprefs: (() => void) | null = prefs.store.subscribe(({ vim, auditionNotes }) => {
+    if (!auditionNotes) audition.stop();
     if (view && setKeymap(view, vim)) vimMode.attach(view);
   });
   const ready = prefs.load();
   if (recordingApi) {
     ({ recording, memos } = createRecording(recordingApi, superdough, runtime, session, api));
   }
+  const unrecording = recording?.store.subscribe(({ phase }) => {
+    takeActive = takeRunning(phase);
+    if (takeActive) audition.stop();
+  });
+  const unmemo = memos?.player.subscribe(({ status }) => {
+    memoActive = status === 'loading' || status === 'playing';
+    if (memoActive) audition.stop();
+  });
   if (inTauri()) syncWindowTitle(session, api);
   const control = writable<ControlInfo>({ status: 'off', path: null, detail: null });
   const detach = controlApi
@@ -147,7 +195,7 @@ export function createApp(
           runtime,
           vim: prefs.vim,
           playback: {
-            taking,
+            taking: () => takeActive,
             stopMemo: () => memos?.stopPlayback(),
             stopTake: () => recording?.stop() ?? Promise.resolve(),
           },
@@ -169,15 +217,26 @@ export function createApp(
       return saved;
     },
     attachView(v) {
+      audition.stop();
       view = v;
       session.attachView(v);
       vimMode.attach(v);
+    },
+    prepareNoteAudition(target) {
+      if (!(target instanceof Node) || !view?.contentDOM.contains(target) || !canAudition()) {
+        return false;
+      }
+      void runtime.prepareAudition();
+      return true;
     },
     evaluateDoc,
     scopeClock,
     recording,
     memos,
     destroy() {
+      audition.stop();
+      unrecording?.();
+      unmemo?.();
       if (unprefs) {
         restoreVimWrite();
         unprefs();

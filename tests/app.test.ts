@@ -549,7 +549,7 @@ describe('vim keybindings', () => {
     prefs.failSet = false;
     await app.prefs.setVim(true);
     expect(get(app.prefs.store).error).toBeNull();
-    expect(prefs.saved).toEqual([{ vim: true }]);
+    expect(prefs.saved).toEqual([{ vim: true, auditionNotes: false }]);
     // Only the user's toggle focuses; a pref change by itself does not.
     expect(focused).toEqual([]);
     app.destroy();

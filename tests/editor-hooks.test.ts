@@ -11,6 +11,7 @@ const { EditorSelection } = await import('@codemirror/state');
 import type { EditorState } from '@codemirror/state';
 import type { KeyBinding } from '@codemirror/view';
 import type { EditorHooks } from '../src/lib/editor/setup';
+import type { NoteAuditionEdit } from '../src/lib/editor/note-audition';
 import type { Runtime } from '../src/lib/strudel/runtime';
 
 function fakeRuntime() {
@@ -23,6 +24,8 @@ function fakeRuntime() {
       evaluate: async (c: string) => (calls.push('eval:' + c), true),
       stop: () => void calls.push('stop'),
       resumeAudio: async () => true,
+      canAudition: () => true,
+      prepareAudition: async () => true,
       start: async () => true,
       cycleTime: () => null,
       transport: {
@@ -53,6 +56,35 @@ function binding(state: EditorState, key: string): KeyBinding {
 }
 const press = (view: InstanceType<typeof EditorView>, key: string) =>
   binding(view.state, key).run!(view);
+
+test('note audition only inspects editor input when enabled', () => {
+  const { runtime } = fakeRuntime();
+  let enabled = false;
+  const edits: (NoteAuditionEdit | null)[] = [];
+  const view = createEditor(document.body, 'note("g").s("sine")', runtime, {
+    auditionEnabled: () => enabled,
+    onAuditionEdit: (edit) => edits.push(edit),
+  });
+  view.dispatch({ selection: { anchor: 7 } });
+  view.dispatch({
+    changes: { from: 7, insert: '2' },
+    selection: { anchor: 8 },
+    userEvent: 'input.type',
+  });
+  expect(edits).toEqual([]);
+
+  enabled = true;
+  view.dispatch({ selection: { anchor: 8, head: 7 } });
+  view.dispatch({
+    changes: { from: 7, to: 8, insert: '3' },
+    selection: { anchor: 8 },
+    userEvent: 'input.type',
+  });
+  expect(edits.at(-1)).toMatchObject({ kind: 'note', pitch: 55, sound: 'sine' });
+  view.dispatch({ changes: { from: 7, to: 8, insert: '4' }, userEvent: 'reload' });
+  expect(edits.at(-1)).toBeNull();
+  view.destroy();
+});
 
 function hooked() {
   const fake = fakeRuntime();

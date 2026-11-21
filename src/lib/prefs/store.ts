@@ -11,47 +11,69 @@ export interface PrefsStore {
   store: Readable<PrefsState>;
   /** The current value, synchronously. */
   vim(): boolean;
-  /** Never rejects. */
+  auditionNotes(): boolean;
+  /** Loads the initial preference snapshot. Never rejects. */
   load(): Promise<void>;
   /** Never rejects. */
   setVim(on: boolean): Promise<void>;
+  /** Never rejects. */
+  setAuditionNotes(on: boolean): Promise<void>;
 }
 
 export function createPrefs(api: PrefsApi | null): PrefsStore {
   const state = writable<PrefsState>({ ...DEFAULT_PREFS, error: null });
-  // One subscription for the store's lifetime, so vim() reads without subscribing per call.
-  let current = DEFAULT_PREFS.vim;
-  state.subscribe((s) => (current = s.vim));
-  let touched = false;
+  // One subscription keeps both synchronous accessors current.
+  let current: Prefs = DEFAULT_PREFS;
+  state.subscribe((s) => (current = s));
+  let edits: Partial<Prefs> = {};
+  let initial: Promise<Prefs> | undefined;
   let chain: Promise<void> = Promise.resolve();
 
-  return {
-    store: { subscribe: state.subscribe },
-    vim: () => current,
-    async load() {
-      if (!api) return;
-      try {
-        const prefs = await api.get();
-        if (!touched) state.update((s) => ({ ...s, vim: prefs.vim }));
-      } catch (e) {
-        console.error('could not load preferences', e);
-      }
-    },
-    setVim(on) {
-      touched = true;
-      state.update((s) => ({ ...s, vim: on }));
-      if (!api) return Promise.resolve();
-      const run = async () => {
+  function loadInitial(): Promise<Prefs> {
+    if (!api) return Promise.resolve(DEFAULT_PREFS);
+    return (initial ??= (async () => {
+      const saved = await api.get();
+      state.update((s) => ({ ...s, ...saved, ...edits }));
+      return saved;
+    })().catch((e) => {
+      initial = undefined;
+      throw e;
+    }));
+  }
+
+  function set(key: keyof Prefs, on: boolean): Promise<void> {
+    const snapshot = { ...edits, [key]: on };
+    edits = snapshot;
+    if (api) {
+      // Queue each snapshot before notifying subscribers. Wait for untouched fields to load.
+      chain = chain.then(async () => {
         try {
-          await api.set({ vim: on });
+          // A save can join the startup read. Retry if that read fails before writing.
+          const saved = await (initial?.catch(() => loadInitial()) ?? loadInitial());
+          await api.set({ ...saved, ...snapshot });
           state.update((s) => ({ ...s, error: null }));
         } catch (e) {
           state.update((s) => ({ ...s, error: errorMessage(e) }));
         }
-      };
-      const next = chain.then(run);
-      chain = next;
-      return next;
+      });
+    }
+    const saved = chain;
+    state.update((s) => ({ ...s, [key]: on }));
+    return saved;
+  }
+
+  return {
+    store: { subscribe: state.subscribe },
+    vim: () => current.vim,
+    auditionNotes: () => current.auditionNotes,
+    async load() {
+      try {
+        await loadInitial();
+      } catch (e) {
+        console.error('could not load preferences', e);
+      }
     },
+    setVim: (on) => set('vim', on),
+    setAuditionNotes: (on) => set('auditionNotes', on),
   };
 }

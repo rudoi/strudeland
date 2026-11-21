@@ -85,6 +85,33 @@ test('concurrent resumeAudio calls share one attempt', async () => {
   await Promise.all([rt.resumeAudio(), rt.resumeAudio(), rt.resumeAudio()]);
   expect(b.resumes).toBe(1);
 });
+test('audition prepares audio and the shared registry without installing or starting a song', async () => {
+  let prebakes = 0;
+  let requests = 0;
+  const { rt, b } = fake({
+    prebake: async () => void prebakes++,
+    hooks: { onPlaybackRequest: () => requests++ },
+  });
+  expect(rt.canAudition()).toBe(true);
+  const prepare = rt.prepareAudition();
+  expect(rt.prepareAudition()).toBe(prepare);
+  expect(await prepare).toBe(true);
+  expect(prebakes).toBe(1);
+  expect(b.calls).toEqual([]);
+  expect(rt.query(0, 1)).toBeNull();
+  const evaluating = rt.evaluate('note("c3")', { autostart: false });
+  expect(rt.canAudition()).toBe(false);
+  expect(await rt.prepareAudition()).toBe(false);
+  expect(await evaluating).toBe(true);
+  expect(prebakes).toBe(1);
+  const starting = rt.start();
+  expect(rt.canAudition()).toBe(false);
+  expect(await starting).toBe(true);
+  expect(rt.canAudition()).toBe(false);
+  rt.stop();
+  expect(rt.canAudition()).toBe(true);
+  expect(requests).toBe(3);
+});
 test('a repeating output error notifies subscribers once', async () => {
   const { rt, tick } = fake({ failOutput: true });
   await rt.evaluate('note("c c c c").s("nope")');

@@ -71,6 +71,13 @@ before switching.
 Songs are plain Strudel scripts in `songs/*.js`. A song’s `meta` header sets its tempo, meter, and
 sections. The editor watches the project for changes on disk.
 
+Enable **Audition notes** in the status bar to hear a short preview when you finish typing
+a pitch such as `g3` in a note pattern while the song is stopped. The preview uses the pattern's
+fixed built-in synth, for example `note("g3").s("supersaw")`, and works on unsaved edits. The
+note gets the playback outline while the preview sounds.
+A brief pause or a delimiter completes the note. The checkbox starts off and remembers your
+choice. Sample instruments and computed sounds are outside the preview's supported patterns.
+
 Playing or rendering a song evaluates its JavaScript. Review songs from other people before
 running them, and stop playback before applying changes you haven’t reviewed.
 

@@ -65,6 +65,14 @@
 </script>
 
 <footer>
+  <label class="audition" data-note-audition-toggle>
+    <input
+      type="checkbox"
+      checked={$ps.auditionNotes}
+      onchange={(event) => void prefs.setAuditionNotes(event.currentTarget.checked)}
+    />
+    Audition notes
+  </label>
   {#if $rt.evalError}
     <Notice tone="danger">error: {$rt.evalError}</Notice>
   {:else if $rt.outputError}
@@ -155,6 +163,17 @@
     padding: var(--space-2) var(--space-3);
     background-color: var(--surface);
     border-top: 1px solid var(--border);
+  }
+  .audition {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: var(--space-1-5);
+    font-size: var(--fs-ui);
+  }
+  .audition input {
+    margin: 0;
+    accent-color: var(--accent);
   }
   /* The chip pushes itself and the credit after it to the right. */
   .vim {

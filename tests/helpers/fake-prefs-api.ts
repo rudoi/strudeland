@@ -9,8 +9,8 @@ export interface FakePrefsApi extends PrefsApi {
   deferGet(): { resolve: () => void };
 }
 
-export function fakePrefsApi(initial: Prefs = DEFAULT_PREFS): FakePrefsApi {
-  let current = { ...initial };
+export function fakePrefsApi(initial: Partial<Prefs> = {}): FakePrefsApi {
+  let current = { ...DEFAULT_PREFS, ...initial };
   let gate: Promise<void> | null = null;
   const api: FakePrefsApi = {
     saved: [],

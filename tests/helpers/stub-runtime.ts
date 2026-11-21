@@ -5,7 +5,7 @@
  * directly.
  */
 import type { LevelHoldSnapshot } from '../../src/lib/levels/levels';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type {
   EvaluateOptions,
   Runtime,
@@ -89,6 +89,8 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
       if (opts.live) store.update((s) => ({ ...s, started: false }));
     },
     resumeAudio: async () => true,
+    canAudition: () => !get(store).started,
+    prepareAudition: async () => true,
     async start(o) {
       starts.push(o);
       const ok = await startResult();
