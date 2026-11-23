@@ -53,8 +53,8 @@
     "schema": 2,
     "sourceSha256": "794664b69d1ce5317398d497ef81b6e8ef86b8bfa3482737b4a6cafb8b4f25f0",
     "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
-    "strudelPatchesSha256": "21f9d9edb2032e90d3f797b8e0be0e72d404f235adfe8a20385e5b60b5aec08a",
-    "plannerSha256": "f0e5fd15c15fbef1f1260e14e36e9204504d381c3502353b5c2f713061836cbc",
+    "strudelPatchesSha256": "34b783b0bbb3fd27f82043c38c52add52a12594a6a504618e53d289d725eec51",
+    "plannerSha256": "8158bc5f6731588b9fc54da9ca025f880d304dabd6dde9b401fb5de43cee7211",
     "playwright": "1.64.1",
     "chromium": "156.0.8078.4",
     "platform": "darwin-arm64"

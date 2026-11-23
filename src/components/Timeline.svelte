@@ -81,7 +81,7 @@
   // ---- section menu ----
   let menuFor = $state<number | null>(null);
   let choosingEnd = $state(false);
-  let track: HTMLDivElement;
+  let track = $state<HTMLDivElement>();
   const armedName = $derived(
     $tp.armedSection === null ? null : (structure?.sections[$tp.armedSection]?.name ?? null),
   );
@@ -115,7 +115,7 @@
   async function showRangeOptions(show: boolean) {
     choosingEnd = show;
     await tick();
-    track.querySelector<HTMLButtonElement>('[data-range-focus]')?.focus();
+    track?.querySelector<HTMLButtonElement>('[data-range-focus]')?.focus();
   }
 
   // ---- meta inputs ----
