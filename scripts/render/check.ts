@@ -30,7 +30,6 @@ import {
 import { ENGINE_TRAITS, type EngineName } from '../../src/lib/render/engines';
 import {
   SAMPLE_RATE as SR,
-  windowFrames,
   type RenderRequest,
   type RenderResult,
   type Renderer,
@@ -87,6 +86,12 @@ import {
   type Report,
 } from '../../src/lib/render/report';
 import { BASS_MISS_DB, STEMS_MISS_DB, TWIN_BITEXACT_HOLDS } from '../../src/lib/render/thresholds';
+import {
+  layoutSegments,
+  renderTiming,
+  renderWindowFrames,
+  type RenderTiming,
+} from '../../src/lib/render/timing';
 import { encodeWav } from '../../src/lib/render/wav';
 import { errorMessage } from '../../src/lib/errors';
 import { readPlaywrightPin } from '../playwright-pin';
@@ -194,6 +199,7 @@ export interface FixtureContext {
   sched: ScheduleResult;
   cps: number;
   barSec: number;
+  timing?: RenderTiming;
   plans: ChunkPlan[];
   /** Unmutated mix renders by `JSON.stringify(request)`, in flight or done. */
   memo: Map<string, Promise<RenderResult>>;
@@ -346,14 +352,14 @@ export async function runGate(
   tx?: RequestTx,
   batch: RenderBatch = {},
 ): Promise<GateResult> {
-  const { base, plans, cps, barSec, sched, fixture } = fx;
+  const { base, plans, cps, barSec, sched, fixture, timing } = fx;
   const { fromBar, toBar } = base;
   switch (gate) {
     case 'mix': {
       const a = await assembledOf(fx, tx, batch);
       return verifyMix(a.channels, {
         sampleRate: SR,
-        expectedFrames: windowFrames(fromBar, toBar, cps, SR),
+        expectedFrames: renderWindowFrames(fromBar, toBar, cps, SR, timing),
         barSec,
         seamSecs: a.seamSecs,
         opening: fromBar === 0 ? deriveOpening(sched.events) : undefined,
@@ -392,13 +398,14 @@ export async function runGate(
         perSeam.push(
           await seamWithTwinEscalation(
             overlapOf(results[k]!),
-            headOf(results[k + 1]!, bars),
+            headOf(results[k + 1]!, bars, timing),
             SR,
-            plans[k]!.contentEndBar * barSec,
+            timing ? timing.secondsAt(plans[k]!.contentEndBar) : plans[k]!.contentEndBar * barSec,
             async () =>
               headOf(
                 await renderIn(fx, applyTx(chunkRequest(base, plans[k + 1]!), tx), batch),
                 bars,
+                timing,
               ),
           ),
         );
@@ -416,7 +423,7 @@ export async function runGate(
         const content = contentOf(r);
         if (fx.stemsContent && tx === undefined) fx.stemsContent.push(content);
         const scored = stemsOnsetScores(content, SR, sched.events, barSec, {
-          offsetSec: r.request.fromBar / cps,
+          offsetSec: timing ? timing.secondsAt(r.request.fromBar) : r.request.fromBar / cps,
         });
         notes.push(...scored.notes);
         perChunk.push(scored.pairs);
@@ -507,12 +514,16 @@ export async function prepareFixture(
   if (sched.unsupported && sched.unsupported.length > 0) return { unsupported: sched.unsupported };
   const cps = sched.cps;
   const barSec = 1 / cps;
-  const plans = renderChunkPlans({ fromBar, toBar, events: sched.events, cps });
+  const timing = renderTiming(sched.structure, layoutSegments(base.layout, sched.structure), cps);
+  const plans = renderChunkPlans({ fromBar, toBar, events: sched.events, cps, timing });
   // For the log line only; renderChunkPlans derives the same value.
-  const lb = lookbackBars(lookbackSeconds(sched.events), barSec);
+  const lb = lookbackBars(lookbackSeconds(sched.events), timing?.minBarSec ?? barSec);
+  const seconds = timing
+    ? timing.secondsAt(toBar) - timing.secondsAt(fromBar)
+    : barSec * (toBar - fromBar);
   log(
     `  ${fixture.name}: ${plans.length} chunk(s), lookback ${lb} bar(s), ` +
-      `${(barSec * (toBar - fromBar)).toFixed(1)}s of audio`,
+      `${seconds.toFixed(1)}s of audio`,
   );
   return {
     fx: {
@@ -521,6 +532,7 @@ export async function prepareFixture(
       sched,
       cps,
       barSec,
+      timing,
       plans,
       memo: new Map(),
       renderer: deps.renderer,
@@ -1019,6 +1031,7 @@ export async function createBatchWindow(outDir: string): Promise<{
         base: fx.base,
         cps: fx.cps,
         events: fx.sched.events,
+        timing: fx.timing,
       }),
     version: bin.version,
   };

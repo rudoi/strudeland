@@ -10,6 +10,7 @@ import { windowFrames, type RenderRequest, type RenderResult } from './contract'
 import { lookbackBars, lookbackSeconds, scaleChunkBars } from './lookback';
 import type { RenderEvent } from './schedule';
 import { CHUNK_MIN_BARS, SEAM_OVERLAP_BARS, SEAM_SEARCH_BARS } from './thresholds';
+import { historyStart, renderWindowFrames, type RenderTiming } from './timing';
 
 export interface PlanInput {
   /** Content range [fromBar, toBar): integers, fromBar >= 0, toBar > fromBar. */
@@ -27,6 +28,9 @@ export interface PlanInput {
   seamSearchBars?: number;
   /** Default SEAM_OVERLAP_BARS; 0 disables the seam overlap. */
   overlapBars?: number;
+  timing?: RenderTiming;
+  /** Seconds of warmup requested before rounding to a musical bar line. */
+  lookbackSec?: number;
 }
 
 export interface ChunkPlan {
@@ -48,7 +52,7 @@ export interface ChunkPlan {
 const isNonNegInt = (x: number): boolean => Number.isInteger(x) && x >= 0;
 
 export function planChunks(input: PlanInput): ChunkPlan[] {
-  const { fromBar, toBar, chunkBars, lookbackBars, barSec, avoidSeamBars } = input;
+  const { fromBar, toBar, chunkBars, lookbackBars, barSec, avoidSeamBars, timing } = input;
   const seamSearchBars = input.seamSearchBars ?? SEAM_SEARCH_BARS;
   const overlap = input.overlapBars ?? SEAM_OVERLAP_BARS;
   if (!isNonNegInt(fromBar))
@@ -98,14 +102,20 @@ export function planChunks(input: PlanInput): ChunkPlan[] {
   for (let k = 0; cs < toBar; k++) {
     const contentStartBar = cs;
     const contentEndBar = chooseSeam(cs, Math.min(cs + chunkBars, toBar));
-    const winBeginBar = Math.max(0, contentStartBar - lookbackBars);
+    const winBeginBar = timing
+      ? historyStart(contentStartBar, input.lookbackSec ?? 0, timing)
+      : Math.max(0, contentStartBar - lookbackBars);
     plans.push({
       index: k,
       contentStartBar,
       contentEndBar,
       winBeginBar,
-      lookbackSec: (contentStartBar - winBeginBar) * barSec,
-      contentSec: (contentEndBar - contentStartBar) * barSec,
+      lookbackSec: timing
+        ? timing.secondsAt(contentStartBar) - timing.secondsAt(winBeginBar)
+        : (contentStartBar - winBeginBar) * barSec,
+      contentSec: timing
+        ? timing.secondsAt(contentEndBar) - timing.secondsAt(contentStartBar)
+        : (contentEndBar - contentStartBar) * barSec,
       overlapBars: 0,
       seamCrossings: k === 0 ? 0 : (avoidSeamBars?.[contentStartBar] ?? 0),
     });
@@ -127,6 +137,7 @@ export function stochasticCrossings(
   events: RenderEvent[],
   barSec: number,
   toBar = Infinity,
+  timing?: RenderTiming,
 ): Record<number, number> {
   if (!(barSec > 0)) throw new RangeError(`barSec must be > 0 (got ${barSec})`);
   const out: Record<number, number> = {};
@@ -134,11 +145,13 @@ export function stochasticCrossings(
     if (!e.stochastic) continue;
     const end = e.tSec + e.durSec + e.release;
     for (
-      let b = Math.max(0, Math.floor(e.tSec / barSec));
-      b <= toBar && b * barSec + 1e-9 < end;
+      let b = Math.max(0, Math.floor(timing ? timing.cycleAt(e.tSec) : e.tSec / barSec));
+      b <= toBar;
       b++
     ) {
-      if (e.tSec < b * barSec - 1e-9) out[b] = (out[b] ?? 0) + 1;
+      const t = timing ? timing.secondsAt(b) : b * barSec;
+      if (!(t + 1e-9 < end)) break;
+      if (e.tSec < t - 1e-9) out[b] = (out[b] ?? 0) + 1;
     }
   }
   return out;
@@ -154,21 +167,25 @@ export interface RenderChunkInput {
   lookbackSec?: number;
   /** Seam overlap bars: 0 for a joined render, the default SEAM_OVERLAP_BARS for the seam gate. */
   overlapBars?: number;
+  timing?: RenderTiming;
 }
 
 /** The chunk plan of a window from its schedule: the lookback of `events` in whole bars, chunks
  *  scaled to it, seams nudged away from stochastic crossings. The one recipe the harness and the
  *  batch planner share. Throws as `planChunks` and the lookback helpers do. */
 export function renderChunkPlans(input: RenderChunkInput): ChunkPlan[] {
-  const barSec = 1 / input.cps;
-  const lb = lookbackBars(input.lookbackSec ?? lookbackSeconds(input.events), barSec);
+  const { timing } = input;
+  const barSec = timing?.minBarSec ?? 1 / input.cps;
+  const lookbackSec = input.lookbackSec ?? lookbackSeconds(input.events);
+  const lb = lookbackBars(lookbackSec, barSec);
   return planChunks({
     fromBar: input.fromBar,
     toBar: input.toBar,
     chunkBars: scaleChunkBars(CHUNK_MIN_BARS, lb),
     lookbackBars: lb,
     barSec,
-    avoidSeamBars: stochasticCrossings(input.events, barSec, input.toBar),
+    avoidSeamBars: stochasticCrossings(input.events, barSec, input.toBar, timing),
+    ...(timing ? { timing, lookbackSec } : {}),
     ...(input.overlapBars === undefined ? {} : { overlapBars: input.overlapBars }),
   });
 }
@@ -198,11 +215,10 @@ function slice(r: RenderResult, start: number, len: number, what: string): Float
 }
 
 function contentFrames(r: RenderResult): number {
-  return windowFrames(r.request.fromBar, r.request.toBar, r.cps, r.sampleRate);
+  return r.contentFrames ?? windowFrames(r.request.fromBar, r.request.toBar, r.cps, r.sampleRate);
 }
 
-/** The kept content [fromBar, toBar): lookback and overlap removed. Its frame 0 is layout time
- *  `request.fromBar / cps`. Throws RangeError on a short buffer. */
+/** The kept content [fromBar, toBar): lookback and overlap removed. Throws on a short buffer. */
 export function contentOf(r: RenderResult): Float32Array[] {
   return slice(r, r.windowStartFrame, contentFrames(r), 'contentOf');
 }
@@ -210,18 +226,18 @@ export function contentOf(r: RenderResult): Float32Array[] {
 /** The `request.overlapBars` bars rendered after the content: the seam gate's `tail`. */
 export function overlapOf(r: RenderResult): Float32Array[] {
   const { toBar, overlapBars } = r.request;
-  const m = windowFrames(toBar, toBar + overlapBars, r.cps, r.sampleRate);
+  const m = r.overlapFrames ?? windowFrames(toBar, toBar + overlapBars, r.cps, r.sampleRate);
   return slice(r, r.windowStartFrame + contentFrames(r), m, 'overlapOf');
 }
 
 /** The first `bars` bars of the content: the seam gate's `head` (bars = the previous chunk's
  *  overlapBars). Throws RangeError when `bars` exceeds the content. */
-export function headOf(r: RenderResult, bars: number): Float32Array[] {
+export function headOf(r: RenderResult, bars: number, timing?: RenderTiming): Float32Array[] {
   const { fromBar, toBar } = r.request;
   if (!isNonNegInt(bars) || fromBar + bars > toBar) {
     throw new RangeError(`headOf: ${bars} bars outside content [${fromBar}, ${toBar})`);
   }
-  const h = windowFrames(fromBar, fromBar + bars, r.cps, r.sampleRate);
+  const h = renderWindowFrames(fromBar, fromBar + bars, r.cps, r.sampleRate, timing);
   return contentOf(r).map((ch) => ch.subarray(0, h));
 }
 
@@ -271,7 +287,11 @@ export function assembleWindow(results: RenderResult[], events: RenderEvent[]): 
     frames,
     windowStartFrame: 0,
     lookbackSecUsed: 0,
-    bufferStartSec: first.request.fromBar / first.cps,
+    bufferStartSec:
+      first.contentFrames === undefined
+        ? first.request.fromBar / first.cps
+        : first.bufferStartSec + first.lookbackSecUsed,
+    ...(first.contentFrames === undefined ? {} : { contentFrames: frames }),
     cps: first.cps,
     events,
     stemPairs: first.stemPairs,

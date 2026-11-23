@@ -9,15 +9,15 @@ import { errorMessage } from '../errors';
 import { evaluateOptions, staticStructure } from '../project/evaluate-options';
 import { parseMeta, type Meta } from '../project/meta';
 import type { EvaluateOptions } from '../strudel/runtime';
-import { MAX_LOOPS, StructureError, withLoops, type SongStructure } from '../strudel/structure';
-import { clipSegments, LINEAR_SEGMENTS, type Segment } from '../strudel/transport';
 import {
-  SAMPLE_RATE,
-  windowFrames,
-  type RenderError,
-  type RenderRequest,
-  type SegmentLayout,
-} from './contract';
+  authoredLoop,
+  MAX_LOOPS,
+  StructureError,
+  withLoops,
+  type SongStructure,
+} from '../strudel/structure';
+import type { Segment } from '../strudel/transport';
+import { SAMPLE_RATE, type RenderError, type RenderRequest, type SegmentLayout } from './contract';
 import { chunkRequest, renderChunkPlans } from './chunks';
 import { planEngineJob } from './engine-job';
 import { exportDecay, lookbackSeconds } from './lookback';
@@ -31,6 +31,7 @@ import {
   type WindowPlan,
 } from './plan';
 import { eventsFromValues, exportTimingEvent, type RenderEvent } from './schedule';
+import { layoutSegments, renderTiming, renderWindowFrames, type RenderTiming } from './timing';
 
 /** The part of a Strudel runtime the planner uses (the page and the host adapt theirs). */
 export interface PlannerRuntime {
@@ -70,6 +71,7 @@ export interface EvaluatedSong {
   cps: number;
   seed: number;
   segments: readonly Segment[];
+  timing?: RenderTiming;
 }
 
 /** Wraps any failure of `body` that is not already a `PlanJobError` as kind 'plan'. */
@@ -94,17 +96,12 @@ function parsedMeta(code: string): Meta {
   return meta;
 }
 
-/** The segments of `layout`: the clip arrangement of `structure`, or the linear timeline. */
-function layoutSegments(layout: SegmentLayout, structure: SongStructure): readonly Segment[] {
-  return layout === 'clip' ? clipSegments(structure) : LINEAR_SEGMENTS;
-}
-
 /** `evaluateSong` before the segments: parse, evaluate, read the state. */
 async function evaluateState(
   rt: PlannerRuntime,
   code: string,
   onPhase?: (p: PlanJobPhase) => void,
-): Promise<Omit<EvaluatedSong, 'segments'>> {
+): Promise<Omit<EvaluatedSong, 'segments' | 'timing'>> {
   onPhase?.('evaluating');
   const meta = parsedMeta(code);
   if (!(await rt.evaluate(code, evaluateOptions(meta)))) {
@@ -132,7 +129,11 @@ export async function evaluateSong(
   onPhase?: (p: PlanJobPhase) => void,
 ): Promise<EvaluatedSong> {
   const song = await evaluateState(rt, code, onPhase);
-  return asPlanError(() => ({ ...song, segments: layoutSegments(layout, song.structure) }));
+  return asPlanError(() => {
+    const segments = layoutSegments(layout, song.structure);
+    const timing = renderTiming(song.structure, segments, song.cps);
+    return { ...song, segments, ...(timing ? { timing } : {}) };
+  });
 }
 
 /** `rt.query` on `segments`, a null result (no successful evaluate) as a `PlanJobError`. */
@@ -153,6 +154,7 @@ interface WindowContext {
   cps: number;
   seed: number;
   structure: SongStructure;
+  timing?: RenderTiming;
   /** Loop passes all use the same authored events. */
   frozenSchedule?: boolean;
 }
@@ -174,7 +176,7 @@ function planWindow(
   scheduleStart = 0,
   tailFrames = 0,
 ): { info: PageJobInfo; json: string } {
-  const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames);
+  const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames, ctx.timing, scheduleStart);
   // The incoming schedule already ends at c1. For loop exports the chunk uses those same
   // authored onsets and whole durations, with indices local to the chunk's event list.
   // Standard windows keep the render page's query at c0, which also observes query fragments.
@@ -191,6 +193,7 @@ function planWindow(
     request,
     ctx.cps,
     ctx.seed,
+    ctx.timing,
   );
   const errors = dedupeErrors([...schedule.errors, ...chunk.errors, ...captured]);
   return pageJob(planned, { errors, plan, cps: ctx.cps, structure: ctx.structure });
@@ -207,7 +210,7 @@ export async function planJob(
   captured: RenderError[],
   onPhase?: (p: PlanJobPhase) => void,
 ): Promise<{ info: PageJobInfo; json: string }> {
-  const { structure, cps, seed, segments } = await evaluateSong(
+  const { structure, cps, seed, segments, timing } = await evaluateSong(
     rt,
     request.code,
     request.layout,
@@ -220,10 +223,16 @@ export async function planJob(
     // The full schedule [0, c1), selected once: the 'auto' lookback and every orbit the render
     // must create up front.
     const schedule = selectHaps(query(0, c1));
-    const events = eventsFromValues(eventSources(schedule.selected), cps);
+    const events = eventsFromValues(eventSources(schedule.selected), cps, timing);
     const lookbackSec =
       request.lookbackSec === 'auto' ? lookbackSeconds(events) : request.lookbackSec;
-    return planWindow({ query, cps, seed, structure }, request, lookbackSec, schedule, captured);
+    return planWindow(
+      { query, cps, seed, structure, timing },
+      request,
+      lookbackSec,
+      schedule,
+      captured,
+    );
   });
 }
 
@@ -256,17 +265,22 @@ export type ChunkWindowPlan = WindowPlan & { fromBar: number; toBar: number; loo
 interface RenderPass {
   chunks: { json: string; plan: ChunkWindowPlan }[];
   tailFrames: number;
+  musicFrames?: number;
 }
 
 export interface PlannedRender {
   /** Extra frames on the last job and the isolated body when the opening includes an intro. */
   export?: {
     loopStartBar?: number;
+    /** Mapped musical frame offset from the opening's start. */
+    loopStartFrame?: number;
     tailFrames: number;
     /** The body from `loopStartBar` to `window.toBar`, with its own effect state. */
     repeat?: RenderPass;
   };
   window: { fromBar: number; toBar: number; layout: SegmentLayout };
+  /** Mapped musical frames in the opening or standard render. */
+  musicFrames?: number;
   cps: number;
   structure: SongStructure;
   /** `lookbackSeconds(events)` of the full schedule (the 'auto' lookback). */
@@ -367,7 +381,7 @@ function validateRenderRequest(request: unknown): asserts request is RenderPlanR
  *  when the song has no loop section. */
 function loopsApplied(structure: SongStructure, loops: number | undefined): SongStructure {
   if (loops === undefined) return structure;
-  if (structure.loopIndex === null) {
+  if (authoredLoop(structure) === null) {
     throw new PlanJobError(
       'meta',
       '--loops needs a section with loop: true in meta.sections',
@@ -412,7 +426,7 @@ function resolveWindow(
             '--loops',
           );
         }
-        const advice = structure.loopIndex === null ? '--length N' : '--length N or --loops N';
+        const advice = authoredLoop(structure) === null ? '--length N' : '--length N or --loops N';
         throw new PlanJobError(
           'meta',
           `the song's clip is ${clipBars} bars, ${limit}; pass ${advice}`,
@@ -460,22 +474,41 @@ function resolveWindow(
   }
 }
 
-/** Loop exports use a single linear pass through the evaluated song, ending at the marked
- *  section's boundary even when meta.loops repeats it or the author wrote an outro. */
+/** Loop exports use a single linear pass through the evaluated song, ending at the authored
+ *  loop boundary even when meta.loops repeats it or the author wrote an outro. */
 function exportWindow(request: RenderPlanRequest, structure: SongStructure) {
   if (!request.preset || request.preset === 'one-shot') {
     return { window: resolveWindow(request.length, structure), loopStartBar: undefined };
   }
-  const loop = structure.loopIndex === null ? undefined : structure.sections[structure.loopIndex];
+  const loop = authoredLoop(structure);
   if (!loop) {
     throw new PlanJobError(
       'meta',
-      '--preset needs a section with loop: true in meta.sections',
+      '--preset needs meta.loop or a section with loop: true in meta.sections',
       '--preset',
     );
   }
-  const window = resolveWindow({ kind: 'section', name: loop.name }, structure);
-  if (request.preset !== 'folded-loop') window.fromBar = 0;
+  if (loop.first === loop.last) {
+    // Preserve the legacy section-window bounds and diagnostics for a single marked section.
+    const window = resolveWindow(
+      { kind: 'section', name: structure.sections[loop.first]!.name },
+      structure,
+    );
+    if (request.preset !== 'folded-loop') window.fromBar = 0;
+    return { window, loopStartBar: loop.start };
+  }
+  if (loop.end > MAX_RENDER_BARS) {
+    throw new PlanJobError(
+      'meta',
+      `the loop ends at bar ${loop.end}, past the render limit of ${MAX_RENDER_BARS} bars`,
+      '--preset',
+    );
+  }
+  const window = {
+    fromBar: request.preset === 'folded-loop' ? loop.start : 0,
+    toBar: loop.end,
+    layout: 'linear' as const,
+  };
   return { window, loopStartBar: loop.start };
 }
 
@@ -531,14 +564,25 @@ export async function planRender(
     const structure = loopsApplied(song.structure, loops);
     const { window, loopStartBar } = exportWindow(request, structure);
     const { fromBar, toBar, layout } = window;
-    const musicalFrames = windowFrames(fromBar, toBar, cps, SAMPLE_RATE);
-    const bodyFrames =
-      loopStartBar === undefined ? 0 : windowFrames(loopStartBar, toBar, cps, SAMPLE_RATE);
+    const segments = layoutSegments(layout, structure);
+    const timing = renderTiming(structure, segments, cps);
+    const secondsAt = (bar: number) => (timing ? timing.secondsAt(bar) : bar / cps);
+    const framesBetween = (from: number, to: number) =>
+      renderWindowFrames(from, to, cps, SAMPLE_RATE, timing);
+    const musicalFrames = framesBetween(fromBar, toBar);
+    const bodyFrames = loopStartBar === undefined ? 0 : framesBetween(loopStartBar, toBar);
     const programFrames = musicalFrames + bodyFrames;
     if (request.preset) checkBufferFrames(programFrames, 'mix');
-    const query = querySong(rt, layoutSegments(layout, structure));
+    const query = querySong(rt, segments);
     const frozenSchedule = loopStartBar !== undefined;
-    const ctx: WindowContext = { query, cps, seed, structure: song.structure, frozenSchedule };
+    const ctx: WindowContext = {
+      query,
+      cps,
+      seed,
+      structure: song.structure,
+      frozenSchedule,
+      timing,
+    };
     const base: RenderRequest = {
       code,
       layout,
@@ -561,14 +605,14 @@ export async function planRender(
       const chunks: RenderPass['chunks'] = [];
       const events =
         !request.preset || (request.includeEvents && start === fromBar)
-          ? eventsFromValues(eventSources(full.selected), cps)
+          ? eventsFromValues(eventSources(full.selected), cps, timing)
           : [];
       const exportEvents = request.preset
         ? full.selected.map((s) =>
-            exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps),
+            exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps, timing),
           )
         : undefined;
-      const decay = exportEvents ? exportDecay(exportEvents, toBar / cps) : undefined;
+      const decay = exportEvents ? exportDecay(exportEvents, secondsAt(toBar)) : undefined;
       const history = decay?.lookbackSec ?? lookbackSeconds(events);
       lookbackSec = Math.max(lookbackSec, history);
       const tailFrames = keepTail ? (decay?.tailFrames ?? 0) : 0;
@@ -580,13 +624,19 @@ export async function planRender(
         cps,
         overlapBars: 0,
         lookbackSec: history,
+        timing,
       });
       for (const plan of plans) {
         const req = chunkRequest(base, plan);
         const chunkLookback =
           scheduleStart === 0
             ? plan.lookbackSec
-            : Math.min(plan.lookbackSec, (req.fromBar - scheduleStart) / cps);
+            : Math.min(
+                plan.lookbackSec,
+                timing
+                  ? secondsAt(req.fromBar) - secondsAt(scheduleStart)
+                  : (req.fromBar - scheduleStart) / cps,
+              );
         const schedule =
           frozenSchedule || reuseSchedule
             ? cutSchedule(full, req.toBar)
@@ -633,6 +683,7 @@ export async function planRender(
       : undefined;
     return {
       window,
+      ...(timing ? { musicFrames: musicalFrames } : {}),
       cps,
       structure,
       lookbackSec,
@@ -642,9 +693,18 @@ export async function planRender(
         ? {
             export: {
               ...(loopStartBar === undefined ? {} : { loopStartBar }),
+              ...(timing && loopStartBar !== undefined
+                ? { loopStartFrame: framesBetween(fromBar, loopStartBar) }
+                : {}),
               tailFrames: opening.tailFrames,
               ...(repeat
-                ? { repeat: { chunks: repeat.chunks, tailFrames: repeat.tailFrames } }
+                ? {
+                    repeat: {
+                      chunks: repeat.chunks,
+                      tailFrames: repeat.tailFrames,
+                      ...(timing ? { musicFrames: bodyFrames } : {}),
+                    },
+                  }
                 : {}),
             },
           }

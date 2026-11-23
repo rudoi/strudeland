@@ -6,7 +6,6 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::encode::{CORRECTION_MARGIN_DB, MAX_ENCODES, encode_once_with_loop, opus, verify};
-use crate::join::window_frames;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
 use crate::{
@@ -69,15 +68,16 @@ pub fn render_export(
     let window = audio.summary.window;
     let LoopAudio {
         start_bar,
+        start_frame,
         isolated_body,
     } = loop_audio.ok_or_else(|| render_error("the plan has no loop start"))?;
     if !(window.from_bar..window.to_bar).contains(&start_bar) {
         return Err(render_error("loop start is outside the planned window"));
     }
-    let start = usize::try_from(window_frames(window.from_bar, start_bar, audio.cps))
-        .map_err(|_| render_error("loop start is too large"))?;
-    let end = usize::try_from(window_frames(window.from_bar, window.to_bar, audio.cps))
-        .map_err(|_| render_error("loop end is too large"))?;
+    let start =
+        usize::try_from(start_frame).map_err(|_| render_error("loop start is too large"))?;
+    let end =
+        usize::try_from(audio.music_frames).map_err(|_| render_error("loop end is too large"))?;
     if end <= start {
         return Err(render_error("loop has no frames"));
     }
@@ -204,8 +204,7 @@ fn join_opening(
 
 fn trim_silent_post_roll(audio: &mut RenderedAudio) -> Result<(), RenderError> {
     let started = Instant::now();
-    let window = audio.summary.window;
-    let musical = usize::try_from(window_frames(window.from_bar, window.to_bar, audio.cps))
+    let musical = usize::try_from(audio.music_frames)
         .map_err(|_| render_error("one-shot window is too large"))?;
     // Seek back from the end so quiet gaps before late echoes stay in the output.
     let tail = audio

@@ -352,6 +352,7 @@ mod tests {
                 c0: i as u32,
                 c1: i as u32 + 1,
                 lookback_sec_used: 0.0,
+                content_frames: None,
                 window_start_frame: 1,
                 buffer_start_sec: 0.0,
                 frames: 3,

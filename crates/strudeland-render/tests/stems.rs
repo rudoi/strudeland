@@ -17,6 +17,28 @@ fn wav(path: &Path) -> DecodedWav {
 }
 
 #[test]
+fn stems_share_the_mixed_clip_grid_across_a_range_wrap() {
+    let song = include_str!("../../../tests/render/mixed-meter-loop.js");
+    // Clip bars 10 and 11 straddle the wrap from the last E bar to F1.
+    let opts = options(window(10, 14, Layout::Clip));
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().join("stems");
+    let target = resolve_stem_output(Some(&dir), Path::new("song.js"), &opts.length).unwrap();
+    let result = render_stems(song, &opts, StemGrouping::Orbit, &target, &|_| {}).unwrap();
+    // E, F1, F1, F1 = 4/4 + 4/4 + 4/4 + 3/8 = 13.5 quarter notes.
+    assert_eq!(result.summary.frames, 297_675);
+    let mix = render_audio(song, &opts, &|_| {}).unwrap();
+    assert_eq!(wav(&result.files[0]).channels, mix.channels);
+    for file in result
+        .files
+        .iter()
+        .filter(|f| f.extension().is_some_and(|e| e == "wav"))
+    {
+        assert!(wav(file).channels.iter().all(|ch| ch.len() == 297_675));
+    }
+}
+
+#[test]
 fn same_window_in_every_file_across_chunks_and_workers() {
     let code = r#"
 const meta = { bpm: 137, meter: '1/4' };

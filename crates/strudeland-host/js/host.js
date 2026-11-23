@@ -6964,7 +6964,7 @@
       symbols: () => symbols
     });
     module.exports = __toCommonJS2(chord_type_exports);
-    var import_core9 = require_dist18();
+    var import_core10 = require_dist18();
     var import_pcset = require_dist11();
     var CHORDS = [
       ["1P 3M 5P", "major", "M ^  maj"],
@@ -7103,7 +7103,7 @@
     function get(type) {
       return index[type] || NoChordType;
     }
-    var chordType = (0, import_core9.deprecate)("ChordType.chordType", "ChordType.get", get);
+    var chordType = (0, import_core10.deprecate)("ChordType.chordType", "ChordType.get", get);
     function names() {
       return dictionary2.map((chord2) => chord2.name).filter((x2) => x2);
     }
@@ -7116,7 +7116,7 @@
     function all() {
       return dictionary2.slice();
     }
-    var entries = (0, import_core9.deprecate)("ChordType.entries", "ChordType.all", all);
+    var entries = (0, import_core10.deprecate)("ChordType.entries", "ChordType.all", all);
     function removeAll() {
       dictionary2 = [];
       index = {};
@@ -7478,7 +7478,7 @@
     module.exports = __toCommonJS2(chord_exports);
     var import_chord_detect = require_dist13();
     var import_chord_type = require_dist19();
-    var import_core9 = require_dist18();
+    var import_core10 = require_dist18();
     var import_core22 = require_dist18();
     var import_pcset = require_dist11();
     var import_scale_type = require_dist20();
@@ -7582,12 +7582,12 @@
     }
     function degrees(chordName) {
       const { intervals, tonic } = get(chordName);
-      const transpose2 = (0, import_core9.tonicIntervalsTransposer)(intervals, tonic);
+      const transpose2 = (0, import_core10.tonicIntervalsTransposer)(intervals, tonic);
       return (degree2) => degree2 ? transpose2(degree2 > 0 ? degree2 - 1 : degree2) : "";
     }
     function steps2(chordName) {
       const { intervals, tonic } = get(chordName);
-      return (0, import_core9.tonicIntervalsTransposer)(intervals, tonic);
+      return (0, import_core10.tonicIntervalsTransposer)(intervals, tonic);
     }
     var chord_default = {
       getChord,
@@ -11481,6 +11481,554 @@
     return orbit <= 0 ? 0 : (orbit - 1) % pairs;
   }
 
+  // src/lib/strudel/structure.ts
+  var DEFAULT_BPM = 120;
+  var DEFAULT_METER = { num: 4, den: 4 };
+  var MIN_BPM = 20;
+  var MAX_BPM = 400;
+  var MAX_METER_NUM = 32;
+  var METER_DENS = [1, 2, 4, 8, 16];
+  var MAX_BARS = 1e4;
+  var MAX_LOOPS = 1000;
+  var MAX_SECTIONS = 64;
+  var beatsPerBar = (meter) => meter.num * 4 / meter.den;
+  var cpsFor = (bpm, meter) => bpm / 60 / beatsPerBar(meter);
+  var meterString = (m) => `${m.num}/${m.den}`;
+  var METER_RE = /^(\d+)\/(\d+)$/;
+  var parseMeter = (s) => {
+    const m = METER_RE.exec(s);
+    if (!m)
+      return null;
+    const num = Number(m[1]);
+    const den = Number(m[2]);
+    if (num < 1 || num > MAX_METER_NUM || !METER_DENS.includes(den))
+      return null;
+    return { num, den };
+  };
+  var isInt = (v, min, max) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
+  var isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+  var hasLoopSection = (sections) => Array.isArray(sections) && sections.some((s) => isPlainObject(s) && s.loop === true);
+  var bpmProblem = (v) => typeof v === "number" && Number.isFinite(v) && v >= MIN_BPM && v <= MAX_BPM ? null : `meta.bpm must be a number from ${MIN_BPM} to ${MAX_BPM}`;
+  var MIN_SEED = -2147483648;
+  var MAX_SEED = 2147483647;
+  var seedProblem = (v) => isInt(v, MIN_SEED, MAX_SEED) ? null : `meta.seed must be an integer between ${MIN_SEED} and ${MAX_SEED}`;
+  var engineProblem = (v) => v === "superdough" || v === "rust" ? null : "meta.engine must be 'superdough' or 'rust'";
+  var meterProblem = (v, path = "meta.meter") => typeof v === "string" && parseMeter(v) !== null ? null : `${path} must be a string 'N/D' with N from 1 to ${MAX_METER_NUM} and D one of ${METER_DENS.join(", ")}`;
+  var barsProblem = (v, path = "bars") => isInt(v, 1, MAX_BARS) ? null : `${path} must be an integer from 1 to ${MAX_BARS}`;
+  var loopsProblem = (v, hasLoopSection2) => {
+    if (!isInt(v, 1, MAX_LOOPS))
+      return `meta.loops must be an integer from 1 to ${MAX_LOOPS}`;
+    if (!hasLoopSection2)
+      return "meta.loops needs a section with loop: true or a meta.loop range";
+    return null;
+  };
+  var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  var SECTION_KEYS = new Set(["name", "bars", "loop"]);
+  var sectionsProblem = (v) => {
+    if (!Array.isArray(v) || v.length === 0) {
+      return "meta.sections must be a non-empty array of sections";
+    }
+    if (v.length > MAX_SECTIONS)
+      return `meta.sections must have at most ${MAX_SECTIONS} sections`;
+    const names = new Set;
+    let loopAt = null;
+    for (let i = 0;i < v.length; i++) {
+      const path = `meta.sections[${i}]`;
+      const s = v[i];
+      if (!isPlainObject(s))
+        return `${path} must be an object like { name: 'intro', bars: 4 }`;
+      for (const key of Object.keys(s)) {
+        if (!SECTION_KEYS.has(key))
+          return `${path} has an unknown key '${key}'`;
+      }
+      if (typeof s.name !== "string" || !NAME_RE.test(s.name)) {
+        return `${path}.name must be an identifier (letters, digits and _, not starting with a digit)`;
+      }
+      if (names.has(s.name))
+        return `${path}.name '${s.name}' is already used`;
+      names.add(s.name);
+      const bars = barsProblem(s.bars, `${path}.bars`);
+      if (bars)
+        return bars;
+      if ("loop" in s && typeof s.loop !== "boolean")
+        return `${path}.loop must be true or false`;
+      if (s.loop === true) {
+        if (loopAt !== null)
+          return `${path}.loop: only one section can loop`;
+        loopAt = i;
+      }
+    }
+    return null;
+  };
+  function loopRangeProblem(v, sections) {
+    if (!isPlainObject(v) || Object.keys(v).some((key) => key !== "from" && key !== "through")) {
+      return "meta.loop must be an object like { from: 'first', through: 'last' }";
+    }
+    const { from, through } = v;
+    if (typeof from !== "string" || !NAME_RE.test(from))
+      return "meta.loop.from must be a section name";
+    if (typeof through !== "string" || !NAME_RE.test(through)) {
+      return "meta.loop.through must be a section name";
+    }
+    if (!sections)
+      return null;
+    if (sections.length === 0)
+      return "meta.loop needs meta.sections";
+    const first = sections.findIndex((s) => s.name === from);
+    const last = sections.findIndex((s) => s.name === through);
+    if (first === -1)
+      return `meta.loop.from names an unknown section '${from}'`;
+    if (last === -1)
+      return `meta.loop.through names an unknown section '${through}'`;
+    return last < first ? "meta.loop.through must be at or after meta.loop.from" : null;
+  }
+  function meterChangesProblem(v, totalBars) {
+    if (!Array.isArray(v))
+      return "meta.meterChanges must be an array";
+    if (totalBars === 0)
+      return "meta.meterChanges needs meta.sections";
+    let last = 1;
+    for (let i = 0;i < v.length; i++) {
+      const change = v[i];
+      const path = `meta.meterChanges[${i}]`;
+      if (!isPlainObject(change) || Object.keys(change).some((key) => key !== "bar" && key !== "meter")) {
+        return `${path} must be an object like { bar: 2, meter: '3/4' }`;
+      }
+      if (!isInt(change.bar, 2, totalBars ?? MAX_SECTIONS * MAX_BARS)) {
+        const bound = totalBars === undefined ? "" : ` and at most ${totalBars}`;
+        return `${path}.bar must be a whole bar number greater than 1${bound}`;
+      }
+      const bar = change.bar;
+      if (bar <= last)
+        return `${path}.bar must be after the previous meter change`;
+      const problem = meterProblem(change.meter, `${path}.meter`);
+      if (problem)
+        return problem;
+      last = bar;
+    }
+    return null;
+  }
+  function sectionRange(s, first, last) {
+    const from = s.sections[first];
+    const through = s.sections[last];
+    return from && through && first <= last ? { first, last, start: from.start, end: through.start + through.bars } : null;
+  }
+  function authoredLoop(s) {
+    return s.loopRange ?? (s.loopIndex === null ? null : sectionRange(s, s.loopIndex, s.loopIndex));
+  }
+  function meterAtBar(s, bar) {
+    const changes = s.meterChanges;
+    if (!changes)
+      return s.meter;
+    let lo = 0;
+    let hi = changes.length;
+    while (lo < hi) {
+      const mid = lo + hi >>> 1;
+      if (changes[mid].bar <= bar)
+        lo = mid + 1;
+      else
+        hi = mid;
+    }
+    return lo === 0 ? s.meter : changes[lo - 1].meter;
+  }
+  var sameStructure = (a, b) => a === b || a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b);
+
+  class StructureError extends Error {
+    constructor(message) {
+      super(message);
+      this.name = "StructureError";
+    }
+  }
+  var has = (meta, key) => Object.prototype.hasOwnProperty.call(meta, key) && meta[key] !== undefined;
+  function check(problem) {
+    if (problem !== null)
+      throw new StructureError(problem);
+  }
+  function clipDuration(s, loop, loops) {
+    const loopBars = loop ? loop.end - loop.start : 0;
+    const clipBars = s.totalBars + (loops - 1) * loopBars;
+    if (!s.meterChanges)
+      return { clipBars, clipSeconds: clipBars / s.cps };
+    let clipBeats = 0;
+    const runs = [{ bar: 0, meter: s.meter }, ...s.meterChanges];
+    for (const [i, run] of runs.entries()) {
+      const end = runs[i + 1]?.bar ?? s.totalBars;
+      const repeated = loop ? Math.max(0, Math.min(end, loop.end) - Math.max(run.bar, loop.start)) : 0;
+      clipBeats += (end - run.bar + repeated * (loops - 1)) * beatsPerBar(run.meter);
+    }
+    return { clipBars, clipSeconds: clipBeats * 60 / s.bpm };
+  }
+  function withLoops(structure, loops) {
+    const loop = authoredLoop(structure);
+    check(loopsProblem(loops, loop !== null));
+    return { ...structure, loops, ...clipDuration(structure, loop, loops) };
+  }
+  function buildStructure(meta) {
+    let bpm = DEFAULT_BPM;
+    if (has(meta, "bpm")) {
+      check(bpmProblem(meta.bpm));
+      bpm = meta.bpm;
+    }
+    let meter = { ...DEFAULT_METER };
+    if (has(meta, "meter")) {
+      check(meterProblem(meta.meter));
+      meter = parseMeter(meta.meter);
+    }
+    const sections = [];
+    if (has(meta, "sections")) {
+      check(sectionsProblem(meta.sections));
+      let start = 0;
+      for (const s of meta.sections) {
+        const bars = s.bars;
+        sections.push({ name: s.name, start, bars, loop: s.loop === true });
+        start += bars;
+      }
+    }
+    const totalBars = sections.reduce((n, s) => n + s.bars, 0);
+    const index = sections.findIndex((s) => s.loop);
+    let loopRange = null;
+    if (has(meta, "loop")) {
+      check(loopRangeProblem(meta.loop, sections));
+      if (index !== -1)
+        throw new StructureError("meta.loop cannot be used with section loop: true");
+      const { from, through } = meta.loop;
+      loopRange = sectionRange({ sections }, sections.findIndex((s) => s.name === from), sections.findIndex((s) => s.name === through));
+    }
+    const loop = loopRange ?? sectionRange({ sections }, index, index);
+    const loopIndex = loop?.first ?? null;
+    let meterChanges;
+    if (has(meta, "meterChanges")) {
+      check(meterChangesProblem(meta.meterChanges, totalBars));
+      const changes = meta.meterChanges.map((c) => ({
+        bar: c.bar - 1,
+        meter: parseMeter(c.meter)
+      }));
+      if (changes.length)
+        meterChanges = changes;
+    }
+    let loops = 1;
+    if (has(meta, "loops")) {
+      check(loopsProblem(meta.loops, loopIndex !== null));
+      loops = meta.loops;
+    }
+    const cps = cpsFor(bpm, meter);
+    const structure = {
+      bpm,
+      meter,
+      beatsPerBar: beatsPerBar(meter),
+      cps,
+      sections,
+      loopIndex,
+      loops,
+      totalBars,
+      introEnd: loop?.start ?? totalBars,
+      endOfSong: loop ? null : totalBars,
+      clipBars: totalBars,
+      clipSeconds: totalBars / cps,
+      ...loopRange && { loopRange },
+      ...meterChanges && { meterChanges }
+    };
+    return { ...structure, ...clipDuration(structure, loop, loops) };
+  }
+
+  // src/lib/strudel/transport.ts
+  var INITIAL_SEGMENTS = Object.freeze([
+    Object.freeze({ at: 0, songBar: 0, view: Object.freeze({ kind: "song" }) })
+  ]);
+  var LINEAR_SEGMENTS = Object.freeze([
+    Object.freeze({ at: 0, songBar: 0, view: Object.freeze({ kind: "release" }) })
+  ]);
+  var mod = (a, n) => {
+    const remainder = a % n;
+    return remainder < 0 ? remainder + n : remainder;
+  };
+  function segmentIndex(g, seg) {
+    let i = 0;
+    while (i + 1 < seg.length && seg[i + 1].at <= g)
+      i++;
+    return i;
+  }
+  function segmentLoop(s, segment) {
+    const { view } = segment;
+    if (view.kind === "loop")
+      return sectionRange(s, view.section, view.through ?? view.section);
+    if (view.kind !== "song")
+      return null;
+    const loop = authoredLoop(s);
+    return loop && segment.songBar < loop.end ? loop : null;
+  }
+  function songBarAt(g, s, segment) {
+    const elapsed = g - segment.at;
+    const p = segment.songBar + elapsed;
+    if (segment.view.kind === "count-in")
+      return null;
+    const loop = segmentLoop(s, segment);
+    if (!loop)
+      return segment.view.kind === "loop" ? null : p;
+    return segment.view.kind === "loop" || p >= loop.end ? loop.start + mod(p - loop.start, loop.end - loop.start) : p;
+  }
+  function locate(g, s, seg) {
+    if (s.sections.length === 0 || seg.length === 0)
+      return null;
+    const c = Math.max(0, g);
+    const bar = songBarAt(c, s, seg[segmentIndex(c, seg)]);
+    if (bar === null || bar < 0 || bar >= s.totalBars)
+      return null;
+    for (let i = 0;i < s.sections.length; i++) {
+      const section = s.sections[i];
+      if (bar < section.start + section.bars) {
+        return { section: i, localCycle: bar - section.start, songBar: bar };
+      }
+    }
+    return null;
+  }
+  var COUNT_IN_SEGMENT = Object.freeze({
+    at: 0,
+    songBar: 0,
+    view: Object.freeze({ kind: "count-in" })
+  });
+  function withCountIn(seg) {
+    return [COUNT_IN_SEGMENT, ...seg.map((x) => ({ ...x, at: x.at + 1 }))];
+  }
+  function inCountIn(g, seg) {
+    if (seg.length === 0 || Number.isNaN(g))
+      return false;
+    return seg[segmentIndex(Math.max(0, g), seg)].view.kind === "count-in";
+  }
+  function pieceEnd(g, s, seg, located = g < 0 ? null : locate(g, s, seg)) {
+    if (g < 0)
+      return 0;
+    let next = Infinity;
+    for (const x of seg) {
+      if (x.at > g) {
+        next = x.at;
+        break;
+      }
+    }
+    if (located === null)
+      return next;
+    const bars = s.sections[located.section].bars;
+    return Math.min(next, g + bars - located.localCycle);
+  }
+  function nextSafeBoundary(lastEnd, s, seg, kind) {
+    const c = Math.max(0, Math.ceil(lastEnd));
+    if (kind === "bar")
+      return c;
+    const located = locate(c, s, seg);
+    const loop = authoredLoop(s);
+    if (!located || !loop || !isLoopPass(s, seg[segmentIndex(c, seg)].view, located))
+      return null;
+    if (located.songBar === loop.start)
+      return c;
+    return c + loop.end - located.songBar;
+  }
+  function prune(seg, g) {
+    if (seg.length < 2 || seg[1].at > g)
+      return seg;
+    let last = -1;
+    for (let i = 0;i < seg.length; i++)
+      if (seg[i].at <= g)
+        last = i;
+    return seg.filter((x, i) => i === last || x.at > g);
+  }
+  function append(seg, segment) {
+    return [...seg.filter((x) => x.at < segment.at), segment];
+  }
+  function withStartFrom(seg, s, section, at) {
+    const target = s.sections[section];
+    if (!target)
+      return [...seg];
+    return append(seg, { at, songBar: target.start, view: { kind: "song" } });
+  }
+  function withLoop(seg, s, section, at, through = section) {
+    if (section === null) {
+      const located = locate(at, s, seg);
+      if (located === null)
+        return [...seg];
+      return append(seg, { at, songBar: located.songBar, view: { kind: "song" } });
+    }
+    const range = through === null ? null : sectionRange(s, section, through);
+    if (!range)
+      return [...seg];
+    const view = range.first === range.last ? { kind: "loop", section } : { kind: "loop", section, through: range.last };
+    return append(seg, { at, songBar: range.start, view });
+  }
+  function withRelease(seg, s, at) {
+    const loop = authoredLoop(s);
+    if (!loop)
+      return [...seg];
+    return append(seg, { at, songBar: loop.end, view: { kind: "release" } });
+  }
+  function clipSegments(s) {
+    const loop = authoredLoop(s);
+    if (!loop)
+      return INITIAL_SEGMENTS;
+    return withRelease(INITIAL_SEGMENTS, s, loop.start + s.loops * (loop.end - loop.start));
+  }
+  function isLoopPass(s, view, located) {
+    const loop = authoredLoop(s);
+    if (!loop || located.songBar < loop.start || located.songBar >= loop.end)
+      return false;
+    return view.kind === "song" || view.kind === "loop" && view.section === loop.first && (view.through ?? view.section) === loop.last;
+  }
+  function canPlayEnding(started, s, view, located) {
+    return started && s !== null && located !== null && isLoopPass(s, view, located);
+  }
+
+  // src/lib/strudel/timing.ts
+  var ticksPerBar = ({ num, den }) => num * 16 / den;
+  function runIndex(runs, bar) {
+    let first = 0;
+    let last = runs.length;
+    while (first + 1 < last) {
+      const mid = first + last >>> 1;
+      if (runs[mid].bar <= bar)
+        first = mid;
+      else
+        last = mid;
+    }
+    return first;
+  }
+  function layoutClock(s, segments, anchor = { cycle: 0, clock: 0 }) {
+    if (!s.meterChanges || segments.length === 0) {
+      const offset = anchor.clock - anchor.cycle;
+      return {
+        toClock: (cycle) => cycle + offset,
+        toCycle: (clock) => clock - offset,
+        meterAt: () => s.meter,
+        nextMeterBoundary: () => Infinity
+      };
+    }
+    const reference = ticksPerBar(s.meter);
+    const runs = [{ bar: 0, ticks: 0, perBar: reference }];
+    for (const change of s.meterChanges) {
+      const tail = runs[runs.length - 1];
+      runs.push({
+        bar: change.bar,
+        ticks: tail.ticks + (change.bar - tail.bar) * tail.perBar,
+        perBar: ticksPerBar(change.meter)
+      });
+    }
+    function songTicks(bar) {
+      const run = runs[runIndex(runs, bar)];
+      return run.ticks + (bar - run.bar) * run.perBar;
+    }
+    const spans = segments.map((segment, i) => {
+      const loop = segmentLoop(s, segment);
+      const loopStart = loop ? songTicks(loop.start) : 0;
+      const loopTicks = loop ? songTicks(loop.end) - loopStart : 0;
+      const startMeter = meterAtBar(s, segments[i + 1]?.songBar ?? 0);
+      function elapsedTicks(cycle) {
+        const elapsed = cycle - segment.at;
+        if (segment.view.kind === "count-in")
+          return elapsed * ticksPerBar(startMeter);
+        const linearBar = segment.songBar + elapsed;
+        if (!loop || linearBar < loop.end)
+          return songTicks(linearBar) - songTicks(segment.songBar);
+        const width = loop.end - loop.start;
+        const passes = Math.floor((linearBar - loop.start) / width);
+        const bar = linearBar - passes * width;
+        return passes * loopTicks + songTicks(bar) - songTicks(segment.songBar);
+      }
+      function meterAt(cycle) {
+        if (segment.view.kind === "count-in")
+          return startMeter;
+        const bar = songBarAt(cycle, s, segment);
+        return bar === null ? s.meter : meterAtBar(s, bar);
+      }
+      function nextBoundary(cycle) {
+        const segmentEnd = segments[i + 1]?.at ?? Infinity;
+        if (segment.view.kind === "count-in")
+          return segmentEnd;
+        const bar = songBarAt(cycle, s, segment);
+        if (bar === null)
+          return segmentEnd;
+        const nextBar = runs[runIndex(runs, bar) + 1]?.bar ?? Infinity;
+        if (!loop)
+          return Math.min(segmentEnd, cycle + (nextBar - bar));
+        if (nextBar < loop.end)
+          return Math.min(segmentEnd, cycle + (nextBar - bar));
+        const firstChange = runs[runIndex(runs, loop.start) + 1]?.bar ?? Infinity;
+        if (firstChange >= loop.end)
+          return segmentEnd;
+        return Math.min(segmentEnd, cycle + (loop.end - bar));
+      }
+      return { elapsedTicks, meterAt, nextBoundary };
+    });
+    const offsets = [0];
+    for (let i = 1;i < segments.length; i++) {
+      offsets.push(offsets[i - 1] + spans[i - 1].elapsedTicks(segments[i].at));
+    }
+    function rawTicks(cycle) {
+      const i = segmentIndex(cycle, segments);
+      return offsets[i] + spans[i].elapsedTicks(cycle);
+    }
+    const anchorTicks = rawTicks(anchor.cycle);
+    const toClock = (cycle) => anchor.clock + (rawTicks(cycle) - anchorTicks) / reference;
+    function toCycle(clock) {
+      if (!Number.isFinite(clock))
+        return clock;
+      if (clock === anchor.clock)
+        return anchor.cycle;
+      const limit = Math.ceil(Math.abs(clock - anchor.clock) * reference) + 1;
+      let lo = Math.floor(anchor.cycle + (clock < anchor.clock ? -limit : 0));
+      let hi = Math.ceil(anchor.cycle + (clock > anchor.clock ? limit : 0));
+      while (hi - lo > 1) {
+        const mid = lo + Math.floor((hi - lo) / 2);
+        if (toClock(mid) <= clock)
+          lo = mid;
+        else
+          hi = mid;
+      }
+      const start = toClock(lo);
+      return lo + (clock - start) / (toClock(hi) - start);
+    }
+    return {
+      toClock,
+      toCycle,
+      meterAt: (cycle) => spans[segmentIndex(cycle, segments)].meterAt(cycle),
+      nextMeterBoundary: (cycle) => spans[segmentIndex(cycle, segments)].nextBoundary(cycle)
+    };
+  }
+
+  // src/lib/render/timing.ts
+  function layoutSegments(layout, structure) {
+    return layout === "clip" ? clipSegments(structure) : LINEAR_SEGMENTS;
+  }
+  function renderWindowFrames(from, to, cps, sampleRate, timing) {
+    return timing ? timing.frameAt(to, sampleRate) - timing.frameAt(from, sampleRate) : windowFrames(from, to, cps, sampleRate);
+  }
+  function renderTiming(structure, segments, cps) {
+    if (!structure.meterChanges?.length)
+      return;
+    const clock = layoutClock(structure, segments);
+    const baseBeats = structure.beatsPerBar;
+    const minBeats = structure.meterChanges.reduce((min, change) => Math.min(min, beatsPerBar(change.meter)), baseBeats);
+    return {
+      secondsAt: (cycle) => clock.toClock(cycle) / cps,
+      cycleAt: (seconds) => clock.toCycle(seconds * cps),
+      cpsAt: (cycle) => cps * baseBeats / beatsPerBar(clock.meterAt(cycle)),
+      frameAt: (cycle, sampleRate) => Math.round(clock.toClock(cycle) * sampleRate / cps),
+      minBarSec: minBeats / baseBeats / cps
+    };
+  }
+  function historyStart(fromBar, lookbackSec, timing) {
+    const seconds = Math.max(0, timing.secondsAt(fromBar) - lookbackSec);
+    return Math.max(0, Math.floor(timing.cycleAt(seconds) + 0.000000001));
+  }
+  function hapTiming(onset, duration, start, cps, timing, bufferStartSec) {
+    if (!timing)
+      return { t: (onset - start) / cps, duration: duration / cps, cps };
+    const phaseSec = timing.secondsAt(onset);
+    const origin = bufferStartSec ?? timing.secondsAt(start);
+    return {
+      t: onset === start ? Math.max(0, phaseSec - origin) : phaseSec - origin,
+      duration: timing.secondsAt(onset + duration) - phaseSec,
+      cps: timing.cpsAt(onset),
+      phaseSec
+    };
+  }
+
   // src/lib/render/plan.ts
   var LEAD_SEC = 0.05;
   var MAX_BUFFER_BYTES = 1e9;
@@ -11528,16 +12076,34 @@
       throw new RangeError(`render buffer too large: ${bytes} bytes (max ${MAX_BUFFER_BYTES})`);
     }
   }
-  function windowPlan(req, cps, lookbackSec, tailFrames = 0) {
+  function windowPlan(req, cps, lookbackSec, tailFrames = 0, timing, scheduleStart = 0) {
     if (!Number.isFinite(cps) || cps <= 0)
       throw new RangeError(`invalid cps ${cps}`);
     if (!Number.isFinite(lookbackSec) || lookbackSec < 0) {
       throw new RangeError(`invalid lookback ${lookbackSec}`);
     }
-    const c0 = Math.max(0, req.fromBar - Math.ceil(lookbackSec * cps - 0.000000001));
+    const c0 = timing ? Math.max(scheduleStart, historyStart(req.fromBar, lookbackSec, timing)) : Math.max(0, req.fromBar - Math.ceil(lookbackSec * cps - 0.000000001));
     const c1 = req.toBar + req.overlapBars;
     if (c1 <= c0)
       throw new RangeError(`empty render window [${c0}, ${c1})`);
+    if (timing) {
+      const start = timing.frameAt(c0, req.sampleRate);
+      const from = timing.frameAt(req.fromBar, req.sampleRate);
+      const to = timing.frameAt(req.toBar, req.sampleRate);
+      const end = timing.frameAt(c1, req.sampleRate);
+      const frames2 = end - start + tailFrames;
+      checkBufferFrames(frames2, req.mode);
+      return {
+        c0,
+        c1,
+        lookbackSecUsed: (from - start) / req.sampleRate,
+        windowStartFrame: from - start,
+        bufferStartSec: start / req.sampleRate,
+        frames: frames2,
+        contentFrames: to - from,
+        ...req.overlapBars ? { overlapFrames: end - to } : {}
+      };
+    }
     const lookbackSecUsed = (req.fromBar - c0) / cps;
     const frames = expectedFrames(req, cps, lookbackSecUsed) + tailFrames;
     checkBufferFrames(frames, req.mode);
@@ -11578,15 +12144,17 @@
     return multiChannelOrbits && orbit > 0 ? [orbit * 2 - 2, orbit * 2 - 1] : [0, 1];
   }
   var pauseLeadSec = (barSec) => Math.min(LEAD_SEC, barSec / 4);
-  function pauseSchedule(nBars, cps, sampleRate) {
+  function pauseSchedule(nBars, cps, sampleRate, timing, c0 = 0) {
     const barSec = 1 / cps;
-    const leadSec = pauseLeadSec(barSec);
+    const leadSec = pauseLeadSec(timing?.minBarSec ?? barSec);
     if (nBars > 1 && leadSec < MIN_LEAD_FRAMES / sampleRate) {
       throw new Error("bar too short for the pause lead");
     }
     const suspendSec = [0];
-    for (let j = 1;j < nBars; j++)
-      suspendSec.push(j * barSec - leadSec);
+    const origin = timing ? timing.frameAt(c0, sampleRate) / sampleRate : 0;
+    for (let j = 1;j < nBars; j++) {
+      suspendSec.push((timing ? timing.secondsAt(c0 + j) - origin : j * barSec) - leadSec);
+    }
     return { leadSec, suspendSec };
   }
   function bucketByBar(selected, c0, nBars, dropped = new Set) {
@@ -11636,159 +12204,6 @@
     return args.length === 2 && typeof first === "string" && first.startsWith("%c") && typeof style === "string" ? first.slice(2) : null;
   }
 
-  // src/lib/strudel/structure.ts
-  var DEFAULT_BPM = 120;
-  var DEFAULT_METER = { num: 4, den: 4 };
-  var MIN_BPM = 20;
-  var MAX_BPM = 400;
-  var MAX_METER_NUM = 32;
-  var METER_DENS = [1, 2, 4, 8, 16];
-  var MAX_BARS = 1e4;
-  var MAX_LOOPS = 1000;
-  var MAX_SECTIONS = 64;
-  var beatsPerBar = (meter) => meter.num * 4 / meter.den;
-  var cpsFor = (bpm, meter) => bpm / 60 / beatsPerBar(meter);
-  var METER_RE = /^(\d+)\/(\d+)$/;
-  var parseMeter = (s) => {
-    const m = METER_RE.exec(s);
-    if (!m)
-      return null;
-    const num = Number(m[1]);
-    const den = Number(m[2]);
-    if (num < 1 || num > MAX_METER_NUM || !METER_DENS.includes(den))
-      return null;
-    return { num, den };
-  };
-  var isInt = (v, min, max) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
-  var isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-  var hasLoopSection = (sections) => Array.isArray(sections) && sections.some((s) => isPlainObject(s) && s.loop === true);
-  var bpmProblem = (v) => typeof v === "number" && Number.isFinite(v) && v >= MIN_BPM && v <= MAX_BPM ? null : `meta.bpm must be a number from ${MIN_BPM} to ${MAX_BPM}`;
-  var MIN_SEED = -2147483648;
-  var MAX_SEED = 2147483647;
-  var seedProblem = (v) => isInt(v, MIN_SEED, MAX_SEED) ? null : `meta.seed must be an integer between ${MIN_SEED} and ${MAX_SEED}`;
-  var engineProblem = (v) => v === "superdough" || v === "rust" ? null : "meta.engine must be 'superdough' or 'rust'";
-  var meterProblem = (v) => typeof v === "string" && parseMeter(v) !== null ? null : `meta.meter must be a string 'N/D' with N from 1 to ${MAX_METER_NUM} and D one of ${METER_DENS.join(", ")}`;
-  var barsProblem = (v, path = "bars") => isInt(v, 1, MAX_BARS) ? null : `${path} must be an integer from 1 to ${MAX_BARS}`;
-  var loopsProblem = (v, hasLoopSection2) => {
-    if (!isInt(v, 1, MAX_LOOPS))
-      return `meta.loops must be an integer from 1 to ${MAX_LOOPS}`;
-    if (!hasLoopSection2)
-      return "meta.loops needs a section with loop: true";
-    return null;
-  };
-  var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-  var SECTION_KEYS = new Set(["name", "bars", "loop"]);
-  var sectionsProblem = (v) => {
-    if (!Array.isArray(v) || v.length === 0) {
-      return "meta.sections must be a non-empty array of sections";
-    }
-    if (v.length > MAX_SECTIONS)
-      return `meta.sections must have at most ${MAX_SECTIONS} sections`;
-    const names = new Set;
-    let loopAt = null;
-    for (let i = 0;i < v.length; i++) {
-      const path = `meta.sections[${i}]`;
-      const s = v[i];
-      if (!isPlainObject(s))
-        return `${path} must be an object like { name: 'intro', bars: 4 }`;
-      for (const key of Object.keys(s)) {
-        if (!SECTION_KEYS.has(key))
-          return `${path} has an unknown key '${key}'`;
-      }
-      if (typeof s.name !== "string" || !NAME_RE.test(s.name)) {
-        return `${path}.name must be an identifier (letters, digits and _, not starting with a digit)`;
-      }
-      if (names.has(s.name))
-        return `${path}.name '${s.name}' is already used`;
-      names.add(s.name);
-      const bars = barsProblem(s.bars, `${path}.bars`);
-      if (bars)
-        return bars;
-      if ("loop" in s && typeof s.loop !== "boolean")
-        return `${path}.loop must be true or false`;
-      if (s.loop === true) {
-        if (loopAt !== null)
-          return `${path}.loop: only one section can loop`;
-        loopAt = i;
-      }
-    }
-    return null;
-  };
-  var sameStructure = (a, b) => a === b || a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b);
-
-  class StructureError extends Error {
-    constructor(message) {
-      super(message);
-      this.name = "StructureError";
-    }
-  }
-  var has = (meta, key) => Object.prototype.hasOwnProperty.call(meta, key) && meta[key] !== undefined;
-  function check(problem) {
-    if (problem !== null)
-      throw new StructureError(problem);
-  }
-  function clipBarsOf(sections, loopIndex, totalBars, loops) {
-    return loopIndex === null ? totalBars : totalBars + (loops - 1) * sections[loopIndex].bars;
-  }
-  function withLoops(structure, loops) {
-    check(loopsProblem(loops, structure.loopIndex !== null));
-    const { sections, loopIndex, totalBars, cps } = structure;
-    const clipBars = clipBarsOf(sections, loopIndex, totalBars, loops);
-    return { ...structure, loops, clipBars, clipSeconds: clipBars / cps };
-  }
-  function buildStructure(meta) {
-    let bpm = DEFAULT_BPM;
-    if (has(meta, "bpm")) {
-      check(bpmProblem(meta.bpm));
-      bpm = meta.bpm;
-    }
-    let meter = { ...DEFAULT_METER };
-    if (has(meta, "meter")) {
-      check(meterProblem(meta.meter));
-      meter = parseMeter(meta.meter);
-    }
-    const sections = [];
-    if (has(meta, "sections")) {
-      check(sectionsProblem(meta.sections));
-      let start = 0;
-      for (const s of meta.sections) {
-        const bars = s.bars;
-        sections.push({ name: s.name, start, bars, loop: s.loop === true });
-        start += bars;
-      }
-    }
-    const index = sections.findIndex((s) => s.loop);
-    const loopIndex = index === -1 ? null : index;
-    let loops = 1;
-    if (has(meta, "loops")) {
-      check(loopsProblem(meta.loops, loopIndex !== null));
-      loops = meta.loops;
-    }
-    const totalBars = sections.reduce((n, s) => n + s.bars, 0);
-    const cps = cpsFor(bpm, meter);
-    let introEnd = totalBars;
-    let endOfSong = totalBars;
-    if (loopIndex !== null) {
-      introEnd = sections[loopIndex].start;
-      endOfSong = null;
-    }
-    const clipBars = clipBarsOf(sections, loopIndex, totalBars, loops);
-    return {
-      bpm,
-      meter,
-      beatsPerBar: beatsPerBar(meter),
-      cps,
-      sections,
-      loopIndex,
-      loops,
-      totalBars,
-      introEnd,
-      endOfSong,
-      clipBars,
-      clipSeconds: clipBars / cps
-    };
-  }
-
   // src/lib/project/evaluate-options.ts
   var EMPTY_STRUCTURE = buildStructure({});
   function staticStructure(meta) {
@@ -11804,7 +12219,9 @@
       cps: s.cps,
       meter: s.meter,
       seed: meta.seed,
-      engine: meta.engine === "rust" ? "rust" : "superdough"
+      engine: meta.engine === "rust" ? "rust" : "superdough",
+      ...s.loopRange && { requiresSong: true, expectedArrangement: s },
+      ...s.meterChanges && { requiresMeterMap: true, expectedArrangement: s }
     };
   }
 
@@ -17289,20 +17706,26 @@ Defaulting to 2020, but this will stop working in the future.`);
     if ((key === "meter" || key === "engine") && isDoubleQuoted(node)) {
       throw errorAt(node, `meta.${key} ${MINI_QUOTES}`);
     }
-    if (key !== "sections" || node.type !== "ArrayExpression")
-      return;
-    node.elements.forEach((el, i2) => {
-      if (el?.type !== "ObjectExpression")
-        return;
-      for (const prop of el.properties) {
+    function checkObject(obj, path, fields) {
+      for (const prop of obj.properties) {
         if (prop.type !== "Property" || prop.computed)
           continue;
         const name = prop.key.type === "Identifier" ? prop.key.name : prop.key.type === "Literal" ? prop.key.value : null;
-        if (name === "name" && isDoubleQuoted(prop.value)) {
-          throw errorAt(prop.value, `meta.sections[${i2}].name ${MINI_QUOTES}`);
+        if (typeof name === "string" && fields.includes(name) && isDoubleQuoted(prop.value)) {
+          throw errorAt(prop.value, `${path}.${name} ${MINI_QUOTES}`);
         }
       }
-    });
+    }
+    if (key === "loop" && node.type === "ObjectExpression") {
+      checkObject(node, "meta.loop", ["from", "through"]);
+    }
+    if ((key === "sections" || key === "meterChanges") && node.type === "ArrayExpression") {
+      const fields = key === "sections" ? ["name"] : ["meter"];
+      node.elements.forEach((el, i2) => {
+        if (el?.type === "ObjectExpression")
+          checkObject(el, `meta.${key}[${i2}]`, fields);
+      });
+    }
   }
   function checkKnownField(key, value, node) {
     checkQuotes(key, node);
@@ -17319,6 +17742,10 @@ Defaulting to 2020, but this will stop working in the future.`);
       problem = engineProblem(value);
     else if (key === "sections")
       problem = sectionsProblem(value);
+    else if (key === "loop")
+      problem = loopRangeProblem(value);
+    else if (key === "meterChanges")
+      problem = meterChangesProblem(value);
     if (problem !== null)
       throw errorAt(node, problem);
   }
@@ -17359,14 +17786,32 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (!header)
       return null;
     const loops = [];
+    const layoutFields = new Map;
     const meta = toObject(header, "meta", (key, value, node) => {
       checkKnownField(key, value, node);
       if (key === "loops")
         loops.push({ value, node });
+      if (key === "loop" || key === "meterChanges")
+        layoutFields.set(key, { value, node });
     });
     const loopSection = hasLoopSection(meta.sections);
+    const sections = Array.isArray(meta.sections) ? meta.sections : [];
+    const loop = layoutFields.get("loop");
+    if (loop) {
+      const problem = loopRangeProblem(loop.value, sections);
+      if (problem !== null)
+        throw errorAt(loop.node, problem);
+      if (loopSection)
+        throw errorAt(loop.node, "meta.loop cannot be used with section loop: true");
+    }
+    const changes = layoutFields.get("meterChanges");
+    if (changes) {
+      const problem = meterChangesProblem(changes.value, sections.reduce((sum, s) => sum + s.bars, 0));
+      if (problem !== null)
+        throw errorAt(changes.node, problem);
+    }
     loops.forEach(({ value, node }, i2) => {
-      const problem = loopsProblem(value, i2 < loops.length - 1 || loopSection);
+      const problem = loopsProblem(value, i2 < loops.length - 1 || loopSection || isPlainObject(meta.loop));
       if (problem !== null)
         throw errorAt(node, problem);
     });
@@ -17380,150 +17825,6 @@ Defaulting to 2020, but this will stop working in the future.`);
         return { meta: {}, error: e };
       return { meta: {}, error: null };
     }
-  }
-
-  // src/lib/strudel/transport.ts
-  var INITIAL_SEGMENTS = Object.freeze([
-    Object.freeze({ at: 0, songBar: 0, view: Object.freeze({ kind: "song" }) })
-  ]);
-  var LINEAR_SEGMENTS = Object.freeze([
-    Object.freeze({ at: 0, songBar: 0, view: Object.freeze({ kind: "release" }) })
-  ]);
-  var mod = (a, n) => (a % n + n) % n;
-  function segmentIndex(g, seg) {
-    let i2 = 0;
-    while (i2 + 1 < seg.length && seg[i2 + 1].at <= g)
-      i2++;
-    return i2;
-  }
-  function songBarAt(g, s, segment) {
-    const elapsed = g - segment.at;
-    const p = segment.songBar + elapsed;
-    const view = segment.view;
-    switch (view.kind) {
-      case "song": {
-        if (s.loopIndex === null)
-          return p;
-        const loop = s.sections[s.loopIndex];
-        const loopEnd = loop.start + loop.bars;
-        if (segment.songBar >= loopEnd || p < loopEnd)
-          return p;
-        return loop.start + mod(p - loop.start, loop.bars);
-      }
-      case "loop": {
-        const section = s.sections[view.section];
-        if (!section)
-          return null;
-        return section.start + mod(segment.songBar - section.start + elapsed, section.bars);
-      }
-      case "release":
-        return p;
-      case "count-in":
-        return null;
-    }
-  }
-  function locate(g, s, seg) {
-    if (s.sections.length === 0 || seg.length === 0)
-      return null;
-    const c = Math.max(0, g);
-    const bar = songBarAt(c, s, seg[segmentIndex(c, seg)]);
-    if (bar === null || bar < 0 || bar >= s.totalBars)
-      return null;
-    for (let i2 = 0;i2 < s.sections.length; i2++) {
-      const section = s.sections[i2];
-      if (bar < section.start + section.bars) {
-        return { section: i2, localCycle: bar - section.start, songBar: bar };
-      }
-    }
-    return null;
-  }
-  var COUNT_IN_SEGMENT = Object.freeze({
-    at: 0,
-    songBar: 0,
-    view: Object.freeze({ kind: "count-in" })
-  });
-  function withCountIn(seg) {
-    return [COUNT_IN_SEGMENT, ...seg.map((x) => ({ ...x, at: x.at + 1 }))];
-  }
-  function inCountIn(g, seg) {
-    if (seg.length === 0 || Number.isNaN(g))
-      return false;
-    return seg[segmentIndex(Math.max(0, g), seg)].view.kind === "count-in";
-  }
-  function pieceEnd(g, s, seg, located = g < 0 ? null : locate(g, s, seg)) {
-    if (g < 0)
-      return 0;
-    let next = Infinity;
-    for (const x of seg) {
-      if (x.at > g) {
-        next = x.at;
-        break;
-      }
-    }
-    if (located === null)
-      return next;
-    const bars = s.sections[located.section].bars;
-    return Math.min(next, g + bars - located.localCycle);
-  }
-  function nextSafeBoundary(lastEnd, s, seg, kind) {
-    const c = Math.max(0, Math.ceil(lastEnd));
-    if (kind === "bar")
-      return c;
-    const located = locate(c, s, seg);
-    if (located === null || s.loopIndex === null || located.section !== s.loopIndex)
-      return null;
-    if (located.localCycle === 0)
-      return c;
-    return c + s.sections[located.section].bars - located.localCycle;
-  }
-  function prune(seg, g) {
-    if (seg.length < 2 || seg[1].at > g)
-      return seg;
-    let last = -1;
-    for (let i2 = 0;i2 < seg.length; i2++)
-      if (seg[i2].at <= g)
-        last = i2;
-    return seg.filter((x, i2) => i2 === last || x.at > g);
-  }
-  function append(seg, segment) {
-    return [...seg.filter((x) => x.at < segment.at), segment];
-  }
-  function restartAt(seg, at2) {
-    const cycle = Math.max(0, at2);
-    return { cycle, segments: prune(seg, cycle) };
-  }
-  function withStartFrom(seg, s, section, at2) {
-    const target = s.sections[section];
-    if (!target)
-      return [...seg];
-    return append(seg, { at: at2, songBar: target.start, view: { kind: "song" } });
-  }
-  function withLoop(seg, s, section, at2) {
-    if (section === null) {
-      const located = locate(at2, s, seg);
-      if (located === null)
-        return [...seg];
-      return append(seg, { at: at2, songBar: located.songBar, view: { kind: "song" } });
-    }
-    const target = s.sections[section];
-    if (!target)
-      return [...seg];
-    return append(seg, { at: at2, songBar: target.start, view: { kind: "loop", section } });
-  }
-  function withRelease(seg, s, at2) {
-    if (s.loopIndex === null)
-      return [...seg];
-    const loop = s.sections[s.loopIndex];
-    return append(seg, { at: at2, songBar: loop.start + loop.bars, view: { kind: "release" } });
-  }
-  function clipSegments(s) {
-    if (s.loopIndex === null)
-      return INITIAL_SEGMENTS;
-    const loop = s.sections[s.loopIndex];
-    return withRelease(INITIAL_SEGMENTS, s, s.introEnd + s.loops * loop.bars);
-  }
-  function canPlayEnding(started, s, view, located) {
-    return started && s !== null && s.loopIndex !== null && view.kind !== "release" && located !== null && located.section === s.loopIndex;
   }
 
   // src/lib/render/lookback.ts
@@ -17653,7 +17954,7 @@ Defaulting to 2020, but this will stop working in the future.`);
   // src/lib/render/chunks.ts
   var isNonNegInt = (x) => Number.isInteger(x) && x >= 0;
   function planChunks(input) {
-    const { fromBar, toBar, chunkBars, lookbackBars: lookbackBars2, barSec, avoidSeamBars } = input;
+    const { fromBar, toBar, chunkBars, lookbackBars: lookbackBars2, barSec, avoidSeamBars, timing } = input;
     const seamSearchBars = input.seamSearchBars ?? SEAM_SEARCH_BARS;
     const overlap = input.overlapBars ?? SEAM_OVERLAP_BARS;
     if (!isNonNegInt(fromBar))
@@ -17702,14 +18003,14 @@ Defaulting to 2020, but this will stop working in the future.`);
     for (let k = 0;cs < toBar; k++) {
       const contentStartBar = cs;
       const contentEndBar = chooseSeam(cs, Math.min(cs + chunkBars, toBar));
-      const winBeginBar = Math.max(0, contentStartBar - lookbackBars2);
+      const winBeginBar = timing ? historyStart(contentStartBar, input.lookbackSec ?? 0, timing) : Math.max(0, contentStartBar - lookbackBars2);
       plans.push({
         index: k,
         contentStartBar,
         contentEndBar,
         winBeginBar,
-        lookbackSec: (contentStartBar - winBeginBar) * barSec,
-        contentSec: (contentEndBar - contentStartBar) * barSec,
+        lookbackSec: timing ? timing.secondsAt(contentStartBar) - timing.secondsAt(winBeginBar) : (contentStartBar - winBeginBar) * barSec,
+        contentSec: timing ? timing.secondsAt(contentEndBar) - timing.secondsAt(contentStartBar) : (contentEndBar - contentStartBar) * barSec,
         overlapBars: 0,
         seamCrossings: k === 0 ? 0 : avoidSeamBars?.[contentStartBar] ?? 0
       });
@@ -17720,7 +18021,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
     return plans;
   }
-  function stochasticCrossings(events, barSec, toBar = Infinity) {
+  function stochasticCrossings(events, barSec, toBar = Infinity, timing) {
     if (!(barSec > 0))
       throw new RangeError(`barSec must be > 0 (got ${barSec})`);
     const out = {};
@@ -17728,23 +18029,29 @@ Defaulting to 2020, but this will stop working in the future.`);
       if (!e.stochastic)
         continue;
       const end = e.tSec + e.durSec + e.release;
-      for (let b = Math.max(0, Math.floor(e.tSec / barSec));b <= toBar && b * barSec + 0.000000001 < end; b++) {
-        if (e.tSec < b * barSec - 0.000000001)
+      for (let b = Math.max(0, Math.floor(timing ? timing.cycleAt(e.tSec) : e.tSec / barSec));b <= toBar; b++) {
+        const t = timing ? timing.secondsAt(b) : b * barSec;
+        if (!(t + 0.000000001 < end))
+          break;
+        if (e.tSec < t - 0.000000001)
           out[b] = (out[b] ?? 0) + 1;
       }
     }
     return out;
   }
   function renderChunkPlans(input) {
-    const barSec = 1 / input.cps;
-    const lb = lookbackBars(input.lookbackSec ?? lookbackSeconds(input.events), barSec);
+    const { timing } = input;
+    const barSec = timing?.minBarSec ?? 1 / input.cps;
+    const lookbackSec = input.lookbackSec ?? lookbackSeconds(input.events);
+    const lb = lookbackBars(lookbackSec, barSec);
     return planChunks({
       fromBar: input.fromBar,
       toBar: input.toBar,
       chunkBars: scaleChunkBars(CHUNK_MIN_BARS, lb),
       lookbackBars: lb,
       barSec,
-      avoidSeamBars: stochasticCrossings(input.events, barSec, input.toBar),
+      avoidSeamBars: stochasticCrossings(input.events, barSec, input.toBar, timing),
+      ...timing ? { timing, lookbackSec } : {},
       ...input.overlapBars === undefined ? {} : { overlapBars: input.overlapBars }
     });
   }
@@ -17914,7 +18221,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     const doubled = v.ftype === "24db" || typeof v.ftype === "number" && (v.ftype % 3 + 3) % 3 >= 2;
     return Math.min(FILTER_MAX_TAIL_SEC, implicitSeconds + seconds * (doubled ? 2 : 1));
   }
-  function toEvent(src, cps, engineTiming = false) {
+  function toEvent(src, cps, engineTiming = false, timing) {
     const raw = src.value;
     let v;
     if (typeof raw === "string")
@@ -17927,9 +18234,10 @@ Defaulting to 2020, but this will stop working in the future.`);
     const roomAmount = engineTiming ? roomNum(v.room) : num(v.room);
     const delayAmount = timingNum(v.delay);
     const note = typeof v.note === "number" || typeof v.note === "string" ? v.note : null;
+    const time = hapTiming(src.wholeBeginCycles, src.wholeDurCycles, 0, cps, timing);
     return {
-      tSec: src.wholeBeginCycles / cps,
-      durSec: src.wholeDurCycles / cps,
+      tSec: time.phaseSec ?? time.t,
+      durSec: time.duration,
       bar: Math.floor(src.wholeBeginCycles),
       s: typeof v.s === "string" ? v.s : "",
       orbit: timingNum(v.orbit ?? undefined) ?? 1,
@@ -17951,7 +18259,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       } : null,
       delay: delayAmount !== null && delayAmount > 0 ? {
         amount: delayAmount,
-        timeSec: timingNum(v.delaytime ?? undefined) ?? (timingNum(v.delaysync) ?? 3 / 16) / cps,
+        timeSec: timingNum(v.delaytime ?? undefined) ?? (timingNum(v.delaysync) ?? 3 / 16) / time.cps,
         feedback: timingNum(v.delayfeedback) ?? 0.5
       } : null,
       stochastic: v.workletSrc !== undefined,
@@ -17961,16 +18269,16 @@ Defaulting to 2020, but this will stop working in the future.`);
       busReads: busReadsOf(v)
     };
   }
-  function eventsFromValues(sources, cps) {
+  function eventsFromValues(sources, cps, timing) {
     if (!Number.isFinite(cps) || cps <= 0)
       throw new RangeError(`invalid cps ${cps}`);
-    return sources.map((s) => toEvent(s, cps)).sort((a, b) => a.tSec - b.tSec);
+    return sources.map((s) => toEvent(s, cps, false, timing)).sort((a, b) => a.tSec - b.tSec);
   }
-  function exportTimingEvent(value, onset, duration, cps) {
+  function exportTimingEvent(value, onset, duration, cps, timing) {
     const src = { value, wholeBeginCycles: onset, wholeDurCycles: duration };
     const djf = Math.fround(engineNum(value.djf ?? undefined) ?? 0.5);
     return {
-      ...toEvent(src, cps, true),
+      ...toEvent(src, cps, true, timing),
       filterTailSec: exportFilterTailSec(value),
       djFilter: djf < 0.49 || djf > 0.51
     };
@@ -18066,12 +18374,12 @@ Defaulting to 2020, but this will stop working in the future.`);
       return out;
     });
   }
-  function planEngineJob(chunkSelected, scheduleSelected, plan, req, cps, seed) {
+  function planEngineJob(chunkSelected, scheduleSelected, plan, req, cps, seed, timing) {
     const layout = channelPlan(chunkSelected.map((s) => s.value), req.mode);
-    const events = eventsFromValues(eventSources(chunkSelected), cps);
+    const events = eventsFromValues(eventSources(chunkSelected), cps, timing);
     const orbits = orbitCreationOrder(chunkSelected, scheduleSelected, layout.multiChannelOrbits).map((o) => ({ orbit: orbitNumber({ orbit: o.orbit }), channels: o.channels }));
     const nBars = plan.c1 - plan.c0;
-    const { suspendSec } = pauseSchedule(nBars, cps, req.sampleRate);
+    const { suspendSec } = pauseSchedule(nBars, cps, req.sampleRate, timing, plan.c0);
     const buckets = bucketByBar(chunkSelected, plan.c0, nBars);
     const values = [];
     const interned = new Map;
@@ -18088,13 +18396,17 @@ Defaulting to 2020, but this will stop working in the future.`);
     };
     const pauses = suspendSec.map((at2, j) => ({
       suspendSec: at2,
-      haps: (buckets[j] ?? []).map((s) => ({
-        t: (s.onsetCycle - plan.c0) / cps,
-        duration: Number(s.hap.duration) / cps,
-        cycle: s.onsetCycle,
-        v: intern(s.value),
-        event: s.index
-      }))
+      haps: (buckets[j] ?? []).map((s) => {
+        const time = hapTiming(s.onsetCycle, Number(s.hap.duration), plan.c0, cps, timing, plan.bufferStartSec);
+        return {
+          t: time.t,
+          duration: time.duration,
+          cycle: s.onsetCycle,
+          v: intern(s.value),
+          event: s.index,
+          ...timing ? { cps: time.cps, phaseSec: time.phaseSec } : {}
+        };
+      })
     }));
     const job = {
       schema: ENGINE_JOB_SCHEMA,
@@ -18180,9 +18492,6 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
     return meta;
   }
-  function layoutSegments(layout, structure) {
-    return layout === "clip" ? clipSegments(structure) : LINEAR_SEGMENTS;
-  }
   async function evaluateState(rt, code, onPhase) {
     onPhase?.("evaluating");
     const meta = parsedMeta(code);
@@ -18198,7 +18507,11 @@ Defaulting to 2020, but this will stop working in the future.`);
   }
   async function evaluateSong(rt, code, layout, onPhase) {
     const song = await evaluateState(rt, code, onPhase);
-    return asPlanError(() => ({ ...song, segments: layoutSegments(layout, song.structure) }));
+    return asPlanError(() => {
+      const segments = layoutSegments(layout, song.structure);
+      const timing = renderTiming(song.structure, segments, song.cps);
+      return { ...song, segments, ...timing ? { timing } : {} };
+    });
   }
   function querySong(rt, segments) {
     return (from, to) => {
@@ -18209,21 +18522,21 @@ Defaulting to 2020, but this will stop working in the future.`);
     };
   }
   function planWindow(ctx, request, lookbackSec, schedule, captured, scheduleStart = 0, tailFrames = 0) {
-    const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames);
+    const plan = windowPlan(request, ctx.cps, lookbackSec, tailFrames, ctx.timing, scheduleStart);
     const chunk = plan.c0 === scheduleStart ? schedule : ctx.frozenSchedule ? { selected: onsetsFrom(schedule.selected, plan.c0), errors: [] } : selectHaps(ctx.query(plan.c0, plan.c1));
-    const planned = planEngineJob(chunk.selected, schedule.selected, plan, request, ctx.cps, ctx.seed);
+    const planned = planEngineJob(chunk.selected, schedule.selected, plan, request, ctx.cps, ctx.seed, ctx.timing);
     const errors = dedupeErrors([...schedule.errors, ...chunk.errors, ...captured]);
     return pageJob(planned, { errors, plan, cps: ctx.cps, structure: ctx.structure });
   }
   async function planJob(rt, request, captured, onPhase) {
-    const { structure, cps, seed, segments } = await evaluateSong(rt, request.code, request.layout, onPhase);
+    const { structure, cps, seed, segments, timing } = await evaluateSong(rt, request.code, request.layout, onPhase);
     return asPlanError(() => {
       const c1 = request.toBar + request.overlapBars;
       const query = querySong(rt, segments);
       const schedule = selectHaps(query(0, c1));
-      const events = eventsFromValues(eventSources(schedule.selected), cps);
+      const events = eventsFromValues(eventSources(schedule.selected), cps, timing);
       const lookbackSec = request.lookbackSec === "auto" ? lookbackSeconds(events) : request.lookbackSec;
-      return planWindow({ query, cps, seed, structure }, request, lookbackSec, schedule, captured);
+      return planWindow({ query, cps, seed, structure, timing }, request, lookbackSec, schedule, captured);
     });
   }
   var MAX_RENDER_BARS = 1e5;
@@ -18284,7 +18597,7 @@ Defaulting to 2020, but this will stop working in the future.`);
   function loopsApplied(structure, loops) {
     if (loops === undefined)
       return structure;
-    if (structure.loopIndex === null) {
+    if (authoredLoop(structure) === null) {
       throw new PlanJobError("meta", "--loops needs a section with loop: true in meta.sections", "--loops");
     }
     try {
@@ -18310,7 +18623,7 @@ Defaulting to 2020, but this will stop working in the future.`);
           if (length.loops !== undefined) {
             throw new PlanJobError("meta", `--loops ${length.loops} makes the clip ${clipBars} bars, ${limit}`, "--loops");
           }
-          const advice = structure.loopIndex === null ? "--length N" : "--length N or --loops N";
+          const advice = authoredLoop(structure) === null ? "--length N" : "--length N or --loops N";
           throw new PlanJobError("meta", `the song's clip is ${clipBars} bars, ${limit}; pass ${advice}`, "--length");
         }
         return { fromBar: 0, toBar: clipBars, layout: "clip" };
@@ -18342,13 +18655,24 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (!request.preset || request.preset === "one-shot") {
       return { window: resolveWindow(request.length, structure), loopStartBar: undefined };
     }
-    const loop = structure.loopIndex === null ? undefined : structure.sections[structure.loopIndex];
+    const loop = authoredLoop(structure);
     if (!loop) {
-      throw new PlanJobError("meta", "--preset needs a section with loop: true in meta.sections", "--preset");
+      throw new PlanJobError("meta", "--preset needs meta.loop or a section with loop: true in meta.sections", "--preset");
     }
-    const window2 = resolveWindow({ kind: "section", name: loop.name }, structure);
-    if (request.preset !== "folded-loop")
-      window2.fromBar = 0;
+    if (loop.first === loop.last) {
+      const window3 = resolveWindow({ kind: "section", name: structure.sections[loop.first].name }, structure);
+      if (request.preset !== "folded-loop")
+        window3.fromBar = 0;
+      return { window: window3, loopStartBar: loop.start };
+    }
+    if (loop.end > MAX_RENDER_BARS) {
+      throw new PlanJobError("meta", `the loop ends at bar ${loop.end}, past the render limit of ${MAX_RENDER_BARS} bars`, "--preset");
+    }
+    const window2 = {
+      fromBar: request.preset === "folded-loop" ? loop.start : 0,
+      toBar: loop.end,
+      layout: "linear"
+    };
     return { window: window2, loopStartBar: loop.start };
   }
   function onsetIndex(selected, bar) {
@@ -18382,14 +18706,25 @@ Defaulting to 2020, but this will stop working in the future.`);
       const structure = loopsApplied(song.structure, loops);
       const { window: window2, loopStartBar } = exportWindow(request, structure);
       const { fromBar, toBar, layout } = window2;
-      const musicalFrames = windowFrames(fromBar, toBar, cps, SAMPLE_RATE);
-      const bodyFrames = loopStartBar === undefined ? 0 : windowFrames(loopStartBar, toBar, cps, SAMPLE_RATE);
+      const segments = layoutSegments(layout, structure);
+      const timing = renderTiming(structure, segments, cps);
+      const secondsAt = (bar) => timing ? timing.secondsAt(bar) : bar / cps;
+      const framesBetween = (from, to) => renderWindowFrames(from, to, cps, SAMPLE_RATE, timing);
+      const musicalFrames = framesBetween(fromBar, toBar);
+      const bodyFrames = loopStartBar === undefined ? 0 : framesBetween(loopStartBar, toBar);
       const programFrames = musicalFrames + bodyFrames;
       if (request.preset)
         checkBufferFrames(programFrames, "mix");
-      const query = querySong(rt, layoutSegments(layout, structure));
+      const query = querySong(rt, segments);
       const frozenSchedule = loopStartBar !== undefined;
-      const ctx = { query, cps, seed, structure: song.structure, frozenSchedule };
+      const ctx = {
+        query,
+        cps,
+        seed,
+        structure: song.structure,
+        frozenSchedule,
+        timing
+      };
       const base = {
         code,
         layout,
@@ -18404,9 +18739,9 @@ Defaulting to 2020, but this will stop working in the future.`);
       let lookbackSec = 0;
       function planPass(full2, start, scheduleStart2, keepTail) {
         const chunks = [];
-        const events = !request.preset || request.includeEvents && start === fromBar ? eventsFromValues(eventSources(full2.selected), cps) : [];
-        const exportEvents = request.preset ? full2.selected.map((s) => exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps)) : undefined;
-        const decay = exportEvents ? exportDecay(exportEvents, toBar / cps) : undefined;
+        const events = !request.preset || request.includeEvents && start === fromBar ? eventsFromValues(eventSources(full2.selected), cps, timing) : [];
+        const exportEvents = request.preset ? full2.selected.map((s) => exportTimingEvent(s.value, s.onsetCycle, Number(s.hap.duration), cps, timing)) : undefined;
+        const decay = exportEvents ? exportDecay(exportEvents, secondsAt(toBar)) : undefined;
         const history = decay?.lookbackSec ?? lookbackSeconds(events);
         lookbackSec = Math.max(lookbackSec, history);
         const tailFrames = keepTail ? decay?.tailFrames ?? 0 : 0;
@@ -18418,11 +18753,12 @@ Defaulting to 2020, but this will stop working in the future.`);
           events: exportEvents ?? events,
           cps,
           overlapBars: 0,
-          lookbackSec: history
+          lookbackSec: history,
+          timing
         });
         for (const plan of plans) {
           const req = chunkRequest(base, plan);
-          const chunkLookback = scheduleStart2 === 0 ? plan.lookbackSec : Math.min(plan.lookbackSec, (req.fromBar - scheduleStart2) / cps);
+          const chunkLookback = scheduleStart2 === 0 ? plan.lookbackSec : Math.min(plan.lookbackSec, timing ? secondsAt(req.fromBar) - secondsAt(scheduleStart2) : (req.fromBar - scheduleStart2) / cps);
           const schedule = frozenSchedule || reuseSchedule ? cutSchedule(full2, req.toBar) : selectHaps(query(scheduleStart2, req.toBar));
           const { info, json } = planWindow(ctx, req, chunkLookback, schedule, captured, scheduleStart2, req.toBar === toBar ? tailFrames : 0);
           errors.push(...info.errors);
@@ -18448,6 +18784,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       }, loopStartBar, loopStartBar, true) : undefined;
       return {
         window: window2,
+        ...timing ? { musicFrames: musicalFrames } : {},
         cps,
         structure,
         lookbackSec,
@@ -18456,8 +18793,15 @@ Defaulting to 2020, but this will stop working in the future.`);
         ...request.preset ? {
           export: {
             ...loopStartBar === undefined ? {} : { loopStartBar },
+            ...timing && loopStartBar !== undefined ? { loopStartFrame: framesBetween(fromBar, loopStartBar) } : {},
             tailFrames: opening.tailFrames,
-            ...repeat ? { repeat: { chunks: repeat.chunks, tailFrames: repeat.tailFrames } } : {}
+            ...repeat ? {
+              repeat: {
+                chunks: repeat.chunks,
+                tailFrames: repeat.tailFrames,
+                ...timing ? { musicFrames: bodyFrames } : {}
+              }
+            } : {}
           }
         } : {},
         chunks: opening.chunks
@@ -28315,6 +28659,71 @@ Please check with "npm ls @strudel/core".`);
     limiting: false
   });
 
+  // src/lib/strudel/metered-pattern.ts
+  var MIXED_CPS_ERROR = "mixed-meter songs use meta.bpm and cannot change CPS in the code";
+  var scheduled = Symbol("metered schedule");
+  var meteredSchedule = (hap2) => hap2[scheduled];
+  function queryMetered(pattern3, state2, structure, clock, referenceCps) {
+    const end2 = Number(state2.span.end);
+    let from = Number(state2.span.begin);
+    const haps = [];
+    do {
+      const to = Math.min(end2, clock.nextMeterBoundary(from));
+      const localCps = referenceCps * structure.beatsPerBar / beatsPerBar(clock.meterAt(from));
+      const piece = new State(new TimeSpan(from, to), { ...state2.controls, _cps: localCps });
+      const result = pattern3.query(piece);
+      if (structure.meterChanges?.length && result.some((h2) => h2.value?.cps !== undefined)) {
+        throw new Error(MIXED_CPS_ERROR);
+      }
+      for (const h2 of result)
+        haps.push(h2);
+      if (to >= end2)
+        return haps;
+      if (to <= from)
+        throw new Error("meter clock did not advance");
+      from = to;
+    } while (true);
+  }
+  function meteredPlayback(pattern3, structure, getClock, phaseOffset, onError) {
+    return new Pattern((state2) => {
+      const clock = getClock();
+      if (!clock)
+        return pattern3.query(state2);
+      const cps2 = state2.controls._cps ?? structure.cps;
+      const span = state2.span.withTime((t) => clock.toCycle(Number(t)));
+      try {
+        return queryMetered(pattern3, state2.setSpan(span), structure, clock, cps2).map((h2) => {
+          const spanToClock = (s2) => s2.withTime((t) => clock.toClock(Number(t)));
+          if (!h2.whole)
+            return new Hap(undefined, spanToClock(h2.part), h2.value, h2.context, h2.stateful);
+          const onset = Number(h2.whole.begin);
+          const at2 = clock.toClock(onset);
+          const localCps = cps2 * structure.beatsPerBar / beatsPerBar(clock.meterAt(onset));
+          const timing = {
+            phaseSec: phaseOffset() + at2 / cps2,
+            durationSec: (clock.toClock(Number(h2.whole.begin.add(h2.duration))) - at2) / cps2
+          };
+          let context = h2.context;
+          if (context.onSchedule) {
+            const callbackHap = Object.create(h2, {
+              duration: { value: fraction_default(timing.durationSec * localCps) }
+            });
+            context = {
+              ...context,
+              onSchedule: (_h, t) => h2.context.onSchedule(callbackHap, t, localCps)
+            };
+          }
+          const mapped = new Hap(spanToClock(h2.whole), spanToClock(h2.part), h2.value, context, h2.stateful);
+          mapped[scheduled] = { hap: h2, cps: localCps, timing };
+          return mapped;
+        });
+      } catch (error) {
+        onError(error);
+        throw error;
+      }
+    });
+  }
+
   // src/lib/strudel/seed.ts
   var applySeed = (pattern3, seed2) => seed2 === undefined ? pattern3 : pattern3.seed(seed2);
 
@@ -28423,7 +28832,7 @@ Please check with "npm ls @strudel/core".`);
   var DRAIN_MAX_SEC = 16;
   var HAP_LATENCY_SEC = 0.1;
   var isInitial = (seg2) => seg2.length === 1 && seg2[0].at === 0 && seg2[0].songBar === 0 && seg2[0].view.kind === "song";
-  var sameView = (a, b) => a.kind === b.kind && (a.kind !== "loop" || a.section === b.section);
+  var sameView = (a, b) => a.kind === b.kind && (a.kind !== "loop" || a.section === b.section && a.through === b.through);
   function createRuntime(opts) {
     const { backends, hooks } = opts;
     let activeId = "superdough";
@@ -28474,11 +28883,15 @@ Please check with "npm ls @strudel/core".`);
     });
     const soundUntil = { superdough: 0, rust: 0 };
     const output = async (hap2, t, cps2) => {
-      const end2 = t + Number(hap2.duration) / cps2;
+      const mapped = meteredSchedule(hap2);
+      const end2 = t + (mapped?.timing.durationSec ?? Number(hap2.duration) / cps2);
       if (end2 > soundUntil[activeId])
         soundUntil[activeId] = end2;
       try {
-        await active().output(hap2, t, cps2);
+        if (mapped)
+          await active().output(mapped.hap, t, mapped.cps, mapped.timing);
+        else
+          await active().output(hap2, t, cps2);
       } catch (e) {
         if (state2.outputError === errorMessage(e))
           return;
@@ -28496,6 +28909,27 @@ Please check with "npm ls @strudel/core".`);
     let codeSetCps = false;
     let segments = INITIAL_SEGMENTS;
     setSegmentSource(() => segments);
+    let liveStructure = null;
+    let clock = null;
+    let audibleHistory = [];
+    let phaseOffsetSec = 0;
+    const toCycle = (reference) => {
+      const previous = audibleHistory.find((h2) => reference < h2.end.clock);
+      return (previous ? previous.map : clock)?.toCycle(reference) ?? reference;
+    };
+    const toClock = (cycle) => {
+      const previous = audibleHistory.find((h2) => cycle < h2.end.cycle);
+      return (previous ? previous.map : clock)?.toClock(cycle) ?? cycle;
+    };
+    function setLiveLayout(next, anchor2) {
+      segments = next;
+      const needsClock = liveStructure?.meterChanges?.length || anchor2 && anchor2.cycle !== anchor2.clock;
+      clock = liveStructure && needsClock ? layoutClock(liveStructure, next, anchor2) : null;
+    }
+    function scheduledAnchor() {
+      const reference = Number(r.scheduler.lastEnd);
+      return { cycle: toCycle(reference), clock: reference };
+    }
     let transportState = {
       view: { kind: "song" },
       pendingStart: false,
@@ -28507,7 +28941,13 @@ Please check with "npm ls @strudel/core".`);
       const view = last.view;
       if (view.kind === "count-in")
         throw new Error("transport: a count-in cannot be last");
-      segments = next;
+      if (next !== segments || !started) {
+        setLiveLayout(next, started ? scheduledAnchor() : undefined);
+        if (!started) {
+          phaseOffsetSec = 0;
+          audibleHistory = [];
+        }
+      }
       const pendingStart = !started && !isInitial(next);
       const armedSection = pendingStart && structure ? locate(last.at, structure, next)?.section ?? null : null;
       if (sameView(view, transportState.view) && pendingStart === transportState.pendingStart && armedSection === transportState.armedSection) {
@@ -28517,19 +28957,77 @@ Please check with "npm ls @strudel/core".`);
       transportSubscribers.forEach((fn) => fn(transportState));
     }
     let evaluatedPattern = null;
+    let playbackPattern = null;
+    let playError = null;
+    let undoInstall;
     const r = repl({
       onSchedule: output,
-      onScheduleTap: hooks?.onSchedule,
+      onScheduleTap: hooks?.onSchedule && ((hap2, t, cps2, route) => {
+        const mapped = meteredSchedule(hap2);
+        hooks.onSchedule(mapped?.hap ?? hap2, t, mapped?.cps ?? cps2, route);
+      }),
       getTime: () => active().getTime(),
       transpiler,
       editPattern: (pattern3) => {
+        const structure = registeredStructure();
+        if ((pending.requiresSong || pending.requiresMeterMap) && !structure) {
+          throw new Error("the authored loop or meter map requires song(meta, parts)");
+        }
+        if (pending.requiresMeterMap && !structure?.meterChanges?.length || pending.expectedArrangement && !sameStructure(structure, pending.expectedArrangement)) {
+          throw new Error("song() must use the arrangement in the meta header");
+        }
+        if (structure?.meterChanges?.length && codeSetCps)
+          throw new Error(MIXED_CPS_ERROR);
         const seeded = applySeed(pattern3, pending.seed);
+        const previous = {
+          liveStructure,
+          clock,
+          phaseOffsetSec,
+          audibleHistory,
+          evaluatedPattern,
+          playbackPattern,
+          playError,
+          schedulerPattern: r.scheduler.pattern
+        };
+        undoInstall = () => {
+          ({
+            liveStructure,
+            clock,
+            phaseOffsetSec,
+            audibleHistory,
+            evaluatedPattern,
+            playbackPattern,
+            playError
+          } = previous);
+          r.scheduler.pattern = previous.schedulerPattern;
+          active().setSeed(state2.seed ?? 0);
+        };
+        const anchor2 = r.scheduler.started ? scheduledAnchor() : undefined;
+        if (anchor2 && (clock || structure?.meterChanges?.length)) {
+          const audible = r.scheduler.now();
+          audibleHistory = audibleHistory.filter((h2) => h2.end.clock > audible);
+          if (audibleHistory.at(-1)?.end.clock !== anchor2.clock) {
+            audibleHistory.push({ end: anchor2, map: clock });
+          }
+        }
+        if (anchor2 && !codeSetCps) {
+          phaseOffsetSec += anchor2.clock / r.scheduler.cps - anchor2.clock / pending.cps;
+        }
+        liveStructure = structure ?? (anchor2 && anchor2.cycle !== anchor2.clock ? buildStructure({ meter: meterString(pending.meter) }) : null);
+        setLiveLayout(segments, anchor2);
+        evaluatedPattern = seeded;
+        playError = null;
+        playbackPattern = clock && liveStructure ? meteredPlayback(seeded, liveStructure, () => clock, () => phaseOffsetSec, (error) => {
+          playError = errorMessage(error);
+          patch({ outputError: playError });
+        }) : seeded;
         active().setSeed(pending.seed ?? 0);
-        return seeded;
+        return playbackPattern;
       },
       setInterval: opts.setInterval,
       clearInterval: opts.clearInterval,
       beforeEval: async () => {
+        setTime(() => toCycle(r.scheduler.now()));
         await ensurePrebaked();
         await hooks?.beforeEval?.();
         useRNG("legacy");
@@ -28541,13 +29039,15 @@ Please check with "npm ls @strudel/core".`);
       },
       afterEval: (args) => {
         codeRunning = false;
+        undoInstall = undefined;
         if (!codeSetCps)
           setCps(pending.cps);
         const cps2 = r.scheduler.cps;
-        evaluatedPattern = args.pattern;
+        if (playbackPattern !== evaluatedPattern)
+          setPattern(evaluatedPattern);
         patch({
           evalError: null,
-          outputError: null,
+          outputError: playError,
           cps: cps2,
           meter: pending.meter,
           structure: registeredStructure(),
@@ -28557,13 +29057,15 @@ Please check with "npm ls @strudel/core".`);
         });
         restartLevels();
         try {
-          hooks?.afterEval?.(args);
+          hooks?.afterEval?.({ ...args, pattern: evaluatedPattern });
         } catch (e) {
           console.error(e);
         }
       },
       onEvalError: (e) => {
         codeRunning = false;
+        undoInstall?.();
+        undoInstall = undefined;
         patch({ evalError: errorMessage(e) });
       },
       onToggle: (started) => {
@@ -28583,8 +29085,14 @@ Please check with "npm ls @strudel/core".`);
         staleCheckpoint = r.scheduler.checkpoint;
     };
     r.scheduler.setCps = (cps2) => {
-      if (codeRunning)
+      if (codeRunning) {
         codeSetCps = true;
+        if (pending.requiresMeterMap)
+          throw new Error(MIXED_CPS_ERROR);
+      } else if (liveStructure?.meterChanges?.length) {
+        patch({ outputError: MIXED_CPS_ERROR });
+        throw new Error(MIXED_CPS_ERROR);
+      }
       setCps(cps2);
     };
     let resuming;
@@ -28707,9 +29215,11 @@ Please check with "npm ls @strudel/core".`);
       }
       return swapTo(to, drain);
     };
-    const now = () => Math.max(0, r.scheduler.now());
+    const now = () => Math.max(0, toCycle(r.scheduler.now()));
     const pruneAt = (cycle) => {
-      segments = prune(segments, cycle - HISTORY_CYCLES);
+      const next = prune(segments, cycle - HISTORY_CYCLES);
+      if (next !== segments)
+        setLiveLayout(next, scheduledAnchor());
     };
     function position() {
       const cycle = now();
@@ -28726,7 +29236,7 @@ Please check with "npm ls @strudel/core".`);
       if (!s2)
         return;
       pruneAt(now());
-      setSegments(apply2(segments, s2, nextSafeBoundary(r.scheduler.lastEnd, s2, segments, "bar")));
+      setSegments(apply2(segments, s2, nextSafeBoundary(toCycle(r.scheduler.lastEnd), s2, segments, "bar")));
     }
     const transport = {
       store: {
@@ -28746,11 +29256,14 @@ Please check with "npm ls @strudel/core".`);
         }
         change(structure, (seg2, s2, at2) => withLoop(seg2, s2, section, at2));
       },
+      loopRange(first, last, structure) {
+        change(structure, (seg2, s2, at2) => withLoop(seg2, s2, first, at2, last));
+      },
       playEnding() {
         const s2 = state2.structure;
         if (!canPlayEnding(state2.started, s2, transportState.view, position().located))
           return;
-        const at2 = nextSafeBoundary(r.scheduler.lastEnd, s2, segments, "loopPass");
+        const at2 = nextSafeBoundary(toCycle(r.scheduler.lastEnd), s2, segments, "loopPass");
         if (at2 === null)
           return;
         setSegments(withRelease(segments, s2, at2));
@@ -28759,11 +29272,15 @@ Please check with "npm ls @strudel/core".`);
         setSegments(INITIAL_SEGMENTS);
       }
     };
-    function query(fromCycle, toCycle, segments2 = LINEAR_SEGMENTS) {
+    function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS) {
       if (evaluatedPattern === null)
         return null;
       const controls2 = { _cps: r.scheduler.cps, cyclist: "cyclist", _segments: segments2 };
-      const span = new State(new TimeSpan(fromCycle, toCycle), controls2);
+      const span = new State(new TimeSpan(fromCycle, toCycle2), controls2);
+      const structure = state2.structure;
+      if (structure?.meterChanges?.length) {
+        return queryMetered(evaluatedPattern, span, structure, layoutClock(structure, segments2), r.scheduler.cps);
+      }
       return evaluatedPattern.query(span);
     }
     (opts.setInterval ?? globalThis.setInterval)(() => {
@@ -28791,11 +29308,18 @@ Please check with "npm ls @strudel/core".`);
         const sch = r.scheduler;
         const handoff = sch.lastEnd;
         const prev = active();
-        const at2 = cycleTime(handoff);
+        const at2 = cycleTime(toCycle(handoff));
         const lead = at2 === null ? 0 : Math.max(0, at2 - prev.getTime());
         const firstSound = (sch.clock?.minLatency ?? 0) + sch.latency;
         const early2 = Math.max(0, lead - firstSound) * sch.cps;
-        const from = { ...restartAt(segments, handoff - early2), onsetsFrom: handoff };
+        const from = {
+          cycle: Math.max(0, handoff - early2),
+          segments,
+          anchor: scheduledAnchor(),
+          audibleHistory,
+          phaseOffsetSec,
+          onsetsFrom: handoff
+        };
         if (!stop(swap.to, lead))
           return;
         const ok = await start(undefined, from);
@@ -28820,9 +29344,12 @@ Please check with "npm ls @strudel/core".`);
       }
       const countIn = startOpts?.countIn === true;
       const savedSegments = segments;
+      const savedClock = clock;
+      const savedPhaseOffset = phaseOffsetSec;
+      const savedHistory = audibleHistory;
       const savedPattern = r.scheduler.pattern;
       try {
-        let pattern3 = countIn && state2.structure === null ? evaluatedPattern.late(1).filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(1)) : evaluatedPattern;
+        let pattern3 = countIn && state2.structure === null ? evaluatedPattern.late(1).filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(1)) : playbackPattern;
         const onsetsFrom2 = from?.onsetsFrom;
         if (onsetsFrom2 !== undefined) {
           pattern3 = pattern3.filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(onsetsFrom2));
@@ -28830,9 +29357,11 @@ Please check with "npm ls @strudel/core".`);
         if (r.scheduler.pattern !== pattern3)
           await r.scheduler.setPattern(pattern3, false);
         if (countIn && state2.structure !== null)
-          segments = withCountIn(segments);
+          setLiveLayout(withCountIn(segments));
         if (from) {
-          segments = from.segments;
+          setLiveLayout(from.segments, from.anchor);
+          phaseOffsetSec = from.phaseOffsetSec;
+          audibleHistory = from.audibleHistory;
           r.scheduler.lastEnd = from.cycle;
         }
         await r.scheduler.start();
@@ -28843,6 +29372,9 @@ Please check with "npm ls @strudel/core".`);
           r.stop();
         else {
           segments = savedSegments;
+          clock = savedClock;
+          phaseOffsetSec = savedPhaseOffset;
+          audibleHistory = savedHistory;
           r.scheduler.lastEnd = 0;
         }
         if (r.scheduler.pattern !== savedPattern)
@@ -28856,7 +29388,7 @@ Please check with "npm ls @strudel/core".`);
         return null;
       if (sch.num_ticks_since_checkpoint === 0 && sch.checkpoint === staleCheckpoint)
         return null;
-      const t = (cycle - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
+      const t = (toClock(cycle) - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
       return Number.isFinite(t) ? t : null;
     }
     let queue = Promise.resolve();
@@ -28866,6 +29398,16 @@ Please check with "npm ls @strudel/core".`);
     const canAudition = () => !state2.started && !swapping && draining.size === 0 && queued === 0 && starts === 0;
     return {
       scheduler: r.scheduler,
+      get drawingScheduler() {
+        if (!clock || !liveStructure)
+          return r.scheduler;
+        const logical = evaluatedPattern;
+        const structure = liveStructure;
+        return {
+          now,
+          pattern: new Pattern((state3) => queryMetered(logical, state3, structure, clock, r.scheduler.cps))
+        };
+      },
       store: {
         subscribe(run2) {
           subscribers.add(run2);
@@ -28880,6 +29422,7 @@ Please check with "npm ls @strudel/core".`);
         }
         opts.hooks?.onPlaybackRequest?.();
         const tempo = {
+          ...evalOpts,
           cps: evalOpts?.cps ?? defaultCps,
           meter: evalOpts?.meter ?? DEFAULT_METER,
           seed: evalOpts?.seed
@@ -31219,9 +31762,9 @@ Please check with "npm ls @strudel/core".`);
       throw new PlanJobError("plan", `bad request: unknown layout ${String(layout)}`);
     }
     const rt = hostAdapter(hostRuntime());
-    const { cps: cps2, segments } = await evaluateSong(rt, code, layout);
+    const { cps: cps2, segments, timing } = await evaluateSong(rt, code, layout);
     const { selected } = selectHaps(querySong(rt, segments)(from, to));
-    return JSON.stringify(eventsFromValues(eventSources(selected), cps2));
+    return JSON.stringify(eventsFromValues(eventSources(selected), cps2, timing));
   }
   var strudelandHost = {
     planJob(code, requestJson) {

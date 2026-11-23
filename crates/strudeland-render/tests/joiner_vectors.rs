@@ -77,6 +77,7 @@ fn the_rust_joiner_matches_assemble_window() {
                     c0: ch.from_bar,
                     c1: ch.to_bar + ch.overlap_bars,
                     lookback_sec_used: ch.window_start_frame as f64 / 44_100.0,
+                    content_frames: None,
                     window_start_frame: ch.window_start_frame,
                     buffer_start_sec: 0.0,
                     frames,

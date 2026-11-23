@@ -212,10 +212,10 @@ async function runQuery(code: string, from: number, to: number, layout: Layout):
   // No console capture: `query`'s output is the events only, captured and select errors are not
   // part of it.
   const rt = hostAdapter(hostRuntime());
-  const { cps, segments } = await evaluateSong(rt, code, layout);
+  const { cps, segments, timing } = await evaluateSong(rt, code, layout);
   // A failure here that is not a PlanJobError settles as kind 'plan' (`failure`).
   const { selected } = selectHaps(querySong(rt, segments)(from, to));
-  return JSON.stringify(eventsFromValues(eventSources(selected), cps));
+  return JSON.stringify(eventsFromValues(eventSources(selected), cps, timing));
 }
 
 export const strudelandHost: StrudelandHost = {

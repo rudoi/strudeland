@@ -68,10 +68,13 @@ export interface ParityOptions {
   outDir: string;
   /** Compare the batch planner's chunk jobs (one plan-render per fixture) instead. */
   batch: boolean;
+  /** Compare full plans for the dedicated mixed-meter fixture. */
+  mixedMeter?: boolean;
   help: boolean;
 }
 
 export const PARITY_USAGE = `usage: bun run host:parity [fixture | glob | tag:<tag>]... [--batch] [--out DIR]
+       bun run host:parity --mixed-meter [--out DIR]
 
 Plans every engine job render:check --engine rust asks for (the full window, every chunk, and
 the stems chunks of fixtures with the stems gate) on the render page in Chromium and with the
@@ -86,6 +89,7 @@ batch-<i>.page.json and batch-<i>.host.json). The plain request set is not compa
 
 options:
   --batch      compare the batch planner's chunk jobs
+  --mixed-meter compare the mixed-meter clip and loop preset plans
   --out DIR    difference and song folder (default .render-out)
   -h, --help   this text
 
@@ -101,6 +105,8 @@ export function parseParityArgs(argv: string[]): ParityOptions | { error: string
       o.help = true;
     } else if (arg === '--batch') {
       o.batch = true;
+    } else if (arg === '--mixed-meter') {
+      o.mixedMeter = true;
     } else if (arg === '--out' || arg.startsWith('--out=')) {
       const v = arg === '--out' ? argv[++i] : arg.slice('--out='.length);
       if (v === undefined || v === '' || (arg === '--out' && v.startsWith('-'))) {
@@ -112,6 +118,9 @@ export function parseParityArgs(argv: string[]): ParityOptions | { error: string
     } else {
       o.filters.push(arg);
     }
+  }
+  if (o.mixedMeter && (o.batch || o.filters.length > 0)) {
+    return { error: '--mixed-meter cannot be combined with --batch or fixture filters' };
   }
   return o;
 }

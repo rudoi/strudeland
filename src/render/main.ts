@@ -17,7 +17,14 @@ import {
 import { classifyError, eventSources, selectHaps, windowPlan } from '../lib/render/plan';
 import { get } from 'svelte/store';
 import type { RenderError } from '../lib/render/contract';
-import { evaluateSong, planJob, querySong, type PlannerRuntime } from '../lib/render/job-plan';
+import {
+  evaluateSong,
+  planJob,
+  planRender,
+  querySong,
+  type PlannedRender,
+  type PlannerRuntime,
+} from '../lib/render/job-plan';
 import { lookbackSeconds } from '../lib/render/lookback';
 import { eventsFromValues } from '../lib/render/schedule';
 import { prebake } from '../lib/strudel/prebake';
@@ -47,6 +54,7 @@ let scheduleResult: PageSchedule | null = null;
 let output: OfflineOutput | null = null;
 let jobInfo: PageJobInfo | null = null;
 let jobJson: string | null = null;
+let batchPlan: PlannedRender | null = null;
 let mathOutputs: MathGroupOutput[] | null = null;
 const captured: RenderError[] = [];
 
@@ -109,13 +117,16 @@ async function run(args: StartArgs): Promise<void> {
     await runMath(args.groups);
     return;
   }
-  const { kind, request, samplesBase } = args;
+  const { kind, samplesBase } = args;
   const t0 = performance.now();
   phase = 'init';
   const uninstallCapture = installErrorCapture();
   try {
     const runtime = createRuntime({ backends: { superdough: createOfflineBackend() }, prebake });
-    await registerCorpusSamples(request.samples ?? {}, samplesBase);
+    await registerCorpusSamples(
+      (kind === 'plan' ? args.samples : args.request.samples) ?? {},
+      samplesBase,
+    );
 
     const rt: PlannerRuntime = {
       evaluate: (code, opts) => runtime.evaluate(code, opts),
@@ -130,6 +141,12 @@ async function run(args: StartArgs): Promise<void> {
       phase = p;
     };
 
+    if (kind === 'plan') {
+      batchPlan = await planRender(rt, args.code, args.request, captured, onPhase);
+      phase = 'done';
+      return;
+    }
+    const { request } = args;
     if (kind === 'job') {
       // The shared planner: the same plan the render path gives renderOffline, without a context.
       ({ info: jobInfo, json: jobJson } = await planJob(rt, request, captured, onPhase));
@@ -137,7 +154,7 @@ async function run(args: StartArgs): Promise<void> {
       return;
     }
 
-    const { structure, cps, seed, segments } = await evaluateSong(
+    const { structure, cps, seed, segments, timing } = await evaluateSong(
       rt,
       request.code,
       request.layout,
@@ -149,7 +166,7 @@ async function run(args: StartArgs): Promise<void> {
     // The full schedule [0, c1), selected once: the schedule result, the 'auto' lookback, and
     // every orbit the render must create up front (decision 14).
     const { selected, errors: selectErrors } = selectHaps(query(0, c1));
-    const events = eventsFromValues(eventSources(selected), cps);
+    const events = eventsFromValues(eventSources(selected), cps, timing);
     if (kind === 'schedule') {
       scheduleResult = { events, cps, structure, errors: dedupeErrors(selectErrors) };
       phase = 'done';
@@ -158,7 +175,7 @@ async function run(args: StartArgs): Promise<void> {
 
     const lookbackSec =
       request.lookbackSec === 'auto' ? lookbackSeconds(events) : request.lookbackSec;
-    const plan = windowPlan(request, cps, lookbackSec);
+    const plan = windowPlan(request, cps, lookbackSec, 0, timing);
     const haps = query(plan.c0, plan.c1);
 
     const evalMs = performance.now() - t0;
@@ -172,6 +189,7 @@ async function run(args: StartArgs): Promise<void> {
         seed,
         req: request,
         plan,
+        timing,
         scheduleSelected: selected,
         onPhase: (p) => (phase = p),
       },
@@ -183,6 +201,8 @@ async function run(args: StartArgs): Promise<void> {
       sampleRate: request.sampleRate,
       frames: plan.frames,
       windowStartFrame: plan.windowStartFrame,
+      ...(plan.contentFrames === undefined ? {} : { contentFrames: plan.contentFrames }),
+      ...(plan.overlapFrames === undefined ? {} : { overlapFrames: plan.overlapFrames }),
       lookbackSecUsed: plan.lookbackSecUsed,
       bufferStartSec: plan.bufferStartSec,
       cps,
@@ -241,6 +261,10 @@ const api: StrudelandRender = {
   jobSlice(index, sliceChars) {
     if (jobJson === null) throw new Error(`no job (phase ${phase})`);
     return sliceText(jobJson, index, sliceChars);
+  },
+  plannedRender() {
+    if (!batchPlan) throw new Error(`no render plan (phase ${phase})`);
+    return batchPlan;
   },
   math() {
     if (!mathOutputs) throw new Error(`no math outputs (phase ${phase})`);

@@ -18,7 +18,7 @@
  * difference or a failure on one side only, 2 harness error.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { selectFixtures } from '../../src/lib/render/check-options';
 import { chunkRequest, renderChunkPlans } from '../../src/lib/render/chunks';
@@ -35,7 +35,7 @@ import {
   scheduleFailed,
   type PlanOutcome,
 } from '../../src/lib/render/host-parity-lib';
-import type { PlannedRender } from '../../src/lib/render/job-plan';
+import type { ExportPreset, PlannedRender, RenderPlanRequest } from '../../src/lib/render/job-plan';
 import { errorMessage } from '../../src/lib/errors';
 import { ensureBuilt, Limiter, loadCorpus, prepareFixture, stemsRequest } from './check';
 import { findHostBinary, HostPlanner } from './host-planner';
@@ -86,6 +86,68 @@ async function planBatch(
     if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
     return { ok: false, message: errorMessage(e) };
   }
+}
+
+/** Mixed-meter exports have two passes and no equivalent single-window page request. Compare
+ * the entire plans, including their frame counts, schedules, and exact engine-job text. */
+async function compareMixedMeter(
+  host: HostPlanner,
+  page: SuperdoughRenderer,
+  outDir: string,
+): Promise<number> {
+  const code = readFileSync(join(ROOT, 'tests/render/mixed-meter-loop.js'), 'utf8');
+  const song = host.songFile(code);
+  const dir = join(outDir, 'host-parity', 'mixed-meter');
+  rmSync(dir, { recursive: true, force: true });
+  const presets: (ExportPreset | undefined)[] = [
+    undefined,
+    'tagged-loop',
+    'intro-loop',
+    'folded-loop',
+  ];
+  let failed = false;
+  for (const preset of presets) {
+    const name = preset ?? 'clip';
+    const request: RenderPlanRequest = {
+      length: { kind: 'clip' },
+      mode: 'mix',
+      sampleRate: SAMPLE_RATE,
+      includeEvents: true,
+      ...(preset ? { preset } : {}),
+    };
+    try {
+      const [p, h] = await Promise.all([
+        page.planRender(code, request),
+        host.planRender(song, JSON.stringify(request)),
+      ]);
+      const difference = firstDifference(p, h);
+      if (difference !== null) {
+        failed = true;
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, `${name}.page.json`), JSON.stringify(p, null, 2));
+        writeFileSync(join(dir, `${name}.host.json`), JSON.stringify(h, null, 2));
+        console.log(`DIFF mixed-meter ${name}: first difference at ${difference}`);
+      } else {
+        const repeatFrames = p.export?.repeat?.musicFrames ?? p.musicFrames;
+        if (p.errors.length || (preset && repeatFrames !== 771750)) {
+          failed = true;
+          console.log(
+            `FAIL mixed-meter ${name}: ${
+              p.errors.map(formatRenderError).join('; ') ||
+              `expected 771750 repeat frames, got ${repeatFrames}`
+            }`,
+          );
+        } else {
+          console.log(`ok   mixed-meter ${name}`);
+        }
+      }
+    } catch (e) {
+      if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
+      console.log(`FAIL mixed-meter ${name}: ${errorMessage(e)}`);
+      failed = true;
+    }
+  }
+  return failed ? 1 : 0;
 }
 
 /** The request set of a scheduled fixture (module doc). */
@@ -189,6 +251,7 @@ async function main(argv: string[]): Promise<number> {
       toBar,
       events: fx.sched.events,
       cps: fx.cps,
+      timing: fx.timing,
       overlapBars: 0,
     });
     const [pages, h] = await Promise.all([
@@ -303,6 +366,7 @@ async function main(argv: string[]): Promise<number> {
   };
 
   try {
+    if (parsed.mixedMeter) return await compareMixedMeter(host, page, outDir);
     console.log(
       `host:parity${parsed.batch ? ' --batch' : ''}: ${selected.length} fixture(s), ` +
         `chromium ${await page.version()}, host ${await host.version()}`,

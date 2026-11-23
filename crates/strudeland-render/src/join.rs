@@ -24,14 +24,16 @@ fn to_usize(n: u64, what: &str) -> Result<usize, RenderError> {
     usize::try_from(n).map_err(|_| RenderError::Render(format!("{what} ({n}) is too large")))
 }
 
+fn content_frames(plan: &ChunkWindow, cps: f64) -> u64 {
+    plan.content_frames
+        .unwrap_or_else(|| window_frames(plan.from_bar, plan.to_bar, cps))
+}
+
 /// The frames of a chunk's buffer that its content keeps: `plan.window_start_frame` frames from
-/// the head, then `window_frames(plan.from_bar, plan.to_bar, cps)` frames.
+/// the head, then the musical content length from the plan.
 fn kept_range(plan: &ChunkWindow, cps: f64) -> Result<std::ops::Range<usize>, RenderError> {
     let start = to_usize(plan.window_start_frame, "windowStartFrame")?;
-    let len = to_usize(
-        window_frames(plan.from_bar, plan.to_bar, cps),
-        "content frames",
-    )?;
+    let len = to_usize(content_frames(plan, cps), "content frames")?;
     let end = start
         .checked_add(len)
         .ok_or_else(|| RenderError::Render("content end overflows".into()))?;
@@ -95,13 +97,18 @@ impl Joiner {
     /// `window.to_bar`, or the chunks' frames do not add up to
     /// `window_frames(window.from_bar, window.to_bar, cps)`.
     pub fn new(window: &PlannedWindow, cps: f64, spans: &[Span]) -> Result<Self, RenderError> {
-        Self::with_tail(window, cps, spans, 0)
+        let chunks = spans
+            .iter()
+            .map(|span| (*span, window_frames(span.from_bar, span.to_bar, cps)))
+            .collect::<Vec<_>>();
+        Self::with_tail(window, cps, &chunks, None, 0)
     }
 
     fn with_tail(
         window: &PlannedWindow,
         cps: f64,
-        spans: &[Span],
+        spans: &[(Span, u64)],
+        music_frames: Option<u64>,
         tail_frames: u64,
     ) -> Result<Self, RenderError> {
         // The planner refuses such a window; checked again before anything is allocated.
@@ -111,7 +118,7 @@ impl Joiner {
                 window.from_bar, window.to_bar
             ));
         }
-        let Some(first) = spans.first() else {
+        let Some((first, _)) = spans.first() else {
             return join_err("no chunks".into());
         };
         if first.from_bar != window.from_bar {
@@ -122,7 +129,7 @@ impl Joiner {
         }
         let nch = first.channels;
         let mut at = window.from_bar;
-        for (i, c) in spans.iter().enumerate() {
+        for (i, (c, _)) in spans.iter().enumerate() {
             if c.from_bar != at {
                 return join_err(format!(
                     "chunk {i} starts at bar {}, the previous chunk ends at bar {at}",
@@ -150,26 +157,20 @@ impl Joiner {
             ));
         }
 
-        let total = to_usize(
-            window_frames(window.from_bar, window.to_bar, cps),
-            "window frames",
-        )?;
         let mut chunks = Vec::with_capacity(spans.len());
-        let mut written = 0usize;
-        for (i, c) in spans.iter().enumerate() {
-            let off = to_usize(window_frames(window.from_bar, c.from_bar, cps), "offset")?;
-            let len = to_usize(window_frames(c.from_bar, c.to_bar, cps), "chunk frames")?;
-            if off != written {
-                return join_err(format!(
-                    "chunk {i} starts at frame {off}, the previous chunks end at frame {written}"
-                ));
-            }
-            chunks.push((*c, off, len));
-            written = off.saturating_add(len);
+        let mut total = 0usize;
+        for (c, frames) in spans {
+            let len = to_usize(*frames, "chunk frames")?;
+            chunks.push((*c, total, len));
+            total = total
+                .checked_add(len)
+                .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
         }
-        if written != total {
+        if let Some(expected) = music_frames
+            && expected != total as u64
+        {
             return join_err(format!(
-                "the chunks hold {written} frames, the window is {total}"
+                "the chunks hold {total} frames, the window is {expected}"
             ));
         }
         let tail = to_usize(tail_frames, "tail frames")?;
@@ -205,7 +206,7 @@ impl Joiner {
         plans: &[ChunkWindow],
         channels: usize,
     ) -> Result<Self, RenderError> {
-        Self::for_plans_with_tail(window, cps, plans, channels, 0)
+        Self::for_plans_with_tail(window, cps, plans, channels, None, 0)
     }
 
     pub(crate) fn for_plans_with_tail(
@@ -213,17 +214,21 @@ impl Joiner {
         cps: f64,
         plans: &[ChunkWindow],
         channels: usize,
+        music_frames: Option<u64>,
         tail_frames: u64,
     ) -> Result<Self, RenderError> {
-        let spans: Vec<Span> = plans
+        let spans: Vec<_> = plans
             .iter()
-            .map(|p| Span {
-                from_bar: p.from_bar,
-                to_bar: p.to_bar,
-                channels,
+            .map(|p| {
+                let span = Span {
+                    from_bar: p.from_bar,
+                    to_bar: p.to_bar,
+                    channels,
+                };
+                (span, content_frames(p, cps))
             })
             .collect();
-        Joiner::with_tail(window, cps, &spans, tail_frames)
+        Joiner::with_tail(window, cps, &spans, music_frames, tail_frames)
     }
 
     /// Places chunk `index` from its whole rendered buffer: drops `plan.window_start_frame`
@@ -370,6 +375,7 @@ mod tests {
             c0: from_bar,
             c1: to_bar,
             lookback_sec_used: 0.0,
+            content_frames: None,
             window_start_frame,
             buffer_start_sec: 0.0,
             frames: 0,
@@ -415,6 +421,21 @@ mod tests {
         );
         let e = kept(&plan(0, 1, u64::MAX), CPS1, &[ramp(5, 0.0)]).unwrap_err();
         assert!(matches!(e, RenderError::Render(_)), "{e}");
+    }
+
+    #[test]
+    fn explicit_frames_tile_the_window_and_locate_its_tail() {
+        let mut plans = [plan(0, 1, 1), plan(1, 2, 2)];
+        plans[0].content_frames = Some(3);
+        plans[1].content_frames = Some(1);
+        let w = window(0, 2);
+        let mut j = Joiner::for_plans_with_tail(&w, CPS1, &plans, 1, Some(4), 2).unwrap();
+        j.place_rendered(1, &plans[1], &[vec![0., 0., 4., 5., 6.]])
+            .unwrap();
+        j.place_rendered(0, &plans[0], &[vec![0., 1., 2., 3., 0.]])
+            .unwrap();
+        assert_eq!(j.finish().unwrap(), vec![vec![1., 2., 3., 4., 5., 6.]]);
+        assert!(Joiner::for_plans_with_tail(&w, CPS1, &plans, 1, Some(5), 0).is_err());
     }
 
     #[test]

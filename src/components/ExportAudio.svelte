@@ -8,6 +8,7 @@
     type createExportDialog,
     type ExportSong,
   } from '../lib/export/controller';
+  import { authoredLoop } from '../lib/strudel/structure';
   import Button from './ui/Button.svelte';
   import Field from './ui/Field.svelte';
   import Notice from './ui/Notice.svelte';
@@ -29,8 +30,12 @@
   const quit = $derived($store.quit);
   const locked = $derived(activity.kind !== 'idle' || quit !== null);
   const sections = source.structure?.sections ?? [];
-  const loopIndex = source.structure?.loopIndex ?? null;
-  const markedLoop = loopIndex === null ? undefined : sections[loopIndex];
+  const loop = source.structure && authoredLoop(source.structure);
+  const markedLoop =
+    loop &&
+    (loop.first === loop.last
+      ? sections[loop.first]?.name
+      : `${sections[loop.first]?.name} through ${sections[loop.last]?.name}`);
   const target = $derived($store.preview.kind === 'ready' ? $store.preview.target : null);
   const result = $derived($store.result);
   const files = $derived(
@@ -159,7 +164,7 @@
           {#if loopMode(options.mode)}
             <div class="range-hint">
               <span class="label">range</span>
-              <div>{markedLoop ? markedLoop.name : 'marked loop'}</div>
+              <div>{markedLoop || 'marked loop'}</div>
             </div>
           {:else if options.range === 'section'}
             <label class="select-label span-settings">
@@ -209,8 +214,8 @@
         {/if}
         {#if loopMode(options.mode) && !markedLoop}
           <Notice tone="warning"
-            >loop export needs a section with <code>loop: true</code> in
-            <code>meta.sections</code></Notice
+            >loop export needs a <code>meta.loop</code> range or a section with
+            <code>loop: true</code></Notice
           >
         {/if}
         {#if showMp3Warning(options) && !$store.result}

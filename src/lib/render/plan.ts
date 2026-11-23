@@ -17,6 +17,7 @@ import {
 import type { EventSource, RenderEvent } from './schedule';
 import { orbitPair } from './gates/stems';
 import { STEMS_MAX_PAIRS } from './thresholds';
+import { historyStart, type RenderTiming } from './timing';
 
 /** Pause this long before each bar line to schedule the next bar (see `pauseSchedule`). */
 export const LEAD_SEC = 0.05;
@@ -99,9 +100,13 @@ export interface WindowPlan {
   c1: number;
   lookbackSecUsed: number;
   windowStartFrame: number;
-  /** Layout seconds of frame 0: c0 / cps. */
+  /** Layout seconds of the first frame. */
   bufferStartSec: number;
   frames: number;
+  /** Mapped musical content in the request's range, excluding lookback and overlap. */
+  contentFrames?: number;
+  /** Mapped frames after content, excluding any export tail. */
+  overlapFrames?: number;
 }
 
 /** Channels the buffer-size bound assumes for a mode (stems at its widest). */
@@ -123,14 +128,36 @@ export function windowPlan(
   cps: number,
   lookbackSec: number,
   tailFrames = 0,
+  timing?: RenderTiming,
+  scheduleStart = 0,
 ): WindowPlan {
   if (!Number.isFinite(cps) || cps <= 0) throw new RangeError(`invalid cps ${cps}`);
   if (!Number.isFinite(lookbackSec) || lookbackSec < 0) {
     throw new RangeError(`invalid lookback ${lookbackSec}`);
   }
-  const c0 = Math.max(0, req.fromBar - Math.ceil(lookbackSec * cps - 1e-9));
+  const c0 = timing
+    ? Math.max(scheduleStart, historyStart(req.fromBar, lookbackSec, timing))
+    : Math.max(0, req.fromBar - Math.ceil(lookbackSec * cps - 1e-9));
   const c1 = req.toBar + req.overlapBars;
   if (c1 <= c0) throw new RangeError(`empty render window [${c0}, ${c1})`);
+  if (timing) {
+    const start = timing.frameAt(c0, req.sampleRate);
+    const from = timing.frameAt(req.fromBar, req.sampleRate);
+    const to = timing.frameAt(req.toBar, req.sampleRate);
+    const end = timing.frameAt(c1, req.sampleRate);
+    const frames = end - start + tailFrames;
+    checkBufferFrames(frames, req.mode);
+    return {
+      c0,
+      c1,
+      lookbackSecUsed: (from - start) / req.sampleRate,
+      windowStartFrame: from - start,
+      bufferStartSec: start / req.sampleRate,
+      frames,
+      contentFrames: to - from,
+      ...(req.overlapBars ? { overlapFrames: end - to } : {}),
+    };
+  }
   const lookbackSecUsed = (req.fromBar - c0) / cps;
   const frames = expectedFrames(req, cps, lookbackSecUsed) + tailFrames;
   checkBufferFrames(frames, req.mode);
@@ -197,14 +224,19 @@ export function pauseSchedule(
   nBars: number,
   cps: number,
   sampleRate: number,
+  timing?: RenderTiming,
+  c0 = 0,
 ): { leadSec: number; suspendSec: number[] } {
   const barSec = 1 / cps;
-  const leadSec = pauseLeadSec(barSec);
+  const leadSec = pauseLeadSec(timing?.minBarSec ?? barSec);
   if (nBars > 1 && leadSec < MIN_LEAD_FRAMES / sampleRate) {
     throw new Error('bar too short for the pause lead');
   }
   const suspendSec = [0];
-  for (let j = 1; j < nBars; j++) suspendSec.push(j * barSec - leadSec);
+  const origin = timing ? timing.frameAt(c0, sampleRate) / sampleRate : 0;
+  for (let j = 1; j < nBars; j++) {
+    suspendSec.push((timing ? timing.secondsAt(c0 + j) - origin : j * barSec) - leadSec);
+  }
   return { leadSec, suspendSec };
 }
 

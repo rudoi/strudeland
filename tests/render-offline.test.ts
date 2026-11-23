@@ -32,8 +32,10 @@ import {
 import { expectedFrames, type HapMutation, type RenderRequest } from '../src/lib/render/contract';
 import { orbitPair } from '../src/lib/render/gates/stems';
 import { eventsFromValues } from '../src/lib/render/schedule';
+import { renderTiming } from '../src/lib/render/timing';
 import { createRuntime } from '../src/lib/strudel/runtime';
-import { cpsFor } from '../src/lib/strudel/structure';
+import { buildStructure, cpsFor } from '../src/lib/strudel/structure';
+import { LINEAR_SEGMENTS } from '../src/lib/strudel/transport';
 import { ev } from './helpers/render-events';
 
 await core.evalScope(core, mini);
@@ -1117,6 +1119,35 @@ describe('renderOffline: cycle and time arguments', () => {
 });
 
 describe('renderOffline: order and t bounds', () => {
+  test('mixed-meter render schedules with both timeline seconds and local CPS', async () => {
+    const structure = buildStructure({
+      sections: [{ name: 'body', bars: 3 }],
+      meterChanges: [{ bar: 2, meter: '3/8' }],
+    });
+    const timing = renderTiming(structure, LINEAR_SEGMENTS, structure.cps)!;
+    const request = req({ fromBar: 1, toBar: 3, layout: 'linear' });
+    const f = fakeDeps();
+    const calls: unknown[][] = [];
+    f.deps.superdough = (_value, ...time) => calls.push(time);
+    const result = await renderOffline(
+      {
+        haps: [hap(0, 2, { s: 'sine' }), hap(1, 2, { s: 'sine' }), hap(2, 3, { s: 'sine' })],
+        cps: structure.cps,
+        seed: 0,
+        req: request,
+        plan: windowPlan(request, structure.cps, 0.25, 0, timing),
+        timing,
+      },
+      f.deps,
+    );
+    expect(calls).toEqual([
+      [0, 2.75, 0.5, 0, 0],
+      [2, 0.75, 4 / 3, 1, 2],
+      [2.75, 0.75, 4 / 3, 2, 2.75],
+    ]);
+    expect(result.buffer.length).toBe(154350);
+    expect(f.suspends).toEqual([1.95, 2.7]);
+  });
   test('calls ascend; each bar is scheduled at its pause; t is never in the past', async () => {
     const f = fakeDeps();
     await renderOffline(job({ toBar: 3, haps: barHaps(0, 3).reverse() }), f.deps);
