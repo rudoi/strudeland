@@ -1,6 +1,6 @@
 [package]
 name = "strudeland-app"
-version = "0.1.1"
+version = "0.1.2"
 description = "strudeland: a desktop editor for Strudel"
 authors = ["Andrew Rudoi"]
 edition = "2024"
