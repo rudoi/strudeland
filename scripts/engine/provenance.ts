@@ -34,6 +34,8 @@ export const PLANNER_FILES = [
   'src/lib/render/schedule.ts',
   'src/lib/render/job-plan.ts',
   'src/lib/render/page-job.ts',
+  'src/lib/render/timing.ts',
+  'src/lib/strudel/timing.ts',
 ] as const;
 /** A corpus fixture's case name is this prefix plus the fixture name (its ref files start with
  *  it too); every other case name is a micro case. */

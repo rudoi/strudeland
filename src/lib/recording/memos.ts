@@ -10,7 +10,7 @@ import type { ProjectChange } from '../project/api';
 import { errorMessage } from '../errors';
 import type { SongStructure } from '../strudel/structure';
 import type { RecordingApi } from './api';
-import { sortMemos, takeRunning, type SongTempo } from './memo-ui';
+import { songTempoOf, sortMemos, takeRunning, type SongTempo } from './memo-ui';
 import type { RecordingEntry, RecordingPhase, RecordingUiState } from './types';
 
 export interface MemosState {
@@ -77,7 +77,7 @@ export function createMemos(deps: MemosDeps): Memos {
     songTempo() {
       const s = get(session.store);
       if (s.active === null || s.structure === null) return null;
-      return { cps: s.structure.cps, meter: s.structure.meter };
+      return songTempoOf(s.structure);
     },
   });
 

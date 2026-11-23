@@ -1,5 +1,5 @@
 import { getAudioContext, initAudio, webaudioOutput } from '@strudel/webaudio';
-import { getSuperdoughAudioController } from 'superdough';
+import { getSuperdoughAudioController, superdough } from 'superdough';
 import { setAudioSeed } from 'superdough/rng.mjs';
 import type { AudioBackend, AudioGraph } from './backend';
 import { createMasterTap, type MasterGain, type MasterTap, type MasterTapDeps } from './master-tap';
@@ -32,7 +32,20 @@ interface Deps {
 const defaultDeps: Deps = {
   getContext: getAudioContext,
   init: initAudio,
-  output: webaudioOutput,
+  output(hap: any, t, cps, timing) {
+    if (!timing) return webaudioOutput(hap, t, cps);
+    hap.ensureObjectValue();
+    // Superdough writes duration and its seed into the value. The logical hap can
+    // also be routed to a custom callback that still needs its authored duration.
+    return superdough(
+      { ...hap.value },
+      t,
+      timing.durationSec,
+      cps,
+      Number(hap.whole.begin),
+      timing.phaseSec,
+    );
+  },
   setSeed: setAudioSeed,
   getController: getSuperdoughAudioController,
 };

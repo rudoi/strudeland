@@ -116,7 +116,9 @@ fn batches(job: &Job, seconds: f64) -> Vec<(f64, Batch)> {
                 batch.values.push(ValueEntry(next, value, spec));
                 next
             });
-            batch.haps.push(HapEntry(t, h.duration, h.cycle, index));
+            batch
+                .haps
+                .push(HapEntry(t, h.duration, h.cycle, index, None));
         }
         if !batch.haps.is_empty() {
             out.push((start, batch));
@@ -227,7 +229,7 @@ fn the_batches_cover_the_span() {
             assert_eq!(*i, next);
             next += 1;
         }
-        for HapEntry(t, _, _, i) in &batch.haps {
+        for HapEntry(t, _, _, i, _) in &batch.haps {
             assert!(*i < next);
             assert!(*t >= *start && *t < start + WINDOW);
         }

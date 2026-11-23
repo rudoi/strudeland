@@ -7,16 +7,11 @@
  */
 
 import type { AssembledWindow } from './chunks';
-import {
-  SAMPLE_RATE,
-  windowFrames,
-  type RenderError,
-  type RenderRequest,
-  type SegmentLayout,
-} from './contract';
+import { SAMPLE_RATE, type RenderError, type RenderRequest, type SegmentLayout } from './contract';
 import { isRecord } from './engine-job';
 import { firstDifference } from './host-parity-lib';
 import type { RenderEvent } from './schedule';
+import { renderWindowFrames, type RenderTiming } from './timing';
 
 /** The parts of the dev binary's `--info` file the harness reads. */
 export interface BatchInfo {
@@ -138,11 +133,11 @@ export function batchCrossChecks(info: BatchInfo, fx: BatchFixture): string[] {
 
 /** The seam positions `assembleWindow` would report: the start of every chunk after the first,
  *  in seconds from the window start. */
-export function batchSeamSecs(info: BatchInfo): number[] {
+export function batchSeamSecs(info: BatchInfo, timing?: RenderTiming): number[] {
   const from = info.window.fromBar;
   return info.chunks
     .slice(1)
-    .map((c) => windowFrames(from, c.fromBar, info.cps, SAMPLE_RATE) / SAMPLE_RATE);
+    .map((c) => renderWindowFrames(from, c.fromBar, info.cps, SAMPLE_RATE, timing) / SAMPLE_RATE);
 }
 
 /** The batch render as the fixture's main window. Throws a `RangeError` unless the WAV is 2
@@ -154,9 +149,10 @@ export function batchAssembled(
   base: RenderRequest,
   events: RenderEvent[],
   renderMs: number,
+  timing?: RenderTiming,
 ): AssembledWindow {
   const { fromBar, toBar } = base;
-  const frames = windowFrames(fromBar, toBar, info.cps, SAMPLE_RATE);
+  const frames = renderWindowFrames(fromBar, toBar, info.cps, SAMPLE_RATE, timing);
   if (wav.sampleRate !== SAMPLE_RATE) {
     throw new RangeError(`batch: the WAV is ${wav.sampleRate} Hz, not ${SAMPLE_RATE}`);
   }
@@ -173,7 +169,10 @@ export function batchAssembled(
     frames,
     windowStartFrame: 0,
     lookbackSecUsed: 0,
-    bufferStartSec: fromBar / info.cps,
+    bufferStartSec: timing
+      ? timing.frameAt(fromBar, SAMPLE_RATE) / SAMPLE_RATE
+      : fromBar / info.cps,
+    ...(timing ? { contentFrames: frames } : {}),
     cps: info.cps,
     events,
     stemPairs: 1,
@@ -181,6 +180,6 @@ export function batchAssembled(
     ok: true,
     timing: { evalMs: 0, renderMs, totalMs: renderMs },
     request: { ...base, overlapBars: 0, lookbackSec: 0 },
-    seamSecs: batchSeamSecs(info),
+    seamSecs: batchSeamSecs(info, timing),
   };
 }

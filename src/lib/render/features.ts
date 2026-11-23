@@ -134,7 +134,7 @@ export function extractFeatures(result: RenderResult): Features {
   if (req.mode !== 'mix') throw new RangeError('features need a mix render');
   if (!result.ok) throw new RangeError('render failed');
   const sr = result.sampleRate;
-  const n = windowFrames(req.fromBar, req.toBar, result.cps, sr);
+  const n = result.contentFrames ?? windowFrames(req.fromBar, req.toBar, result.cps, sr);
   const start = result.windowStartFrame;
   if (result.channels.length !== 2 || start < 0 || start + n > result.frames) {
     throw new RangeError('window outside the rendered buffer');

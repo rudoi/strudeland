@@ -158,6 +158,15 @@ describe('rust backend: batching', () => {
     ]);
   });
 
+  test('a mixed-meter hap carries its measured gate, logical onset and elapsed phase', async () => {
+    const s = setup();
+    await running(s);
+    s.backend.output(hap(2, 4, { s: 'sine' }), 9, 4 / 3, { durationSec: 2.75, phaseSec: 3.5 });
+    await settle();
+    expect(s.fake.batches[0]!.cps).toBe(4 / 3);
+    expect(s.fake.batches[0]!.haps).toEqual([[9, 2.75, 2, 0, 3.5]]);
+  });
+
   test('a non-finite t, a hap without whole and a non-finite cycle are skipped', async () => {
     const s = setup();
     await running(s);

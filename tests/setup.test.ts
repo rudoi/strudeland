@@ -14,6 +14,7 @@ function fakeRuntime() {
     calls,
     runtime: {
       scheduler: {},
+      drawingScheduler: {},
       store: { subscribe: () => () => {} },
       evaluate: async (c: string) => (calls.push('eval:' + c), true),
       stop: () => void calls.push('stop'),
@@ -26,6 +27,7 @@ function fakeRuntime() {
         store: { subscribe: () => () => {} },
         startFrom: () => {},
         loopSection: () => {},
+        loopRange: () => {},
         playEnding: () => {},
         reset: () => {},
       },

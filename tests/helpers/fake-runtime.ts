@@ -69,9 +69,9 @@ export function fakeRuntime(
     },
     setLimiter: (on) => void b.limiters.push(on),
     limiterAvailable: () => b.limiterOk,
-    output: (hap, t) => {
+    output: (...args) => {
       if (opts.failOutput) throw new Error('sound nope not found! Is it loaded?');
-      b.calls.push([hap, t]);
+      b.calls.push(args);
       b.order.push('output');
     },
   };
@@ -114,7 +114,7 @@ export function fakeRuntime(
         isRunning: () => rb.running,
         getTime: () => b.now,
         setSeed: (seed) => void rb.seeds.push(seed),
-        output: (hap, t) => void rb.calls.push([hap, t]),
+        output: (...args) => void rb.calls.push(args),
         readScope: () => (rb.scopes++, true),
         liveStats: () => rb.stats,
         onWarning: (cb) => {

@@ -25,6 +25,7 @@ import { Orbit, SuperdoughAudioController } from 'superdough/superdoughoutput.mj
 import type { AudioBackend } from './backend';
 import type { RenderError, RenderRequest } from '../render/contract';
 import { eventsFromValues, type RenderEvent } from '../render/schedule';
+import { hapTiming, type RenderTiming } from '../render/timing';
 import {
   bucketByBar,
   channelPlan,
@@ -329,7 +330,14 @@ export interface OfflineDeps {
   preloadSamples(ctx: OfflineContextLike, urls: string[]): Promise<void>;
   /** `sampleUrlOf` with superdough's sound map. */
   sampleUrl(value: any): string | null;
-  superdough(value: any, t: number, hapDuration: number, cps: number, cycle: number): unknown;
+  superdough(
+    value: any,
+    t: number,
+    hapDuration: number,
+    cps: number,
+    cycle: number,
+    phaseSec?: number,
+  ): unknown;
   now(): number;
 }
 
@@ -348,7 +356,8 @@ export const defaultDeps: OfflineDeps = {
     await Promise.all(urls.map((url) => loadBuffer(url, ctx)));
   },
   sampleUrl: (value) => sampleUrlOf(value),
-  superdough: (value, t, hapDuration, cps, cycle) => superdough(value, t, hapDuration, cps, cycle),
+  superdough: (value, t, hapDuration, cps, cycle, phaseSec) =>
+    superdough(value, t, hapDuration, cps, cycle, phaseSec),
   now: () => performance.now(),
 };
 
@@ -360,6 +369,7 @@ export interface OfflineJob {
   /** Supplies mode, sampleRate and mutation. */
   req: RenderRequest;
   plan: WindowPlan;
+  timing?: RenderTiming;
   /** `selectHaps` of the full schedule (`query(0, c1, segments)`); every orbit they use is
    *  created up front so a `duckorbit` target exists before its own first hap. Defaults to the
    *  chunk's own haps. */
@@ -388,11 +398,11 @@ export async function renderOffline(
 ): Promise<OfflineOutput> {
   if (used.has(deps)) throw new Error('render page already used');
   used.add(deps);
-  const { cps, req, plan } = job;
+  const { cps, req, plan, timing } = job;
   const { c0, c1, frames } = plan;
   const sampleRate = req.sampleRate;
   const nBars = c1 - c0;
-  const { suspendSec } = pauseSchedule(nBars, cps, sampleRate);
+  const { suspendSec } = pauseSchedule(nBars, cps, sampleRate, timing, c0);
 
   // 1. select
   const { selected, errors } = selectHaps(job.haps);
@@ -402,7 +412,7 @@ export async function renderOffline(
   );
 
   // 2. events (before mutation and before superdough mutates values)
-  const events = eventsFromValues(eventSources(selected), cps);
+  const events = eventsFromValues(eventSources(selected), cps, timing);
 
   // 3. mutate
   const mutation = req.mutation;
@@ -448,7 +458,15 @@ export async function renderOffline(
       const calls: Promise<unknown>[] = [];
       const meta: { t: number; s: Selected }[] = [];
       for (const s of buckets[j]!) {
-        let t = (s.onsetCycle - c0) / cps;
+        const time = hapTiming(
+          s.onsetCycle,
+          Number(s.hap.duration),
+          c0,
+          cps,
+          timing,
+          plan.bufferStartSec,
+        );
+        let t = time.t;
         const now = ctx.currentTime;
         if (t < now) {
           if (now - t > LATE_EPS_SEC) {
@@ -459,10 +477,13 @@ export async function renderOffline(
           t = now;
         }
         meta.push({ t, s });
+        // Superdough writes the gate in seconds back to value.duration. Mixed-meter
+        // haps can share the authored value but must keep their own logical durations.
+        const value = timing ? { ...s.value } : s.value;
         try {
           calls.push(
             Promise.resolve(
-              deps.superdough(s.value, t, Number(s.hap.duration) / cps, cps, s.onsetCycle),
+              deps.superdough(value, t, time.duration, time.cps, s.onsetCycle, time.phaseSec),
             ),
           );
         } catch (e) {

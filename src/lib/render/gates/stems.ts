@@ -16,7 +16,7 @@ import {
   STEMS_MIN_GAIN,
   STEMS_PRE_SEC,
 } from '../thresholds';
-import { roundDb, roundSec, type GateResult, type Json } from './types';
+import { roundDb, roundSec, scoreBar, type GateResult, type Json } from './types';
 
 /** Stereo pair of an orbit (superdough.mjs:529): orbit k >= 1 on pair (k - 1) mod pairs, orbit
  *  0 on pair 0 (so orbit 0 and orbit 1 share it). */
@@ -36,7 +36,7 @@ export interface PairVerdict {
 export interface StemNoteScore {
   pair: number;
   orbit: number;
-  /** Absolute layout bar: floor(tSec / barSec + 1e-6). */
+  /** Absolute layout bar of the scheduled note. */
   bar: number;
   tSec: number;
   /** Strongest onset near the note divided by its gain. */
@@ -68,7 +68,7 @@ export function stemsOnsetScores(
   channels: Float32Array[],
   sampleRate: number,
   events: RenderEvent[],
-  barSec: number,
+  fixedBarSec?: number,
   opts: StemsScoreOptions = {},
 ): { pairs: PairVerdict[]; notes: StemNoteScore[] } {
   if (channels.length < 2 || channels.length % 2 !== 0) {
@@ -133,7 +133,7 @@ export function stemsOnsetScores(
       notes.push({
         pair: p,
         orbit: n.orbit,
-        bar: Math.floor(n.tSec / barSec + 1e-6),
+        bar: scoreBar(n, fixedBarSec),
         tSec: n.tSec,
         score: best / Math.max(n.gain, 1e-3),
       });

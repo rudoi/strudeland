@@ -17,8 +17,10 @@ import { peakDb, roundDb, type LevelHoldSnapshot } from '../levels/levels';
 import type { Runtime } from '../strudel/runtime';
 import {
   bpmFromCps,
+  cpsAtMeter,
   isInt,
   isPlainObject,
+  meterAtBar,
   meterString,
   type SongStructure,
 } from '../strudel/structure';
@@ -307,6 +309,11 @@ export function createControlHandler({
     const ss = get(session.store);
     const rs = get(runtime.store);
     const open = ss.project !== null;
+    const position = rs.started ? runtime.position() : null;
+    const meter =
+      position?.located && rs.structure?.meterChanges
+        ? meterAtBar(rs.structure, position.located.songBar)
+        : rs.meter;
     return {
       project: ss.project ? { name: ss.project.name, root: ss.project.root } : null,
       songs: open
@@ -323,15 +330,15 @@ export function createControlHandler({
           ? { path: ss.evaluated.path, title: ss.evaluated.title }
           : null,
       started: rs.started,
-      cps: rs.cps,
+      cps: cpsAtMeter(rs.cps, rs.meter, meter),
       bpm: Math.round(bpmFromCps(rs.cps, rs.meter)),
-      meter: meterString(rs.meter),
+      meter: meterString(meter),
       audio: rs.audio,
       evalError: rs.evalError,
       metaError: open ? ss.metaError : null,
       tempoOverride: rs.tempoOverride,
       ...(rs.seed === undefined ? {} : { seed: rs.seed }),
-      playhead: playhead(rs.started, rs.structure),
+      playhead: playhead(position, rs.structure),
       transport: transport(rs.structure),
       outputError: rs.outputError,
       engine: rs.engine,
@@ -341,9 +348,12 @@ export function createControlHandler({
     };
   }
 
-  function playhead(started: boolean, structure: SongStructure | null): Playhead | null {
-    if (!started) return null;
-    const { cycle, located } = runtime.position();
+  function playhead(
+    position: ReturnType<Runtime['position']> | null,
+    structure: SongStructure | null,
+  ): Playhead | null {
+    if (position === null) return null;
+    const { cycle, located } = position;
     const pos = located && structure ? barPosition(located, structure) : null;
     return pos ? { cycle, ...pos } : { cycle, songBar: null, section: null };
   }
@@ -351,9 +361,11 @@ export function createControlHandler({
   function transport(structure: SongStructure | null): TransportSummary {
     const { view, armedSection } = get(runtime.transport.store);
     const name = (i: number | null) => (i === null ? null : (structure?.sections[i]?.name ?? null));
+    const through = view.kind === 'loop' && view.through !== undefined ? name(view.through) : null;
     return {
       view: view.kind,
       loopSection: view.kind === 'loop' ? name(view.section) : null,
+      ...(through !== null && { loopThrough: through }),
       armedSection: name(armedSection),
     };
   }

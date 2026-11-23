@@ -93,6 +93,7 @@ export const connectLFO = (id, params, nodeTracker) => {
     sync,
     cps,
     cycle,
+    phaseSec = cycle / cps,
     control = 'lfo',
     subControl,
     fxi = 'main',
@@ -110,7 +111,7 @@ export const connectLFO = (id, params, nodeTracker) => {
   const modParams = {
     ...filteredParams,
     frequency: sync !== undefined ? sync * cps : rate,
-    time: retrig > 0.5 ? 0 : cycle / cps,
+    time: retrig > 0.5 ? 0 : sync !== undefined ? cycle / cps : phaseSec,
     depth: depthValue,
     min,
     max,

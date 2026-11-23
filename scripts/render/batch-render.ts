@@ -23,6 +23,7 @@ import {
 import type { AssembledWindow } from '../../src/lib/render/chunks';
 import type { RenderRequest } from '../../src/lib/render/contract';
 import type { RenderEvent } from '../../src/lib/render/schedule';
+import type { RenderTiming } from '../../src/lib/render/timing';
 import { decodeWav, type DecodedWav } from '../../src/lib/render/wav';
 import { errorMessage } from '../../src/lib/errors';
 import {
@@ -92,6 +93,7 @@ export interface BatchTarget {
   base: RenderRequest;
   cps: number;
   events: RenderEvent[];
+  timing?: RenderTiming;
 }
 
 export interface BatchRendererOptions {
@@ -148,7 +150,7 @@ export class BatchRenderer {
     const reasons = batchCrossChecks(info, t);
     if (reasons.length > 0) throw new RenderFailedError(reasons);
     try {
-      return batchAssembled(wav, info, t.base, t.events, ms);
+      return batchAssembled(wav, info, t.base, t.events, ms, t.timing);
     } catch (e) {
       throw new RenderFailedError([errorMessage(e)]);
     }

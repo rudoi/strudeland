@@ -24,8 +24,8 @@ pub use engine::v8_version;
 pub use error::HostError;
 pub use host::{Host, PlannedJob};
 pub use planned::{
-    ChunkWindow, Meter, PlanError, PlannedChunk, PlannedExport, PlannedRender, PlannedRepeat,
-    PlannedWindow, Section, Structure,
+    ChunkWindow, LoopRange, Meter, MeterChange, PlanError, PlannedChunk, PlannedExport,
+    PlannedRender, PlannedRepeat, PlannedWindow, Section, Structure,
 };
 pub use request::{
     ExportPreset, Layout, LengthRequest, LookbackSec, MAX_BARS, MAX_LOOPS, MAX_TIMEOUT_SEC, Mode,

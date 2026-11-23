@@ -118,6 +118,7 @@ pub(crate) struct ScheduleArgs<'v> {
     pub(crate) duration: f64,
     /// Absolute layout cycle of the onset.
     pub(crate) cycle: f64,
+    pub(crate) phase_sec: Option<f64>,
     /// The hap's cycles per second (`delaysync`, tremolo sync, the modulators).
     pub(crate) cps: f64,
     /// The frame the hap is scheduled at (the render head).
@@ -209,6 +210,7 @@ impl Core {
             t,
             duration,
             cycle,
+            phase_sec,
             cps,
             now_frame,
         } = p;
@@ -263,6 +265,7 @@ impl Core {
                         hap_duration: duration,
                         now_frame,
                         cycle,
+                        phase_sec: phase_sec.unwrap_or_else(|| cycle / cps),
                         cps,
                     },
                     &mut self.tables,
@@ -513,7 +516,8 @@ impl<'a> Engine<'a> {
             t,
             duration: hap.duration,
             cycle: hap.cycle,
-            cps: job.cps,
+            phase_sec: hap.phase_sec,
+            cps: hap.cps.unwrap_or(job.cps),
             now_frame: pause_frame,
         });
     }
@@ -1034,6 +1038,38 @@ mod tests {
             got[0], got[1],
             "occurrence 1: the marker at cycle 5 did not reset"
         );
+    }
+
+    #[test]
+    fn elapsed_phase_affects_fixed_hz_while_synced_controls_follow_the_musical_onset() {
+        let make = |control: &str, phase: f64, cps: f64| {
+            let mut h = hap(0.0, 0.1, 1.0, 0);
+            h["phaseSec"] = json!(phase);
+            h["cps"] = json!(cps);
+            let mut v = json!({ "s": "sine", "freq": 220, "tremolodepth": 1 });
+            v[control] = json!(2.0);
+            job(base(
+                4096,
+                json!([{ "suspendSec": 0, "haps": [h] }]),
+                json!([v]),
+            ))
+        };
+        for control in ["tremolo", "tremolosync"] {
+            let first = make(control, 0.25, 1.25);
+            let shifted = make(control, 0.375, 1.25);
+            let new_rate = make(control, 0.25, 0.5);
+            assert_eq!(driver_seeds(&first), driver_seeds(&shifted));
+            assert_eq!(driver_seeds(&first), driver_seeds(&new_rate));
+            let reference = render_job(&first).unwrap().channels;
+            assert_eq!(
+                reference == render_job(&shifted).unwrap().channels,
+                control == "tremolosync"
+            );
+            assert_eq!(
+                reference == render_job(&new_rate).unwrap().channels,
+                control == "tremolo"
+            );
+        }
     }
 
     #[test]
@@ -1971,6 +2007,7 @@ mod tests {
             t,
             duration,
             cycle: 0.0,
+            phase_sec: None,
             cps,
             now_frame: 0,
         }

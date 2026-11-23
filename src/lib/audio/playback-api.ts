@@ -42,10 +42,10 @@ export interface OrbitSpec {
 }
 
 /** `values` new to the session (`[index, encodedControlMap, orbitSpec | null]`) apply before
- *  `haps` (`[t, duration, cycle, index]`); every hap of the batch plays at `cps`. */
+ *  `haps` (`[t, duration, cycle, index, phaseSec?]`); every hap of the batch plays at `cps`. */
 export interface PlaybackBatch {
   values: [number, Record<string, EngineValue>, OrbitSpec | null][];
-  haps: [number, number, number, number][];
+  haps: [number, number, number, number, number?][];
   cps: number;
 }
 

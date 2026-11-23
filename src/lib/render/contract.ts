@@ -58,11 +58,15 @@ export interface RenderResult {
   channels: Float32Array[];
   sampleRate: number;
   frames: number;
-  /** Frame index of fromBar inside `channels`; = round(lookbackSecUsed * sampleRate). */
+  /** Frame index of fromBar inside `channels`. */
   windowStartFrame: number;
-  /** Lookback actually rendered, seconds; clamped at fromBar / cps, never negative. */
+  /** Mapped frames between fromBar and toBar, excluding lookback and overlap. */
+  contentFrames?: number;
+  /** Mapped frames after content. */
+  overlapFrames?: number;
+  /** Lookback actually rendered, seconds, never negative. */
   lookbackSecUsed: number;
-  /** Layout seconds of frame 0: fromBar / cps - lookbackSecUsed. */
+  /** Layout seconds of the first frame. */
   bufferStartSec: number;
   cps: number;
   /** One entry per rendered hap with an onset, BEFORE any mutation, sorted by tSec. */

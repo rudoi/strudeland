@@ -363,6 +363,12 @@ export function createRecordingController(deps: RecordingControllerDeps): Record
     let startSection: string | null = null;
     let loopSection: string | null = null;
     if (song && !wasPlaying && ts.pendingStart && ts.armedSection !== null) {
+      if (ts.view.kind === 'loop' && ts.view.through !== undefined) {
+        return settle(start, {
+          kind: 'meta',
+          message: 'clear the temporary section range before recording with song backing',
+        });
+      }
       const name = ss.structure?.sections[ts.armedSection]?.name ?? null;
       if (ts.view.kind === 'loop') loopSection = name;
       else startSection = name;

@@ -14,6 +14,16 @@ Opt-in, no change when unset.
 packages/core/repl.mjs
 ```
 
+## mixed-meter-cpm: guard absolute pattern tempo in mixed meter
+Upstream: strudeland-only
+The REPL's `.cpm()` scales a pattern using one scheduler tempo.
+Queries marked `_mixedMeter` reject this operator so live playback and exports report the same
+diagnostic when an arrangement has multiple bar lengths.
+
+```files
+packages/core/repl.mjs
+```
+
 ## audio-rng: seedable random numbers in sound generation
 Upstream: candidate
 `rng.mjs` (new, imports nothing) gives every random use in sound generation its own mulberry32
@@ -130,4 +140,16 @@ processors in the files that carry them. Date the WebDirt vowel adaptations in t
 packages/superdough/reverbGen.mjs
 packages/superdough/vowel.mjs
 packages/superdough/worklets.mjs
+```
+
+## mixed-meter-phase: pass elapsed time separately from musical cycles
+Upstream: candidate
+An optional sixth argument to `superdough` supplies elapsed layout seconds for fixed-Hz
+filter LFOs, tremolo and modulation. Beat-synced rates keep their musical phase and the
+logical cycle continues to identify each seeded voice. Omitted elapsed time defaults to
+the original cycle divided by CPS.
+```files
+packages/superdough/superdough.mjs
+packages/superdough/helpers.mjs
+packages/superdough/modulators.mjs
 ```

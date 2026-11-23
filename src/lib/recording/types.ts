@@ -46,6 +46,8 @@ export interface InputDevice {
 
 export type Permission = 'notDetermined' | 'denied' | 'restricted' | 'authorized';
 
+export const FIXED_METER_BACKING_MESSAGE = 'song backing requires a fixed time signature';
+
 /** The Rust recorder's state: no stream, a stream without a take, or a take. */
 export type RecState = 'idle' | 'armed' | 'recording';
 

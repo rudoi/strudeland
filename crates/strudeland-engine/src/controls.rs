@@ -1090,6 +1090,7 @@ pub struct TremoloParams {
     /// The LFO's frequency: `cps * Number(tremolosync)` when `tremolosync != null`, else
     /// `Number(tremolo)` (a `null` is 0).
     pub frequency: f64,
+    pub synced: bool,
     /// `Number(tremolodepth)`, default 1 (`applyGainCurve` is the identity; a `null` is 0, which
     /// is what both `1 - null` and `.value = null` give).
     pub depth: f64,
@@ -1387,13 +1388,15 @@ fn filter_params(
 /// The tremolo of superdough's FX loop: `tremolo = fx.tremolo`, replaced by `cps * tremolosync`
 /// when `tremolosync != null`; built when the result is not `undefined`.
 fn tremolo_params(map: &ValueMap, cps: f64) -> Option<TremoloParams> {
-    let frequency = match num_nullish(map, "tremolosync") {
+    let sync = num_nullish(map, "tremolosync");
+    let frequency = match sync {
         Some(sync) => cps * sync,
         None => num(map, "tremolo")?,
     };
     let shape_given = !matches!(map.get("tremoloshape"), None | Some(Value::Null));
     Some(TremoloParams {
         frequency,
+        synced: sync.is_some(),
         depth: num(map, "tremolodepth").unwrap_or(1.0),
         skew: num_nullish(map, "tremoloskew").unwrap_or(if shape_given { 0.5 } else { 1.0 }),
         shape: map.get("tremoloshape").cloned(),
@@ -1808,17 +1811,18 @@ pub(crate) fn unsupported_signatures_in(
 ) -> Vec<UnsupportedSignature> {
     let mut out: Vec<UnsupportedSignature> = Vec::new();
     let cyclic = graph.cyclic_readers();
-    // A value map gives the same signature for every hap that plays it: only its first hap counts.
-    let mut seen = vec![false; job.values.len()];
+    // Synced controls can change support when the same map plays at another rate.
+    let mut last_cps = vec![None; job.values.len()];
     for hap in job.pauses.iter().flat_map(|p| &p.haps) {
         let Some(map) = job.values.get(hap.v as usize) else {
             continue;
         };
-        if std::mem::replace(&mut seen[hap.v as usize], true) {
+        let cps = hap.cps.unwrap_or(job.cps);
+        if last_cps[hap.v as usize].replace(cps) == Some(cps) {
             continue;
         }
         let bus_cycle = cyclic.get(hap.v as usize).copied().unwrap_or(false);
-        let Some((s, keys)) = signature_with(map, bus_cycle, job.cps) else {
+        let Some((s, keys)) = signature_with(map, bus_cycle, cps) else {
             continue;
         };
         if !out.iter().any(|x| x.s == s && x.keys == keys) {
@@ -3193,6 +3197,7 @@ mod tests {
             t,
             TremoloParams {
                 frequency: 3.0,
+                synced: false,
                 depth: 1.0,
                 skew: 1.0,
                 shape: None,

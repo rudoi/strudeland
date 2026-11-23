@@ -42,6 +42,8 @@ pub struct LiveHap {
     pub duration_sec: f64,
     /// Absolute cycle of the onset.
     pub cycle: f64,
+    /// Elapsed layout seconds for fixed-rate oscillators.
+    pub phase_sec: Option<f64>,
     /// The index given to [`LiveEngine::add_value`].
     pub value: u32,
     /// The hap's cycles per second.
@@ -243,6 +245,7 @@ impl LiveEngine {
             t,
             duration: hap.duration_sec,
             cycle: hap.cycle,
+            phase_sec: hap.phase_sec,
             cps: hap.cps,
             now_frame,
         });
@@ -464,6 +467,7 @@ mod tests {
             t_sec: t,
             duration_sec: duration,
             cycle: 0.0,
+            phase_sec: None,
             value,
             cps,
         }

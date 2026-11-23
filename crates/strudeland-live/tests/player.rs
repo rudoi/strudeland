@@ -54,7 +54,7 @@ fn one_hap(index: u32, value: serde_json::Value, t: f64, duration: f64) -> Batch
             value,
             if index == 0 { orbit1() } else { None },
         )],
-        haps: vec![HapEntry(t, duration, t, index)],
+        haps: vec![HapEntry(t, duration, t, index, None)],
         cps: 1.0,
     }
 }
@@ -226,6 +226,7 @@ fn reference(value: serde_json::Value, t: f64, duration: f64, frames: usize) -> 
         t_sec: t,
         duration_sec: duration,
         cycle: t,
+        phase_sec: None,
         value: 0,
         cps: 1.0,
     });
@@ -374,7 +375,7 @@ fn values_sent_while_the_output_is_down_are_kept() {
     let t = heard_now((frame, host_ns), &h) + 0.2;
     player.schedule(Batch {
         values: vec![],
-        haps: vec![HapEntry(t, 0.1, t, 0)],
+        haps: vec![HapEntry(t, 0.1, t, 0, None)],
         cps: 1.0,
     });
     let (s, events) = wait_stats(&rx, |s| s.batches == 2 && s.haps == 1);
@@ -418,7 +419,10 @@ fn an_unsupported_value_warns_once_and_is_skipped() {
     let (player, rx, _h) = start(44100, Pace::RealTime);
     player.schedule(Batch {
         values: vec![ValueEntry(0, json!({ "s": "z_noise" }), orbit1())],
-        haps: vec![HapEntry(0.3, 0.1, 0.3, 0), HapEntry(0.4, 0.1, 0.4, 0)],
+        haps: vec![
+            HapEntry(0.3, 0.1, 0.3, 0, None),
+            HapEntry(0.4, 0.1, 0.4, 0, None),
+        ],
         cps: 1.0,
     });
     let (s, events) = wait_stats(&rx, |s| s.batches == 1);
@@ -450,7 +454,10 @@ fn a_malformed_value_is_an_error_and_play_goes_on() {
             ValueEntry(0, json!(5), orbit1()),
             ValueEntry(1, sine(440.0), orbit1()),
         ],
-        haps: vec![HapEntry(0.3, 0.1, 0.3, 0), HapEntry(0.3, 0.2, 0.3, 1)],
+        haps: vec![
+            HapEntry(0.3, 0.1, 0.3, 0, None),
+            HapEntry(0.3, 0.2, 0.3, 1, None),
+        ],
         cps: 1.0,
     });
     let (err, _) = wait_for(&rx, WAIT, |e| matches!(e, Event::Error { .. }));
@@ -474,7 +481,10 @@ fn a_hap_naming_an_unknown_value_is_an_error() {
     let (player, rx, _h) = start(44100, Pace::RealTime);
     player.schedule(Batch {
         values: vec![],
-        haps: vec![HapEntry(0.3, 0.1, 0.3, 42), HapEntry(0.4, 0.1, 0.4, 42)],
+        haps: vec![
+            HapEntry(0.3, 0.1, 0.3, 42, None),
+            HapEntry(0.4, 0.1, 0.4, 42, None),
+        ],
         cps: 1.0,
     });
     let (err, _) = wait_for(&rx, WAIT, |e| matches!(e, Event::Error { .. }));
@@ -494,9 +504,9 @@ fn stats_arrive_every_second() {
     player.schedule(Batch {
         values: vec![ValueEntry(0, sine(220.0), orbit1())],
         haps: vec![
-            HapEntry(0.5, 0.1, 0.5, 0),
-            HapEntry(0.6, 0.1, 0.6, 0),
-            HapEntry(0.7, 0.1, 0.7, 0),
+            HapEntry(0.5, 0.1, 0.5, 0, None),
+            HapEntry(0.6, 0.1, 0.6, 0, None),
+            HapEntry(0.7, 0.1, 0.7, 0, None),
         ],
         cps: 1.0,
     });
@@ -595,7 +605,7 @@ fn set_seed_changes_the_audio_of_later_haps() {
         }
         player.schedule(Batch {
             values: vec![],
-            haps: vec![HapEntry(1.6, 0.1, 0.3, 0)],
+            haps: vec![HapEntry(1.6, 0.1, 0.3, 0, None)],
             cps: 1.0,
         });
         std::thread::sleep(Duration::from_millis(1000));

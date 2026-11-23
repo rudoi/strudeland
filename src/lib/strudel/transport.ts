@@ -10,9 +10,10 @@
  * `song()` relies on this to compute its query pieces exactly.
  */
 import type { Readable } from 'svelte/store';
-import type { SongStructure } from './structure';
+import { authoredLoop, sectionRange, type LoopRange, type SongStructure } from './structure';
 
-export type View = { kind: 'song' } | { kind: 'loop'; section: number } | { kind: 'release' };
+export type View =
+  { kind: 'song' } | { kind: 'loop'; section: number; through?: number } | { kind: 'release' };
 
 /**
  * One bar of silence before the song starts, for a recording's count-in. Only the runtime installs
@@ -48,40 +49,39 @@ export const LINEAR_SEGMENTS: readonly Segment[] = Object.freeze([
 ]);
 
 /** Mathematical modulo: the result has the sign of `n`. */
-const mod = (a: number, n: number): number => ((a % n) + n) % n;
+const mod = (a: number, n: number): number => {
+  const remainder = a % n;
+  return remainder < 0 ? remainder + n : remainder;
+};
 
 /**
  * The segment in force at `g`: the last one with `at <= g`. Before the first segment (its
  * predecessors were pruned) the first one is extended backwards.
  */
-function segmentIndex(g: number, seg: readonly Segment[]): number {
+export function segmentIndex(g: number, seg: readonly Segment[]): number {
   let i = 0;
   while (i + 1 < seg.length && seg[i + 1]!.at <= g) i++;
   return i;
 }
 
-function songBarAt(g: number, s: SongStructure, segment: Segment): number | null {
+/** Repeat range in force for this segment, if it starts before the loop's end. */
+export function segmentLoop(s: SongStructure, segment: Segment): LoopRange | null {
+  const { view } = segment;
+  if (view.kind === 'loop') return sectionRange(s, view.section, view.through ?? view.section);
+  if (view.kind !== 'song') return null;
+  const loop = authoredLoop(s);
+  return loop && segment.songBar < loop.end ? loop : null;
+}
+
+export function songBarAt(g: number, s: SongStructure, segment: Segment): number | null {
   const elapsed = g - segment.at;
   const p = segment.songBar + elapsed;
-  const view = segment.view;
-  switch (view.kind) {
-    case 'song': {
-      if (s.loopIndex === null) return p;
-      const loop = s.sections[s.loopIndex]!;
-      const loopEnd = loop.start + loop.bars;
-      if (segment.songBar >= loopEnd || p < loopEnd) return p;
-      return loop.start + mod(p - loop.start, loop.bars);
-    }
-    case 'loop': {
-      const section = s.sections[view.section];
-      if (!section) return null;
-      return section.start + mod(segment.songBar - section.start + elapsed, section.bars);
-    }
-    case 'release':
-      return p;
-    case 'count-in':
-      return null;
-  }
+  if (segment.view.kind === 'count-in') return null;
+  const loop = segmentLoop(s, segment);
+  if (!loop) return segment.view.kind === 'loop' ? null : p;
+  return segment.view.kind === 'loop' || p >= loop.end
+    ? loop.start + mod(p - loop.start, loop.end - loop.start)
+    : p;
 }
 
 /** The song position at global cycle `g` (negative clamps to 0); null past the end. */
@@ -159,9 +159,10 @@ export function nextSafeBoundary(
   const c = Math.max(0, Math.ceil(lastEnd));
   if (kind === 'bar') return c;
   const located = locate(c, s, seg);
-  if (located === null || s.loopIndex === null || located.section !== s.loopIndex) return null;
-  if (located.localCycle === 0) return c;
-  return c + s.sections[located.section]!.bars - located.localCycle;
+  const loop = authoredLoop(s);
+  if (!located || !loop || !isLoopPass(s, seg[segmentIndex(c, seg)]!.view, located)) return null;
+  if (located.songBar === loop.start) return c;
+  return c + loop.end - located.songBar;
 }
 
 /**
@@ -213,31 +214,47 @@ export function withLoop(
   s: SongStructure,
   section: number | null,
   at: number,
+  through = section,
 ): Segment[] {
   if (section === null) {
     const located = locate(at, s, seg);
     if (located === null) return [...seg];
     return append(seg, { at, songBar: located.songBar, view: { kind: 'song' } });
   }
-  const target = s.sections[section];
-  if (!target) return [...seg];
-  return append(seg, { at, songBar: target.start, view: { kind: 'loop', section } });
+  const range = through === null ? null : sectionRange(s, section, through);
+  if (!range) return [...seg];
+  const view: View =
+    range.first === range.last
+      ? { kind: 'loop', section }
+      : { kind: 'loop', section, through: range.last };
+  return append(seg, { at, songBar: range.start, view });
 }
 
 /** Leave the loop at `at` (a loop pass boundary) and play the tail once. Unchanged without a loop
  * section. */
 export function withRelease(seg: readonly Segment[], s: SongStructure, at: number): Segment[] {
-  if (s.loopIndex === null) return [...seg];
-  const loop = s.sections[s.loopIndex]!;
-  return append(seg, { at, songBar: loop.start + loop.bars, view: { kind: 'release' } });
+  const loop = authoredLoop(s);
+  if (!loop) return [...seg];
+  return append(seg, { at, songBar: loop.end, view: { kind: 'release' } });
 }
 
 /** The clip layout: the intro, the loop section `loops` times, then the tail once. Without a loop
  * section it is the linear layout. Global cycle `clipBars` and later are past the end. */
 export function clipSegments(s: SongStructure): readonly Segment[] {
-  if (s.loopIndex === null) return INITIAL_SEGMENTS;
-  const loop = s.sections[s.loopIndex]!;
-  return withRelease(INITIAL_SEGMENTS, s, s.introEnd + s.loops * loop.bars);
+  const loop = authoredLoop(s);
+  if (!loop) return INITIAL_SEGMENTS;
+  return withRelease(INITIAL_SEGMENTS, s, loop.start + s.loops * (loop.end - loop.start));
+}
+
+function isLoopPass(s: SongStructure, view: SegmentView, located: Located): boolean {
+  const loop = authoredLoop(s);
+  if (!loop || located.songBar < loop.start || located.songBar >= loop.end) return false;
+  return (
+    view.kind === 'song' ||
+    (view.kind === 'loop' &&
+      view.section === loop.first &&
+      (view.through ?? view.section) === loop.last)
+  );
 }
 
 /** Play ending is possible while playing inside the loop section with no release armed yet. */
@@ -247,14 +264,7 @@ export function canPlayEnding(
   view: View,
   located: Located | null,
 ): boolean {
-  return (
-    started &&
-    s !== null &&
-    s.loopIndex !== null &&
-    view.kind !== 'release' &&
-    located !== null &&
-    located.section === s.loopIndex
-  );
+  return started && s !== null && located !== null && isLoopPass(s, view, located);
 }
 
 export interface TransportState {
@@ -270,6 +280,7 @@ export interface Transport {
   readonly store: Readable<TransportState>;
   startFrom(section: number, structure: SongStructure): void;
   loopSection(section: number | null, structure: SongStructure): void;
+  loopRange(first: number, last: number, structure: SongStructure): void;
   playEnding(): void;
   /**
    * Back to `INITIAL_SEGMENTS`: drops anything armed or appended, for another song taking over.

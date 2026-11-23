@@ -16,9 +16,15 @@ pub struct Batch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueEntry(pub u32, pub serde_json::Value, pub Option<OrbitSpec>);
 
-/// `[t, duration, cycle, index]`: seconds in engine time, seconds, absolute cycle, value index.
+/// Engine seconds, duration seconds, musical cycle, value index and optional elapsed layout seconds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HapEntry(pub f64, pub f64, pub f64, pub u32);
+pub struct HapEntry(
+    pub f64,
+    pub f64,
+    pub f64,
+    pub u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub Option<f64>,
+);
 
 impl Batch {
     /// Shape checks only. A hap naming an unknown value index is the engine's error, not this one.
@@ -37,9 +43,12 @@ impl Batch {
                 return Err(format!("value {index}: orbit is not finite"));
             }
         }
-        for (i, HapEntry(t, duration, cycle, _)) in self.haps.iter().enumerate() {
+        for (i, HapEntry(t, duration, cycle, _, phase_sec)) in self.haps.iter().enumerate() {
             if !t.is_finite() || !duration.is_finite() || !cycle.is_finite() {
                 return Err(format!("hap {i}: t, duration and cycle must be finite"));
+            }
+            if phase_sec.is_some_and(|sec| !sec.is_finite()) {
+                return Err(format!("hap {i}: phase seconds must be finite"));
             }
             if *duration < 0.0 {
                 return Err(format!("hap {i}: duration is negative"));
@@ -67,6 +76,20 @@ mod tests {
     }
 
     #[test]
+    fn elapsed_layout_time_is_optional_on_the_wire() {
+        for values in [
+            serde_json::json!([0.1, 0.25, 1.0, 0]),
+            serde_json::json!([0.1, 0.25, 1.0, 0, 2.0]),
+        ] {
+            let hap: HapEntry = serde_json::from_value(values.clone()).unwrap();
+            assert_eq!(serde_json::to_value(hap).unwrap(), values);
+        }
+        let mut batch = parse(EXAMPLE).unwrap();
+        batch.haps[0].4 = Some(f64::NAN);
+        assert!(batch.validate().is_err());
+    }
+
+    #[test]
     fn parses_the_map_example() {
         let b = parse(EXAMPLE).unwrap();
         assert_eq!(b.values.len(), 2);
@@ -79,7 +102,7 @@ mod tests {
             })
         );
         assert_eq!(b.values[1].2, None);
-        assert_eq!(b.haps[1], HapEntry(0.35, 0.25, 0.5, 1));
+        assert_eq!(b.haps[1], HapEntry(0.35, 0.25, 0.5, 1, None));
         assert_eq!(b.cps, 0.5);
         assert!(b.validate().is_ok());
     }

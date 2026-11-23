@@ -78,10 +78,11 @@ pub struct StartInfo {
     pub hap_duration: f64,
     /// The pause frame the voice is scheduled at.
     pub now_frame: u64,
-    /// The hap's layout cycle (superdough's `cycle`: the tremolo's and the filter LFOs' `time =
-    /// cycle / cps`).
+    /// The musical onset used for cycle-synced LFO phase.
     pub cycle: f64,
-    /// The job's cycles per second.
+    /// Elapsed layout seconds at the onset for fixed-Hz modulation.
+    pub phase_sec: f64,
+    /// The local cycles per second at this onset.
     pub cps: f64,
 }
 
@@ -1568,6 +1569,7 @@ impl Voice {
             end_with_release: hold_end + params.full_release,
             now,
             cycle: start.cycle,
+            phase_sec: start.phase_sec,
             cps: start.cps,
         };
         let mut param_lfos = Vec::new();
@@ -1667,6 +1669,7 @@ impl Voice {
                     end: times.end_with_release,
                     cps: start.cps,
                     cycle: start.cycle,
+                    phase_sec: start.phase_sec,
                     now,
                 },
             ),
@@ -2298,6 +2301,7 @@ mod tests {
             hap_duration: dur,
             now_frame: 0,
             cycle: 0.0,
+            phase_sec: 0.0,
             cps: 2.0,
         }
     }
@@ -2846,6 +2850,7 @@ mod tests {
                 hap_duration: 0.1,
                 now_frame: 256,
                 cycle: 0.0,
+                phase_sec: 0.0,
                 cps: 2.0,
             },
             &mut WaveTables::new(),
@@ -3947,6 +3952,7 @@ mod tests {
                 hap_duration: dur,
                 now_frame: now,
                 cycle: 0.0,
+                phase_sec: 0.0,
                 cps: 2.0,
             },
             &mut WaveTables::new(),

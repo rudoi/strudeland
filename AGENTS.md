@@ -24,7 +24,7 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Render an engine job with the Rust engine (the binary `render:check --engine rust` runs; exit 1: render errors, 2: bad input) | `cargo run -p strudeland-engine -- render --job <file> --out <file.wav>` |
 | List what the Rust engine cannot play in a job (the unsupported signatures, one line of JSON `[{ s, keys, firstBar }]`; the only unsupported detection, called by `rust-engine.ts`; exit 0, 2: bad job) | `cargo run -p strudeland-engine -- signatures --job <file\|->` |
 | Rebuild the headless host's bundle `crates/strudeland-host/js/host.js` (and `host.inputs.json`) after a Strudel sync or an edit of anything it bundles | `bun run host:build` |
-| Plan every corpus request on the render page and in the headless host and compare the job text byte for byte (renders nothing; needs Chromium; exit 0 equal, 1 a difference or a failure on one side only, 2 harness error); `--batch` compares each window's chunk jobs against one `plan-render` call instead | `bun run host:parity [fixture\|glob\|tag:<tag>]… [--batch] [--out DIR]` |
+| Compare render-page and headless-host engine jobs byte for byte (needs Chromium; exit 0 equal, 1 difference or failure on one side only, 2 harness error). `--batch` compares each corpus window's chunk jobs with one `plan-render` call. `--mixed-meter` compares the complete clip and loop-preset plans for the mixed-meter fixture. | `bun run host:parity [fixture\|glob\|tag:<tag>]… [--batch] [--out DIR]` or `bun run host:parity --mixed-meter` |
 | Check (or with `--write` regenerate) the render crate's TS-derived vectors (`crates/strudeland-render/tests/vectors/`: `loudness.json` from `loudness.ts`, `joiner.json` from `assembleWindow`; no browser; exit 1: they differ, 2: bad arguments) | `bun run render:vectors [--write]` |
 | Time the webview scheduler on the synthetic live-pressure fixture (headless, real Cyclist, bun/JSC; prints ms per tick and per second of playback; exit 0 ok, 2 bad arguments) | `bun run bench:scheduler [--song FILE] [--seconds N] [--out FILE]` |
 | Plan a song's engine job, query its events, or time full-song plans with the headless host (exit 0 ok, 1 host error including a planning `timeout`, 2 bad input; the binary `--planner host` and `host:parity` run) | `cargo run -p strudeland-host -- plan --song <file> --request <json\|file> [--out <file>] [--timeout <secs>]`, `… -- query --song <file> --from <c> --to <c> [--layout clip\|linear]`, `… -- plan-render --song <file> --request <json\|file> [--out <file>]` (every chunk of a render in one call), `… -- bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>` |
@@ -69,8 +69,9 @@ the V8 download the host brings.
 - `src/lib/strudel/` runtime (wraps `repl()`, owns tempo, the song transport and auto-stop),
   prebake, and song structure: `structure.ts` (`meta` rules, `buildStructure`, cps from bpm and
   meter; no Strudel, Tauri or DOM imports, so the renderer and headless host can reuse it),
-  `transport.ts` (pure global-cycle to song-position mapping: `locate`, segments, quantization,
-  `LINEAR_SEGMENTS` for the linear song timeline),
+  `transport.ts` (pure logical-cycle to song-position mapping: `locate`, segments, section
+  ranges, quantization, `LINEAR_SEGMENTS` for the linear song timeline), `timing.ts` (maps
+  logical layout cycles to reference-clock cycles for mixed meter, including repeated ranges),
   `song.ts` (the `song(meta, parts)` pattern, registered in the eval scope; it follows the live
   transport segments unless a query passes its own in `controls._segments`, as `runtime.query`
   does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the
@@ -298,13 +299,16 @@ the V8 download the host brings.
   `protocol.ts`, `handler.ts`, the CLI formatter and `SKILL.md` together.
 - Song files are a plain Strudel script, evaluated exactly as on disk. The `meta` header is
   `const meta = { … }`, never `export const`: the transpiler parses code as a script. Strings in
-  `meta` that the app reads (`meter`, section names) use single quotes: the transpiler turns
+  `meta` that the app reads (meters, section names, loop endpoints) use single quotes: the transpiler turns
   double-quoted strings into mini-notation.
 - Songs may set `meta.seed` (an integer from -2147483648 to 2147483647, default 0). Audio
   randomness (noise, reverb, zzfx, oscillator phases) is fixed per hap from it; change `meta.seed`
   to vary it.
-- Tempo comes from `meta.bpm` (quarter notes) and `meta.meter`; one cycle is one bar. Templates
-  never call `setcps`/`setcpm`; a song that does overrides `meta` and gets a status warning.
+- Tempo comes from `meta.bpm` (quarter notes) and `meta.meter`; one pattern cycle is one written
+  bar. `meta.meterChanges` sets the signature from each stated one-based bar. `meta.loop` selects
+  a contiguous range through the end of a named section. New timing and range fields require
+  `song()`. Templates never call `setcps`/`setcpm`. Constant-meter songs can override tempo with a
+  status warning. Mixed-meter songs use the declared BPM.
 - Render harness: nothing that imports Playwright is a `*.test.ts` (`bun test` stays browser-free;
   probes are `*.probe.ts`, run by hand). Goldens in `tests/render/goldens/` are written only by
   `render:check --update-goldens` (after a Playwright or Strudel bump, or an intended sound change);
@@ -317,7 +321,7 @@ the V8 download the host brings.
   after a Strudel sync (the sync prints the reminder), a Playwright bump, a patch of
   `vendor/strudel/PATCHES.md` (added or edited), an edit to `scripts/engine/v8-math-cases.ts`, or
   any edit to `src/lib/render/plan.ts`, `engine-job.ts`, `lookback.ts`, `schedule.ts`, `job-plan.ts`
-  or `page-job.ts` (`PLANNER_FILES`: the refs' provenance hashes them, so the staleness test fails until
+  or `page-job.ts`, or either of the render and Strudel `timing.ts` modules (`PLANNER_FILES`: the refs' provenance hashes them, so the staleness test fails until
   `engine:refs --write`); after a Playwright bump re-port the Blink changes (crate README) and
   re-run `engine-null.probe.ts`. Schema 1 jobs are rejected, not migrated: regenerate them. Floor
   mode is only for the named hash-set junctions (`FLOOR_CASES`), never to absorb a defect. The

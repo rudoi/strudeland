@@ -12,7 +12,10 @@ import {
   bpmProblem,
   engineProblem,
   hasLoopSection,
+  isPlainObject,
+  loopRangeProblem,
   loopsProblem,
+  meterChangesProblem,
   meterProblem,
   sectionsProblem,
   seedProblem,
@@ -30,6 +33,8 @@ export interface Meta {
   /** The live engine, `'superdough'` (default) or `'rust'`. */
   engine?: unknown;
   sections?: unknown;
+  loop?: unknown;
+  meterChanges?: unknown;
   loops?: unknown;
   [key: string]: unknown;
 }
@@ -149,10 +154,8 @@ function checkQuotes(key: string, node: Node) {
   if ((key === 'meter' || key === 'engine') && isDoubleQuoted(node)) {
     throw errorAt(node, `meta.${key} ${MINI_QUOTES}`);
   }
-  if (key !== 'sections' || node.type !== 'ArrayExpression') return;
-  (node as ArrayExpression).elements.forEach((el, i) => {
-    if (el?.type !== 'ObjectExpression') return;
-    for (const prop of el.properties) {
+  function checkObject(obj: ObjectExpression, path: string, fields: readonly string[]) {
+    for (const prop of obj.properties) {
       if (prop.type !== 'Property' || prop.computed) continue;
       const name =
         prop.key.type === 'Identifier'
@@ -160,11 +163,20 @@ function checkQuotes(key: string, node: Node) {
           : prop.key.type === 'Literal'
             ? prop.key.value
             : null;
-      if (name === 'name' && isDoubleQuoted(prop.value)) {
-        throw errorAt(prop.value, `meta.sections[${i}].name ${MINI_QUOTES}`);
+      if (typeof name === 'string' && fields.includes(name) && isDoubleQuoted(prop.value)) {
+        throw errorAt(prop.value, `${path}.${name} ${MINI_QUOTES}`);
       }
     }
-  });
+  }
+  if (key === 'loop' && node.type === 'ObjectExpression') {
+    checkObject(node as ObjectExpression, 'meta.loop', ['from', 'through']);
+  }
+  if ((key === 'sections' || key === 'meterChanges') && node.type === 'ArrayExpression') {
+    const fields = key === 'sections' ? ['name'] : ['meter'];
+    (node as ArrayExpression).elements.forEach((el, i) => {
+      if (el?.type === 'ObjectExpression') checkObject(el, `meta.${key}[${i}]`, fields);
+    });
+  }
 }
 
 /**
@@ -183,6 +195,8 @@ function checkKnownField(key: string, value: MetaValue, node: Node) {
   else if (key === 'meter') problem = meterProblem(value);
   else if (key === 'engine') problem = engineProblem(value);
   else if (key === 'sections') problem = sectionsProblem(value);
+  else if (key === 'loop') problem = loopRangeProblem(value);
+  else if (key === 'meterChanges') problem = meterChangesProblem(value);
   if (problem !== null) throw errorAt(node, problem);
 }
 
@@ -238,15 +252,37 @@ function readHeader(code: string): { header: ObjectExpression; meta: Meta } | nu
   const header = findHeader(code);
   if (!header) return null;
   const loops: { value: MetaValue; node: Node }[] = [];
+  const layoutFields = new Map<string, { value: MetaValue; node: Node }>();
   const meta: Meta = toObject(header, 'meta', (key, value, node) => {
     checkKnownField(key, value, node);
     if (key === 'loops') loops.push({ value, node });
+    if (key === 'loop' || key === 'meterChanges') layoutFields.set(key, { value, node });
   });
   // Every occurrence is range-checked; the last one, the value that counts, also needs the
   // (last) sections to have a loop section.
   const loopSection = hasLoopSection(meta.sections);
+  const sections = Array.isArray(meta.sections)
+    ? (meta.sections as { name: string; bars: number }[])
+    : [];
+  const loop = layoutFields.get('loop');
+  if (loop) {
+    const problem = loopRangeProblem(loop.value, sections);
+    if (problem !== null) throw errorAt(loop.node, problem);
+    if (loopSection) throw errorAt(loop.node, 'meta.loop cannot be used with section loop: true');
+  }
+  const changes = layoutFields.get('meterChanges');
+  if (changes) {
+    const problem = meterChangesProblem(
+      changes.value,
+      sections.reduce((sum, s) => sum + s.bars, 0),
+    );
+    if (problem !== null) throw errorAt(changes.node, problem);
+  }
   loops.forEach(({ value, node }, i) => {
-    const problem = loopsProblem(value, i < loops.length - 1 || loopSection);
+    const problem = loopsProblem(
+      value,
+      i < loops.length - 1 || loopSection || isPlainObject(meta.loop),
+    );
     if (problem !== null) throw errorAt(node, problem);
   });
   return { header, meta };

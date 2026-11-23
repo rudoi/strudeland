@@ -75,6 +75,7 @@ pub fn render_audio(
 
 struct LoopAudio {
     start_bar: u32,
+    start_frame: u64,
     isolated_body: Option<Vec<Vec<f32>>>,
 }
 
@@ -102,7 +103,7 @@ fn render_audio_for(
         AudioMode::Preset(preset) => Some(preset),
         _ => None,
     };
-    let (planned, plan_ms) = plan::plan(code, opts, preset)?;
+    let (mut planned, plan_ms) = plan::plan(code, opts, preset)?;
     let chunk_count = planned.chunks.len()
         + planned
             .export
@@ -112,9 +113,10 @@ fn render_audio_for(
     progress(Progress::Planned {
         chunks: chunk_count,
     });
-    let mut jobs = plan::check(&planned)?;
+    let mut jobs = plan::take_jobs(&mut planned)?;
     let PlannedRender {
         window,
+        music_frames,
         cps,
         structure,
         lookback_sec,
@@ -124,15 +126,19 @@ fn render_audio_for(
         export,
     } = planned;
     let tail_frames = export.as_ref().map_or(0, |export| export.tail_frames);
-    let loop_start_bar = export.as_ref().and_then(|export| export.loop_start_bar);
-    let repeat = export.and_then(|export| export.repeat).map(|repeat| {
-        let chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
-        (chunks, repeat.tail_frames)
+    let music_frames =
+        music_frames.unwrap_or_else(|| join::window_frames(window.from_bar, window.to_bar, cps));
+    let loop_start = export.as_ref().and_then(|export| {
+        let bar = export.loop_start_bar?;
+        let frame = export
+            .loop_start_frame
+            .unwrap_or_else(|| join::window_frames(window.from_bar, bar, cps));
+        Some((bar, frame))
     });
     let repeat_jobs = jobs.split_off(chunks.len());
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
     let workers = render::workers_for(opts.jobs, chunks.len());
-    let frames = join::window_frames(window.from_bar, window.to_bar, cps)
+    let frames = music_frames
         .checked_add(tail_frames)
         .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
     let (stems, channels) = if let AudioMode::Stems(grouping) = mode {
@@ -148,7 +154,14 @@ fn render_audio_for(
         channels: joined,
         errors: mut engine_errors,
     } = render_window(
-        join::Joiner::for_plans_with_tail(&window, cps, &chunks, channels, tail_frames)?,
+        join::Joiner::for_plans_with_tail(
+            &window,
+            cps,
+            &chunks,
+            channels,
+            Some(music_frames),
+            tail_frames,
+        )?,
         &chunks,
         jobs,
         workers,
@@ -158,30 +171,41 @@ fn render_audio_for(
         },
         &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
-    let (isolated_body, repeat_workers) = if let Some((body_chunks, body_tail_frames)) = repeat {
-        let from_bar = loop_start_bar
-            .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
-        let body_window = PlannedWindow { from_bar, ..window };
-        let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
-        let body = render_window(
-            join::Joiner::for_plans_with_tail(
-                &body_window,
-                cps,
+    let (isolated_body, repeat_workers) =
+        if let Some(repeat) = export.and_then(|export| export.repeat) {
+            let (from_bar, start_frame) = loop_start
+                .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
+            let expected = music_frames
+                .checked_sub(start_frame)
+                .ok_or_else(|| RenderError::Render("loop begins past the opening".into()))?;
+            if repeat.music_frames.is_some_and(|frames| frames != expected) {
+                return Err(RenderError::Render(
+                    "isolated body length differs from the opening loop".into(),
+                ));
+            }
+            let body_window = PlannedWindow { from_bar, ..window };
+            let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
+            let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
+            let body = render_window(
+                join::Joiner::for_plans_with_tail(
+                    &body_window,
+                    cps,
+                    &body_chunks,
+                    2,
+                    Some(expected),
+                    repeat.tail_frames,
+                )?,
                 &body_chunks,
-                2,
-                body_tail_frames,
-            )?,
-            &body_chunks,
-            repeat_jobs,
-            repeat_workers,
-            strudeland_engine::render,
-            &|event| report_chunk(progress, event, chunks.len(), chunk_count),
-        )?;
-        engine_errors.extend(body.errors);
-        (Some(body.channels), repeat_workers)
-    } else {
-        (None, 0)
-    };
+                repeat_jobs,
+                repeat_workers,
+                strudeland_engine::render,
+                &|event| report_chunk(progress, event, chunks.len(), chunk_count),
+            )?;
+            engine_errors.extend(body.errors);
+            (Some(body.channels), repeat_workers)
+        } else {
+            (None, 0)
+        };
     let render_ms = ms_since(render_started);
 
     let summary = Summary {
@@ -206,6 +230,7 @@ fn render_audio_for(
     Ok(PipelineAudio {
         audio: RenderedAudio {
             channels: joined,
+            music_frames,
             cps,
             structure,
             lookback_sec,
@@ -214,8 +239,9 @@ fn render_audio_for(
             plan_errors,
             summary,
         },
-        loop_audio: loop_start_bar.map(|start_bar| LoopAudio {
+        loop_audio: loop_start.map(|(start_bar, start_frame)| LoopAudio {
             start_bar,
+            start_frame,
             isolated_body,
         }),
         stems,

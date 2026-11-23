@@ -588,6 +588,59 @@ fn a_rendered_file_is_written_and_overwritten() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+#[test]
+fn mixed_meter_exports_mark_the_complete_authored_repeat_in_decoded_frames() {
+    use strudeland_render::{ExportPreset, render_export};
+    let song = include_str!("../../../tests/render/mixed-meter-loop.js");
+    let opts = options(LengthRequest::Clip { loops: None });
+    for (preset, code, opening, repeat) in [
+        (ExportPreset::IntroLoop, song.to_owned(), 859_950, 771_750),
+        // At 137 BPM independently rounding the 35-quarter duration gives 675985.
+        // Subtract the rounded intro edge (77255) from the loop end (753241) instead.
+        (
+            ExportPreset::TaggedLoop,
+            song.replace("bpm: 120", "bpm: 137"),
+            753_241,
+            675_986,
+        ),
+        (
+            ExportPreset::FoldedLoop,
+            song.replace("bpm: 120", "bpm: 137"),
+            675_986,
+            675_986,
+        ),
+    ] {
+        let files = render_export(&code, &opts, preset, &|_| {}).unwrap();
+        let file = files.last().unwrap();
+        let points = file.loop_points.unwrap();
+        assert_eq!(points.length_frames, repeat, "{preset:?}");
+        let decoded = read_f32(&file.output.bytes).unwrap();
+        if preset == ExportPreset::IntroLoop {
+            assert_eq!(
+                read_f32(&files[0].output.bytes).unwrap().channels[0].len() as u64,
+                opening
+            );
+            assert_eq!(points.start_frame, 0);
+        } else {
+            assert_eq!(points.start_frame, opening);
+        }
+        assert_eq!(
+            decoded.channels[0].len() as u64,
+            points.start_frame + repeat
+        );
+        // The WAV smpl record contains the actual inclusive boundaries.
+        let smpl = &file.output.bytes[file.output.bytes.len() - 60..];
+        assert_eq!(
+            u32::from_le_bytes(smpl[44..48].try_into().unwrap()) as u64,
+            points.start_frame
+        );
+        assert_eq!(
+            u32::from_le_bytes(smpl[48..52].try_into().unwrap()) as u64 + 1,
+            points.start_frame + repeat
+        );
+    }
+}
+
 const GAME_LOOP: &str = r#"
 const meta = {
   bpm: 137, meter: '7/8', loops: 3,

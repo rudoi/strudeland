@@ -5,19 +5,28 @@
  */
 
 import type { RenderRequest, RenderResult, ScheduleResult } from '../lib/render/contract';
+import type { PlannedRender, RenderPlanRequest } from '../lib/render/job-plan';
 import type { PageJobInfo } from '../lib/render/page-job';
 import type { BINARY, UNARY } from './math';
 
 export type { PageJobInfo } from '../lib/render/page-job';
 
 /** What a page run does: `render` renders a chunk; `schedule` only queries; `job` plans the
- *  chunk's engine job (`src/lib/render/engine-job.ts`) without rendering; `math` evaluates V8
+ *  chunk's engine job (`src/lib/render/engine-job.ts`) and `plan` plans a whole render, both
+ *  without rendering; `math` evaluates V8
  *  `Math.*` over the groups inside an AudioWorklet (`src/render/math.ts`). */
 export type StartArgs =
   | {
       kind: 'render' | 'schedule' | 'job';
       request: RenderRequest;
       /** Where corpus samples are served, ending in `/` (`${origin}/samples/`). */
+      samplesBase: string;
+    }
+  | {
+      kind: 'plan';
+      code: string;
+      request: RenderPlanRequest;
+      samples?: RenderRequest['samples'];
       samplesBase: string;
     }
   | { kind: 'math'; groups: MathGroupInput[] };
@@ -80,6 +89,8 @@ export interface StrudelandRender {
   /** Slice `index` of the job's JSON, `sliceChars` characters each (default `JOB_SLICE_CHARS`):
    *  `ceil(jsonLength / sliceChars)` slices, concatenated in order (`assembleSlices`). */
   jobSlice(index: number, sliceChars?: number): string;
+  /** Kind 'plan'; returns the whole batch plan without rendering. */
+  plannedRender(): PlannedRender;
   /** Kind 'math'; throws unless done and not failed. */
   math(): MathGroupOutput[];
 }

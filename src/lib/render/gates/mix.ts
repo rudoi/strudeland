@@ -15,6 +15,7 @@ import {
   round,
 } from '../dsp';
 import type { RenderEvent } from '../schedule';
+import type { RenderTiming } from '../timing';
 import {
   CLICK_MAX_RATIO,
   CLICK_NEIGHBOR_BARS,
@@ -68,6 +69,8 @@ export interface MixInput {
   /** Exact: windowFrames(fromBar, toBar, cps, sampleRate) of the whole window. */
   expectedFrames: number;
   barSec: number;
+  /** The mixed-meter window whose rounded frames are indexed by seamSecs. */
+  meteredWindow?: { timing: RenderTiming; fromBar: number };
   /** Chunk seams, seconds from frame 0 of `channels` (AssembledWindow.seamSecs). */
   seamSecs: number[];
   /** Only when fromBar is 0; omitted = opening not checked. */
@@ -103,11 +106,10 @@ interface SeamClick {
  *  bar lines around it that are not seams (hard downbeats read high everywhere). */
 function seamClicks(
   ch: Float32Array,
-  sampleRate: number,
-  barSec: number,
-  seamSecs: number[],
+  { sampleRate, barSec, seamSecs, meteredWindow }: MixInput,
 ): SeamClick[] {
   const duration = ch.length / sampleRate;
+  const originFrame = meteredWindow?.timing.frameAt(meteredWindow.fromBar, sampleRate) ?? 0;
   const glob = Math.max(globalMedianStep(ch), 1e-6);
   const isSeam = (t: number) => seamSecs.some((s) => Math.abs(s - t) < 1e-3);
   const out: SeamClick[] = [];
@@ -117,9 +119,16 @@ function seamClicks(
     const ratio = step / glob;
     let click = ratio > CLICK_MAX_RATIO;
     if (click && barSec > 0) {
+      // Seam positions are frame-rounded offsets in this buffer. Recover the exact
+      // musical boundary before walking adjacent bars, even for a window late in the song.
+      const seamBar = meteredWindow
+        ? Math.round(meteredWindow.timing.cycleAt(seamSec + originFrame / sampleRate))
+        : 0;
       const near: number[] = [];
       for (let k = -CLICK_NEIGHBOR_BARS; k <= CLICK_NEIGHBOR_BARS; k++) {
-        const t = seamSec + k * barSec;
+        const t = meteredWindow
+          ? (meteredWindow.timing.frameAt(seamBar + k, sampleRate) - originFrame) / sampleRate
+          : seamSec + k * barSec;
         if (k !== 0 && t > 0 && t < duration - 0.01 && !isSeam(t)) near.push(t);
       }
       if (near.length > 0) {
@@ -182,7 +191,7 @@ export function verifyMix(channels: Float32Array[], input: MixInput): GateResult
   if (finite) {
     const bySeam = new Map<number, SeamClick>();
     for (const ch of channels) {
-      for (const s of seamClicks(ch, sr, input.barSec, input.seamSecs)) {
+      for (const s of seamClicks(ch, input)) {
         const cur = bySeam.get(s.seamSec);
         bySeam.set(s.seamSec, {
           seamSec: s.seamSec,

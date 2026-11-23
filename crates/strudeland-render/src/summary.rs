@@ -67,6 +67,8 @@ pub struct RenderedAudio {
     /// The joined window (`summary.window`): 2 channels of `summary.frames` samples at
     /// `summary.sample_rate`.
     pub channels: Vec<Vec<f32>>,
+    /// The content window, before any export tail.
+    pub music_frames: u64,
     pub cps: f64,
     pub structure: Structure,
     /// The full schedule's `'auto'` lookback, in seconds.

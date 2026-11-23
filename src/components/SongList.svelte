@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, SessionState } from '../lib/project/session';
   import type { RecordingController } from '../lib/recording/controller';
+  import { songTempoOf } from '../lib/recording/memo-ui';
   import type { Memos } from '../lib/recording/memos';
   import MemoList from './MemoList.svelte';
   import NewSong from './NewSong.svelte';
@@ -26,9 +27,7 @@
     recording?: RecordingController;
   } = $props();
   const song = $derived(
-    state.active !== null && state.structure !== null
-      ? { cps: state.structure.cps, meter: state.structure.meter }
-      : null,
+    state.active !== null && state.structure !== null ? songTempoOf(state.structure) : null,
   );
 </script>
 

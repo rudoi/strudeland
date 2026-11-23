@@ -20,6 +20,7 @@ import {
   type Selected,
   type WindowPlan,
 } from './plan';
+import { hapTiming, type RenderTiming } from './timing';
 import { eventsFromValues, type RenderEvent } from './schedule';
 
 export const ENGINE_JOB_SCHEMA = 2;
@@ -39,10 +40,14 @@ export type EngineValue =
 export interface EngineHap {
   /** Seconds from frame 0 of the chunk (not clamped; the engine applies superdough's late clamp). */
   t: number;
-  /** `hap.duration / cps`, seconds (includes `clip`/`legato`). */
+  /** Elapsed seconds (includes `clip`/`legato`). */
   duration: number;
   /** Absolute layout cycle of the onset. */
   cycle: number;
+  /** Cycles per second at the onset. Falls back to the job's CPS. */
+  cps?: number;
+  /** Elapsed layout seconds at the onset. Falls back to `cycle / cps`. */
+  phaseSec?: number;
   /** Index into `EngineJob.values`. */
   v: number;
   /** Index of the hap's event in the chunk's events (TS only; the engine ignores it). */
@@ -303,18 +308,19 @@ export function planEngineJob(
   req: RenderRequest,
   cps: number,
   seed: number,
+  timing?: RenderTiming,
 ): PlannedJob {
   const layout = channelPlan(
     chunkSelected.map((s) => s.value),
     req.mode,
   );
-  const events = eventsFromValues(eventSources(chunkSelected), cps);
+  const events = eventsFromValues(eventSources(chunkSelected), cps, timing);
   const orbits = orbitCreationOrder(chunkSelected, scheduleSelected, layout.multiChannelOrbits).map(
     (o) => ({ orbit: orbitNumber({ orbit: o.orbit }), channels: o.channels }),
   );
 
   const nBars = plan.c1 - plan.c0;
-  const { suspendSec } = pauseSchedule(nBars, cps, req.sampleRate);
+  const { suspendSec } = pauseSchedule(nBars, cps, req.sampleRate, timing, plan.c0);
   const buckets = bucketByBar(chunkSelected, plan.c0, nBars);
 
   const values: Record<string, EngineValue>[] = [];
@@ -333,13 +339,24 @@ export function planEngineJob(
 
   const pauses: EnginePause[] = suspendSec.map((at, j) => ({
     suspendSec: at,
-    haps: (buckets[j] ?? []).map((s) => ({
-      t: (s.onsetCycle - plan.c0) / cps,
-      duration: Number(s.hap.duration) / cps,
-      cycle: s.onsetCycle,
-      v: intern(s.value),
-      event: s.index,
-    })),
+    haps: (buckets[j] ?? []).map((s) => {
+      const time = hapTiming(
+        s.onsetCycle,
+        Number(s.hap.duration),
+        plan.c0,
+        cps,
+        timing,
+        plan.bufferStartSec,
+      );
+      return {
+        t: time.t,
+        duration: time.duration,
+        cycle: s.onsetCycle,
+        v: intern(s.value),
+        event: s.index,
+        ...(timing ? { cps: time.cps, phaseSec: time.phaseSec } : {}),
+      };
+    }),
   }));
 
   const job: EngineJob = {
@@ -532,12 +549,17 @@ export function validateEngineJob(x: unknown): { job: EngineJob | null; errors: 
 
 function hapErrors(h: unknown, where: string, nValues: number): string[] {
   if (!isRecord(h)) return [`${where}: not an object`];
-  const errors = fieldErrors(h, where, ['t', 'duration', 'cycle', 'v', 'event']);
+  const required = ['t', 'duration', 'cycle', 'v', 'event'];
+  const errors = fieldErrors(h, where, [...required, 'cps', 'phaseSec'], required);
   if (!isFiniteNumber(h.t) || h.t < 0) errors.push(`${where}.t: ${String(h.t)}, expected >= 0`);
   if (!isFiniteNumber(h.duration) || h.duration < 0) {
     errors.push(`${where}.duration: ${String(h.duration)}, expected >= 0`);
   }
   if (!isFiniteNumber(h.cycle)) errors.push(`${where}.cycle: ${String(h.cycle)}, not finite`);
+  if (Object.hasOwn(h, 'cps') && (!isFiniteNumber(h.cps) || h.cps <= 0))
+    errors.push(`${where}.cps: ${String(h.cps)}, expected > 0`);
+  if (Object.hasOwn(h, 'phaseSec') && (!isFiniteNumber(h.phaseSec) || h.phaseSec < 0))
+    errors.push(`${where}.phaseSec: ${String(h.phaseSec)}, expected >= 0`);
   if (!isUint(h.v, U32_MAX) || h.v >= nValues) {
     errors.push(`${where}.v: ${String(h.v)}, not an index into values (${nValues})`);
   }

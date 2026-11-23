@@ -1016,9 +1016,11 @@ pub struct EntryTimes {
     pub end_with_release: f64,
     /// The scheduling (pause) frame.
     pub now: u64,
-    /// The hap's layout cycle (`time = cycle / cps` of the tremolo and filter LFOs).
+    /// The musical onset used for cycle-synced LFO phase.
     pub cycle: f64,
-    /// The job's cycles per second.
+    /// Elapsed layout seconds at the onset for fixed-Hz modulation.
+    pub phase_sec: f64,
+    /// The local cycles per second at this onset.
     pub cps: f64,
 }
 
@@ -1030,6 +1032,7 @@ impl EntryTimes {
         end_with_release: 0.0,
         now: 0,
         cycle: 0.0,
+        phase_sec: 0.0,
         cps: 1.0,
     };
 }
@@ -1064,7 +1067,8 @@ fn build_ladder(
 /// `skew`, `shape`, `rate` is defined; `modDepth = depthfrequency ?? (depth ?? 1) * frequency`;
 /// built only when `modDepth` is truthy, with `{ begin, end: holdEnd, depth: modDepth,
 /// dcoffset (-0.5), skew, shape, frequency: rate ?? cps, min: -frequency + 30, max: 20000 -
-/// frequency, time: cycle / cps, curve: 1 }` (`frequency` is the filter's raw cutoff).
+/// frequency, curve: 1 }` (`frequency` is the filter's raw cutoff). Fixed rates use elapsed time
+/// and cycle-synced rates use musical time.
 pub fn filter_lfo(f: &FilterParams, times: &EntryTimes) -> Result<Option<Lfo>, VoiceError> {
     match filter_lfo_props(f, times) {
         Some(props) => Ok(Some(get_lfo(&props, times.now)?)),
@@ -1113,7 +1117,11 @@ pub fn filter_lfo_props(f: &FilterParams, times: &EntryTimes) -> Option<LfoProps
     Some(LfoProps {
         begin: Some(times.begin),
         end: Some(times.hold_end),
-        time: Some(times.cycle / times.cps),
+        time: Some(if defined(&l.sync) || !defined(&l.rate) {
+            times.cycle / times.cps
+        } else {
+            times.phase_sec
+        }),
         depth: Some(mod_depth),
         dcoffset: l.dcoffset.as_ref().map(js_to_number),
         frequency: Some(frequency),
@@ -1165,6 +1173,7 @@ pub fn build_entry(
         now,
         cycle,
         cps,
+        phase_sec,
     } = times;
     if let Some(attack) = params.transient {
         // Right after the amp envelope: its input goes with the source (the gains pass the
@@ -1243,7 +1252,7 @@ pub fn build_entry(
             skew: Some(tr.skew),
             frequency: Some(tr.frequency),
             depth: Some(tr.depth),
-            time: Some(cycle / cps),
+            time: Some(if tr.synced { cycle / cps } else { phase_sec }),
             dcoffset: Some(0.0),
             shape: tr.shape.as_ref().map(ShapeInput::from_value),
             phaseoffset: tr.phase,
@@ -1844,6 +1853,7 @@ mod tests {
                 hap_duration: 0.1,
                 now_frame: 0,
                 cycle: 0.0,
+                phase_sec: 0.0,
                 cps: 2.0,
             },
             &mut WaveTables::new(),
@@ -2534,6 +2544,7 @@ mod tests {
         end_with_release: 0.11,
         now: 0,
         cycle: 0.0,
+        phase_sec: 0.0,
         cps: 2.0,
     };
 
@@ -2613,6 +2624,7 @@ mod tests {
             end_with_release: 0.51,
             now: 128,
             cycle: 1.5,
+            phase_sec: 0.75,
             cps: 2.0,
         };
         let (mut stages, mut lfos) = (Vec::new(), Vec::new());
@@ -3065,6 +3077,7 @@ mod tests {
                     hap_duration: 0.2,
                     now_frame: 0,
                     cycle: 0.0,
+                    phase_sec: 0.0,
                     cps: 0.5,
                 },
                 &mut WaveTables::new(),
@@ -3569,6 +3582,7 @@ mod tests {
                 hap_duration: 0.1,
                 now_frame: 0,
                 cycle: 0.0,
+                phase_sec: 0.0,
                 cps: 2.0,
             },
             &mut WaveTables::new(),

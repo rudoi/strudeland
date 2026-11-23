@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { evaluateOptions, staticStructure } from '../src/lib/project/evaluate-options';
 import { parseMeta } from '../src/lib/project/meta';
 import { windowFrames, type RenderError, type RenderRequest } from '../src/lib/render/contract';
-import { planEngineJob, type EngineJob } from '../src/lib/render/engine-job';
+import { planEngineJob, validateEngineJob, type EngineJob } from '../src/lib/render/engine-job';
 import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
 import {
   cutSchedule,
@@ -664,14 +664,14 @@ describe('planRender length errors', () => {
       NO_LOOP_CODE,
       { kind: 'clip', loops: 2 },
       '--loops',
-      '--loops needs a section with loop: true in meta.sections',
+      '--loops needs meta.loop or a section with loop: true in meta.sections',
     ],
     [
       'loops on a song without sections',
       CODE,
       { kind: 'clip', loops: 2 },
       '--loops',
-      '--loops needs a section with loop: true in meta.sections',
+      '--loops needs meta.loop or a section with loop: true in meta.sections',
     ],
     [
       'loops 0',
@@ -1489,5 +1489,138 @@ describe('loop export windows and decay', () => {
       message: expect.stringContaining('render buffer too large'),
     });
     expect(f.queries).toEqual([]);
+  });
+});
+
+describe('mixed-meter render planning', () => {
+  const structureAt = (bpm: number) =>
+    buildStructure({
+      bpm,
+      sections: [
+        { name: 'opening', bars: 1 },
+        { name: 'F1', bars: 3 },
+        { name: 'F2', bars: 3 },
+        { name: 'E', bars: 4 },
+        { name: 'ending', bars: 1 },
+      ],
+      loop: { from: 'F1', through: 'E' },
+      meterChanges: [
+        { bar: 4, meter: '3/8' },
+        { bar: 5, meter: '4/4' },
+        { bar: 7, meter: '3/8' },
+        { bar: 8, meter: '4/4' },
+      ],
+      loops: 2,
+    });
+  const musicalHaps = (from: number, to: number) =>
+    Array.from({ length: to - from }, (_, i) => {
+      const bar = from + i;
+      return hap(bar, bar + 1, { s: 'sine', note: 60 + bar });
+    });
+
+  test.each([120, 137])('every loop preset uses the same complete %d BPM body', async (bpm) => {
+    const structure = structureAt(bpm);
+    const run = (preset: RenderPlanRequest['preset']) =>
+      planRender(
+        fakeRuntime({ structure, cps: structure.cps, query: musicalHaps }).rt,
+        CODE,
+        renderReq({ kind: 'clip' }, { preset, includeEvents: true }),
+        [],
+      );
+    const tagged = await run('tagged-loop');
+    const split = await run('intro-loop');
+    const folded = await run('folded-loop');
+    const edge = (quarters: number) => Math.round((quarters * 60 * 44100) / bpm);
+    const bodyFrames = edge(39) - edge(4);
+    if (bpm === 120) expect(bodyFrames).toBe(771750);
+    expect(tagged).toEqual(split);
+    expect(split.window).toEqual({ fromBar: 0, toBar: 11, layout: 'linear' });
+    expect(split.musicFrames).toBe(edge(39));
+    expect(split.export?.loopStartFrame).toBe(edge(4));
+    expect(split.export?.repeat?.musicFrames).toBe(bodyFrames);
+    expect(folded.window).toEqual({ fromBar: 1, toBar: 11, layout: 'linear' });
+    expect(folded.musicFrames).toBe(bodyFrames);
+    expect(folded.export?.loopStartFrame).toBe(0);
+    expect(split.export?.repeat?.chunks).toEqual(folded.chunks);
+
+    for (const pass of [split, folded]) {
+      expect(pass.chunks.reduce((sum, { plan }) => sum + plan.contentFrames!, 0)).toBe(
+        pass.musicFrames!,
+      );
+      for (const [index, { json, plan }] of pass.chunks.entries()) {
+        const tail = index === pass.chunks.length - 1 ? pass.export!.tailFrames : 0;
+        expect(plan.frames - plan.windowStartFrame).toBe(plan.contentFrames! + tail);
+        expect(validateEngineJob(JSON.parse(json)).errors).toEqual([]);
+      }
+    }
+  });
+
+  test('mapped jobs hold across a meter change and use onset-local sync CPS', async () => {
+    const structure = structureAt(120);
+    const runtime = fakeRuntime({
+      structure,
+      query: () => [
+        hap(2, 4, { s: 'sine', delay: 0.5, delaysync: 0.25 }),
+        hap(3, 4, { s: 'sine', delay: 0.5, delaysync: 0.25 }),
+      ],
+    });
+    const request = req({ code: CODE, fromBar: 0, toBar: 4, layout: 'linear' });
+    const { json, info } = await planJob(runtime.rt, request, []);
+    const job: EngineJob = JSON.parse(json);
+    expect(job.pauses.map((pause) => pause.suspendSec)).toEqual([0, 1.95, 3.95, 5.95]);
+    expect(job.pauses.flatMap((pause) => pause.haps)).toEqual([
+      { t: 4, duration: 2.75, cycle: 2, cps: 0.5, phaseSec: 4, v: 0, event: 0 },
+      { t: 6, duration: 0.75, cycle: 3, cps: 4 / 3, phaseSec: 6, v: 0, event: 1 },
+    ]);
+    expect(info.events.map((event) => event.delay?.timeSec)).toEqual([0.5, 0.1875]);
+    expect(info.plan.contentFrames).toBe(297675);
+    const h = job.pauses[2]!.haps[0]!;
+    h.cps = 0;
+    h.phaseSec = -1;
+    expect(validateEngineJob(job).errors).toEqual([
+      'pauses[2].haps[0].cps: 0, expected > 0',
+      'pauses[2].haps[0].phaseSec: -1, expected >= 0',
+    ]);
+  });
+
+  test('clip repeats the meter sequence and plans the ending after the second pass', async () => {
+    const structure = structureAt(120);
+    const request = renderReq({ kind: 'clip' }, { includeEvents: true });
+    const run = (reuse: boolean) =>
+      planRender(
+        fakeRuntime({ structure, query: musicalHaps }).rt,
+        CODE,
+        request,
+        [],
+        undefined,
+        reuse,
+      );
+    const plan = await run(true);
+    expect(plan).toEqual(await run(false));
+    expect(plan.window).toEqual({ fromBar: 0, toBar: 22, layout: 'clip' });
+    expect(plan.musicFrames).toBe(1719900);
+    expect(plan.events?.filter((event) => event.durSec < 1).map((event) => event.bar)).toEqual([
+      3, 6, 13, 16,
+    ]);
+    expect(plan.events?.at(-1)?.tSec).toBe(37);
+  });
+
+  test('a legacy marked section may contain an internal meter change', async () => {
+    const structure = buildStructure({
+      sections: [{ name: 'body', bars: 2, loop: true }],
+      meterChanges: [{ bar: 2, meter: '3/8' }],
+    });
+    const runtime = fakeRuntime({ structure, query: musicalHaps });
+    const plan = await planRender(
+      runtime.rt,
+      CODE,
+      renderReq({ kind: 'clip' }, { preset: 'folded-loop', includeEvents: true }),
+      [],
+    );
+    expect(plan.window).toEqual({ fromBar: 0, toBar: 2, layout: 'linear' });
+    expect(plan.musicFrames).toBe(121275);
+    expect(plan.export?.loopStartFrame).toBe(0);
+    expect(plan.export?.repeat).toBeUndefined();
+    expect(plan.events?.map((event) => event.durSec)).toEqual([2, 0.75]);
   });
 });

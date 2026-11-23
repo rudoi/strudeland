@@ -22,6 +22,7 @@ import type { Corpus, FixtureEntry } from '../src/lib/render/corpus';
 import type { UnsupportedSignature } from '../src/lib/render/engine-job';
 import { lookbackBars, lookbackSeconds, scaleChunkBars } from '../src/lib/render/lookback';
 import type { RenderEvent } from '../src/lib/render/schedule';
+import { buildStructure } from '../src/lib/strudel/structure';
 import {
   CHUNK_MIN_BARS,
   SEAM_OVERLAP_BARS,
@@ -120,7 +121,7 @@ class FakeRenderer implements Renderer {
       return {
         events: this.o.events ?? bassEvents(14),
         cps: CPS,
-        structure: null as never,
+        structure: buildStructure({}),
         errors: this.o.scheduleErrors ?? [],
         ...(this.o.unsupported ? { unsupported: this.o.unsupported } : {}),
       };

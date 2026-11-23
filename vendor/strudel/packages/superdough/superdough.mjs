@@ -459,7 +459,7 @@ const compileKabel = (code) => {
   return node.compile({ log: false });
 };
 
-export const superdough = async (value, t, hapDuration, cps = 0.5, cycle = 0.5) => {
+export const superdough = async (value, t, hapDuration, cps = 0.5, cycle = 0.5, phaseSec = cycle / cps) => {
   // mapping from main FX and numbered FX chains to nodes
   const nodes = { main: {} };
   // new: t is always expected to be the absolute target onset time
@@ -680,7 +680,7 @@ export const superdough = async (value, t, hapDuration, cps = 0.5, cycle = 0.5) 
     // filter
     const ftype = getFilterType(value.ftype);
 
-    const filt = (params) => createFilter(ac, t, end, params, cps, cycle);
+    const filt = (params) => createFilter(ac, t, end, params, cps, cycle, phaseSec);
     if (fx.cutoff !== undefined) {
       const lpMap = {
         frequency: 'cutoff',
@@ -828,7 +828,7 @@ export const superdough = async (value, t, hapDuration, cps = 0.5, cycle = 0.5) 
       const gain = Math.max(1 - tremolodepth, 0);
       const amGain = new GainNode(ac, { gain });
 
-      const time = cycle / cps;
+      const time = fx.tremolosync != null ? cycle / cps : phaseSec;
       const lfo = getLfo(ac, {
         skew: fx.tremoloskew ?? (fx.tremoloshape != null ? 0.5 : 1),
         frequency: tremolo,
@@ -1016,6 +1016,7 @@ export const superdough = async (value, t, hapDuration, cps = 0.5, cycle = 0.5) 
             ...params, fxi: params.fxi ?? key,
             cps,
             cycle,
+            phaseSec,
             begin: t,
             end: endWithRelease,
           },

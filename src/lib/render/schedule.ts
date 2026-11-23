@@ -5,11 +5,12 @@
 
 import { SAMPLE_RATE } from './contract';
 import { LOOKBACK_MARGIN_SEC } from './thresholds';
+import { hapTiming, type RenderTiming } from './timing';
 
 export interface RenderEvent {
-  /** Onset, layout seconds = hap.whole.begin / cps. */
+  /** Onset in layout seconds. */
   tSec: number;
-  /** Whole duration / cps (not the clipped hap part). */
+  /** Whole duration in seconds (not the clipped hap part). */
   durSec: number;
   /** floor(whole.begin) (layout bar). */
   bar: number;
@@ -255,7 +256,12 @@ function exportFilterTailSec(v: Record<string, unknown>): number {
   return Math.min(FILTER_MAX_TAIL_SEC, implicitSeconds + seconds * (doubled ? 2 : 1));
 }
 
-function toEvent(src: EventSource, cps: number, engineTiming = false): RenderEvent {
+function toEvent(
+  src: EventSource,
+  cps: number,
+  engineTiming = false,
+  timing?: RenderTiming,
+): RenderEvent {
   const raw: unknown = src.value;
   let v: Record<string, unknown>;
   if (typeof raw === 'string') v = { s: raw };
@@ -266,10 +272,11 @@ function toEvent(src: EventSource, cps: number, engineTiming = false): RenderEve
   const roomAmount = engineTiming ? roomNum(v.room) : num(v.room);
   const delayAmount = timingNum(v.delay);
   const note = typeof v.note === 'number' || typeof v.note === 'string' ? v.note : null;
+  const time = hapTiming(src.wholeBeginCycles, src.wholeDurCycles, 0, cps, timing);
 
   return {
-    tSec: src.wholeBeginCycles / cps,
-    durSec: src.wholeDurCycles / cps,
+    tSec: time.phaseSec ?? time.t,
+    durSec: time.duration,
     bar: Math.floor(src.wholeBeginCycles),
     s: typeof v.s === 'string' ? v.s : '',
     orbit: timingNum(v.orbit ?? undefined) ?? 1,
@@ -300,7 +307,7 @@ function toEvent(src: EventSource, cps: number, engineTiming = false): RenderEve
         ? {
             amount: delayAmount,
             timeSec:
-              timingNum(v.delaytime ?? undefined) ?? (timingNum(v.delaysync) ?? 3 / 16) / cps,
+              timingNum(v.delaytime ?? undefined) ?? (timingNum(v.delaysync) ?? 3 / 16) / time.cps,
             feedback: timingNum(v.delayfeedback) ?? 0.5,
           }
         : null,
@@ -314,9 +321,13 @@ function toEvent(src: EventSource, cps: number, engineTiming = false): RenderEve
 
 /** Events for `sources`, sorted by tSec ascending (ties keep input order). Throws RangeError
  *  unless cps is positive and finite. */
-export function eventsFromValues(sources: EventSource[], cps: number): RenderEvent[] {
+export function eventsFromValues(
+  sources: EventSource[],
+  cps: number,
+  timing?: RenderTiming,
+): RenderEvent[] {
   if (!Number.isFinite(cps) || cps <= 0) throw new RangeError(`invalid cps ${cps}`);
-  return sources.map((s) => toEvent(s, cps)).sort((a, b) => a.tSec - b.tSec);
+  return sources.map((s) => toEvent(s, cps, false, timing)).sort((a, b) => a.tSec - b.tSec);
 }
 
 /** The export's lifetime model follows the engine duration and numeric coercions. Keep the
@@ -326,11 +337,12 @@ export function exportTimingEvent(
   onset: number,
   duration: number,
   cps: number,
+  timing?: RenderTiming,
 ) {
   const src = { value, wholeBeginCycles: onset, wholeDurCycles: duration };
   const djf = Math.fround(engineNum(value.djf ?? undefined) ?? 0.5);
   return {
-    ...toEvent(src, cps, true),
+    ...toEvent(src, cps, true, timing),
     filterTailSec: exportFilterTailSec(value),
     djFilter: djf < 0.49 || djf > 0.51,
   };

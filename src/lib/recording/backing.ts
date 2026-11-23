@@ -8,6 +8,7 @@ import type { Metronome, MetronomeGrid } from '../audio/metronome';
 import type { EvalOutcome } from '../control/protocol';
 import type { Runtime } from '../strudel/runtime';
 import type { Meter } from '../strudel/structure';
+import { FIXED_METER_BACKING_MESSAGE } from './types';
 
 export type PrepareOutcome =
   | { ok: true; cps: number; meter: Meter; tempoOverride: boolean }
@@ -65,6 +66,7 @@ export const BACKING_MESSAGES = {
   audioOff: 'audio is not running: enable it in the status bar',
   songFailed: 'the song could not start',
   metronomeFailed: 'the metronome could not start',
+  mixedMeter: FIXED_METER_BACKING_MESSAGE,
 } as const;
 
 /** The prefix `session.evaluateBuffer` gives a meta error. */
@@ -83,6 +85,9 @@ export function createBackingStarter(deps: BackingDeps): BackingStarter {
       return { ok: false, kind: message.startsWith(META_PREFIX) ? 'meta' : 'eval', message };
     }
     const rs = get(runtime.store);
+    if (rs.structure?.meterChanges) {
+      return { ok: false, kind: 'meta', message: BACKING_MESSAGES.mixedMeter };
+    }
     return { ok: true, cps: rs.cps, meter: rs.meter, tempoOverride: rs.tempoOverride };
   }
 
@@ -90,6 +95,7 @@ export function createBackingStarter(deps: BackingDeps): BackingStarter {
     prepareSong,
     async startSong(opts = {}) {
       if (!opts.prepared && !(await prepareSong()).ok) return null;
+      if (get(runtime.store).structure?.meterChanges) return null;
       if (get(runtime.store).started) runtime.stop();
       const section = opts.section ?? null;
       if (section !== null) {

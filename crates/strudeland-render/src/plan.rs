@@ -35,22 +35,23 @@ pub(crate) fn plan(
     Ok((planned, started.elapsed().as_secs_f64() * 1000.0))
 }
 
-/// Parses every chunk's job (once; the workers render these) and refuses the render when any job
-/// has unsupported signatures. Nothing is rendered when this fails.
-pub(crate) fn check(planned: &PlannedRender) -> Result<Vec<EngineJob>, RenderError> {
+/// Takes each chunk's job text and decodes it for the workers, releasing the text as it goes.
+/// Refuses unsupported signatures before either pass renders.
+pub(crate) fn take_jobs(planned: &mut PlannedRender) -> Result<Vec<EngineJob>, RenderError> {
     let repeat = planned
         .export
-        .as_ref()
-        .and_then(|export| export.repeat.as_ref());
-    let mut jobs = Vec::with_capacity(planned.chunks.len() + repeat.map_or(0, |p| p.chunks.len()));
+        .as_mut()
+        .and_then(|export| export.repeat.as_mut());
+    let mut jobs =
+        Vec::with_capacity(planned.chunks.len() + repeat.as_ref().map_or(0, |p| p.chunks.len()));
     let mut signatures = Vec::new();
     for (i, chunk) in planned
         .chunks
-        .iter()
-        .chain(repeat.into_iter().flat_map(|p| &p.chunks))
+        .iter_mut()
+        .chain(repeat.into_iter().flat_map(|p| &mut p.chunks))
         .enumerate()
     {
-        let job = EngineJob::from_json(&chunk.json)
+        let job = EngineJob::from_json(&std::mem::take(&mut chunk.json))
             .map_err(|e| RenderError::Render(format!("chunk {i}: job: {e}")))?;
         signatures.extend(unsupported_signatures(&job));
         jobs.push(job);
@@ -113,20 +114,26 @@ pub(crate) fn section_of_song_bar(structure: &Structure, bar: i64) -> Option<&st
 /// `loops * loop_bars` bars after it are the loop section, and later bars map to the sections
 /// after the loop section. Without a loop section, the linear mapping.
 pub(crate) fn section_of_clip_bar(structure: &Structure, bar: i64) -> Option<&str> {
-    let Some(looped) = structure.loop_index.and_then(|i| structure.sections.get(i)) else {
+    let (start, end) = if let Some(range) = structure.loop_range {
+        (i64::from(range.start), i64::from(range.end))
+    } else if let Some(section) = structure.loop_index.and_then(|i| structure.sections.get(i)) {
+        let start = i64::from(section.start);
+        (start, start + i64::from(section.bars))
+    } else {
         return section_of_song_bar(structure, bar);
     };
-    let intro_end = i64::from(structure.intro_end);
-    let loop_bars = i64::from(looped.bars);
-    let loops_end = intro_end + i64::from(structure.loops) * loop_bars;
-    if bar < intro_end {
-        section_of_song_bar(structure, bar)
-    } else if bar < loops_end {
-        Some(looped.name.as_str())
-    } else {
-        let after = i64::from(looped.start) + loop_bars;
-        section_of_song_bar(structure, after + (bar - loops_end))
+    let period = end - start;
+    if period <= 0 || bar < start {
+        return section_of_song_bar(structure, bar);
     }
+    let elapsed = bar - start;
+    // Divide before comparing to avoid multiplying arbitrary plan lengths.
+    let authored = if elapsed / period < i64::from(structure.loops) {
+        start + elapsed % period
+    } else {
+        end.checked_add(elapsed - period * i64::from(structure.loops))?
+    };
+    section_of_song_bar(structure, authored)
 }
 
 #[cfg(test)]
@@ -156,6 +163,8 @@ mod tests {
                 section("tail", 6, 2, false),
             ],
             loop_index: Some(1),
+            loop_range: None,
+            meter_changes: None,
             loops: 2,
             total_bars: 8,
             intro_end: 2,
@@ -213,6 +222,20 @@ mod tests {
         assert_eq!(section_of_clip_bar(&three, 14), Some("tail"));
         assert_eq!(section_of_clip_bar(&three, 15), Some("tail"));
         assert_eq!(section_of_clip_bar(&three, 16), None);
+    }
+
+    #[test]
+    fn clip_diagnostics_follow_each_section_inside_a_repeated_range() {
+        let mut s = song_linear();
+        s.loop_range = Some(strudeland_host::LoopRange {
+            first: 0,
+            last: 1,
+            start: 0,
+            end: 6,
+        });
+        assert_eq!(section_of_clip_bar(&s, 6), Some("intro"));
+        assert_eq!(section_of_clip_bar(&s, 8), Some("body"));
+        assert_eq!(section_of_clip_bar(&s, 12), Some("tail"));
     }
 
     #[test]

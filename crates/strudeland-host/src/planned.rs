@@ -16,6 +16,9 @@ pub struct PlannedRender {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export: Option<PlannedExport>,
     pub cps: f64,
+    /// Musical content length, excluding the lookback and any export tail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music_frames: Option<u64>,
     /// The song's structure (with a `loops` override applied).
     pub structure: Structure,
     /// The longest lookback across the planned passes, in seconds.
@@ -36,6 +39,9 @@ pub struct PlannedRender {
 pub struct PlannedExport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_start_bar: Option<u32>,
+    /// Loop start relative to the opening's first content frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_start_frame: Option<u64>,
     pub tail_frames: u64,
     /// The isolated loop plan when the opening also contains intro bars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -46,6 +52,8 @@ pub struct PlannedExport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedRepeat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music_frames: Option<u64>,
     pub tail_frames: u64,
     pub chunks: Vec<PlannedChunk>,
 }
@@ -76,6 +84,9 @@ pub struct ChunkWindow {
     pub c1: u32,
     pub lookback_sec_used: f64,
     pub window_start_frame: u64,
+    /// Difference of the rounded absolute edges of this chunk's musical content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_frames: Option<u64>,
     pub buffer_start_sec: f64,
     pub frames: u64,
     pub from_bar: u32,
@@ -103,12 +114,32 @@ pub struct Structure {
     pub cps: f64,
     pub sections: Vec<Section>,
     pub loop_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_range: Option<LoopRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meter_changes: Option<Vec<MeterChange>>,
     pub loops: u32,
     pub total_bars: u32,
     pub intro_end: u32,
     pub end_of_song: Option<u32>,
     pub clip_bars: u32,
     pub clip_seconds: f64,
+}
+
+/// Inclusive section indices and half-open authored bar range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoopRange {
+    pub first: usize,
+    pub last: usize,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// A meter change at a zero-based authored bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeterChange {
+    pub bar: u32,
+    pub meter: Meter,
 }
 
 /// A meter (`'6/8'` is `{ num: 6, den: 8 }`).

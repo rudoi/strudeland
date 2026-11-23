@@ -83,6 +83,15 @@ describe('firstDifference', () => {
 });
 
 describe('parseParityArgs', () => {
+  test('mixed-meter plans use the dedicated fixture and can select a report directory', () => {
+    expect(parseParityArgs(['--mixed-meter', '--out', 'o'])).toMatchObject({
+      mixedMeter: true,
+      outDir: 'o',
+    });
+    const error = '--mixed-meter cannot be combined with --batch or fixture filters';
+    expect(parseParityArgs(['--mixed-meter', '--batch'])).toEqual({ error });
+    expect(parseParityArgs(['sine-basic', '--mixed-meter'])).toEqual({ error });
+  });
   test('defaults', () => {
     expect(parseParityArgs([])).toEqual({
       filters: [],

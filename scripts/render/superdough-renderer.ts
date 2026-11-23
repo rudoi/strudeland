@@ -12,6 +12,7 @@ import type {
   ScheduleResult,
 } from '../../src/lib/render/contract';
 import type { EngineJob } from '../../src/lib/render/engine-job';
+import type { PlannedRender, RenderPlanRequest } from '../../src/lib/render/job-plan';
 import { sliceCount } from '../../src/render/pcm';
 import type {
   MathGroupInput,
@@ -124,6 +125,25 @@ export class SuperdoughRenderer implements Renderer, JobSource {
       const job = JSON.parse(json) as EngineJob;
       return { job, text: json, info: { ...info, errors: [...info.errors, ...errors] } };
     });
+  }
+
+  async planRender(
+    code: string,
+    request: RenderPlanRequest,
+    samples?: RenderRequest['samples'],
+  ): Promise<PlannedRender> {
+    await this.chromium.open();
+    return this.withPage(
+      { kind: 'plan', code, request, samples, samplesBase: `${this.chromium.origin}/samples/` },
+      async ({ page, errors }) => {
+        const plan = await withTimeout(
+          page.evaluate(() => (window as any).strudelandRender.plannedRender() as PlannedRender),
+          TRANSFER_TIMEOUT_MS,
+          'batch plan',
+        );
+        return { ...plan, errors: [...plan.errors, ...errors] };
+      },
+    );
   }
 
   /** V8's `Math.*` over `groups`, evaluated in an AudioWorklet of a fresh page (kind `math`). */

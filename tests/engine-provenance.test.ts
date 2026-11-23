@@ -63,6 +63,8 @@ beforeEach(() => {
   put('src/lib/render/schedule.ts', 'schedule\n');
   put('src/lib/render/job-plan.ts', 'job plan\n');
   put('src/lib/render/page-job.ts', 'page job\n');
+  put('src/lib/render/timing.ts', 'render timing\n');
+  put('src/lib/strudel/timing.ts', 'layout timing\n');
   put('package.json', JSON.stringify({ devDependencies: { playwright: '1.64.1' } }));
   put(
     'node_modules/playwright-core/browsers.json',
@@ -138,7 +140,8 @@ describe('toolchainOf', () => {
       plannerSha256: sha(
         'src/lib/render/plan.ts\nplan\n\nsrc/lib/render/engine-job.ts\nengine job\n\n' +
           'src/lib/render/lookback.ts\nlookback\n\nsrc/lib/render/schedule.ts\nschedule\n\n' +
-          'src/lib/render/job-plan.ts\njob plan\n\nsrc/lib/render/page-job.ts\npage job\n\n',
+          'src/lib/render/job-plan.ts\njob plan\n\nsrc/lib/render/page-job.ts\npage job\n\n' +
+          'src/lib/render/timing.ts\nrender timing\n\nsrc/lib/strudel/timing.ts\nlayout timing\n\n',
       ),
       playwright: '1.64.1',
       chromium: '156.0.8078.4',
@@ -168,6 +171,8 @@ describe('toolchainOf', () => {
       'src/lib/render/schedule.ts',
       'src/lib/render/job-plan.ts',
       'src/lib/render/page-job.ts',
+      'src/lib/render/timing.ts',
+      'src/lib/strudel/timing.ts',
     ]);
     for (const f of PLANNER_FILES) {
       const before = plannerSha256(root);

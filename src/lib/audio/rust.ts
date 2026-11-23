@@ -306,7 +306,7 @@ export function createRustBackend(
       }
     },
 
-    output(hap: any, t, cps) {
+    output(hap: any, t, cps, timing) {
       if (pendingError) {
         const e = pendingError;
         pendingError = null;
@@ -316,7 +316,7 @@ export function createRustBackend(
       hap.ensureObjectValue();
       if (!hap.whole) return;
       const value = hap.value as Record<string, unknown>;
-      const duration = Number(hap.duration) / cps;
+      const duration = timing?.durationSec ?? Number(hap.duration) / cps;
       const cycle = Number(hap.whole.begin.valueOf());
       if (!Number.isFinite(t) || !Number.isFinite(duration) || !Number.isFinite(cycle)) return;
 
@@ -344,7 +344,9 @@ export function createRustBackend(
         }
         run.values.push([index, encoded, spec]);
       }
-      run.haps.push([t, duration, cycle, index]);
+      run.haps.push(
+        timing ? [t, duration, cycle, index, timing.phaseSec] : [t, duration, cycle, index],
+      );
       if (!microtaskQueued) {
         microtaskQueued = true;
         queueMicrotask(flush);
