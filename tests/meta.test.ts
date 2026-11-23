@@ -484,7 +484,7 @@ describe('structure fields', () => {
 
   test('loops needs a loop section, positioned at the loops value', () => {
     const e = errAt("const meta = { loops: 2, sections: [{ name: 'a', bars: 1 }] }", '2,');
-    expect(e.message).toBe('meta.loops needs a section with loop: true');
+    expect(e.message).toBe('meta.loops needs a section with loop: true or a meta.loop range');
     errAt('const meta = { loops: 2 }', '2 }');
     // The last `sections` wins, so its loop section is the one that counts.
     errAt(
@@ -575,5 +575,41 @@ describe('headerRanges', () => {
 
   test('a syntax error after the header still gives the header', () => {
     expect(headerRanges("const meta = { title: 'x' };\n$: s(")).not.toBeNull();
+  });
+});
+
+describe('meter changes and loop ranges', () => {
+  const layout = "sections: [{ name: 'F', bars: 2 }, { name: 'E', bars: 2 }]";
+  test('can resolve metadata independently of property order', () => {
+    const meta = ok(`const meta = { loops: 2, loop: { from: 'F', through: 'E' },
+      meterChanges: [{ bar: 2, meter: '3/4' }], ${layout} }`);
+    expect(meta.loop).toEqual({ from: 'F', through: 'E' });
+    expect(meta.meterChanges).toEqual([{ bar: 2, meter: '3/4' }]);
+  });
+  test('reports invalid range and meter changes against their metadata', () => {
+    expect(
+      errAt(`const meta = { ${layout}, loop: { from: 'E', through: 'F' } }`, "{ from: 'E'").message,
+    ).toContain('at or after');
+    expect(
+      errAt(`const meta = { ${layout}, loop: { from: 'F', through: 'G' } }`, "{ from: 'F'").message,
+    ).toContain('unknown section');
+    expect(
+      errAt(
+        "const meta = { sections: [{ name: 'F', bars: 2, loop: true }], loop: { from: 'F', through: 'F' } }",
+        "{ from: 'F'",
+      ).message,
+    ).toContain('cannot be used');
+    expect(
+      errAt(`const meta = { ${layout}, meterChanges: [{ bar: 5, meter: '3/4' }] }`, '[{ bar: 5')
+        .message,
+    ).toContain('at most 4');
+    expect(
+      errAt(
+        `const meta = { ${layout}, meterChanges: [{ bar: 3, meter: '3/4' }, { bar: 3, meter: '4/4' }] }`,
+        '[{ bar: 3',
+      ).message,
+    ).toContain('after the previous');
+    errAt(`const meta = { ${layout}, loop: { from: "F", through: 'E' } }`, '"F"');
+    errAt(`const meta = { ${layout}, meterChanges: [{ bar: 2, meter: "3/4" }] }`, '"3/4"');
   });
 });

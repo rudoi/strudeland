@@ -23,7 +23,7 @@ const BPM_MSG = 'meta.bpm must be a number from 20 to 400';
 const METER_MSG =
   "meta.meter must be a string 'N/D' with N from 1 to 32 and D one of 1, 2, 4, 8, 16";
 const LOOPS_MSG = 'meta.loops must be an integer from 1 to 1000';
-const NO_LOOP_MSG = 'meta.loops needs a section with loop: true';
+const NO_LOOP_MSG = 'meta.loops needs a section with loop: true or a meta.loop range';
 
 describe('tempo', () => {
   test('cpsFor', () => {
