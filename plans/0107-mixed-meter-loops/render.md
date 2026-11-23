@@ -1,0 +1,11 @@
+# Render and export timing
+
+[Proposal](proposal.md) · [Arrangement and clock](arrangement.md)
+
+The browser and headless adapters use the requested layout and the arrangement clock to plan event wall times. Keep logical bars for query windows, mutation selectors, section attribution and logical onset seed identity. Calculate duration from both logical endpoints. Use onset-local CPS for synced controls and absolute elapsed seconds for effects that need continuous phase. Engine schema 2 gains optional `HapRef.cps` and `HapRef.phaseSec`; retain the existing job CPS and `cycle / cps` fallbacks. Validate optional values in TS and Rust. The offline Superdough path shares these timing calculations.
+
+Mapped batch plans may serialize `PlannedRender.musicFrames`, optional `PlannedExport.loopStartFrame`, `PlannedRepeat.musicFrames`, and `ChunkWindow.contentFrames`. These fields measure musical content, excluding lookback and effect post-roll. `loopStartFrame` is relative to the opening buffer. Derive lengths from rounded absolute edges and use the same frame origin in both copies of the body. In Rust, validate logical tiling and explicit totals; keep legacy scalar fallback for old plans. Select preset bodies using `authoredLoop` and use the full resolved span in both the clean first traversal and isolated repeat. Preserve existing preset packaging and handles for wet tails and lossy decoding. Regular clip render and stems share the exact join path.
+
+Batch and browser plans must agree for the mixed fixture. Assert 771,750 repeat frames at 120 BPM and 44.1 kHz, and use fractional-sample boundaries for a second fixture. Exercise all loop presets, clip and linear timing, chunk parity, and stem lengths. Rebuild host and engine reference artifacts through repository commands. Review golden or vector deltas for legacy behavior.
+
+Fixed-Hz modulators use elapsed phase. Cycle-synced rates use the musical onset cycle divided by local CPS as phase time, which preserves musical phase at the onset of each hap. Existing retrigger and onset-rate behavior remains in effect. The Superdough invocation can take optional phase seconds in addition to the musical cycle, with a recorded vendored patch for the shared live and offline path.
