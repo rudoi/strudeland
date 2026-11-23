@@ -46,7 +46,8 @@ fn live_render(job: &EngineJob) -> (Vec<f32>, LiveEngine) {
                 duration_sec: hap.duration,
                 cycle: hap.cycle,
                 value: hap.v,
-                cps: job.cps,
+                phase_sec: hap.phase_sec,
+                cps: hap.cps.unwrap_or(job.cps),
             });
         }
     }
@@ -55,14 +56,17 @@ fn live_render(job: &EngineJob) -> (Vec<f32>, LiveEngine) {
 }
 
 fn check(file: &str) {
-    let job = common::load_job(file);
+    check_job(file, &common::load_job(file));
+}
+
+fn check_job(file: &str, job: &EngineJob) {
     assert!(
         job.orbits.len() <= job.values.len(),
         "{file}: more orbits than values"
     );
     assert_eq!(job.channels.count, 2, "{file}: the live engine is stereo");
-    let offline = render(&job).unwrap_or_else(|e| panic!("{file}: {e}"));
-    let (live, mut e) = live_render(&job);
+    let offline = render(job).unwrap_or_else(|e| panic!("{file}: {e}"));
+    let (live, mut e) = live_render(job);
     let frames = job.frames as usize;
     let bits = |x: &[f32]| x.iter().map(|s| s.to_bits()).collect::<Vec<_>>();
     for (c, channel) in offline.channels.iter().enumerate() {
@@ -135,4 +139,19 @@ fn fx_delay() {
 #[test]
 fn pulse_with_width_modulation() {
     check("pulse-pwm.job.json");
+}
+
+#[test]
+fn mapped_onsets_have_identical_fixed_phase_and_local_delay() {
+    let job = EngineJob::from_json(r#"{
+        "schema":2, "sampleRate":44100, "seed":0, "frames":22050, "cps":0.5,
+        "channels":{"count":2,"multiChannelOrbits":false},
+        "orbits":[{"orbit":1,"channels":[0,1]}],
+        "values":[{"s":"sine","tremolo":1.5,"delay":0.6,"delaysync":0.125}],
+        "pauses":[{"suspendSec":0,"haps":[
+            {"t":0,"duration":0.035,"cycle":1,"cps":1.3333333333333333,"phaseSec":2,"v":0,"event":0},
+            {"t":0.125,"duration":0.055,"cycle":1.1666666666666667,"cps":1.3333333333333333,"phaseSec":2.125,"v":0,"event":1}
+        ]}]
+    }"#).unwrap();
+    check_job("mixed-meter", &job);
 }

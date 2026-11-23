@@ -978,6 +978,8 @@ pub struct ModTimes {
     pub end: f64,
     pub cps: f64,
     pub cycle: f64,
+    /// Elapsed layout seconds at the onset for fixed-Hz modulation.
+    pub phase_sec: f64,
     pub now: u64,
 }
 
@@ -1108,7 +1110,8 @@ fn key_error(ty: ModType, key: &str) -> VoiceError {
 
 /// `connectLFO`'s `getLfo` call (`modParams`): the config's `shape`, `dcoffset`, `skew`, `curve`
 /// and `phaseoffset`, `begin: t`, `end: endWithRelease`, `frequency: sync !== undefined ? sync *
-/// cps : rate` (`rate = 1`), `time: retrig > 0.5 ? 0 : cycle / cps`, the depth and the range.
+/// cps : rate` (`rate = 1`), the depth and the range. Retrigger starts at zero. Otherwise,
+/// fixed rates use elapsed time and cycle-synced rates use musical time.
 fn build_lfo(
     config: &ValueMap,
     cv: f64,
@@ -1126,8 +1129,10 @@ fn build_lfo(
     let retrig = num(config, "retrig").unwrap_or(0.0);
     let time = if retrig > 0.5 {
         0.0
-    } else {
+    } else if config.contains_key("sync") {
         times.cycle / times.cps
+    } else {
+        times.phase_sec
     };
     let dcoffset = num(config, "dcoffset");
     let (min, max) = match range {
@@ -1290,6 +1295,7 @@ mod tests {
             hap_duration: 0.25,
             now_frame: 0,
             cycle: 0.5,
+            phase_sec: 0.25,
             cps: 2.0,
         }
     }

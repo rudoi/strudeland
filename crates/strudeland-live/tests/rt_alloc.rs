@@ -158,7 +158,7 @@ fn live_pressure_batch() -> Batch {
         haps: haps
             .into_iter()
             .filter(|h| h.0 < t0 + 2.0)
-            .map(|(t, d, c, v)| HapEntry(t - t0 + 0.3, d, c, v))
+            .map(|(t, d, c, v)| HapEntry(t - t0 + 0.3, d, c, v, None))
             .collect(),
         cps: job["cps"].as_f64().unwrap(),
     }

@@ -1,5 +1,6 @@
 /** Pure helpers behind `Timeline.svelte`: layout and input validation. */
 import {
+  authoredLoop,
   barsProblem,
   beatsPerBar,
   bpmProblem,
@@ -73,7 +74,7 @@ export const rulerBars = (s: SongStructure | null): number =>
 
 /** True when the structure has a loop section followed by at least one more section. */
 export const hasEnding = (s: SongStructure | null): boolean =>
-  s !== null && s.loopIndex !== null && s.loopIndex < s.sections.length - 1;
+  s !== null && (authoredLoop(s)?.end ?? s.totalBars) < s.totalBars;
 
 /**
  * The ruler playhead of a song without sections, as a percentage: the cycle modulo the 16-bar

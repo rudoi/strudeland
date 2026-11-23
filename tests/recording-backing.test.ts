@@ -285,3 +285,20 @@ describe('startMetronome and stopAll', () => {
     expect(h.rt.stops()).toBe(0);
   });
 });
+
+test('fixed-grid song backing refuses mixed meter before starting', async () => {
+  const h = setup();
+  h.rt.patch({
+    structure: buildStructure({
+      sections: [{ name: 'body', bars: 2 }],
+      meterChanges: [{ bar: 2, meter: '3/4' }],
+    }),
+  });
+  expect(await h.backing.prepareSong()).toEqual({
+    ok: false,
+    kind: 'meta',
+    message: 'song backing requires a fixed time signature',
+  });
+  expect(await h.backing.startSong({ prepared: true })).toBeNull();
+  expect(h.rt.starts()).toEqual([]);
+});

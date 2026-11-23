@@ -461,3 +461,22 @@ test('barPosition floors fractional song and local bars to 1-based whole bars', 
   });
   expect(barPosition({ section: 2, localCycle: 0, songBar: 6 }, structure)).toBeNull();
 });
+
+test('event beats use the meter of their authored bar', () => {
+  const structure = buildStructure({
+    sections: [{ name: 'body', bars: 3 }],
+    meterChanges: [
+      { bar: 2, meter: '7/8' },
+      { bar: 3, meter: '3/4' },
+    ],
+  });
+  const { events } = toEvents(
+    [hap(0.5, 1, 'a'), hap(1.5, 2, 'b'), hap(2.5, 3, 'c')],
+    opts({ structure }),
+  );
+  expect(events.map(({ bar, beat, section }) => [bar, beat, section?.name])).toEqual([
+    [1, 3, 'body'],
+    [2, 4.5, 'body'],
+    [3, 2.5, 'body'],
+  ]);
+});

@@ -392,6 +392,7 @@ export function sortMemos(items: readonly RecordingEntry[]): RecordingEntry[] {
 export interface SongTempo {
   cps: number;
   meter: Meter;
+  mixedMeter?: boolean;
 }
 
 /** `120 · 4/4`: bpm rounded to an integer, the meter as given. */

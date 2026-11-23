@@ -183,6 +183,7 @@ export interface Playhead {
 export interface TransportSummary {
   view: 'song' | 'loop' | 'release';
   loopSection: string | null;
+  loopThrough?: string;
   armedSection: string | null;
 }
 

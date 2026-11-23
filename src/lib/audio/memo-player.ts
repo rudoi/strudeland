@@ -178,6 +178,7 @@ export function createMemoPlayer(deps: MemoPlayerDeps): MemoPlayer {
     if (usesSong(how)) {
       const song = deps.songTempo();
       if (song === null) return fail(t, stem, 'audio', PLAYER_MESSAGES.noSong);
+      if (song.mixedMeter) return fail(t, stem, 'audio', PLAYER_MESSAGES.mixedMeter);
       // A take with a `setcps` recorded the evaluated tempo, which the static header cannot
       // show: only the check after the evaluate below applies.
       if (!sidecar!.tempo.tempoOverride && tempoChanged(sidecar!.tempo, song)) {

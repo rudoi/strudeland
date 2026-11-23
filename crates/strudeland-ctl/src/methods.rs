@@ -653,6 +653,9 @@ pub struct TransportSummary {
     pub view: TransportView,
     /// Section name while `view` is `loop`, else null.
     pub loop_section: Option<String>,
+    /// Last section of a temporary multi-section loop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_through: Option<String>,
     /// Section name armed while stopped, else null.
     pub armed_section: Option<String>,
 }
@@ -1393,6 +1396,7 @@ mod tests {
             TransportSummary {
                 view: TransportView::Release,
                 loop_section: None,
+                loop_through: None,
                 armed_section: Some("chorus".into()),
             },
         );

@@ -77,7 +77,11 @@ export function createMemos(deps: MemosDeps): Memos {
     songTempo() {
       const s = get(session.store);
       if (s.active === null || s.structure === null) return null;
-      return { cps: s.structure.cps, meter: s.structure.meter };
+      return {
+        cps: s.structure.cps,
+        meter: s.structure.meter,
+        ...(s.structure.meterChanges && { mixedMeter: true }),
+      };
     },
   });
 

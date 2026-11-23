@@ -61,6 +61,7 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
   });
   const runtime: Runtime = {
     scheduler: {},
+    drawingScheduler: {},
     store: { subscribe: store.subscribe },
     async evaluate(code, o) {
       evaluated.push(code);
@@ -105,6 +106,7 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
       store: { subscribe: transportStore.subscribe },
       startFrom: (i) => void transportCalls.push(`startFrom ${i}`),
       loopSection: (i) => void transportCalls.push(`loopSection ${i}`),
+      loopRange: (first, last) => void transportCalls.push(`loopRange ${first} ${last}`),
       playEnding: () => {},
       reset: () => {
         resets.push(evaluated.length);

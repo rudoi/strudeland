@@ -75,10 +75,20 @@ pub struct HapRef {
     pub duration: f64,
     /// Absolute layout cycle of the onset.
     pub cycle: f64,
+    /// Local measure rate. Older jobs use the job-wide CPS.
+    #[serde(default, deserialize_with = "optional_number")]
+    pub cps: Option<f64>,
+    /// Elapsed layout seconds for fixed-Hz modulation at this onset.
+    #[serde(default, deserialize_with = "optional_number")]
+    pub phase_sec: Option<f64>,
     /// Index into `EngineJob::values`.
     pub v: u32,
     /// Index of the hap's event on the TS side; read and ignored.
     pub event: u32,
+}
+
+fn optional_number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
+    f64::deserialize(deserializer).map(Some)
 }
 
 /// A control map with sorted keys.
@@ -319,6 +329,16 @@ impl EngineJob {
                 }
                 if !h.cycle.is_finite() {
                     errors.push(format!("{at}.cycle: {}, not finite", h.cycle));
+                }
+                if let Some(cps) = h.cps
+                    && !(cps.is_finite() && cps > 0.0)
+                {
+                    errors.push(format!("{at}.cps: {cps}, expected > 0"));
+                }
+                if let Some(sec) = h.phase_sec
+                    && !(sec.is_finite() && sec >= 0.0)
+                {
+                    errors.push(format!("{at}.phaseSec: {sec}, expected >= 0"));
                 }
                 if (h.v as usize) >= n_values {
                     errors.push(format!(
@@ -665,6 +685,24 @@ mod tests {
             Value::Set(vec![Value::Str("bad".into())]),
             "a string member is valid"
         );
+    }
+
+    #[test]
+    fn validates_mapped_hap_timing() {
+        let mut j = minimal();
+        let h = &mut j["pauses"][1]["haps"][0];
+        h["cps"] = json!(4.0 / 3.0);
+        h["phaseSec"] = json!(2.0);
+        let parsed = parse(j.clone()).unwrap();
+        assert_eq!(parsed.pauses[1].haps[0].cps, Some(4.0 / 3.0));
+        assert_eq!(parsed.pauses[1].haps[0].phase_sec, Some(2.0));
+        j["pauses"][1]["haps"][0]["cps"] = json!(0);
+        assert!(err(j.clone()).contains(".cps: 0"));
+        j["pauses"][1]["haps"][0]["cps"] = json!(1);
+        j["pauses"][1]["haps"][0]["phaseSec"] = json!(-1);
+        assert!(err(j.clone()).contains(".phaseSec: -1"));
+        j["pauses"][1]["haps"][0]["phaseSec"] = json!(null);
+        assert!(parse(j).is_err());
     }
 
     #[test]

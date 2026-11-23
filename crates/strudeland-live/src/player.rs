@@ -531,7 +531,7 @@ impl EngineThread {
         }
         let mut unknown: Vec<u32> = Vec::new();
         let haps: &[HapEntry] = if play { &batch.haps } else { &[] };
-        for HapEntry(t, duration, cycle, index) in haps {
+        for HapEntry(t, duration, cycle, index, phase_sec) in haps {
             let Some(&value) = self.index_of.get(index) else {
                 // A value that failed to decode was reported already; an unknown one once per batch.
                 if !self.failed.contains(index) && !unknown.contains(index) {
@@ -547,6 +547,7 @@ impl EngineThread {
                 t_sec: *t,
                 duration_sec: *duration,
                 cycle: *cycle,
+                phase_sec: *phase_sec,
                 value,
                 cps,
             });

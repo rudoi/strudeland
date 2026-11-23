@@ -445,3 +445,145 @@ test('live mirrors the rust stats once per change and is null after a swap', asy
   off();
   rt.stop();
 });
+
+const MIXED_HEADER = `const meta = {
+  meter: '4/4', sections: [{ name: 'phrase', bars: 3 }],
+  meterChanges: [{ bar: 2, meter: '3/8' }, { bar: 3, meter: '4/4' }]
+};`;
+const MIXED_SONG = `${MIXED_HEADER}
+stack(song(meta, {phrase: s('held').slow(2)}), s('outside').loopAt(1))`;
+
+test.each(['superdough', 'rust'] as const)(
+  '%s schedules the final mixed-meter pattern with musical seeds, elapsed phase and local CPS',
+  async (engine) => {
+    const { rt, b, rb, tick } = fake({ rust: true });
+    expect(await rt.evaluate(MIXED_SONG, { engine })).toBe(true);
+    const downbeat = rt.cycleTime(0)!;
+    expect(rt.cycleTime(2)! - downbeat).toBeCloseTo(2.75);
+    const haps = rt.query(0, 3)!.filter((h) => h.hasOnset() && h.value.s === 'outside');
+    expect(haps.map((h) => Number(h.whole.begin))).toEqual([0, 1, 2]);
+    expect(haps.map((h) => h.value.speed)).toEqual([0.5, 4 / 3, 0.5]);
+    tick(33);
+    const calls = (engine === 'rust' ? rb : b).calls;
+    const outside = calls.filter(([h]) => h.value.s === 'outside');
+    expect(outside.map(([h]) => Number(h.whole.begin))).toEqual([0, 1, 2]);
+    [0, 2, 2.75].forEach((seconds, i) =>
+      expect(outside[i]![1] - downbeat).toBeCloseTo(seconds, 10),
+    );
+    expect(outside.map(([, , cps, timing]) => [cps, timing])).toEqual([
+      [0.5, { phaseSec: 0, durationSec: 2 }],
+      [4 / 3, { phaseSec: 2, durationSec: 0.75 }],
+      [0.5, { phaseSec: 2.75, durationSec: 2 }],
+    ]);
+    const held = calls.filter(([h]) => h.value.s === 'held');
+    expect(held.map(([h]) => Number(h.whole.begin))).toEqual([0, 2]);
+    expect(held[0][3].durationSec).toBe(2.75);
+    expect(rt.drawingScheduler.now()).toBeCloseTo(rt.position().cycle);
+    rt.stop();
+  },
+);
+
+test('mixed-meter CPS changes produce a diagnostic and preserve the reference clock', async () => {
+  const { rt } = fake();
+  expect(await rt.evaluate(MIXED_SONG, { autostart: false })).toBe(true);
+  expect(await rt.evaluate(`${MIXED_HEADER}\nsetcps(2); song(meta, {phrase:s('click')})`)).toBe(
+    false,
+  );
+  expect(snap(rt).evalError).toContain('cannot change CPS');
+  expect(rt.query(0, 1)!.some((h) => h.value.s === 'held')).toBe(true);
+  expect(await rt.evaluate('s("bd")', { requiresMeterMap: true })).toBe(false);
+  expect(snap(rt).evalError).toContain('requires song(');
+  expect(await rt.evaluate(`${MIXED_HEADER}\nsong(meta, {phrase:s('click').cps(3)})`)).toBe(true);
+  expect(snap(rt).outputError).toContain('cannot change CPS');
+  expect(rt.scheduler.cps).toBe(0.5);
+  expect(() => rt.query(0, 1)).toThrow('cannot change CPS');
+  rt.stop();
+});
+
+test('count-in and a manual range start at the armed section’s meter', async () => {
+  const code = `const meta = {
+    sections: [{ name: 'intro', bars: 1 }, { name: 'a', bars: 1 }, { name: 'b', bars: 1 }],
+    meterChanges: [{ bar: 2, meter: '3/8' }, { bar: 3, meter: '4/4' }]
+  }; song(meta, {intro: s('intro'), a: s('a'), b: s('b')})`;
+  const { rt, b, tick } = fake();
+  expect(await rt.evaluate(code, { autostart: false })).toBe(true);
+  rt.transport.loopRange(1, 2, snap(rt).structure!);
+  expect(await rt.start({ countIn: true })).toBe(true);
+  const at = rt.cycleTime(0)!;
+  expect(rt.cycleTime(1)! - at).toBeCloseTo(0.75);
+  tick(44);
+  expect(b.calls.map(([h]) => h.value.s)).toEqual(['a', 'b', 'a', 'b']);
+  [0.75, 1.5, 3.5, 4.25].forEach((seconds, i) =>
+    expect(b.calls[i]![1] - at).toBeCloseTo(seconds, 10),
+  );
+  rt.stop();
+});
+
+test('mixed-meter backend handoff keeps logical onsets continuous after a shortened bar', async () => {
+  const { rt, b, rb, tick } = fake({ rust: true });
+  const code = `${MIXED_HEADER}\nsong(meta, {phrase: s('click')}).fast(4)`;
+  // Keep the arrangement running past the first handoff.
+  const looping = code.replace("name: 'phrase',", "name: 'phrase', loop: true,");
+  expect(await rt.evaluate(looping)).toBe(true);
+  await play(tick, 24);
+  expect(await rt.evaluate(looping, { engine: 'rust' })).toBe(true);
+  await play(tick, 26);
+  const calls = [...b.calls, ...rb.calls];
+  expect(rb.calls.length).toBeGreaterThan(0);
+  expect(calls.map(([hap]) => Number(hap.whole.begin))).toEqual(calls.map((_, i) => i / 4));
+  rt.stop();
+});
+
+test('editing a mixed meter preserves the play position at the scheduler handoff', async () => {
+  const { rt, b, tick } = fake();
+  expect(await rt.evaluate(MIXED_SONG)).toBe(true);
+  tick(25);
+  const last = rt.scheduler.lastEnd;
+  const anchor = rt.position().cycle;
+  const replacement = MIXED_SONG.replace("meter: '3/8'", "meter: '2/4'");
+  expect(await rt.evaluate(replacement)).toBe(true);
+  expect(rt.scheduler.lastEnd).toBe(last);
+  expect(rt.position().cycle).toBeCloseTo(anchor, 10);
+  tick(12);
+  const outside = b.calls.filter(([h]) => h.value.s === 'outside');
+  expect(outside.map(([h]) => Number(h.whole.begin))).toEqual([0, 1, 2]);
+  rt.stop();
+});
+
+test('a failed mixed-meter autostart leaves the last accepted pattern and its clock installed', async () => {
+  const { rt } = fake();
+  expect(await rt.evaluate(MIXED_SONG, { autostart: false })).toBe(true);
+  const start = rt.scheduler.start;
+  rt.scheduler.start = async () => {
+    throw new Error('clock failed');
+  };
+  try {
+    expect(await rt.evaluate('s("replacement")')).toBe(false);
+    expect(rt.query(0, 1)!.some((h) => h.value.s === 'held')).toBe(true);
+  } finally {
+    rt.scheduler.start = start;
+  }
+  expect(await rt.start()).toBe(true);
+  expect(rt.cycleTime(2)! - rt.cycleTime(0)!).toBeCloseTo(2.75);
+  rt.stop();
+});
+
+test('a dominant custom mixed-meter output receives the logical onset and measured gate', async () => {
+  const { rt, b, tick } = fake();
+  const calls: number[][] = [];
+  await core.evalScope({
+    captureMeteredGate: (h: any, t: number, cps: number) =>
+      calls.push([Number(h.whole.begin), t, Number(h.duration) / cps, cps]),
+  });
+  expect(
+    await rt.evaluate(`${MIXED_HEADER}
+song(meta, {phrase: s('held').slow(2)}).onSchedule(captureMeteredGate)`),
+  ).toBe(true);
+  const at = rt.cycleTime(0)!;
+  tick(30);
+  expect(calls.map(([onset]) => onset)).toEqual([0, 2]);
+  expect(calls[0]![2]).toBeCloseTo(2.75);
+  expect(calls[1]![1] - at).toBeCloseTo(2.75);
+  expect(b.calls).toHaveLength(0);
+  rt.stop();
+});

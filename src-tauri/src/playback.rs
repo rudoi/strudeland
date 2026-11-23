@@ -319,7 +319,7 @@ mod tests {
     fn batch(duration: f64) -> Batch {
         Batch {
             values: vec![ValueEntry(0, serde_json::json!({ "s": "sine" }), None)],
-            haps: vec![HapEntry(0.0, duration, 0.0, 0)],
+            haps: vec![HapEntry(0.0, duration, 0.0, 0, None)],
             cps: 1.0,
         }
     }
@@ -462,7 +462,7 @@ mod tests {
                     channels: vec![0, 1],
                 }),
             )],
-            haps: vec![HapEntry(0.3, 0.3, 0.3, 0)],
+            haps: vec![HapEntry(0.3, 0.3, 0.3, 0, None)],
             cps: 1.0,
         };
         schedule(&state, id, loud).unwrap();
@@ -484,7 +484,7 @@ mod tests {
         for _ in 0..3 {
             let b = Batch {
                 values: vec![],
-                haps: vec![HapEntry(0.0, 0.1, 0.0, 0)],
+                haps: vec![HapEntry(0.0, 0.1, 0.0, 0, None)],
                 cps: 1.0,
             };
             schedule(&state, id, b).unwrap();

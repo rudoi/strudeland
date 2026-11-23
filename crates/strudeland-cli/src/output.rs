@@ -145,10 +145,13 @@ pub fn format_state(s: &AppState) -> String {
     let mut parts: Vec<String> = Vec::new();
     match s.transport.view {
         TransportView::Song => {}
-        TransportView::Loop => parts.push(match &s.transport.loop_section {
-            Some(name) => format!("loop {name}"),
-            None => "loop".into(),
-        }),
+        TransportView::Loop => parts.push(
+            match (&s.transport.loop_section, &s.transport.loop_through) {
+                (Some(first), Some(last)) => format!("loop {first} through {last}"),
+                (Some(name), None) => format!("loop {name}"),
+                (None, _) => "loop".into(),
+            },
+        ),
         TransportView::Release => parts.push("ending".into()),
     }
     if let Some(name) = &s.transport.armed_section {
@@ -1791,6 +1794,7 @@ bar 2  intro 2
             s.transport = TransportSummary {
                 view: TransportView::Loop,
                 loop_section: Some("body".into()),
+                loop_through: None,
                 armed_section: None,
             };
             s.output_error = Some("sound nope not found! Is it loaded?".into());
@@ -1827,6 +1831,7 @@ bar 2  intro 2
                 s.transport = TransportSummary {
                     view,
                     loop_section: loop_section.map(Into::into),
+                    loop_through: None,
                     armed_section: armed.map(Into::into),
                 };
                 s.eval_error = Some("boom".into());

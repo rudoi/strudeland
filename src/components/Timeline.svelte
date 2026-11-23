@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import type { App } from '../lib/app';
   import {
     blockPlayhead,
@@ -13,7 +14,7 @@
     rulerMarks,
     type InputField,
   } from '../lib/project/timeline';
-  import { meterString } from '../lib/strudel/structure';
+  import { authoredLoop, meterString } from '../lib/strudel/structure';
   import { canPlayEnding, type Located } from '../lib/strudel/transport';
   import { catOf } from '../lib/theme/tones';
   import SectionBlock from './SectionBlock.svelte';
@@ -37,8 +38,11 @@
   const bars = $derived(rulerBars(structure));
   const marks = $derived(rulerMarks(bars));
   // Beat ticks between the bar marks, for the meter of what the blocks show.
-  const ticks = $derived(minorTicks(bars, structure?.meter ?? $rt.meter));
-  const hasLoop = $derived(structure !== null && structure.loopIndex !== null);
+  const ticks = $derived(
+    structure?.meterChanges ? 0 : minorTicks(bars, structure?.meter ?? $rt.meter),
+  );
+  const savedLoop = $derived(structure && authoredLoop(structure));
+  const hasLoop = $derived(savedLoop !== null);
   const ending = $derived(hasEnding(structure));
 
   // The evaluated song is the active one; otherwise there is no playhead or menu.
@@ -69,13 +73,15 @@
   );
   const head = $derived(playingActive ? blockPlayhead(structure, position.located) : null);
   const activeSection = $derived(playingActive ? (position.located?.section ?? null) : null);
-  const loopedSection = $derived($tp.view.kind === 'loop' ? $tp.view.section : null);
+  const audition = $derived($tp.view.kind === 'loop' ? $tp.view : null);
   const endingEnabled = $derived(
     canPlayEnding($rt.started, $rt.structure, $tp.view, position.located) && playingActive,
   );
 
   // ---- section menu ----
   let menuFor = $state<number | null>(null);
+  let choosingEnd = $state(false);
+  let track: HTMLDivElement;
   const armedName = $derived(
     $tp.armedSection === null ? null : (structure?.sections[$tp.armedSection]?.name ?? null),
   );
@@ -84,6 +90,7 @@
   function openMenu(e: MouseEvent, index: number) {
     e.stopPropagation();
     menuFor = menuFor === index ? null : index;
+    choosingEnd = false;
   }
   /** Start here or loop this section; while stopped, also evaluate so it starts. */
   function arm(i: number, act: 'startFrom' | 'loopSection') {
@@ -97,6 +104,18 @@
     const s = resolveStructure();
     menuFor = null;
     if (s) runtime.transport.loopSection(null, s);
+  }
+  function armRange(first: number, last: number) {
+    const s = resolveStructure();
+    menuFor = null;
+    if (!s) return;
+    runtime.transport.loopRange(first, last, s);
+    if (!$rt.started) app.evaluateDoc();
+  }
+  async function showRangeOptions(show: boolean) {
+    choosingEnd = show;
+    await tick();
+    track.querySelector<HTMLButtonElement>('[data-range-focus]')?.focus();
   }
 
   // ---- meta inputs ----
@@ -151,7 +170,7 @@
   </div>
 
   {#if !playingOther}
-    <div class="track">
+    <div class="track" bind:this={track}>
       {#if sections.length > 0}
         <div class="blocks">
           {#each sections as sec, i (i)}
@@ -160,8 +179,10 @@
                 cat={catOf(i)}
                 name={sec.name}
                 bars={sec.bars}
-                loop={sec.loop}
-                looping={loopedSection === i}
+                loop={savedLoop !== null && i >= savedLoop.first && i <= savedLoop.last}
+                looping={audition !== null &&
+                  i >= audition.section &&
+                  i <= (audition.through ?? audition.section)}
                 current={activeSection === i}
                 lit={head?.section === i ? litBars(sec.bars, head.localCycle) : 0}
                 onclick={(e) => openMenu(e, i)}
@@ -169,12 +190,29 @@
                 aria-expanded={menuFor === i}
               >
                 {#snippet menu()}
-                  <Menu open={menuFor === i} onclose={() => (menuFor = null)}>
-                    <MenuItem onclick={() => arm(i, 'startFrom')}>start here</MenuItem>
-                    <MenuItem onclick={() => arm(i, 'loopSection')}>loop this section</MenuItem>
-                    <MenuItem onclick={stopLooping} disabled={$tp.view.kind !== 'loop'}>
-                      stop looping
-                    </MenuItem>
+                  <Menu open={menuFor === i} onclose={() => (menuFor = null)} class="section-menu">
+                    {#if choosingEnd}
+                      <MenuItem onclick={() => showRangeOptions(false)}>back</MenuItem>
+                      {#each sections.slice(i + 1) as end, offset (end.name)}
+                        <MenuItem
+                          data-range-focus={offset === 0 ? '' : undefined}
+                          onclick={() => armRange(i, i + offset + 1)}
+                        >
+                          through {end.name}
+                        </MenuItem>
+                      {/each}
+                    {:else}
+                      <MenuItem onclick={() => arm(i, 'startFrom')}>start here</MenuItem>
+                      <MenuItem onclick={() => arm(i, 'loopSection')}>loop this section</MenuItem>
+                      {#if i < sections.length - 1}
+                        <MenuItem data-range-focus="" onclick={() => showRangeOptions(true)}
+                          >loop through…</MenuItem
+                        >
+                      {/if}
+                      <MenuItem onclick={stopLooping} disabled={$tp.view.kind !== 'loop'}>
+                        stop looping
+                      </MenuItem>
+                    {/if}
                   </Menu>
                 {/snippet}
               </SectionBlock>
@@ -194,6 +232,16 @@
           <span class="mark mono" style:left="{(bar / bars) * 100}%">{bar + 1}</span>
         {/each}
       </div>
+      {#if structure?.meterChanges}
+        <ul class="meter-changes mono" aria-label="time signature changes">
+          {#each structure.meterChanges.slice(0, 32) as change (change.bar)}
+            <li>bar {change.bar + 1} · {meterString(change.meter)}</li>
+          {/each}
+          {#if structure.meterChanges.length > 32}
+            <li>{structure.meterChanges.length - 32} more in the header</li>
+          {/if}
+        </ul>
+      {/if}
       {#if pct !== null}
         <div class="playhead" style:left="{pct}%"></div>
       {/if}
@@ -213,7 +261,7 @@
         onchange={(e) => commit(e, 'bpm', 'bpm')}
       />
       <Field
-        label="meter"
+        label={structure.meterChanges ? 'starting meter' : 'meter'}
         size="sm"
         width="narrow"
         class="mono"
@@ -290,6 +338,10 @@
     flex-basis: 0;
     min-width: 44px;
   }
+  .cell :global(.section-menu) {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
   .ruler {
     position: relative;
     height: var(--ruler-h);
@@ -310,6 +362,16 @@
     color: var(--text-faint);
     font-size: var(--fs-2xs);
     line-height: var(--ruler-h);
+  }
+  .meter-changes {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--text-dim);
+    font-size: var(--fs-2xs);
   }
   /* The scan line: a 1px phosphor line with a nub on top and an afterglow tail behind it. */
   .playhead {

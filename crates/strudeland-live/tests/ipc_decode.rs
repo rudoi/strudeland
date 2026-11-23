@@ -53,7 +53,7 @@ fn make_batch(f: &Fixture, n: usize, new_values: bool) -> Batch {
             let orbit = (i == 0).then(|| f.orbit.clone());
             values.push(ValueEntry(index, f.values[v].clone(), orbit));
         }
-        haps.push(HapEntry(t + i as f64 * 0.01, d, c, index));
+        haps.push(HapEntry(t + i as f64 * 0.01, d, c, index, None));
     }
     Batch {
         values,

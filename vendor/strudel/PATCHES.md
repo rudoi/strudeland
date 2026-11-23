@@ -131,3 +131,15 @@ packages/superdough/reverbGen.mjs
 packages/superdough/vowel.mjs
 packages/superdough/worklets.mjs
 ```
+
+## mixed-meter-phase: pass elapsed time separately from musical cycles
+Upstream: candidate
+An optional sixth argument to `superdough` supplies elapsed layout seconds for fixed-Hz
+filter LFOs, tremolo and modulation. Beat-synced rates keep their musical phase and the
+logical cycle continues to identify each seeded voice. Omitted elapsed time defaults to
+the original cycle divided by CPS.
+```files
+packages/superdough/superdough.mjs
+packages/superdough/helpers.mjs
+packages/superdough/modulators.mjs
+```

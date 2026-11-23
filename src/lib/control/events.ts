@@ -2,7 +2,7 @@
 // source line and column each came from. Pure (no Strudel, Tauri or DOM), so it runs under
 // `bun test` with hand-made haps as well as real ones.
 
-import type { Meter, SongStructure } from '../strudel/structure';
+import { meterAtBar, type Meter, type SongStructure } from '../strudel/structure';
 import { LINEAR_SEGMENTS, locate, type Located } from '../strudel/transport';
 import type { EventLocation, InspectedEvent, SectionPos } from './protocol';
 
@@ -153,9 +153,10 @@ export function toEvents(
     const begin = Number(span.begin);
     const end = Number(span.end);
     const whole = Math.floor(begin);
+    const meter = opts.structure?.meterChanges ? meterAtBar(opts.structure, whole) : opts.meter;
     events.push({
       bar: whole + 1,
-      beat: 1 + (begin - whole) * opts.meter.num,
+      beat: 1 + (begin - whole) * meter.num,
       begin,
       end,
       onset,

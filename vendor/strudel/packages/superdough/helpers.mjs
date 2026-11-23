@@ -231,7 +231,7 @@ export function applyParameterModulators(audioContext, param, start, end, envelo
   const lfo = getParamLfo(audioContext, param, start, end, lfoValues);
   return lfo;
 }
-export function createFilter(context, start, end, params, cps, cycle) {
+export function createFilter(context, start, end, params, cps, cycle, phaseSec = cycle / cps) {
   let {
     frequency,
     anchor,
@@ -285,7 +285,7 @@ export function createFilter(context, start, end, params, cps, cycle) {
   let lfo;
   if (hasLFO) {
     depth = depth ?? 1;
-    const time = cycle / cps;
+    const time = sync != null || rate == null ? cycle / cps : phaseSec;
     const modDepth = depthfrequency ?? (depth ?? 1) * frequency;
     const lfoValues = {
       depth: modDepth,

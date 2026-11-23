@@ -1,4 +1,13 @@
-import { getRNGMode, repl, State, TimeSpan, useRNG } from '@strudel/core';
+import {
+  getRNGMode,
+  Pattern,
+  repl,
+  setPattern as exposePattern,
+  setTime,
+  State,
+  TimeSpan,
+  useRNG,
+} from '@strudel/core';
 import { transpiler } from '@strudel/transpiler';
 import type { AudioBackend } from '../audio/backend';
 import type { LiveStats } from '../audio/playback-api';
@@ -11,9 +20,20 @@ import {
 } from '../levels/levels';
 import type { Readable } from 'svelte/store';
 import type { Hap, ScheduleRoute } from './types';
+import { meteredPlayback, meteredSchedule, MIXED_CPS_ERROR, queryMetered } from './metered-pattern';
+import { layoutClock, type LayoutClock } from './timing';
 import { applySeed } from './seed';
 import { beginEvaluate, registeredStructure, setSegmentSource } from './song';
-import { cpsFor, DEFAULT_BPM, DEFAULT_METER, type Meter, type SongStructure } from './structure';
+import {
+  buildStructure,
+  cpsFor,
+  sameStructure,
+  meterString,
+  DEFAULT_BPM,
+  DEFAULT_METER,
+  type Meter,
+  type SongStructure,
+} from './structure';
 import {
   canPlayEnding,
   inCountIn,
@@ -26,7 +46,6 @@ import {
   withRelease,
   withCountIn,
   withStartFrom,
-  restartAt,
   type Located,
   type Segment,
   type Transport,
@@ -38,6 +57,10 @@ import { errorMessage } from '../errors';
 /** Tempo for one evaluate. Omitted values use the defaults (120 quarter-note bpm, 4/4). */
 export interface EvaluateOptions {
   cps?: number;
+  /** New metadata that requires a matching evaluated song() arrangement. */
+  requiresMeterMap?: boolean;
+  requiresSong?: boolean;
+  expectedArrangement?: SongStructure;
   meter?: Meter;
   /** Seeds the whole pattern (an inner `.seed()` still wins); omitted: unseeded. */
   seed?: number;
@@ -135,6 +158,8 @@ export interface RuntimeHooks {
 
 export interface Runtime {
   readonly scheduler: any;
+  /** The drawer reads musical positions and queries the authored pattern. */
+  readonly drawingScheduler: any;
   readonly store: Readable<RuntimeState>;
   /**
    * Resolves true iff the code evaluated without error. Never throws. Sets cps from `opts` (or the
@@ -211,7 +236,9 @@ const isInitial = (seg: readonly Segment[]): boolean =>
   seg.length === 1 && seg[0]!.at === 0 && seg[0]!.songBar === 0 && seg[0]!.view.kind === 'song';
 
 const sameView = (a: View, b: View): boolean =>
-  a.kind === b.kind && (a.kind !== 'loop' || a.section === (b as typeof a).section);
+  a.kind === b.kind &&
+  (a.kind !== 'loop' ||
+    (a.section === (b as typeof a).section && a.through === (b as typeof a).through));
 
 export function createRuntime(opts: RuntimeOptions): Runtime {
   const { backends, hooks } = opts;
@@ -277,10 +304,12 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const soundUntil: Record<EngineId, number> = { superdough: 0, rust: 0 };
 
   const output: AudioBackend['output'] = async (hap, t, cps) => {
-    const end = t + Number((hap as any).duration) / cps;
+    const mapped = meteredSchedule(hap);
+    const end = t + (mapped?.timing.durationSec ?? Number((hap as any).duration) / cps);
     if (end > soundUntil[activeId]) soundUntil[activeId] = end;
     try {
-      await active().output(hap, t, cps);
+      if (mapped) await active().output(mapped.hap, t, mapped.cps, mapped.timing);
+      else await active().output(hap, t, cps);
     } catch (e) {
       // A failing sound fails on every hap; report each distinct message once.
       if (state.outputError === errorMessage(e)) return;
@@ -293,7 +322,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
    * The tempo of the evaluate in progress. `repl()`'s hooks are created once, so they read it from
    * here; evaluates are serialized (`queue`), so no other call can change it meanwhile.
    */
-  let pending: { cps: number; meter: Meter; seed: number | undefined } = {
+  let pending: EvaluateOptions & { cps: number; meter: Meter; seed: number | undefined } = {
     cps: defaultCps,
     meter: DEFAULT_METER,
     seed: undefined,
@@ -309,6 +338,32 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   /** The one mutable segment list; `song()` reads it at every query. */
   let segments: readonly Segment[] = INITIAL_SEGMENTS;
   setSegmentSource(() => segments);
+  let liveStructure: SongStructure | null = null;
+  let clock: LayoutClock | null = null;
+  // A hot edit starts at Cyclist's query horizon. Audio between the audible
+  // playhead and that horizon still follows the previous arrangement.
+  type ClockHistory = { end: { cycle: number; clock: number }; map: LayoutClock | null }[];
+  let audibleHistory: ClockHistory = [];
+  // phase = offset + reference clock / CPS, rebased when an evaluate changes the tempo.
+  let phaseOffsetSec = 0;
+  const toCycle = (reference: number) => {
+    const previous = audibleHistory.find((h) => reference < h.end.clock);
+    return (previous ? previous.map : clock)?.toCycle(reference) ?? reference;
+  };
+  const toClock = (cycle: number) => {
+    const previous = audibleHistory.find((h) => cycle < h.end.cycle);
+    return (previous ? previous.map : clock)?.toClock(cycle) ?? cycle;
+  };
+  function setLiveLayout(next: readonly Segment[], anchor?: { cycle: number; clock: number }) {
+    segments = next;
+    const needsClock =
+      liveStructure?.meterChanges?.length || (anchor && anchor.cycle !== anchor.clock);
+    clock = liveStructure && needsClock ? layoutClock(liveStructure, next, anchor) : null;
+  }
+  function scheduledAnchor() {
+    const reference = Number(r.scheduler.lastEnd);
+    return { cycle: toCycle(reference), clock: reference };
+  }
   let transportState: TransportState = {
     view: { kind: 'song' },
     pendingStart: false,
@@ -326,7 +381,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const view = last.view;
     // Only `start()` installs a count-in, always followed by the real segments.
     if (view.kind === 'count-in') throw new Error('transport: a count-in cannot be last');
-    segments = next;
+    if (next !== segments || !started) {
+      setLiveLayout(next, started ? scheduledAnchor() : undefined);
+      if (!started) {
+        phaseOffsetSec = 0;
+        audibleHistory = [];
+      }
+    }
     const pendingStart = !started && !isInitial(next);
     const armedSection =
       pendingStart && structure ? (locate(last.at, structure, next)?.section ?? null) : null;
@@ -344,22 +405,101 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   /** The last successfully evaluated pattern (a failed evaluate leaves it); never exposed. */
   let evaluatedPattern: any = null;
 
+  // editPattern runs before autostart's first synchronous tick, so install both
+  // sides of the new pattern there. afterEval publishes the logical one.
+  let playbackPattern: any = null;
+  let playError: string | null = null;
+  let undoInstall: (() => void) | undefined;
   const r = repl({
     onSchedule: output,
-    onScheduleTap: hooks?.onSchedule,
+    onScheduleTap:
+      hooks?.onSchedule &&
+      ((hap: Hap, t: number, cps: number, route: ScheduleRoute) => {
+        const mapped = meteredSchedule(hap);
+        hooks.onSchedule!(mapped?.hap ?? hap, t, mapped?.cps ?? cps, route);
+      }),
     getTime: () => active().getTime(),
     transpiler,
     // Runs only after the code evaluated, right before the scheduler gets the pattern: starting
     // from stopped schedules the first haps synchronously, before afterEval, so the audio seed is
     // set here. Every successful evaluate sets it; a song without one gets 0.
     editPattern: (pattern: any) => {
+      const structure = registeredStructure();
+      if ((pending.requiresSong || pending.requiresMeterMap) && !structure) {
+        throw new Error('the authored loop or meter map requires song(meta, parts)');
+      }
+      if (
+        (pending.requiresMeterMap && !structure?.meterChanges?.length) ||
+        (pending.expectedArrangement && !sameStructure(structure, pending.expectedArrangement))
+      ) {
+        throw new Error('song() must use the arrangement in the meta header');
+      }
+      if (structure?.meterChanges?.length && codeSetCps) throw new Error(MIXED_CPS_ERROR);
       const seeded = applySeed(pattern, pending.seed);
+      // repl installs the candidate before it awaits the first scheduler start.
+      // A failed start must leave the previous pattern and clock available.
+      const previous = {
+        liveStructure,
+        clock,
+        phaseOffsetSec,
+        audibleHistory,
+        evaluatedPattern,
+        playbackPattern,
+        playError,
+        schedulerPattern: r.scheduler.pattern,
+      };
+      undoInstall = () => {
+        ({
+          liveStructure,
+          clock,
+          phaseOffsetSec,
+          audibleHistory,
+          evaluatedPattern,
+          playbackPattern,
+          playError,
+        } = previous);
+        r.scheduler.pattern = previous.schedulerPattern;
+        active().setSeed(state.seed ?? 0);
+      };
+      const anchor = r.scheduler.started ? scheduledAnchor() : undefined;
+      if (anchor && (clock || structure?.meterChanges?.length)) {
+        const audible = r.scheduler.now();
+        audibleHistory = audibleHistory.filter((h) => h.end.clock > audible);
+        if (audibleHistory.at(-1)?.end.clock !== anchor.clock) {
+          audibleHistory.push({ end: anchor, map: clock });
+        }
+      }
+      if (anchor && !codeSetCps) {
+        phaseOffsetSec += anchor.clock / r.scheduler.cps - anchor.clock / pending.cps;
+      }
+      liveStructure =
+        structure ??
+        (anchor && anchor.cycle !== anchor.clock
+          ? buildStructure({ meter: meterString(pending.meter) })
+          : null);
+      setLiveLayout(segments, anchor);
+      evaluatedPattern = seeded;
+      playError = null;
+      playbackPattern =
+        clock && liveStructure
+          ? meteredPlayback(
+              seeded,
+              liveStructure,
+              () => clock,
+              () => phaseOffsetSec,
+              (error) => {
+                playError = errorMessage(error);
+                patch({ outputError: playError });
+              },
+            )
+          : seeded;
       active().setSeed(pending.seed ?? 0);
-      return seeded;
+      return playbackPattern;
     },
     setInterval: opts.setInterval,
     clearInterval: opts.clearInterval,
     beforeEval: async () => {
+      setTime(() => toCycle(r.scheduler.now()));
       await ensurePrebaked();
       await hooks?.beforeEval?.();
       // useRNG changes a module global; keep one song's choice from leaking into the next.
@@ -373,15 +513,16 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     },
     afterEval: (args: { code: string; pattern: any; meta: any }) => {
       codeRunning = false;
+      undoInstall = undefined;
       // The new pattern is installed; switch the tempo with it unless the code chose its own.
       // setCps keeps the cycle continuous.
       if (!codeSetCps) setCps(pending.cps);
       const cps: number = r.scheduler.cps;
       // Before patch: a subscriber reacting to the new activeCode queries the new pattern.
-      evaluatedPattern = args.pattern;
+      if (playbackPattern !== evaluatedPattern) exposePattern(evaluatedPattern);
       patch({
         evalError: null,
-        outputError: null,
+        outputError: playError,
         cps,
         meter: pending.meter,
         structure: registeredStructure(),
@@ -394,13 +535,15 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       // The pattern is already installed and playing; a visuals failure must not turn
       // a successful evaluate into an eval error.
       try {
-        hooks?.afterEval?.(args);
+        hooks?.afterEval?.({ ...args, pattern: evaluatedPattern });
       } catch (e) {
         console.error(e);
       }
     },
     onEvalError: (e: unknown) => {
       codeRunning = false;
+      undoInstall?.();
+      undoInstall = undefined;
       patch({ evalError: errorMessage(e) });
     },
     onToggle: (started: boolean) => {
@@ -430,7 +573,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     if (changed) staleCheckpoint = r.scheduler.checkpoint;
   };
   r.scheduler.setCps = (cps: number) => {
-    if (codeRunning) codeSetCps = true;
+    if (codeRunning) {
+      codeSetCps = true;
+      if (pending.requiresMeterMap) throw new Error(MIXED_CPS_ERROR);
+    } else if (liveStructure?.meterChanges?.length) {
+      patch({ outputError: MIXED_CPS_ERROR });
+      throw new Error(MIXED_CPS_ERROR);
+    }
     setCps(cps);
   };
 
@@ -587,11 +736,12 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     return swapTo(to, drain);
   };
 
-  const now = (): number => Math.max(0, r.scheduler.now());
+  const now = (): number => Math.max(0, toCycle(r.scheduler.now()));
 
   /** Drop segments that stopped governing more than `HISTORY_CYCLES` before `cycle`. */
   const pruneAt = (cycle: number) => {
-    segments = prune(segments, cycle - HISTORY_CYCLES);
+    const next = prune(segments, cycle - HISTORY_CYCLES);
+    if (next !== segments) setLiveLayout(next, scheduledAnchor());
   };
 
   function position(): { cycle: number; located: Located | null } {
@@ -617,7 +767,9 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const s = state.structure;
     if (!s) return;
     pruneAt(now());
-    setSegments(apply(segments, s, nextSafeBoundary(r.scheduler.lastEnd, s, segments, 'bar')!));
+    setSegments(
+      apply(segments, s, nextSafeBoundary(toCycle(r.scheduler.lastEnd), s, segments, 'bar')!),
+    );
   }
 
   const transport: Transport = {
@@ -638,10 +790,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       }
       change(structure, (seg, s, at) => withLoop(seg, s, section, at));
     },
+    loopRange(first, last, structure) {
+      change(structure, (seg, s, at) => withLoop(seg, s, first, at, last));
+    },
     playEnding() {
       const s = state.structure;
       if (!canPlayEnding(state.started, s, transportState.view, position().located)) return;
-      const at = nextSafeBoundary(r.scheduler.lastEnd, s!, segments, 'loopPass');
+      const at = nextSafeBoundary(toCycle(r.scheduler.lastEnd), s!, segments, 'loopPass');
       if (at === null) return;
       setSegments(withRelease(segments, s!, at));
     },
@@ -660,6 +815,16 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const controls = { _cps: r.scheduler.cps, cyclist: 'cyclist', _segments: segments };
     const span = new State(new TimeSpan(fromCycle, toCycle), controls);
     // `query`, not `queryArc`: the latter swallows errors and answers [].
+    const structure = state.structure;
+    if (structure?.meterChanges?.length) {
+      return queryMetered(
+        evaluatedPattern,
+        span,
+        structure,
+        layoutClock(structure, segments),
+        r.scheduler.cps,
+      );
+    }
     return evaluatedPattern.query(span);
   }
 
@@ -698,12 +863,19 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       const handoff: number = sch.lastEnd;
       const prev = active();
       // Seconds until the hand-off cycle sounds on the old engine (0 when its time is unknown).
-      const at = cycleTime(handoff);
+      const at = cycleTime(toCycle(handoff));
       const lead = at === null ? 0 : Math.max(0, at - prev.getTime());
       // A fresh start sounds its first cycle after the clock's minimum latency plus the hap lead.
       const firstSound = (sch.clock?.minLatency ?? 0) + sch.latency;
       const early = Math.max(0, lead - firstSound) * sch.cps;
-      const from = { ...restartAt(segments, handoff - early), onsetsFrom: handoff };
+      const from = {
+        cycle: Math.max(0, handoff - early),
+        segments,
+        anchor: scheduledAnchor(),
+        audibleHistory,
+        phaseOffsetSec,
+        onsetsFrom: handoff,
+      };
       if (!stop(swap.to, lead)) return;
       const ok = await start(undefined, from);
       if (!ok && !state.started) {
@@ -720,7 +892,14 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
    */
   async function start(
     startOpts?: StartOptions,
-    from?: { cycle: number; segments: readonly Segment[]; onsetsFrom?: number },
+    from?: {
+      cycle: number;
+      segments: readonly Segment[];
+      onsetsFrom: number;
+      anchor: { cycle: number; clock: number };
+      audibleHistory: ClockHistory;
+      phaseOffsetSec: number;
+    },
   ): Promise<boolean> {
     const ready = () => !state.started && !evaluating && evaluatedPattern !== null;
     if (!ready()) return false;
@@ -735,6 +914,9 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     }
     const countIn = startOpts?.countIn === true;
     const savedSegments = segments;
+    const savedClock = clock;
+    const savedPhaseOffset = phaseOffsetSec;
+    const savedHistory = audibleHistory;
     const savedPattern = r.scheduler.pattern;
     // Without `song()` no segment gates the pattern: delay the pattern itself by one cycle and
     // silence the count-in (a cyclic pattern shifted by a cycle would still sound there, with its
@@ -743,16 +925,18 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       let pattern =
         countIn && state.structure === null
           ? evaluatedPattern.late(1).filterHaps((h: any) => (h.whole ?? h.part).begin.gte(1))
-          : evaluatedPattern;
+          : playbackPattern;
       const onsetsFrom = from?.onsetsFrom;
       if (onsetsFrom !== undefined) {
         pattern = pattern.filterHaps((h: any) => (h.whole ?? h.part).begin.gte(onsetsFrom));
       }
       if (r.scheduler.pattern !== pattern) await r.scheduler.setPattern(pattern, false);
       // Directly, not through setSegments: the transport state is the same with a count-in.
-      if (countIn && state.structure !== null) segments = withCountIn(segments);
+      if (countIn && state.structure !== null) setLiveLayout(withCountIn(segments));
       if (from) {
-        segments = from.segments;
+        setLiveLayout(from.segments, from.anchor);
+        phaseOffsetSec = from.phaseOffsetSec;
+        audibleHistory = from.audibleHistory;
         // The cyclist's first tick queries from `lastEnd` (a stop sets it to 0).
         r.scheduler.lastEnd = from.cycle;
       }
@@ -764,6 +948,9 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       if (r.scheduler.started) r.stop();
       else {
         segments = savedSegments;
+        clock = savedClock;
+        phaseOffsetSec = savedPhaseOffset;
+        audibleHistory = savedHistory;
         r.scheduler.lastEnd = 0;
       }
       if (r.scheduler.pattern !== savedPattern) await r.scheduler.setPattern(savedPattern, false);
@@ -778,7 +965,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     if (!sch.started) return null;
     if (sch.num_ticks_since_checkpoint === 0 && sch.checkpoint === staleCheckpoint) return null;
     // cyclist.mjs's hap target time plus its fixed latency.
-    const t = (cycle - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
+    const t =
+      (toClock(cycle) - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
     return Number.isFinite(t) ? t : null;
   }
 
@@ -793,6 +981,17 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
 
   return {
     scheduler: r.scheduler,
+    get drawingScheduler() {
+      if (!clock || !liveStructure) return r.scheduler;
+      const logical = evaluatedPattern;
+      const structure = liveStructure;
+      return {
+        now,
+        pattern: new Pattern((state: any) =>
+          queryMetered(logical, state, structure, clock!, r.scheduler.cps),
+        ),
+      };
+    },
     store: {
       subscribe(run) {
         subscribers.add(run);
@@ -807,6 +1006,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       }
       opts.hooks?.onPlaybackRequest?.();
       const tempo = {
+        ...evalOpts,
         cps: evalOpts?.cps ?? defaultCps,
         meter: evalOpts?.meter ?? DEFAULT_METER,
         seed: evalOpts?.seed,

@@ -15,6 +15,12 @@ export interface AudioGraph {
   destination: AudioNode;
 }
 
+/** Wall time for a musical hap whose bar lengths vary. The onset cycle stays on the hap. */
+export interface HapTiming {
+  durationSec: number;
+  phaseSec: number;
+}
+
 export interface AudioBackend {
   readonly id: 'superdough' | 'rust';
   /** One-time setup (worklets etc.). Idempotent. Call only from a user gesture. */
@@ -36,9 +42,9 @@ export interface AudioBackend {
   setSeed(seed: number): void;
   /**
    * Plays one hap. `t` is the absolute target time on `getTime()`'s clock, latency included; the
-   * hap lasts `hap.duration / cps` seconds.
+   * hap lasts `timing.durationSec` or, in constant meter, `hap.duration / cps` seconds.
    */
-  output(hap: Hap, t: number, cps: number): void | Promise<void>;
+  output(hap: Hap, t: number, cps: number, timing?: HapTiming): void | Promise<void>;
   /** Fills `buf` with the latest output samples; false when there is no signal source. */
   readScope?(buf: Float32Array): boolean;
   /**

@@ -88,7 +88,10 @@ export function createApp(
   const vimMode = createVimMode();
   let view: EditorView | undefined;
   let runtime!: Runtime;
-  const visuals = createVisuals({ getView: () => view, getScheduler: () => runtime.scheduler });
+  const visuals = createVisuals({
+    getView: () => view,
+    getScheduler: () => runtime.drawingScheduler,
+  });
   const superdough = createSuperdoughBackend();
   // The Rust engine plays through the app; in a plain browser every song plays on superdough.
   const rust = inTauri() ? createRustBackend(tauriPlaybackApi) : undefined;
