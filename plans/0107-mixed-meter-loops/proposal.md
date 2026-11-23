@@ -82,3 +82,11 @@ The static and evaluated paths, browser renderer, headless host, and Rust render
 - Which signatures and bar lines does the source arrangement use for the F passes and E bars? The reported duration establishes the test total. A track excerpt would let refinement verify the real arrangement against the proposed form.
 
 Workflow complexity is large. The shared timing contract affects live scheduling, inspection and rendering, so retain fracture, singletonize, and loss check before sequencing.
+
+## Auto-refinement decisions
+
+The owner authorized an automated refinement pass and continuation through the pull request review gate. Code-reference reviews covered the scheduler, both live outputs, the planner, the host wire format, and the engine. The proposed metadata syntax is adopted for implementation. The source arrangement’s exact meter remains unverified, so acceptance uses the synthetic arrangement and its exact musical duration.
+
+Use `song()` for new metadata that describes a meter map or a named range. This gives playback and export a defined arrangement to map. A legacy song without these fields retains its existing behavior. Mixed meter uses the declared quarter-note BPM and rejects conflicting CPS changes with a diagnostic.
+
+The reference-clock mapping may extrapolate before bar 1 at the base meter and after the final authored bar at the last meter. Negative elapsed time remains outside the playable region. The live scheduler installs a timing adapter around the final pattern, keeping the authored pattern available to inspection and visuals. Rust timing data carries elapsed phase independently of the authored cycle used for seeds. Render plans carry explicit content and marker frame counts. See the subsystem contracts for compatibility and test cases.
