@@ -1,4 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
+import { buildStructure } from '../src/lib/strudel/structure';
+import { LINEAR_SEGMENTS } from '../src/lib/strudel/transport';
+import { renderTiming } from '../src/lib/render/timing';
 import { biquadBandpass } from '../src/lib/render/dsp';
 import {
   judgeSeam,
@@ -1174,5 +1177,35 @@ describe('verifyMix', () => {
     const x = stepAt(4).slice(1);
     const g = verifyMix(st(x), mixIn({ opening: percussive }));
     expect(g.reasons).toHaveLength(3);
+  });
+});
+
+describe('mixed-meter gates', () => {
+  const clock = (backToFour?: number) => {
+    const meterChanges = [{ bar: 2, meter: '3/8' }];
+    if (backToFour !== undefined) meterChanges.push({ bar: backToFour, meter: '4/4' });
+    const structure = buildStructure({ sections: [{ name: 'phrase', bars: 24 }], meterChanges });
+    return renderTiming(structure, LINEAR_SEGMENTS, structure.cps)!;
+  };
+
+  test('bass misses, cluster bounds and stem notes follow the scheduled bars', () => {
+    const timing = clock();
+    const { channels, events } = bassSong((i) => (i >= 3 && i <= 5 ? 0 : 1));
+    const scheduled = events.map((e) => ({ ...e, bar: Math.floor(timing.cycleAt(e.tSec)) }));
+    const p = bassPresence(channels, SR, scheduled, { missDb: BASS_MISS_DB });
+    expect(p.misses.map((m) => m.bar)).toEqual([2, 3, 5]);
+    const bass = bassGate(p, timing.secondsAt);
+    expect(bass.measurements.clusters).toEqual([{ orbit: 3, fromBar: 2, toBar: 5, count: 3 }]);
+    expect(bass.reasons[0]).toContain('bars 2-5 (2.75s-5.75s)');
+    const stems = stemsOnsetScores(channels, SR, scheduled);
+    expect(stems.notes.slice(3, 6).map((n) => n.bar)).toEqual([2, 3, 5]);
+  });
+
+  test('a loud downbeat at a seam is compared with the actual neighboring bars of a later window', () => {
+    // Starting at authored bar 1 (2 s), the next two downbeats are 0.75 s and 1.5 s into the buffer.
+    const input = mixIn({ seamSecs: [0.75], meteredWindow: { timing: clock(4), fromBar: 1 } });
+    const withNeighbor = add(bed(), kicks([0.75, 1.5], MIX_SEC));
+    expect(verifyMix(st(withNeighbor), input).measurements.clicks).toBe(0);
+    expect(verifyMix(st(add(bed(), kicks([0.75], MIX_SEC))), input).measurements.clicks).toBe(1);
   });
 });

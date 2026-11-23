@@ -384,7 +384,7 @@ function loopsApplied(structure: SongStructure, loops: number | undefined): Song
   if (authoredLoop(structure) === null) {
     throw new PlanJobError(
       'meta',
-      '--loops needs a section with loop: true in meta.sections',
+      '--loops needs meta.loop or a section with loop: true in meta.sections',
       '--loops',
     );
   }

@@ -35,22 +35,23 @@ pub(crate) fn plan(
     Ok((planned, started.elapsed().as_secs_f64() * 1000.0))
 }
 
-/// Parses every chunk's job (once; the workers render these) and refuses the render when any job
-/// has unsupported signatures. Nothing is rendered when this fails.
-pub(crate) fn check(planned: &PlannedRender) -> Result<Vec<EngineJob>, RenderError> {
+/// Takes each chunk's job text and decodes it for the workers, releasing the text as it goes.
+/// Refuses unsupported signatures before either pass renders.
+pub(crate) fn take_jobs(planned: &mut PlannedRender) -> Result<Vec<EngineJob>, RenderError> {
     let repeat = planned
         .export
-        .as_ref()
-        .and_then(|export| export.repeat.as_ref());
-    let mut jobs = Vec::with_capacity(planned.chunks.len() + repeat.map_or(0, |p| p.chunks.len()));
+        .as_mut()
+        .and_then(|export| export.repeat.as_mut());
+    let mut jobs =
+        Vec::with_capacity(planned.chunks.len() + repeat.as_ref().map_or(0, |p| p.chunks.len()));
     let mut signatures = Vec::new();
     for (i, chunk) in planned
         .chunks
-        .iter()
-        .chain(repeat.into_iter().flat_map(|p| &p.chunks))
+        .iter_mut()
+        .chain(repeat.into_iter().flat_map(|p| &mut p.chunks))
         .enumerate()
     {
-        let job = EngineJob::from_json(&chunk.json)
+        let job = EngineJob::from_json(&std::mem::take(&mut chunk.json))
             .map_err(|e| RenderError::Render(format!("chunk {i}: job: {e}")))?;
         signatures.extend(unsupported_signatures(&job));
         jobs.push(job);

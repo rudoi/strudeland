@@ -787,6 +787,20 @@ describe('memo rows', () => {
       ]);
     });
 
+    test('a matching starting meter does not enable mixed-meter song backing', () => {
+      const message = 'song backing requires a fixed time signature';
+      expect(
+        memoPlayItems(timed, { ...song, mixedMeter: true }, 'armed').map((i) => [
+          i.disabled,
+          i.title,
+        ]),
+      ).toEqual([
+        [false, undefined],
+        [true, message],
+        [true, message],
+      ]);
+    });
+
     test('a changed tempo disables the song items with the tempo title', () => {
       const t = "the song's tempo changed since this memo (120 · 4/4 → 100 · 4/4)";
       expect(

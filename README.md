@@ -80,6 +80,7 @@ everything between them. The timeline's **loop through…** command auditions a 
 even within a section. Bar numbers are one-based. One pattern cycle still plays one written
 bar at the declared quarter-note BPM. Playback and export both follow these meter changes.
 Song-backed recording and playing a memo against the song require a fixed time signature.
+Mixed-meter songs use the header BPM for timing. Pattern-level `.cpm()` requires fixed meter.
 
 Enable **Audition notes** in the status bar to hear a short preview when you finish typing
 a pitch such as `g3` in a note pattern while the song is stopped. The preview uses the pattern's

@@ -5,7 +5,7 @@
   import type { RecordingUiState } from '../lib/recording/types';
   import {
     bpmFromCps,
-    cpsFor,
+    cpsAtMeter,
     meterAtBar,
     meterString,
     type Meter,
@@ -69,7 +69,7 @@
   </Button>
   <Button onclick={stop} disabled={!$rt.started && !taking && !memoAudible}>stop</Button>
   <RecordControls {recording} {session} {memos} />
-  {@render readout((playingMeter ? cpsFor(bpm, playingMeter) : $rt.cps).toFixed(3), 'cps')}
+  {@render readout(cpsAtMeter($rt.cps, $rt.meter, meter).toFixed(3), 'cps')}
   {@render readout(
     String(Math.round(bpm)),
     'bpm',

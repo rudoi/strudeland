@@ -1128,10 +1128,14 @@ describe('renderOffline: order and t bounds', () => {
     const request = req({ fromBar: 1, toBar: 3, layout: 'linear' });
     const f = fakeDeps();
     const calls: unknown[][] = [];
-    f.deps.superdough = (_value, ...time) => calls.push(time);
+    const shared = { s: 'sine' };
+    f.deps.superdough = (value, ...time) => {
+      value.duration = time[1];
+      calls.push(time);
+    };
     const result = await renderOffline(
       {
-        haps: [hap(0, 2, { s: 'sine' }), hap(1, 2, { s: 'sine' }), hap(2, 3, { s: 'sine' })],
+        haps: [hap(0, 2, shared), hap(1, 2, shared), hap(2, 3, shared)],
         cps: structure.cps,
         seed: 0,
         req: request,
@@ -1147,6 +1151,7 @@ describe('renderOffline: order and t bounds', () => {
     ]);
     expect(result.buffer.length).toBe(154350);
     expect(f.suspends).toEqual([1.95, 2.7]);
+    expect(shared).toEqual({ s: 'sine' });
   });
   test('calls ascend; each bar is scheduled at its pause; t is never in the past', async () => {
     const f = fakeDeps();

@@ -1064,6 +1064,30 @@ describe('state: playhead, transport and outputError', () => {
     expect(await t()).toEqual({ view: 'loop', loopSection: null, armedSection: null });
   });
 
+  test('state reports the active meter and both endpoints of an audition range', async () => {
+    const h = await evaluated({ structure: true });
+    const structure = buildStructure({
+      sections: [
+        { name: 'intro', bars: 2 },
+        { name: 'body', bars: 4 },
+      ],
+      meterChanges: [{ bar: 3, meter: '3/8' }],
+    });
+    h.rt.patch({ structure });
+    h.rt.setPosition({ cycle: 3, located: { section: 1, localCycle: 1, songBar: 3 } });
+    h.rt.setTransport({
+      view: { kind: 'loop', section: 0, through: 1 },
+      pendingStart: false,
+      armedSection: null,
+    });
+    expect(await h.handle('state', {})).toMatchObject({
+      meter: '3/8',
+      cps: 4 / 3,
+      bpm: 120,
+      transport: { view: 'loop', loopSection: 'intro', loopThrough: 'body', armedSection: null },
+    });
+  });
+
   test('engine and live come through', async () => {
     const h = await setup();
     const live = {

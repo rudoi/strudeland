@@ -11493,6 +11493,12 @@
   var MAX_SECTIONS = 64;
   var beatsPerBar = (meter) => meter.num * 4 / meter.den;
   var cpsFor = (bpm, meter) => bpm / 60 / beatsPerBar(meter);
+  function cpsAtMeter(cps, reference, meter) {
+    const referenceBeats = beatsPerBar(reference);
+    const beats = beatsPerBar(meter);
+    return beats === referenceBeats ? cps : cps * referenceBeats / beats;
+  }
+  var bpmFromCps = (cps, meter) => cps * 60 * beatsPerBar(meter);
   var meterString = (m) => `${m.num}/${m.den}`;
   var METER_RE = /^(\d+)\/(\d+)$/;
   var parseMeter = (s) => {
@@ -11699,10 +11705,15 @@
     let meterChanges;
     if (has(meta, "meterChanges")) {
       check(meterChangesProblem(meta.meterChanges, totalBars));
-      const changes = meta.meterChanges.map((c) => ({
-        bar: c.bar - 1,
-        meter: parseMeter(c.meter)
-      }));
+      const changes = [];
+      let previous = meter;
+      for (const c of meta.meterChanges) {
+        const next = parseMeter(c.meter);
+        if (next.num === previous.num && next.den === previous.den)
+          continue;
+        changes.push({ bar: c.bar - 1, meter: next });
+        previous = next;
+      }
       if (changes.length)
         meterChanges = changes;
     }
@@ -11712,7 +11723,7 @@
       loops = meta.loops;
     }
     const cps = cpsFor(bpm, meter);
-    const structure = {
+    return {
       bpm,
       meter,
       beatsPerBar: beatsPerBar(meter),
@@ -11723,12 +11734,10 @@
       totalBars,
       introEnd: loop?.start ?? totalBars,
       endOfSong: loop ? null : totalBars,
-      clipBars: totalBars,
-      clipSeconds: totalBars / cps,
+      ...clipDuration({ totalBars, cps, bpm, meter, meterChanges }, loop, loops),
       ...loopRange && { loopRange },
       ...meterChanges && { meterChanges }
     };
-    return { ...structure, ...clipDuration(structure, loop, loops) };
   }
 
   // src/lib/strudel/transport.ts
@@ -11890,16 +11899,17 @@
     return first;
   }
   function layoutClock(s, segments, anchor = { cycle: 0, clock: 0 }) {
+    const reference = ticksPerBar(s.meter);
     if (!s.meterChanges || segments.length === 0) {
       const offset = anchor.clock - anchor.cycle;
       return {
         toClock: (cycle) => cycle + offset,
+        toSixteenths: (cycle) => (cycle + offset) * reference,
         toCycle: (clock) => clock - offset,
         meterAt: () => s.meter,
         nextMeterBoundary: () => Infinity
       };
     }
-    const reference = ticksPerBar(s.meter);
     const runs = [{ bar: 0, ticks: 0, perBar: reference }];
     for (const change of s.meterChanges) {
       const tail = runs[runs.length - 1];
@@ -11915,20 +11925,23 @@
     }
     const spans = segments.map((segment, i) => {
       const loop = segmentLoop(s, segment);
-      const loopStart = loop ? songTicks(loop.start) : 0;
-      const loopTicks = loop ? songTicks(loop.end) - loopStart : 0;
+      const loopTicks = loop ? songTicks(loop.end) - songTicks(loop.start) : 0;
+      const startTicks = songTicks(segment.songBar);
+      const segmentEnd = segments[i + 1]?.at ?? Infinity;
       const startMeter = meterAtBar(s, segments[i + 1]?.songBar ?? 0);
+      const countInTicks = ticksPerBar(startMeter);
       function elapsedTicks(cycle) {
         const elapsed = cycle - segment.at;
         if (segment.view.kind === "count-in")
-          return elapsed * ticksPerBar(startMeter);
+          return elapsed * countInTicks;
         const linearBar = segment.songBar + elapsed;
-        if (!loop || linearBar < loop.end)
-          return songTicks(linearBar) - songTicks(segment.songBar);
+        if (!loop || segment.view.kind !== "loop" && linearBar < loop.end) {
+          return songTicks(linearBar) - startTicks;
+        }
         const width = loop.end - loop.start;
         const passes = Math.floor((linearBar - loop.start) / width);
         const bar = linearBar - passes * width;
-        return passes * loopTicks + songTicks(bar) - songTicks(segment.songBar);
+        return passes * loopTicks + songTicks(bar) - startTicks;
       }
       function meterAt(cycle) {
         if (segment.view.kind === "count-in")
@@ -11937,21 +11950,19 @@
         return bar === null ? s.meter : meterAtBar(s, bar);
       }
       function nextBoundary(cycle) {
-        const segmentEnd = segments[i + 1]?.at ?? Infinity;
         if (segment.view.kind === "count-in")
           return segmentEnd;
         const bar = songBarAt(cycle, s, segment);
         if (bar === null)
           return segmentEnd;
         const nextBar = runs[runIndex(runs, bar) + 1]?.bar ?? Infinity;
-        if (!loop)
-          return Math.min(segmentEnd, cycle + (nextBar - bar));
-        if (nextBar < loop.end)
-          return Math.min(segmentEnd, cycle + (nextBar - bar));
+        const startOfBar = Math.floor(cycle) - Math.floor(bar);
+        if (!loop || nextBar < loop.end)
+          return Math.min(segmentEnd, startOfBar + nextBar);
         const firstChange = runs[runIndex(runs, loop.start) + 1]?.bar ?? Infinity;
         if (firstChange >= loop.end)
           return segmentEnd;
-        return Math.min(segmentEnd, cycle + (loop.end - bar));
+        return Math.min(segmentEnd, startOfBar + loop.end);
       }
       return { elapsedTicks, meterAt, nextBoundary };
     });
@@ -11960,6 +11971,8 @@
       offsets.push(offsets[i - 1] + spans[i - 1].elapsedTicks(segments[i].at));
     }
     function rawTicks(cycle) {
+      if (cycle < 0 && segments[0].at === 0)
+        return cycle * reference;
       const i = segmentIndex(cycle, segments);
       return offsets[i] + spans[i].elapsedTicks(cycle);
     }
@@ -11985,9 +11998,10 @@
     }
     return {
       toClock,
+      toSixteenths: (cycle) => anchor.clock * reference + (rawTicks(cycle) - anchorTicks),
       toCycle,
-      meterAt: (cycle) => spans[segmentIndex(cycle, segments)].meterAt(cycle),
-      nextMeterBoundary: (cycle) => spans[segmentIndex(cycle, segments)].nextBoundary(cycle)
+      meterAt: (cycle) => cycle < 0 && segments[0].at === 0 ? s.meter : spans[segmentIndex(cycle, segments)].meterAt(cycle),
+      nextMeterBoundary: (cycle) => cycle < 0 && segments[0].at === 0 ? 0 : spans[segmentIndex(cycle, segments)].nextBoundary(cycle)
     };
   }
 
@@ -12002,13 +12016,14 @@
     if (!structure.meterChanges?.length)
       return;
     const clock = layoutClock(structure, segments);
+    const bpm = cps === structure.cps ? structure.bpm : bpmFromCps(cps, structure.meter);
     const baseBeats = structure.beatsPerBar;
     const minBeats = structure.meterChanges.reduce((min, change) => Math.min(min, beatsPerBar(change.meter)), baseBeats);
     return {
-      secondsAt: (cycle) => clock.toClock(cycle) / cps,
+      secondsAt: (cycle) => clock.toSixteenths(cycle) * 15 / bpm,
       cycleAt: (seconds) => clock.toCycle(seconds * cps),
-      cpsAt: (cycle) => cps * baseBeats / beatsPerBar(clock.meterAt(cycle)),
-      frameAt: (cycle, sampleRate) => Math.round(clock.toClock(cycle) * sampleRate / cps),
+      cpsAt: (cycle) => cpsAtMeter(cps, structure.meter, clock.meterAt(cycle)),
+      frameAt: (cycle, sampleRate) => Math.round(clock.toSixteenths(cycle) * 15 * sampleRate / bpm),
       minBarSec: minBeats / baseBeats / cps
     };
   }
@@ -12022,7 +12037,7 @@
     const phaseSec = timing.secondsAt(onset);
     const origin = bufferStartSec ?? timing.secondsAt(start);
     return {
-      t: onset === start ? Math.max(0, phaseSec - origin) : phaseSec - origin,
+      t: Math.max(0, phaseSec - origin),
       duration: timing.secondsAt(onset + duration) - phaseSec,
       cps: timing.cpsAt(onset),
       phaseSec
@@ -12220,8 +12235,7 @@
       meter: s.meter,
       seed: meta.seed,
       engine: meta.engine === "rust" ? "rust" : "superdough",
-      ...s.loopRange && { requiresSong: true, expectedArrangement: s },
-      ...s.meterChanges && { requiresMeterMap: true, expectedArrangement: s }
+      expectedArrangement: s
     };
   }
 
@@ -18598,7 +18612,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (loops === undefined)
       return structure;
     if (authoredLoop(structure) === null) {
-      throw new PlanJobError("meta", "--loops needs a section with loop: true in meta.sections", "--loops");
+      throw new PlanJobError("meta", "--loops needs meta.loop or a section with loop: true in meta.sections", "--loops");
     }
     try {
       return withLoops(structure, loops);
@@ -24808,7 +24822,13 @@ Defaulting to 2020, but this will stop working in the future.`);
         console.warn("injectPatternMethods: error:", err);
       }
       const cpm2 = register("cpm", function(cpm3, pat) {
-        return pat._fast(cpm3 / 60 / scheduler.cps);
+        const scaled = pat._fast(cpm3 / 60 / scheduler.cps);
+        return new Pattern((state2) => {
+          if (state2.controls._mixedMeter) {
+            throw new Error("mixed-meter songs do not support .cpm(). Set the tempo with meta.bpm.");
+          }
+          return scaled.query(state2);
+        }, scaled._steps);
       });
       return evalScope({
         all,
@@ -28667,12 +28687,32 @@ Please check with "npm ls @strudel/core".`);
     const end2 = Number(state2.span.end);
     let from = Number(state2.span.begin);
     const haps = [];
+    const mixedMeter = !!structure.meterChanges?.length;
+    const painters = state2.controls.painters;
+    const registered = mixedMeter && painters ? new Map : undefined;
     do {
       const to = Math.min(end2, clock.nextMeterBoundary(from));
-      const localCps = referenceCps * structure.beatsPerBar / beatsPerBar(clock.meterAt(from));
-      const piece = new State(new TimeSpan(from, to), { ...state2.controls, _cps: localCps });
+      const localCps = cpsAtMeter(referenceCps, structure.meter, clock.meterAt(from));
+      const piece = new State(new TimeSpan(from, to), {
+        ...state2.controls,
+        _cps: localCps,
+        _mixedMeter: mixedMeter
+      });
+      if (registered)
+        piece.controls.painters = [];
       const result = pattern3.query(piece);
-      if (structure.meterChanges?.length && result.some((h2) => h2.value?.cps !== undefined)) {
+      if (registered) {
+        const occurrences = new Map;
+        for (const painter of piece.controls.painters) {
+          const count = (occurrences.get(painter) ?? 0) + 1;
+          occurrences.set(painter, count);
+          if (count > (registered.get(painter) ?? 0)) {
+            painters.push(painter);
+            registered.set(painter, count);
+          }
+        }
+      }
+      if (mixedMeter && result.some((h2) => h2.value?.cps !== undefined)) {
         throw new Error(MIXED_CPS_ERROR);
       }
       for (const h2 of result)
@@ -28691,14 +28731,14 @@ Please check with "npm ls @strudel/core".`);
         return pattern3.query(state2);
       const cps2 = state2.controls._cps ?? structure.cps;
       const span = state2.span.withTime((t) => clock.toCycle(Number(t)));
+      const toReference = (t) => clock.toClock(Number(t));
       try {
         return queryMetered(pattern3, state2.setSpan(span), structure, clock, cps2).map((h2) => {
-          const spanToClock = (s2) => s2.withTime((t) => clock.toClock(Number(t)));
           if (!h2.whole)
-            return new Hap(undefined, spanToClock(h2.part), h2.value, h2.context, h2.stateful);
+            return new Hap(undefined, h2.part.withTime(toReference), h2.value, h2.context, h2.stateful);
           const onset = Number(h2.whole.begin);
           const at2 = clock.toClock(onset);
-          const localCps = cps2 * structure.beatsPerBar / beatsPerBar(clock.meterAt(onset));
+          const localCps = cpsAtMeter(cps2, structure.meter, clock.meterAt(onset));
           const timing = {
             phaseSec: phaseOffset() + at2 / cps2,
             durationSec: (clock.toClock(Number(h2.whole.begin.add(h2.duration))) - at2) / cps2
@@ -28713,7 +28753,7 @@ Please check with "npm ls @strudel/core".`);
               onSchedule: (_h, t) => h2.context.onSchedule(callbackHap, t, localCps)
             };
           }
-          const mapped = new Hap(spanToClock(h2.whole), spanToClock(h2.part), h2.value, context, h2.stateful);
+          const mapped = new Hap(h2.whole.withTime(toReference), h2.part.withTime(toReference), h2.value, context, h2.stateful);
           mapped[scheduled] = { hap: h2, cps: localCps, timing };
           return mapped;
         });
@@ -28921,6 +28961,38 @@ Please check with "npm ls @strudel/core".`);
       const previous = audibleHistory.find((h2) => cycle < h2.end.cycle);
       return (previous ? previous.map : clock)?.toClock(cycle) ?? cycle;
     };
+    function audibleReference() {
+      const sch = r.scheduler;
+      const latest = audibleHistory.at(-1);
+      const current2 = sch.now();
+      if (!sch.started || !latest || sch.lastBegin >= latest.end.clock && current2 >= latest.end.clock) {
+        return current2;
+      }
+      let reference = Number(sch.lastEnd);
+      let seconds2 = sch.lastTick + 2 * sch.clock.duration - sch.getTime();
+      let cps2 = sch.cps;
+      for (let i3 = audibleHistory.length - 1;i3 >= 0; i3--) {
+        const previous = audibleHistory[i3];
+        const sinceEdit = (reference - previous.end.clock) / cps2;
+        if (seconds2 <= sinceEdit)
+          break;
+        seconds2 -= sinceEdit;
+        reference = previous.end.clock;
+        cps2 = previous.cps;
+      }
+      return reference - seconds2 * cps2;
+    }
+    function audibleCps() {
+      const sch = r.scheduler;
+      if (!sch.started || !clock && audibleHistory.length === 0)
+        return sch.cps;
+      const reference = audibleReference();
+      const previous = audibleHistory.find((h2) => reference < h2.end.clock);
+      const map2 = previous ? previous.map : clock;
+      const base2 = previous ? previous.referenceMeter : liveStructure?.meter;
+      const cps2 = previous?.cps ?? sch.cps;
+      return base2 && map2 ? cpsAtMeter(cps2, base2, map2.meterAt(map2.toCycle(reference))) : cps2;
+    }
     function setLiveLayout(next, anchor2) {
       segments = next;
       const needsClock = liveStructure?.meterChanges?.length || anchor2 && anchor2.cycle !== anchor2.clock;
@@ -28970,11 +29042,12 @@ Please check with "npm ls @strudel/core".`);
       transpiler,
       editPattern: (pattern3) => {
         const structure = registeredStructure();
-        if ((pending.requiresSong || pending.requiresMeterMap) && !structure) {
-          throw new Error("the authored loop or meter map requires song(meta, parts)");
-        }
-        if (pending.requiresMeterMap && !structure?.meterChanges?.length || pending.expectedArrangement && !sameStructure(structure, pending.expectedArrangement)) {
-          throw new Error("song() must use the arrangement in the meta header");
+        const expected = pending.expectedArrangement;
+        if (expected && (expected.loopRange || expected.meterChanges || structure?.loopRange || structure?.meterChanges)) {
+          if (!structure)
+            throw new Error("the authored loop or meter map requires song(meta, parts)");
+          if (!sameStructure(structure, expected))
+            throw new Error("song() must use the arrangement in the meta header");
         }
         if (structure?.meterChanges?.length && codeSetCps)
           throw new Error(MIXED_CPS_ERROR);
@@ -29004,10 +29077,15 @@ Please check with "npm ls @strudel/core".`);
         };
         const anchor2 = r.scheduler.started ? scheduledAnchor() : undefined;
         if (anchor2 && (clock || structure?.meterChanges?.length)) {
-          const audible = r.scheduler.now();
+          const audible = audibleReference();
           audibleHistory = audibleHistory.filter((h2) => h2.end.clock > audible);
           if (audibleHistory.at(-1)?.end.clock !== anchor2.clock) {
-            audibleHistory.push({ end: anchor2, map: clock });
+            audibleHistory.push({
+              end: anchor2,
+              map: clock,
+              cps: r.scheduler.cps,
+              referenceMeter: liveStructure?.meter
+            });
           }
         }
         if (anchor2 && !codeSetCps) {
@@ -29015,6 +29093,11 @@ Please check with "npm ls @strudel/core".`);
         }
         liveStructure = structure ?? (anchor2 && anchor2.cycle !== anchor2.clock ? buildStructure({ meter: meterString(pending.meter) }) : null);
         setLiveLayout(segments, anchor2);
+        if (anchor2 && clock && structure?.meterChanges?.length) {
+          const end2 = clock.toCycle(anchor2.clock + r.scheduler.clock.duration * pending.cps);
+          const imminent = new State(new TimeSpan(anchor2.cycle, end2), { cyclist: "cyclist" });
+          queryMetered(seeded, imminent, structure, clock, pending.cps);
+        }
         evaluatedPattern = seeded;
         playError = null;
         playbackPattern = clock && liveStructure ? meteredPlayback(seeded, liveStructure, () => clock, () => phaseOffsetSec, (error) => {
@@ -29027,7 +29110,8 @@ Please check with "npm ls @strudel/core".`);
       setInterval: opts.setInterval,
       clearInterval: opts.clearInterval,
       beforeEval: async () => {
-        setTime(() => toCycle(r.scheduler.now()));
+        setTime(() => toCycle(audibleReference()));
+        setCpsFunc(audibleCps);
         await ensurePrebaked();
         await hooks?.beforeEval?.();
         useRNG("legacy");
@@ -29087,7 +29171,7 @@ Please check with "npm ls @strudel/core".`);
     r.scheduler.setCps = (cps2) => {
       if (codeRunning) {
         codeSetCps = true;
-        if (pending.requiresMeterMap)
+        if (pending.expectedArrangement?.meterChanges)
           throw new Error(MIXED_CPS_ERROR);
       } else if (liveStructure?.meterChanges?.length) {
         patch({ outputError: MIXED_CPS_ERROR });
@@ -29215,7 +29299,7 @@ Please check with "npm ls @strudel/core".`);
       }
       return swapTo(to, drain);
     };
-    const now = () => Math.max(0, toCycle(r.scheduler.now()));
+    const now = () => Math.max(0, toCycle(audibleReference()));
     const pruneAt = (cycle) => {
       const next = prune(segments, cycle - HISTORY_CYCLES);
       if (next !== segments)

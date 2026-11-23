@@ -1,6 +1,6 @@
 import { Fraction, Hap, Pattern, State, TimeSpan } from '@strudel/core';
 import type { HapTiming } from '../audio/backend';
-import { beatsPerBar, type SongStructure } from './structure';
+import { cpsAtMeter, type SongStructure } from './structure';
 import type { LayoutClock } from './timing';
 
 export const MIXED_CPS_ERROR = 'mixed-meter songs use meta.bpm and cannot change CPS in the code';
@@ -28,12 +28,33 @@ export function queryMetered(
   const end = Number(state.span.end);
   let from = Number(state.span.begin);
   const haps: any[] = [];
+  const mixedMeter = !!structure.meterChanges?.length;
+  const painters = state.controls.painters;
+  const registered = mixedMeter && painters ? new Map<unknown, number>() : undefined;
   do {
     const to = Math.min(end, clock.nextMeterBoundary(from));
-    const localCps = (referenceCps * structure.beatsPerBar) / beatsPerBar(clock.meterAt(from));
-    const piece = new State(new TimeSpan(from, to), { ...state.controls, _cps: localCps });
+    const localCps = cpsAtMeter(referenceCps, structure.meter, clock.meterAt(from));
+    const piece = new State(new TimeSpan(from, to), {
+      ...state.controls,
+      _cps: localCps,
+      _mixedMeter: mixedMeter,
+    });
+    if (registered) piece.controls.painters = [];
     const result = pattern.query(piece);
-    if (structure.meterChanges?.length && result.some((h: any) => h.value?.cps !== undefined)) {
+    if (registered) {
+      // A painter belongs to the whole draw window. Preserve multiple copies
+      // registered together, adding only new occurrences from later pieces.
+      const occurrences = new Map<unknown, number>();
+      for (const painter of piece.controls.painters) {
+        const count = (occurrences.get(painter) ?? 0) + 1;
+        occurrences.set(painter, count);
+        if (count > (registered.get(painter) ?? 0)) {
+          painters.push(painter);
+          registered.set(painter, count);
+        }
+      }
+    }
+    if (mixedMeter && result.some((h: any) => h.value?.cps !== undefined)) {
       throw new Error(MIXED_CPS_ERROR);
     }
     for (const h of result) haps.push(h);
@@ -57,14 +78,14 @@ export function meteredPlayback(
     if (!clock) return pattern.query(state);
     const cps = state.controls._cps ?? structure.cps;
     const span = state.span.withTime((t: any) => clock.toCycle(Number(t)));
+    const toReference = (t: any) => clock.toClock(Number(t));
     try {
       return queryMetered(pattern, state.setSpan(span), structure, clock, cps).map((h) => {
-        const spanToClock = (s: any) => s.withTime((t: any) => clock.toClock(Number(t)));
         if (!h.whole)
-          return new Hap(undefined, spanToClock(h.part), h.value, h.context, h.stateful);
+          return new Hap(undefined, h.part.withTime(toReference), h.value, h.context, h.stateful);
         const onset = Number(h.whole.begin);
         const at = clock.toClock(onset);
-        const localCps = (cps * structure.beatsPerBar) / beatsPerBar(clock.meterAt(onset));
+        const localCps = cpsAtMeter(cps, structure.meter, clock.meterAt(onset));
         const timing = {
           phaseSec: phaseOffset() + at / cps,
           durationSec: (clock.toClock(Number(h.whole.begin.add(h.duration))) - at) / cps,
@@ -82,8 +103,8 @@ export function meteredPlayback(
           };
         }
         const mapped = new Hap(
-          spanToClock(h.whole),
-          spanToClock(h.part),
+          h.whole.withTime(toReference),
+          h.part.withTime(toReference),
           h.value,
           context,
           h.stateful,

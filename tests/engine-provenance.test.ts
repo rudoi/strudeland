@@ -168,6 +168,8 @@ describe('toolchainOf', () => {
       'src/lib/render/schedule.ts',
       'src/lib/render/job-plan.ts',
       'src/lib/render/page-job.ts',
+      'src/lib/render/timing.ts',
+      'src/lib/strudel/timing.ts',
     ]);
     for (const f of PLANNER_FILES) {
       const before = plannerSha256(root);

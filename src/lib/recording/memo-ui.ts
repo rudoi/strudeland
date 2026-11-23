@@ -6,7 +6,8 @@
 import { writable, type Writable } from 'svelte/store';
 import type { MemoPlayerState, PlayHow } from '../audio/memo-player';
 import type { Tone } from '../theme/tones';
-import { bpmFromCps, meterString, type Meter } from '../strudel/structure';
+import { bpmFromCps, meterString, type Meter, type SongStructure } from '../strudel/structure';
+import { FIXED_METER_BACKING_MESSAGE } from './types';
 import type {
   BackingChoice,
   InputDevice,
@@ -395,6 +396,10 @@ export interface SongTempo {
   mixedMeter?: boolean;
 }
 
+export function songTempoOf(s: SongStructure): SongTempo {
+  return { cps: s.cps, meter: s.meter, ...(s.meterChanges && { mixedMeter: true }) };
+}
+
 /** `120 · 4/4`: bpm rounded to an integer, the meter as given. */
 export const tempoText = (bpm: number, meter: string): string => `${Math.round(bpm)} · ${meter}`;
 
@@ -503,6 +508,7 @@ export function memoPlayItems(
     if (busy) return BUSY_TITLE;
     if (!timing) return 'no bar position saved';
     if (song === null) return 'no song open';
+    if (song.mixedMeter) return FIXED_METER_BACKING_MESSAGE;
     // A `setcps` take's tempo is the evaluated one; playing checks it after the evaluate.
     const memo = e.sidecar!.tempo;
     if (!memo.tempoOverride && tempoChanged(memo, song)) return tempoChangedTitle(memo, song);

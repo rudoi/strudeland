@@ -103,7 +103,7 @@ fn render_audio_for(
         AudioMode::Preset(preset) => Some(preset),
         _ => None,
     };
-    let (planned, plan_ms) = plan::plan(code, opts, preset)?;
+    let (mut planned, plan_ms) = plan::plan(code, opts, preset)?;
     let chunk_count = planned.chunks.len()
         + planned
             .export
@@ -113,7 +113,7 @@ fn render_audio_for(
     progress(Progress::Planned {
         chunks: chunk_count,
     });
-    let mut jobs = plan::check(&planned)?;
+    let mut jobs = plan::take_jobs(&mut planned)?;
     let PlannedRender {
         window,
         music_frames,
@@ -134,10 +134,6 @@ fn render_audio_for(
             .loop_start_frame
             .unwrap_or_else(|| join::window_frames(window.from_bar, bar, cps));
         Some((bar, frame))
-    });
-    let repeat = export.and_then(|export| export.repeat).map(|repeat| {
-        let chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
-        (chunks, repeat.music_frames, repeat.tail_frames)
     });
     let repeat_jobs = jobs.split_off(chunks.len());
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
@@ -176,18 +172,19 @@ fn render_audio_for(
         &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
     let (isolated_body, repeat_workers) =
-        if let Some((body_chunks, body_music_frames, body_tail_frames)) = repeat {
+        if let Some(repeat) = export.and_then(|export| export.repeat) {
             let (from_bar, start_frame) = loop_start
                 .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
             let expected = music_frames
                 .checked_sub(start_frame)
                 .ok_or_else(|| RenderError::Render("loop begins past the opening".into()))?;
-            if body_music_frames.is_some_and(|frames| frames != expected) {
+            if repeat.music_frames.is_some_and(|frames| frames != expected) {
                 return Err(RenderError::Render(
                     "isolated body length differs from the opening loop".into(),
                 ));
             }
             let body_window = PlannedWindow { from_bar, ..window };
+            let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
             let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
             let body = render_window(
                 join::Joiner::for_plans_with_tail(
@@ -196,7 +193,7 @@ fn render_audio_for(
                     &body_chunks,
                     2,
                     Some(expected),
-                    body_tail_frames,
+                    repeat.tail_frames,
                 )?,
                 &body_chunks,
                 repeat_jobs,

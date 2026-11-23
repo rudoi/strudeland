@@ -10,6 +10,10 @@ import {
   type RuntimeState,
 } from '../src/lib/strudel/runtime';
 import { song } from '../src/lib/strudel/song';
+import { layoutClock } from '../src/lib/strudel/timing';
+import { INITIAL_SEGMENTS } from '../src/lib/strudel/transport';
+import { parseMeta } from '../src/lib/project/meta';
+import { evaluateOptions } from '../src/lib/project/evaluate-options';
 import { fakeRuntime as fake } from './helpers/fake-runtime';
 
 await core.evalScope(core, mini, { song });
@@ -491,7 +495,7 @@ test('mixed-meter CPS changes produce a diagnostic and preserve the reference cl
   );
   expect(snap(rt).evalError).toContain('cannot change CPS');
   expect(rt.query(0, 1)!.some((h) => h.value.s === 'held')).toBe(true);
-  expect(await rt.evaluate('s("bd")', { requiresMeterMap: true })).toBe(false);
+  expect(await rt.evaluate('s("bd")', { expectedArrangement: snap(rt).structure! })).toBe(false);
   expect(snap(rt).evalError).toContain('requires song(');
   expect(await rt.evaluate(`${MIXED_HEADER}\nsong(meta, {phrase:s('click').cps(3)})`)).toBe(true);
   expect(snap(rt).outputError).toContain('cannot change CPS');
@@ -548,6 +552,126 @@ test('editing a mixed meter preserves the play position at the scheduler handoff
   const outside = b.calls.filter(([h]) => h.value.s === 'outside');
   expect(outside.map(([h]) => Number(h.whole.begin))).toEqual([0, 1, 2]);
   rt.stop();
+});
+
+test('repeated live tempo changes take effect as their scheduled mixed-meter audio reaches the playhead', async () => {
+  const { rt, b, tick } = fake();
+  expect(await rt.evaluate(MIXED_SONG)).toBe(true);
+  tick(26);
+  const clock = layoutClock(snap(rt).structure!, INITIAL_SEGMENTS);
+  const start = b.now;
+  const baseline = rt.scheduler.now();
+  const first = rt.scheduler.lastEnd;
+  const firstSec = (first - baseline) / 0.5;
+  const checkReference = (reference: number) => {
+    expect(rt.position().cycle).toBeCloseTo(clock.toCycle(reference), 10);
+    expect(rt.drawingScheduler.now()).toBeCloseTo(rt.position().cycle, 10);
+  };
+  expect(await rt.evaluate(MIXED_SONG, { cps: 1.5 })).toBe(true);
+  checkReference(baseline);
+  tick(1);
+  checkReference(baseline + (b.now - start) * 0.5);
+  const second = rt.scheduler.lastEnd;
+  const secondSec = firstSec + (second - first) / 1.5;
+  expect(await rt.evaluate(MIXED_SONG, { cps: 0.25 })).toBe(true);
+  checkReference(baseline + (b.now - start) * 0.5);
+  for (let i = 0; i < 7; i++) {
+    tick(1);
+    const elapsed = b.now - start;
+    const reference =
+      baseline +
+      Math.min(elapsed, firstSec) * 0.5 +
+      Math.max(0, Math.min(elapsed, secondSec) - firstSec) * 1.5 +
+      Math.max(0, elapsed - secondSec) * 0.25;
+    checkReference(reference);
+  }
+  rt.stop();
+});
+
+test('getCps follows the audible meter and tempo across a change to both', async () => {
+  const { rt, tick } = fake();
+  expect(await rt.evaluate(MIXED_SONG)).toBe(true);
+  expect(core.getCps()).toBe(0.5);
+  tick(22);
+  expect(core.getCps()).toBeCloseTo(4 / 3);
+  const changed = MIXED_SONG.replace("meter: '4/4', sections", "meter: '2/4', sections");
+  expect(await rt.evaluate(changed, { cps: 1.5, meter: { num: 2, den: 4 } })).toBe(true);
+  expect(core.getCps()).toBeCloseTo(4 / 3);
+  tick(3);
+  expect(core.getCps()).toBeCloseTo(2);
+  tick(6);
+  expect(core.getCps()).toBeCloseTo(0.75);
+  rt.stop();
+  expect(core.getCps()).toBe(1.5);
+});
+
+test('a drawing window preserves painter order and repetitions across meter boundaries', async () => {
+  await import('@strudel/draw');
+  const paintA = () => {};
+  const paintB = () => {};
+  await core.evalScope({ paintA, paintB });
+  const { rt } = fake();
+  const code = `const meta = {
+    sections: [{ name: 'one', bars: 1 }, { name: 'two', bars: 2 }],
+    meterChanges: [{ bar: 2, meter: '3/8' }, { bar: 3, meter: '4/4' }]
+  };
+  song(meta, {one: s('click').onPaint(paintA), two: s('click').onPaint(paintB).onPaint(paintA)}).onPaint(paintA)`;
+  expect(await rt.evaluate(code, { autostart: false })).toBe(true);
+  const painters: unknown[] = [];
+  rt.drawingScheduler.pattern.queryArc(0, 3, { painters });
+  expect(painters).toEqual([paintA, paintA, paintB]);
+});
+
+test('a fixed static header allows a dynamic legacy song but rejects dynamic mixed meter', async () => {
+  const { rt } = fake();
+  const header = "const meta = { sections: [{ name: 'part', bars: 3 }] };";
+  const options = { ...evaluateOptions(parseMeta(header).meta), autostart: false };
+  expect(
+    await rt.evaluate(`${header}\nsong({...meta, meter: '3/8'}, {part: s('click')})`, options),
+  ).toBe(true);
+  const changed = `${header}\nsong({...meta, meter: '3/8', meterChanges: [{bar: 2, meter: '4/4'}]}, {part: s('click')})`;
+  expect(await rt.evaluate(changed, options)).toBe(false);
+  expect(snap(rt).evalError).toContain('arrangement in the meta header');
+});
+
+test.each([
+  ['.cps(2)', 'cannot change CPS'],
+  ['.cpm(60)', 'do not support .cpm()'],
+])(
+  'a live edit with an imminent %s conflict preserves the playing pattern',
+  async (op, message) => {
+    const { rt, b, tick } = fake();
+    expect(await rt.evaluate(MIXED_SONG)).toBe(true);
+    tick(12);
+    const pattern = rt.scheduler.pattern;
+    const position = rt.position().cycle;
+    const replacement = `${MIXED_HEADER}\nsong(meta, {phrase: s('replacement')${op}})`;
+    expect(await rt.evaluate(replacement, { cps: 1.5 })).toBe(false);
+    expect(snap(rt)).toMatchObject({
+      activeCode: MIXED_SONG,
+      cps: 0.5,
+      outputError: null,
+      started: true,
+    });
+    expect(snap(rt).evalError).toContain(message);
+    expect(rt.scheduler.pattern).toBe(pattern);
+    expect(rt.position().cycle).toBeCloseTo(position, 10);
+    tick(20);
+    expect(b.calls.filter(([h]) => h.value.s === 'outside')).toHaveLength(3);
+    rt.stop();
+  },
+);
+
+test('prepared mixed-meter queries diagnose .cpm() while fixed-meter patterns retain its absolute rate', async () => {
+  const { rt } = fake();
+  expect(
+    await rt.evaluate(`${MIXED_HEADER}\nsong(meta, {phrase: s('click')}).cpm(60)`, {
+      autostart: false,
+    }),
+  ).toBe(true);
+  expect(() => rt.query(1, 2)).toThrow('do not support .cpm()');
+  expect(await rt.evaluate("s('click').cpm(60)", { autostart: false, cps: 0.5 })).toBe(true);
+  expect(rt.query(0, 1)!.map((hap) => Number(hap.whole.begin))).toEqual([0, 0.5]);
 });
 
 test('a failed mixed-meter autostart leaves the last accepted pattern and its clock installed', async () => {

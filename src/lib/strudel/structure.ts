@@ -74,6 +74,13 @@ export const beatsPerBar = (meter: Meter): number => (meter.num * 4) / meter.den
 /** Cycles per second for quarter-note `bpm`; one cycle is one bar. */
 export const cpsFor = (bpm: number, meter: Meter): number => bpm / 60 / beatsPerBar(meter);
 
+/** Local cycles per second at the same quarter-note tempo. */
+export function cpsAtMeter(cps: number, reference: Meter, meter: Meter): number {
+  const referenceBeats = beatsPerBar(reference);
+  const beats = beatsPerBar(meter);
+  return beats === referenceBeats ? cps : (cps * referenceBeats) / beats;
+}
+
 /** Quarter-note bpm for `cps`; the inverse of `cpsFor`. */
 export const bpmFromCps = (cps: number, meter: Meter): number => cps * 60 * beatsPerBar(meter);
 
@@ -267,7 +274,11 @@ function check(problem: string | null) {
 }
 
 /** intro + loops x loop + tail; with no loop section, totalBars. */
-function clipDuration(s: SongStructure, loop: LoopRange | null, loops: number) {
+function clipDuration(
+  s: Pick<SongStructure, 'totalBars' | 'cps' | 'bpm' | 'meter' | 'meterChanges'>,
+  loop: LoopRange | null,
+  loops: number,
+) {
   const loopBars = loop ? loop.end - loop.start : 0;
   const clipBars = s.totalBars + (loops - 1) * loopBars;
   if (!s.meterChanges) return { clipBars, clipSeconds: clipBars / s.cps };
@@ -337,10 +348,14 @@ export function buildStructure(meta: Record<string, unknown>): SongStructure {
   let meterChanges: MeterChange[] | undefined;
   if (has(meta, 'meterChanges')) {
     check(meterChangesProblem(meta.meterChanges, totalBars));
-    const changes = (meta.meterChanges as { bar: number; meter: string }[]).map((c) => ({
-      bar: c.bar - 1,
-      meter: parseMeter(c.meter)!,
-    }));
+    const changes: MeterChange[] = [];
+    let previous = meter;
+    for (const c of meta.meterChanges as { bar: number; meter: string }[]) {
+      const next = parseMeter(c.meter)!;
+      if (next.num === previous.num && next.den === previous.den) continue;
+      changes.push({ bar: c.bar - 1, meter: next });
+      previous = next;
+    }
     if (changes.length) meterChanges = changes;
   }
   let loops = 1;
@@ -350,7 +365,7 @@ export function buildStructure(meta: Record<string, unknown>): SongStructure {
   }
 
   const cps = cpsFor(bpm, meter);
-  const structure: SongStructure = {
+  return {
     bpm,
     meter,
     beatsPerBar: beatsPerBar(meter),
@@ -361,10 +376,8 @@ export function buildStructure(meta: Record<string, unknown>): SongStructure {
     totalBars,
     introEnd: loop?.start ?? totalBars,
     endOfSong: loop ? null : totalBars,
-    clipBars: totalBars,
-    clipSeconds: totalBars / cps,
+    ...clipDuration({ totalBars, cps, bpm, meter, meterChanges }, loop, loops),
     ...(loopRange && { loopRange }),
     ...(meterChanges && { meterChanges }),
   };
-  return { ...structure, ...clipDuration(structure, loop, loops) };
 }

@@ -295,7 +295,7 @@ fn length_errors_are_meta_with_their_flag() {
             plain.as_str(),
             LengthRequest::Clip { loops: Some(2) },
             "--loops",
-            "--loops needs a section with loop: true in meta.sections",
+            "--loops needs meta.loop or a section with loop: true in meta.sections",
         ),
     ];
     for (code, length, flag, message) in cases {

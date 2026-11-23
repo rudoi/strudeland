@@ -622,6 +622,18 @@ describe('record', () => {
     });
   });
 
+  test('an armed multi-section loop cannot be stored as one backing section', async () => {
+    const h = await armed();
+    h.rt.setTransport({
+      view: { kind: 'loop', section: 0, through: 1 },
+      pendingStart: true,
+      armedSection: 0,
+    });
+    await h.c.record(SONG_ON);
+    expect(h.fake.argsOf('start')).toEqual([]);
+    expect(h.st().error?.message).toContain('temporary section range');
+  });
+
   test('the song tempo comes from prepareSong (bpm rounded to 6 places, the override)', async () => {
     const h = await armed({
       prepare: { ok: true, cps: 0.7, meter: { num: 7, den: 8 }, tempoOverride: true },

@@ -14,6 +14,16 @@ Opt-in, no change when unset.
 packages/core/repl.mjs
 ```
 
+## mixed-meter-cpm: guard absolute pattern tempo in mixed meter
+Upstream: strudeland-only
+The REPL's `.cpm()` scales a pattern using one scheduler tempo.
+Queries marked `_mixedMeter` reject this operator so live playback and exports report the same
+diagnostic when an arrangement has multiple bar lengths.
+
+```files
+packages/core/repl.mjs
+```
+
 ## audio-rng: seedable random numbers in sound generation
 Upstream: candidate
 `rng.mjs` (new, imports nothing) gives every random use in sound generation its own mulberry32

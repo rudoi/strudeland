@@ -570,7 +570,7 @@ $: song(meta, {
   makes only bar 3 a 7/8 measure. The changes apply inside sections and on every loop pass.
 - Tempo comes from `meta.bpm` (quarter notes) and `meta.meter`; one cycle is one bar. Do not call
   `setcps` or `setcpm`. Constant-meter songs can override the header tempo with a warning.
-  Mixed-meter songs require the declared BPM and reject patterned CPS changes.
+  Mixed-meter songs require the declared BPM. Patterned CPS changes and `.cpm()` require fixed meter.
 - `meta.seed` is an optional integer (-2147483648 to 2147483647) that fixes the song's randomness
   (`rand`, `degrade`, `shuffle`, and the sound engine's noise and oscillator phases); a `.seed()` in
   the code wins.

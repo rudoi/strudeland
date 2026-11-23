@@ -664,14 +664,14 @@ describe('planRender length errors', () => {
       NO_LOOP_CODE,
       { kind: 'clip', loops: 2 },
       '--loops',
-      '--loops needs a section with loop: true in meta.sections',
+      '--loops needs meta.loop or a section with loop: true in meta.sections',
     ],
     [
       'loops on a song without sections',
       CODE,
       { kind: 'clip', loops: 2 },
       '--loops',
-      '--loops needs a section with loop: true in meta.sections',
+      '--loops needs meta.loop or a section with loop: true in meta.sections',
     ],
     [
       'loops 0',

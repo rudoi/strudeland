@@ -362,6 +362,7 @@ export async function runGate(
         expectedFrames: renderWindowFrames(fromBar, toBar, cps, SR, timing),
         barSec,
         seamSecs: a.seamSecs,
+        meteredWindow: timing ? { timing, fromBar } : undefined,
         opening: fromBar === 0 ? deriveOpening(sched.events) : undefined,
       });
     }
@@ -371,9 +372,9 @@ export async function runGate(
         bassPresence(a.channels, SR, sched.events, {
           missDb: BASS_MISS_DB,
           offsetSec: a.bufferStartSec,
-          barSec,
+          barSec: timing ? undefined : barSec,
         }),
-        barSec,
+        timing?.secondsAt ?? barSec,
       );
     }
     case 'twin': {
@@ -422,7 +423,7 @@ export async function runGate(
         const r = await pending;
         const content = contentOf(r);
         if (fx.stemsContent && tx === undefined) fx.stemsContent.push(content);
-        const scored = stemsOnsetScores(content, SR, sched.events, barSec, {
+        const scored = stemsOnsetScores(content, SR, sched.events, timing ? undefined : barSec, {
           offsetSec: timing ? timing.secondsAt(r.request.fromBar) : r.request.fromBar / cps,
         });
         notes.push(...scored.notes);
@@ -515,9 +516,16 @@ export async function prepareFixture(
   const cps = sched.cps;
   const barSec = 1 / cps;
   const timing = renderTiming(sched.structure, layoutSegments(base.layout, sched.structure), cps);
-  const plans = renderChunkPlans({ fromBar, toBar, events: sched.events, cps, timing });
-  // For the log line only; renderChunkPlans derives the same value.
-  const lb = lookbackBars(lookbackSeconds(sched.events), timing?.minBarSec ?? barSec);
+  const lookbackSec = lookbackSeconds(sched.events);
+  const plans = renderChunkPlans({
+    fromBar,
+    toBar,
+    events: sched.events,
+    cps,
+    timing,
+    lookbackSec,
+  });
+  const lb = lookbackBars(lookbackSec, timing?.minBarSec ?? barSec);
   const seconds = timing
     ? timing.secondsAt(toBar) - timing.secondsAt(fromBar)
     : barSec * (toBar - fromBar);

@@ -27,6 +27,7 @@ function runIndex(runs: readonly MeterRun[], bar: number): number {
 
 export interface LayoutClock {
   toClock(cycle: number): number;
+  toSixteenths(cycle: number): number;
   toCycle(clock: number): number;
   meterAt(cycle: number): Meter;
   nextMeterBoundary(cycle: number): number;
@@ -37,17 +38,18 @@ export function layoutClock(
   segments: readonly Segment[],
   anchor: { cycle: number; clock: number } = { cycle: 0, clock: 0 },
 ): LayoutClock {
+  const reference = ticksPerBar(s.meter);
   if (!s.meterChanges || segments.length === 0) {
     const offset = anchor.clock - anchor.cycle;
     return {
       toClock: (cycle) => cycle + offset,
+      toSixteenths: (cycle) => (cycle + offset) * reference,
       toCycle: (clock) => clock - offset,
       meterAt: () => s.meter,
       nextMeterBoundary: () => Infinity,
     };
   }
 
-  const reference = ticksPerBar(s.meter);
   const runs: MeterRun[] = [{ bar: 0, ticks: 0, perBar: reference }];
   for (const change of s.meterChanges) {
     const tail = runs[runs.length - 1]!;
@@ -65,19 +67,23 @@ export function layoutClock(
 
   const spans = segments.map((segment, i) => {
     const loop = segmentLoop(s, segment);
-    const loopStart = loop ? songTicks(loop.start) : 0;
-    const loopTicks = loop ? songTicks(loop.end) - loopStart : 0;
+    const loopTicks = loop ? songTicks(loop.end) - songTicks(loop.start) : 0;
+    const startTicks = songTicks(segment.songBar);
+    const segmentEnd = segments[i + 1]?.at ?? Infinity;
     const startMeter = meterAtBar(s, segments[i + 1]?.songBar ?? 0);
+    const countInTicks = ticksPerBar(startMeter);
 
     function elapsedTicks(cycle: number): number {
       const elapsed = cycle - segment.at;
-      if (segment.view.kind === 'count-in') return elapsed * ticksPerBar(startMeter);
+      if (segment.view.kind === 'count-in') return elapsed * countInTicks;
       const linearBar = segment.songBar + elapsed;
-      if (!loop || linearBar < loop.end) return songTicks(linearBar) - songTicks(segment.songBar);
+      if (!loop || (segment.view.kind !== 'loop' && linearBar < loop.end)) {
+        return songTicks(linearBar) - startTicks;
+      }
       const width = loop.end - loop.start;
       const passes = Math.floor((linearBar - loop.start) / width);
       const bar = linearBar - passes * width;
-      return passes * loopTicks + songTicks(bar) - songTicks(segment.songBar);
+      return passes * loopTicks + songTicks(bar) - startTicks;
     }
 
     function meterAt(cycle: number): Meter {
@@ -87,16 +93,15 @@ export function layoutClock(
     }
 
     function nextBoundary(cycle: number): number {
-      const segmentEnd = segments[i + 1]?.at ?? Infinity;
       if (segment.view.kind === 'count-in') return segmentEnd;
       const bar = songBarAt(cycle, s, segment);
       if (bar === null) return segmentEnd;
       const nextBar = runs[runIndex(runs, bar) + 1]?.bar ?? Infinity;
-      if (!loop) return Math.min(segmentEnd, cycle + (nextBar - bar));
-      if (nextBar < loop.end) return Math.min(segmentEnd, cycle + (nextBar - bar));
+      const startOfBar = Math.floor(cycle) - Math.floor(bar);
+      if (!loop || nextBar < loop.end) return Math.min(segmentEnd, startOfBar + nextBar);
       const firstChange = runs[runIndex(runs, loop.start) + 1]?.bar ?? Infinity;
       if (firstChange >= loop.end) return segmentEnd;
-      return Math.min(segmentEnd, cycle + (loop.end - bar));
+      return Math.min(segmentEnd, startOfBar + loop.end);
     }
 
     return { elapsedTicks, meterAt, nextBoundary };
@@ -108,6 +113,7 @@ export function layoutClock(
   }
 
   function rawTicks(cycle: number): number {
+    if (cycle < 0 && segments[0]!.at === 0) return cycle * reference;
     const i = segmentIndex(cycle, segments);
     return offsets[i]! + spans[i]!.elapsedTicks(cycle);
   }
@@ -134,8 +140,15 @@ export function layoutClock(
 
   return {
     toClock,
+    toSixteenths: (cycle) => anchor.clock * reference + (rawTicks(cycle) - anchorTicks),
     toCycle,
-    meterAt: (cycle) => spans[segmentIndex(cycle, segments)]!.meterAt(cycle),
-    nextMeterBoundary: (cycle) => spans[segmentIndex(cycle, segments)]!.nextBoundary(cycle),
+    meterAt: (cycle) =>
+      cycle < 0 && segments[0]!.at === 0
+        ? s.meter
+        : spans[segmentIndex(cycle, segments)]!.meterAt(cycle),
+    nextMeterBoundary: (cycle) =>
+      cycle < 0 && segments[0]!.at === 0
+        ? 0
+        : spans[segmentIndex(cycle, segments)]!.nextBoundary(cycle),
   };
 }

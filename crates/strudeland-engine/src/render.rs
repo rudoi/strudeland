@@ -118,7 +118,7 @@ pub(crate) struct ScheduleArgs<'v> {
     pub(crate) duration: f64,
     /// Absolute layout cycle of the onset.
     pub(crate) cycle: f64,
-    pub(crate) phase_sec: f64,
+    pub(crate) phase_sec: Option<f64>,
     /// The hap's cycles per second (`delaysync`, tremolo sync, the modulators).
     pub(crate) cps: f64,
     /// The frame the hap is scheduled at (the render head).
@@ -265,7 +265,7 @@ impl Core {
                         hap_duration: duration,
                         now_frame,
                         cycle,
-                        phase_sec,
+                        phase_sec: phase_sec.unwrap_or_else(|| cycle / cps),
                         cps,
                     },
                     &mut self.tables,
@@ -510,15 +510,14 @@ impl<'a> Engine<'a> {
             }
             t = now;
         }
-        let cps = hap.cps.unwrap_or(job.cps);
         self.core.schedule(ScheduleArgs {
             value,
             value_index: hap.v as usize,
             t,
             duration: hap.duration,
             cycle: hap.cycle,
-            phase_sec: hap.phase_sec.unwrap_or(hap.cycle / cps),
-            cps,
+            phase_sec: hap.phase_sec,
+            cps: hap.cps.unwrap_or(job.cps),
             now_frame: pause_frame,
         });
     }
@@ -2008,7 +2007,7 @@ mod tests {
             t,
             duration,
             cycle: 0.0,
-            phase_sec: 0.0,
+            phase_sec: None,
             cps,
             now_frame: 0,
         }

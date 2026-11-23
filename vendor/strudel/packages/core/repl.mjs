@@ -219,7 +219,13 @@ export function repl({
       console.warn('injectPatternMethods: error:', err);
     }
     const cpm = register('cpm', function (cpm, pat) {
-      return pat._fast(cpm / 60 / scheduler.cps);
+      const scaled = pat._fast(cpm / 60 / scheduler.cps);
+      return new Pattern((state) => {
+        if (state.controls._mixedMeter) {
+          throw new Error('mixed-meter songs do not support .cpm(). Set the tempo with meta.bpm.');
+        }
+        return scaled.query(state);
+      }, scaled._steps);
     });
     return evalScope({
       all,

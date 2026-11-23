@@ -245,7 +245,7 @@ impl LiveEngine {
             t,
             duration: hap.duration_sec,
             cycle: hap.cycle,
-            phase_sec: hap.phase_sec.unwrap_or(hap.cycle / hap.cps),
+            phase_sec: hap.phase_sec,
             cps: hap.cps,
             now_frame,
         });

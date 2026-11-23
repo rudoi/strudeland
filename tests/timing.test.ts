@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { hapTiming, renderTiming } from '../src/lib/render/timing';
 import { buildStructure, withLoops } from '../src/lib/strudel/structure';
 import { layoutClock } from '../src/lib/strudel/timing';
 import {
@@ -36,6 +37,23 @@ const structure = buildStructure({
 });
 
 describe('meter-aware layout clock', () => {
+  test('repeated signatures keep a fixed grid while equivalent beat lengths may change meter', () => {
+    const sections = [{ name: 'body', bars: 4 }];
+    expect(
+      buildStructure({ sections, meterChanges: [{ bar: 2, meter: '4/4' }] }).meterChanges,
+    ).toBeUndefined();
+    const s = buildStructure({
+      meter: '3/4',
+      sections,
+      meterChanges: [
+        { bar: 2, meter: '6/8' },
+        { bar: 3, meter: '6/8' },
+      ],
+    });
+    expect(s.meterChanges).toEqual([{ bar: 1, meter: { num: 6, den: 8 } }]);
+    expect(layoutClock(s, LINEAR_SEGMENTS).toClock(4)).toBe(4);
+  });
+
   test('one loop pass is 35 quarter notes in both linear and clip layouts', () => {
     const linear = layoutClock(structure, LINEAR_SEGMENTS);
     const clip = layoutClock(structure, clipSegments(structure));
@@ -76,6 +94,45 @@ describe('meter-aware layout clock', () => {
     expect(layoutClock(s, prune(segments, 1), anchor).toClock(2)).toBe(clock.toClock(2));
     expect(clock.toCycle(clock.toClock(2))).toBe(2);
     expect(clock.meterAt(0)).toEqual({ num: 7, den: 8 });
+  });
+
+  test('the first retained manual loop has consistent meter and time before its anchor', () => {
+    const s = buildStructure({
+      sections: [
+        { name: 'intro', bars: 1 },
+        { name: 'body', bars: 2 },
+      ],
+      meterChanges: [{ bar: 3, meter: '3/8' }],
+    });
+    const segments = prune(withLoop(INITIAL_SEGMENTS, s, 1, 12), 12);
+    const clock = layoutClock(s, segments, { cycle: 12, clock: 10 });
+    expect(clock.meterAt(11.5)).toEqual({ num: 3, den: 8 });
+    expect(clock.toClock(12) - clock.toClock(11.5)).toBe(3 / 16);
+    expect(clock.toCycle(clock.toClock(11.5))).toBe(11.5);
+  });
+
+  test('an onset in the rounded opening sample of a render chunk stays on frame zero', () => {
+    const s = buildStructure({
+      bpm: 121,
+      sections: [{ name: 'body', bars: 3 }],
+      meterChanges: [{ bar: 2, meter: '3/8' }],
+    });
+    const timing = renderTiming(s, LINEAR_SEGMENTS, s.cps)!;
+    const origin = timing.frameAt(2, 44100) / 44100;
+    expect(timing.secondsAt(2.000001)).toBeLessThan(origin);
+    expect(hapTiming(2.000001, 0.5, 2, s.cps, timing, origin).t).toBe(0);
+  });
+
+  test('absolute frame edges round once from integer subdivisions, including a half sample', () => {
+    const s = buildStructure({
+      bpm: 120,
+      meter: '5/4',
+      sections: [{ name: 'body', bars: 2, loop: true }],
+      meterChanges: [{ bar: 2, meter: '3/16' }],
+    });
+    const timing = renderTiming(s, LINEAR_SEGMENTS, s.cps)!;
+    expect(timing.secondsAt(2)).toBe(2.875);
+    expect(timing.frameAt(2, 44100)).toBe(126788);
   });
 
   test('temporary ranges wrap, and release applies at the authored loop end', () => {

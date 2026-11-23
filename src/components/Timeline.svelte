@@ -8,7 +8,9 @@
     fieldValue,
     hasEnding,
     litBars,
+    matchingSectionRange,
     minorTicks,
+    mixedMeterRuler,
     playheadPct,
     rulerBars,
     rulerMarks,
@@ -41,13 +43,15 @@
   const ticks = $derived(
     structure?.meterChanges ? 0 : minorTicks(bars, structure?.meter ?? $rt.meter),
   );
+  const mixedRuler = $derived(structure?.meterChanges ? mixedMeterRuler(structure) : null);
   const savedLoop = $derived(structure && authoredLoop(structure));
   const hasLoop = $derived(savedLoop !== null);
-  const ending = $derived(hasEnding(structure));
 
   // The evaluated song is the active one; otherwise there is no playhead or menu.
   const playingActive = $derived($rt.started && $ss.evaluated?.path === $ss.active);
   const playingOther = $derived($rt.started && $ss.evaluated !== null && !playingActive);
+  const playable = $derived($rt.started ? $rt.structure : structure);
+  const ending = $derived(hasEnding(playable));
 
   // Position, refreshed each animation frame while the scheduler runs.
   let position = $state.raw<{ cycle: number; located: Located | null }>({
@@ -71,9 +75,21 @@
   const pct = $derived(
     playingActive && sections.length === 0 ? playheadPct($rt.structure, position) : null,
   );
-  const head = $derived(playingActive ? blockPlayhead(structure, position.located) : null);
-  const activeSection = $derived(playingActive ? (position.located?.section ?? null) : null);
+  const head = $derived.by(() => {
+    const located = position.located;
+    if (!playingActive || !located) return null;
+    const name = playable?.sections[located.section]?.name;
+    const section = sections.findIndex((item) => item.name === name);
+    return blockPlayhead(structure, { ...located, section });
+  });
   const audition = $derived($tp.view.kind === 'loop' ? $tp.view : null);
+  const auditionNames = $derived(
+    audition
+      ? (playable?.sections
+          .slice(audition.section, (audition.through ?? audition.section) + 1)
+          .map((item) => item.name) ?? [])
+      : [],
+  );
   const endingEnabled = $derived(
     canPlayEnding($rt.started, $rt.structure, $tp.view, position.located) && playingActive,
   );
@@ -85,7 +101,8 @@
   const armedName = $derived(
     $tp.armedSection === null ? null : (structure?.sections[$tp.armedSection]?.name ?? null),
   );
-  const resolveStructure = () => ($rt.started ? $rt.structure : structure);
+  const resolveRange = (first: number, last = first) =>
+    structure && playable && matchingSectionRange(structure, playable, first, last);
 
   function openMenu(e: MouseEvent, index: number) {
     e.stopPropagation();
@@ -94,28 +111,28 @@
   }
   /** Start here or loop this section; while stopped, also evaluate so it starts. */
   function arm(i: number, act: 'startFrom' | 'loopSection') {
-    const s = resolveStructure();
+    const target = resolveRange(i);
     menuFor = null;
-    if (!s) return;
-    runtime.transport[act](i, s);
+    if (!target || !playable) return;
+    runtime.transport[act](target.first, playable);
     if (!$rt.started) app.evaluateDoc();
   }
   function stopLooping() {
-    const s = resolveStructure();
     menuFor = null;
-    if (s) runtime.transport.loopSection(null, s);
+    if (playable) runtime.transport.loopSection(null, playable);
   }
   function armRange(first: number, last: number) {
-    const s = resolveStructure();
+    const target = resolveRange(first, last);
     menuFor = null;
-    if (!s) return;
-    runtime.transport.loopRange(first, last, s);
+    if (!target || !playable) return;
+    runtime.transport.loopRange(target.first, target.last, playable);
     if (!$rt.started) app.evaluateDoc();
   }
   async function showRangeOptions(show: boolean) {
     choosingEnd = show;
     await tick();
-    track?.querySelector<HTMLButtonElement>('[data-range-focus]')?.focus();
+    const focus = track?.querySelector<HTMLButtonElement>('[data-range-focus]:not(:disabled)');
+    (focus ?? track?.querySelector<HTMLButtonElement>('[role="menu"] button'))?.focus();
   }
 
   // ---- meta inputs ----
@@ -180,10 +197,8 @@
                 name={sec.name}
                 bars={sec.bars}
                 loop={savedLoop !== null && i >= savedLoop.first && i <= savedLoop.last}
-                looping={audition !== null &&
-                  i >= audition.section &&
-                  i <= (audition.through ?? audition.section)}
-                current={activeSection === i}
+                looping={auditionNames.includes(sec.name)}
+                current={head?.section === i}
                 lit={head?.section === i ? litBars(sec.bars, head.localCycle) : 0}
                 onclick={(e) => openMenu(e, i)}
                 aria-haspopup="menu"
@@ -195,15 +210,20 @@
                       <MenuItem onclick={() => showRangeOptions(false)}>back</MenuItem>
                       {#each sections.slice(i + 1) as end, offset (end.name)}
                         <MenuItem
-                          data-range-focus={offset === 0 ? '' : undefined}
+                          data-range-focus=""
+                          disabled={!resolveRange(i, i + offset + 1)}
                           onclick={() => armRange(i, i + offset + 1)}
                         >
                           through {end.name}
                         </MenuItem>
                       {/each}
                     {:else}
-                      <MenuItem onclick={() => arm(i, 'startFrom')}>start here</MenuItem>
-                      <MenuItem onclick={() => arm(i, 'loopSection')}>loop this section</MenuItem>
+                      <MenuItem disabled={!resolveRange(i)} onclick={() => arm(i, 'startFrom')}>
+                        start here
+                      </MenuItem>
+                      <MenuItem disabled={!resolveRange(i)} onclick={() => arm(i, 'loopSection')}>
+                        loop this section
+                      </MenuItem>
                       {#if i < sections.length - 1}
                         <MenuItem data-range-focus="" onclick={() => showRangeOptions(true)}
                           >loop through…</MenuItem
@@ -228,18 +248,29 @@
         class:minor={ticks > 0}
         style:background-size={ticks > 0 ? `${100 / ticks}% 4px` : undefined}
       >
+        {#each mixedRuler?.ticks ?? [] as run (run.from)}
+          <span
+            class="meter-ticks"
+            aria-hidden="true"
+            style:left="{(run.from / bars) * 100}%"
+            style:width="{((run.to - run.from) / bars) * 100}%"
+            style:background-size="{100 / run.count}% 4px"
+          ></span>
+        {/each}
         {#each marks as bar (bar)}
           <span class="mark mono" style:left="{(bar / bars) * 100}%">{bar + 1}</span>
         {/each}
       </div>
-      {#if structure?.meterChanges}
+      {#if mixedRuler?.labels.length}
         <ul class="meter-changes mono" aria-label="time signature changes">
-          {#each structure.meterChanges.slice(0, 32) as change (change.bar)}
-            <li>bar {change.bar + 1} · {meterString(change.meter)}</li>
+          {#each mixedRuler.labels as change (change.bar)}
+            <li
+              title="bar {change.bar + 1} · {meterString(change.meter)}"
+              style:left="{(change.bar / bars) * 100}%"
+            >
+              {meterString(change.meter)}
+            </li>
           {/each}
-          {#if structure.meterChanges.length > 32}
-            <li>{structure.meterChanges.length - 32} more in the header</li>
-          {/if}
         </ul>
       {/if}
       {#if pct !== null}
@@ -348,10 +379,16 @@
     margin-top: var(--space-1);
     border-top: 1px solid var(--scope-grat-major);
   }
-  .ruler.minor {
+  .ruler.minor,
+  .meter-ticks {
     background-image: linear-gradient(to right, var(--scope-grat) 1px, transparent 1px);
     background-repeat: repeat-x;
     background-position: left top;
+  }
+  .meter-ticks {
+    position: absolute;
+    top: 0;
+    height: 4px;
   }
   .mark {
     position: absolute;
@@ -364,14 +401,19 @@
     line-height: var(--ruler-h);
   }
   .meter-changes {
-    display: flex;
-    flex-wrap: wrap;
-    column-gap: var(--space-3);
+    position: relative;
+    height: var(--ruler-h);
     margin: 0;
     padding: 0;
     list-style: none;
     color: var(--text-dim);
     font-size: var(--fs-2xs);
+  }
+  .meter-changes li {
+    position: absolute;
+    border-left: 1px solid var(--scope-grat-major);
+    padding-left: var(--space-1);
+    line-height: var(--ruler-h);
   }
   /* The scan line: a 1px phosphor line with a nub on top and an afterglow tail behind it. */
   .playhead {

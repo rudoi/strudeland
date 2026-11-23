@@ -1,4 +1,4 @@
-import { beatsPerBar, type SongStructure } from '../strudel/structure';
+import { beatsPerBar, bpmFromCps, cpsAtMeter, type SongStructure } from '../strudel/structure';
 import { layoutClock } from '../strudel/timing';
 import { clipSegments, LINEAR_SEGMENTS, type Segment } from '../strudel/transport';
 import { windowFrames, type SegmentLayout } from './contract';
@@ -39,16 +39,17 @@ export function renderTiming(
 ): RenderTiming | undefined {
   if (!structure.meterChanges?.length) return undefined;
   const clock = layoutClock(structure, segments);
+  const bpm = cps === structure.cps ? structure.bpm : bpmFromCps(cps, structure.meter);
   const baseBeats = structure.beatsPerBar;
   const minBeats = structure.meterChanges.reduce(
     (min, change) => Math.min(min, beatsPerBar(change.meter)),
     baseBeats,
   );
   return {
-    secondsAt: (cycle) => clock.toClock(cycle) / cps,
+    secondsAt: (cycle) => (clock.toSixteenths(cycle) * 15) / bpm,
     cycleAt: (seconds) => clock.toCycle(seconds * cps),
-    cpsAt: (cycle) => (cps * baseBeats) / beatsPerBar(clock.meterAt(cycle)),
-    frameAt: (cycle, sampleRate) => Math.round((clock.toClock(cycle) * sampleRate) / cps),
+    cpsAt: (cycle) => cpsAtMeter(cps, structure.meter, clock.meterAt(cycle)),
+    frameAt: (cycle, sampleRate) => Math.round((clock.toSixteenths(cycle) * 15 * sampleRate) / bpm),
     minBarSec: minBeats / baseBeats / cps,
   };
 }
@@ -68,11 +69,11 @@ export function hapTiming(
 ): { t: number; duration: number; cps: number; phaseSec?: number } {
   if (!timing) return { t: (onset - start) / cps, duration: duration / cps, cps };
   const phaseSec = timing.secondsAt(onset);
-  // Anchor sample-grid jobs to the same absolute frame grid. At the first downbeat,
-  // rounding the origin up may put the mathematical onset a fraction before frame zero.
+  // Anchor jobs to the same absolute frame grid. Rounding the chunk origin up
+  // can put an onset from the opening fraction of a sample just before frame zero.
   const origin = bufferStartSec ?? timing.secondsAt(start);
   return {
-    t: onset === start ? Math.max(0, phaseSec - origin) : phaseSec - origin,
+    t: Math.max(0, phaseSec - origin),
     duration: timing.secondsAt(onset + duration) - phaseSec,
     cps: timing.cpsAt(onset),
     phaseSec,

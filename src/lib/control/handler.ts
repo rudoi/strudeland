@@ -17,6 +17,7 @@ import { peakDb, roundDb, type LevelHoldSnapshot } from '../levels/levels';
 import type { Runtime } from '../strudel/runtime';
 import {
   bpmFromCps,
+  cpsAtMeter,
   isInt,
   isPlainObject,
   meterAtBar,
@@ -329,7 +330,7 @@ export function createControlHandler({
           ? { path: ss.evaluated.path, title: ss.evaluated.title }
           : null,
       started: rs.started,
-      cps: (rs.cps * rs.meter.num * meter.den) / (rs.meter.den * meter.num),
+      cps: cpsAtMeter(rs.cps, rs.meter, meter),
       bpm: Math.round(bpmFromCps(rs.cps, rs.meter)),
       meter: meterString(meter),
       audio: rs.audio,

@@ -6,7 +6,9 @@ import {
   fieldValue,
   hasEnding,
   litBars,
+  matchingSectionRange,
   minorTicks,
+  mixedMeterRuler,
   parseInput,
   playheadPct,
   rulerBars,
@@ -15,6 +17,39 @@ import {
 } from '../src/lib/project/timeline';
 import { buildStructure, type Meter } from '../src/lib/strudel/structure';
 import { catOf } from '../src/lib/theme/tones';
+
+test('mixed meter places denominator-note beats and labels at written bar positions', () => {
+  const s = buildStructure({
+    sections: [{ name: 'phrase', bars: 4 }],
+    meterChanges: [
+      { bar: 2, meter: '3/8' },
+      { bar: 3, meter: '7/8' },
+    ],
+  });
+  expect(mixedMeterRuler(s)).toEqual({
+    ticks: [
+      { from: 0, to: 1, count: 4 },
+      { from: 1, to: 2, count: 3 },
+      { from: 2, to: 4, count: 14 },
+    ],
+    labels: [
+      { bar: 1, meter: { num: 3, den: 8 } },
+      { bar: 2, meter: { num: 7, den: 8 } },
+    ],
+  });
+});
+
+test('range selection resolves against what is playing after an editor reorder', () => {
+  const layout = (...names: string[]) =>
+    buildStructure({ sections: names.map((name) => ({ name, bars: 1 })) });
+  const playable = layout('a', 'b', 'c');
+  expect(matchingSectionRange(layout('b', 'c', 'a'), playable, 0, 1)).toEqual({
+    first: 1,
+    last: 2,
+  });
+  expect(matchingSectionRange(layout('b', 'a', 'c'), playable, 0, 2)).toBeNull();
+  expect(matchingSectionRange(layout('b', 'new', 'c'), playable, 0, 2)).toBeNull();
+});
 
 const song = buildStructure({
   bpm: 120,

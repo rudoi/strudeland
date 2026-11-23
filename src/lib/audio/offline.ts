@@ -477,10 +477,13 @@ export async function renderOffline(
           t = now;
         }
         meta.push({ t, s });
+        // Superdough writes the gate in seconds back to value.duration. Mixed-meter
+        // haps can share the authored value but must keep their own logical durations.
+        const value = timing ? { ...s.value } : s.value;
         try {
           calls.push(
             Promise.resolve(
-              deps.superdough(s.value, t, time.duration, time.cps, s.onsetCycle, time.phaseSec),
+              deps.superdough(value, t, time.duration, time.cps, s.onsetCycle, time.phaseSec),
             ),
           );
         } catch (e) {

@@ -8,10 +8,31 @@ import {
   meterProblem,
   meterString,
   type Meter,
+  type MeterChange,
   type SongStructure,
 } from '../strudel/structure';
 import type { Located } from '../strudel/transport';
 import type { MetaPath } from './meta-write';
+
+/** Resolve a visible selection against the currently playable section order. */
+export function matchingSectionRange(
+  visible: SongStructure,
+  playable: SongStructure,
+  first: number,
+  last: number,
+): { first: number; last: number } | null {
+  if (first < 0 || last >= visible.sections.length) return null;
+  const selection = visible.sections.slice(first, last + 1);
+  if (!selection.length) return null;
+  const start = playable.sections.findIndex((section) => section.name === selection[0]!.name);
+  if (
+    start < 0 ||
+    selection.some((section, i) => playable.sections[start + i]?.name !== section.name)
+  ) {
+    return null;
+  }
+  return { first: start, last: start + selection.length - 1 };
+}
 
 /** The ruler of a song with no sections. */
 export const FALLBACK_BARS = 16;
@@ -47,6 +68,31 @@ export function minorTicks(totalBars: number, meter: Meter): number {
   const beats = beatsPerBar(meter);
   if (!Number.isInteger(beats) || beats < MINOR_BEATS.min || beats > MINOR_BEATS.max) return 0;
   return totalBars * beats;
+}
+
+/** Beat grids for each meter run, and meter labels at their written bar lines. */
+export function mixedMeterRuler(s: SongStructure): {
+  ticks: { from: number; to: number; count: number }[];
+  labels: MeterChange[];
+} {
+  const changes = s.meterChanges ?? [];
+  const stride = rulerStride(s.totalBars);
+  const ticks = [];
+  if (stride === 1) {
+    const runs = [{ bar: 0, meter: s.meter }, ...changes];
+    for (const [i, { bar: from, meter }] of runs.entries()) {
+      const to = runs[i + 1]?.bar ?? s.totalBars;
+      if (to > from) ticks.push({ from, to, count: (to - from) * meter.num });
+    }
+  }
+  const labels = [];
+  let next = 0;
+  for (const change of changes) {
+    if (change.bar < next) continue;
+    labels.push(change);
+    next = change.bar + stride;
+  }
+  return { ticks, labels };
 }
 
 /**

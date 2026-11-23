@@ -2,6 +2,7 @@ import {
   getRNGMode,
   Pattern,
   repl,
+  setCpsFunc,
   setPattern as exposePattern,
   setTime,
   State,
@@ -26,6 +27,7 @@ import { applySeed } from './seed';
 import { beginEvaluate, registeredStructure, setSegmentSource } from './song';
 import {
   buildStructure,
+  cpsAtMeter,
   cpsFor,
   sameStructure,
   meterString,
@@ -57,9 +59,7 @@ import { errorMessage } from '../errors';
 /** Tempo for one evaluate. Omitted values use the defaults (120 quarter-note bpm, 4/4). */
 export interface EvaluateOptions {
   cps?: number;
-  /** New metadata that requires a matching evaluated song() arrangement. */
-  requiresMeterMap?: boolean;
-  requiresSong?: boolean;
+  /** The editor's static header, checked when either arrangement uses a meter map or loop range. */
   expectedArrangement?: SongStructure;
   meter?: Meter;
   /** Seeds the whole pattern (an inner `.seed()` still wins); omitted: unseeded. */
@@ -342,7 +342,12 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   let clock: LayoutClock | null = null;
   // A hot edit starts at Cyclist's query horizon. Audio between the audible
   // playhead and that horizon still follows the previous arrangement.
-  type ClockHistory = { end: { cycle: number; clock: number }; map: LayoutClock | null }[];
+  type ClockHistory = {
+    end: { cycle: number; clock: number };
+    map: LayoutClock | null;
+    cps: number;
+    referenceMeter?: Meter;
+  }[];
   let audibleHistory: ClockHistory = [];
   // phase = offset + reference clock / CPS, rebased when an evaluate changes the tempo.
   let phaseOffsetSec = 0;
@@ -354,6 +359,43 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const previous = audibleHistory.find((h) => cycle < h.end.cycle);
     return (previous ? previous.map : clock)?.toClock(cycle) ?? cycle;
   };
+  function audibleReference(): number {
+    const sch = r.scheduler;
+    const latest = audibleHistory.at(-1);
+    const current = sch.now();
+    if (
+      !sch.started ||
+      !latest ||
+      (sch.lastBegin >= latest.end.clock && current >= latest.end.clock)
+    ) {
+      return current;
+    }
+    // Cyclist.now places lastBegin at lastTick + one tick duration. The end of
+    // that query is one tick later. Walk back from it at the tempos already
+    // scheduled, including multiple edits within the lookahead window.
+    let reference = Number(sch.lastEnd);
+    let seconds = sch.lastTick + 2 * sch.clock.duration - sch.getTime();
+    let cps = sch.cps;
+    for (let i = audibleHistory.length - 1; i >= 0; i--) {
+      const previous = audibleHistory[i]!;
+      const sinceEdit = (reference - previous.end.clock) / cps;
+      if (seconds <= sinceEdit) break;
+      seconds -= sinceEdit;
+      reference = previous.end.clock;
+      cps = previous.cps;
+    }
+    return reference - seconds * cps;
+  }
+  function audibleCps(): number {
+    const sch = r.scheduler;
+    if (!sch.started || (!clock && audibleHistory.length === 0)) return sch.cps;
+    const reference = audibleReference();
+    const previous = audibleHistory.find((h) => reference < h.end.clock);
+    const map = previous ? previous.map : clock;
+    const base = previous ? previous.referenceMeter : liveStructure?.meter;
+    const cps = previous?.cps ?? sch.cps;
+    return base && map ? cpsAtMeter(cps, base, map.meterAt(map.toCycle(reference))) : cps;
+  }
   function setLiveLayout(next: readonly Segment[], anchor?: { cycle: number; clock: number }) {
     segments = next;
     const needsClock =
@@ -425,14 +467,18 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     // set here. Every successful evaluate sets it; a song without one gets 0.
     editPattern: (pattern: any) => {
       const structure = registeredStructure();
-      if ((pending.requiresSong || pending.requiresMeterMap) && !structure) {
-        throw new Error('the authored loop or meter map requires song(meta, parts)');
-      }
+      const expected = pending.expectedArrangement;
       if (
-        (pending.requiresMeterMap && !structure?.meterChanges?.length) ||
-        (pending.expectedArrangement && !sameStructure(structure, pending.expectedArrangement))
+        expected &&
+        (expected.loopRange ||
+          expected.meterChanges ||
+          structure?.loopRange ||
+          structure?.meterChanges)
       ) {
-        throw new Error('song() must use the arrangement in the meta header');
+        if (!structure)
+          throw new Error('the authored loop or meter map requires song(meta, parts)');
+        if (!sameStructure(structure, expected))
+          throw new Error('song() must use the arrangement in the meta header');
       }
       if (structure?.meterChanges?.length && codeSetCps) throw new Error(MIXED_CPS_ERROR);
       const seeded = applySeed(pattern, pending.seed);
@@ -463,10 +509,15 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       };
       const anchor = r.scheduler.started ? scheduledAnchor() : undefined;
       if (anchor && (clock || structure?.meterChanges?.length)) {
-        const audible = r.scheduler.now();
+        const audible = audibleReference();
         audibleHistory = audibleHistory.filter((h) => h.end.clock > audible);
         if (audibleHistory.at(-1)?.end.clock !== anchor.clock) {
-          audibleHistory.push({ end: anchor, map: clock });
+          audibleHistory.push({
+            end: anchor,
+            map: clock,
+            cps: r.scheduler.cps,
+            referenceMeter: liveStructure?.meter,
+          });
         }
       }
       if (anchor && !codeSetCps) {
@@ -478,6 +529,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
           ? buildStructure({ meter: meterString(pending.meter) })
           : null);
       setLiveLayout(segments, anchor);
+      if (anchor && clock && structure?.meterChanges?.length) {
+        // Check the next live query before replacing an audible pattern. A
+        // tempo conflict in a later window is reported by meteredPlayback.
+        const end = clock.toCycle(anchor.clock + r.scheduler.clock.duration * pending.cps);
+        const imminent = new State(new TimeSpan(anchor.cycle, end), { cyclist: 'cyclist' });
+        queryMetered(seeded, imminent, structure, clock, pending.cps);
+      }
       evaluatedPattern = seeded;
       playError = null;
       playbackPattern =
@@ -499,7 +557,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     setInterval: opts.setInterval,
     clearInterval: opts.clearInterval,
     beforeEval: async () => {
-      setTime(() => toCycle(r.scheduler.now()));
+      setTime(() => toCycle(audibleReference()));
+      setCpsFunc(audibleCps);
       await ensurePrebaked();
       await hooks?.beforeEval?.();
       // useRNG changes a module global; keep one song's choice from leaking into the next.
@@ -575,7 +634,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   r.scheduler.setCps = (cps: number) => {
     if (codeRunning) {
       codeSetCps = true;
-      if (pending.requiresMeterMap) throw new Error(MIXED_CPS_ERROR);
+      if (pending.expectedArrangement?.meterChanges) throw new Error(MIXED_CPS_ERROR);
     } else if (liveStructure?.meterChanges?.length) {
       patch({ outputError: MIXED_CPS_ERROR });
       throw new Error(MIXED_CPS_ERROR);
@@ -736,7 +795,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     return swapTo(to, drain);
   };
 
-  const now = (): number => Math.max(0, toCycle(r.scheduler.now()));
+  const now = (): number => Math.max(0, toCycle(audibleReference()));
 
   /** Drop segments that stopped governing more than `HISTORY_CYCLES` before `cycle`. */
   const pruneAt = (cycle: number) => {

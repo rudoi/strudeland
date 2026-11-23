@@ -321,7 +321,7 @@ the V8 download the host brings.
   after a Strudel sync (the sync prints the reminder), a Playwright bump, a patch of
   `vendor/strudel/PATCHES.md` (added or edited), an edit to `scripts/engine/v8-math-cases.ts`, or
   any edit to `src/lib/render/plan.ts`, `engine-job.ts`, `lookback.ts`, `schedule.ts`, `job-plan.ts`
-  or `page-job.ts` (`PLANNER_FILES`: the refs' provenance hashes them, so the staleness test fails until
+  or `page-job.ts`, or either of the render and Strudel `timing.ts` modules (`PLANNER_FILES`: the refs' provenance hashes them, so the staleness test fails until
   `engine:refs --write`); after a Playwright bump re-port the Blink changes (crate README) and
   re-run `engine-null.probe.ts`. Schema 1 jobs are rejected, not migrated: regenerate them. Floor
   mode is only for the named hash-set junctions (`FLOOR_CASES`), never to absorb a defect. The

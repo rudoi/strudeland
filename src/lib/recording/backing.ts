@@ -8,6 +8,7 @@ import type { Metronome, MetronomeGrid } from '../audio/metronome';
 import type { EvalOutcome } from '../control/protocol';
 import type { Runtime } from '../strudel/runtime';
 import type { Meter } from '../strudel/structure';
+import { FIXED_METER_BACKING_MESSAGE } from './types';
 
 export type PrepareOutcome =
   | { ok: true; cps: number; meter: Meter; tempoOverride: boolean }
@@ -65,7 +66,7 @@ export const BACKING_MESSAGES = {
   audioOff: 'audio is not running: enable it in the status bar',
   songFailed: 'the song could not start',
   metronomeFailed: 'the metronome could not start',
-  mixedMeter: 'song backing requires a fixed time signature',
+  mixedMeter: FIXED_METER_BACKING_MESSAGE,
 } as const;
 
 /** The prefix `session.evaluateBuffer` gives a meta error. */

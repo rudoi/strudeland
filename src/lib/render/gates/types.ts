@@ -5,6 +5,12 @@
  */
 
 import { round } from '../dsp';
+import type { RenderEvent } from '../schedule';
+
+/** Fixed-meter calibration rounds near a downbeat. In mixed meter the schedule supplies the bar. */
+export function scoreBar(event: RenderEvent, fixedBarSec?: number): number {
+  return fixedBarSec === undefined ? event.bar : Math.floor(event.tSec / fixedBarSec + 1e-6);
+}
 
 export const GATE_NAMES = ['seam', 'twin', 'stems', 'bass', 'mix'] as const;
 export type GateName = (typeof GATE_NAMES)[number];

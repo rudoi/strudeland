@@ -30,7 +30,7 @@ import {
   BASS_PAD_SEC,
   BASS_WINDOW_SEC,
 } from '../thresholds';
-import { roundDb, type GateResult } from './types';
+import { roundDb, scoreBar, type GateResult } from './types';
 
 export interface BassEvent extends RenderEvent {
   freq: number;
@@ -38,7 +38,7 @@ export interface BassEvent extends RenderEvent {
 
 export interface BassMiss {
   tSec: number;
-  /** Absolute layout bar: floor(tSec / barSec + 1e-6). */
+  /** Absolute layout bar of the scheduled note. */
   bar: number;
   hz: number;
   orbit: number;
@@ -58,7 +58,8 @@ export interface BassOptions {
   missDb: number;
   /** Layout seconds of frame 0 of the buffer; default 0. */
   offsetSec?: number;
-  barSec: number;
+  /** Constant bar duration for a fixed-meter fixture; omit to use the scheduled bars. */
+  barSec?: number;
 }
 
 export interface BassRule {
@@ -128,7 +129,7 @@ export function bassPresence(
     if (relDb < -Math.abs(opts.missDb)) {
       misses.push({
         tSec: e.tSec,
-        bar: Math.floor(e.tSec / opts.barSec + 1e-6),
+        bar: scoreBar(e, opts.barSec),
         hz: round(e.freq, 1),
         orbit: e.orbit,
         s: e.s,
@@ -177,7 +178,7 @@ const MAX_LISTED = 8;
 /** The bass verdict. `rule` overrides the BASS_* constants for the calibration sweep only. */
 export function bassGate(
   p: BassPresence,
-  barSec: number,
+  barTime: number | ((bar: number) => number),
   rule: Partial<BassRule> = {},
 ): GateResult {
   const r: BassRule = {
@@ -212,12 +213,13 @@ export function bassGate(
     };
   }
 
+  const secondsAt = typeof barTime === 'number' ? (bar: number) => bar * barTime : barTime;
   const reasons: string[] = [];
   for (const c of clusters) {
     reasons.push(
       `orbit ${c.orbit}: ${c.count} bass notes missing (<= -${r.clusterDeepDb} dB) in bars ` +
-        `${c.fromBar}-${c.toBar} (${(c.fromBar * barSec).toFixed(2)}s-` +
-        `${((c.toBar + 1) * barSec).toFixed(2)}s)`,
+        `${c.fromBar}-${c.toBar} (${secondsAt(c.fromBar).toFixed(2)}s-` +
+        `${secondsAt(c.toBar + 1).toFixed(2)}s)`,
     );
   }
   if (p.checked >= r.fractionMinNotes && fraction > r.fractionMax) {

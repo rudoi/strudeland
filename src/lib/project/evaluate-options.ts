@@ -21,7 +21,6 @@ export function evaluateOptions(meta: Meta): EvaluateOptions {
     meter: s.meter,
     seed: meta.seed,
     engine: meta.engine === 'rust' ? 'rust' : 'superdough',
-    ...(s.loopRange && { requiresSong: true, expectedArrangement: s }),
-    ...(s.meterChanges && { requiresMeterMap: true, expectedArrangement: s }),
+    expectedArrangement: s,
   };
 }
