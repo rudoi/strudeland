@@ -1,5 +1,7 @@
 # Section-range loops and mixed meter
 
+Implemented and approved for squash merge in [PR #18](https://github.com/rudoi/strudeland/pull/18). See the [validation record](implementation.md).
+
 ## Goal
 
 Loop a contiguous run of named sections, or loop a single section whose bars have different time signatures. Live playback and audio export should repeat the same musical span at the song's quarter-note BPM. The motivating arrangement has two F passes and four E bars. It should loop with the written rhythms and no added pickup beat.
