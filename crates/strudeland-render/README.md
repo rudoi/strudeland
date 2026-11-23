@@ -70,8 +70,9 @@ pressure on large exports.
 
 ## Game audio presets
 
-Use `strudeland render song.js --preset PRESET`. The loop presets use the section marked
-`loop: true` and exclude sections after it. Each loop export includes a first pass through the body
+Use `strudeland render song.js --preset PRESET`. The loop presets use the inclusive
+`meta.loop` section range or the section marked `loop: true`. They follow any `meta.meterChanges`
+inside the loop and exclude the authored ending. Each loop export includes a first pass through the body
 and a repeat region of the same length. The one-shot accepts the usual `--section`, `--length`
 or `--loops` options.
 
@@ -79,7 +80,7 @@ or `--loops` options.
 | --- | --- |
 | `intro-loop` | Always two files. Play `<name>-intro.<ext>` once for any intro and the first pass. Then play `<name>-loop.<ext>`, whose repeat marker starts at frame zero. |
 | `tagged-loop` | One file with any intro, the first pass and the marked repeat region. Start at frame zero and loop from the marker through EOF. |
-| `folded-loop` | One file that starts at the marked section with fresh effect state. Start at frame zero to hear the first pass, then loop from the marker through EOF. |
+| `folded-loop` | One file that starts at the first bar of the loop with fresh effect state. Start at frame zero to hear the first pass, then loop from the marker through EOF. |
 | `one-shot` | One file that includes the requested arrangement and then lets triggered notes and effects decay. Trailing zero frames after the requested arrangement are trimmed. |
 
 Intro effects carry into the first pass for `intro-loop` and `tagged-loop`. The repeat region

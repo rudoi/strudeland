@@ -419,7 +419,7 @@ offline: the app does not need to be running, and `--timeout` and `--socket` are
 SONG **as it is on disk**, not the app's editor buffer: unsaved edits are not rendered, so run
 `strudeland save` first (or give the path of a file you just wrote).
 
-- Length: a song with `meta.sections` renders its clip by default (its loop section played
+- Length: a song with `meta.sections` renders its clip by default (its loop range played
   `meta.loops` times; `--loops N` changes that). `--section NAME` renders that section once.
   `--length N` renders the first N bars. A song without sections needs `--length N`; without it
   the render fails with exit 4. `--section`, `--length` and `--loops` exclude each other where they
@@ -492,10 +492,11 @@ Use `--preset` to export loop assets or append decay to a one-shot.
 | --- | --- |
 | `tagged-loop` | One file with any intro, the first pass and the marked repeat region. Start at frame zero and loop from the marker through EOF. |
 | `intro-loop` | Always two files. Play the `-intro` file once for any intro and the first pass. Then play the `-loop` file, whose repeat marker starts at frame zero. |
-| `folded-loop` | One file starting at the marked section with fresh effect state. Start at frame zero to hear the first pass, then loop from the marker through EOF. |
+| `folded-loop` | One file starting at the first bar of the loop with fresh effect state. Start at frame zero to hear the first pass, then loop from the marker through EOF. |
 | `one-shot` | The requested clip, section or length followed by automatic decay. A full clip includes any composed ending. |
 
-The loop presets require one section marked `loop: true` and select their own bars. A composed
+The loop presets require a `meta.loop` range or a section marked `loop: true` and select their own
+bars. The repeat follows the written meters at the song's quarter-note tempo. A composed
 ending stays outside those files. Combining a loop preset with
 `--section`, `--length` or `--loops` is a usage error (exit 4). `one-shot` accepts the usual length
 flags.
@@ -561,8 +562,15 @@ $: song(meta, {
   (and backticks) are mini-notation: a double-quoted `meter` or section name is a header error.
 - `song(meta, parts)` goes on a `$:` line. `parts` has one pattern per section, keyed by section
   name (identifiers). One `song()` per file; other `$:` lines play throughout.
+- Set `meta.loop: { from: 'intro', through: 'body' }` to loop a contiguous range through
+  the end of `body`. Use this in place of the section's `loop: true` marker. Use single quotes
+  for the names. `meta.loops` is the number of full passes through that range in a clip.
+- A `song()` can declare `meta.meterChanges` with one-based bar numbers in ascending order.
+  With `meter: '4/4'`, `meterChanges: [{ bar: 3, meter: '7/8' }, { bar: 4, meter: '4/4' }]`
+  makes only bar 3 a 7/8 measure. The changes apply inside sections and on every loop pass.
 - Tempo comes from `meta.bpm` (quarter notes) and `meta.meter`; one cycle is one bar. Do not call
-  `setcps` or `setcpm`: they override `meta.bpm` and trigger the setcps warnings.
+  `setcps` or `setcpm`. Constant-meter songs can override the header tempo with a warning.
+  Mixed-meter songs require the declared BPM and reject patterned CPS changes.
 - `meta.seed` is an optional integer (-2147483648 to 2147483647) that fixes the song's randomness
   (`rand`, `degrade`, `shuffle`, and the sound engine's noise and oscillator phases); a `.seed()` in
   the code wins.
@@ -573,6 +581,9 @@ $: song(meta, {
 
 - `--json`: print the result as one line of JSON on stdout (errors and warnings stay on stderr).
   Use it when you need exact values, e.g. `strudeland --json state`.
+  During a temporary multi-section loop, `transport.loopSection` is its first section and
+  `transport.loopThrough` is its last. During mixed-meter playback, state reports the current
+  signature and its CPS. Event beats use the signature of each event's authored bar.
 - `--timeout SECS`: how long to wait for the app (1 to 120, default 10).
 - `--socket PATH` or `STRUDELAND_SOCKET`: use another control endpoint. Match the app's endpoint.
   Use a private Unix socket on macOS or Linux and a local `\\.\pipe\NAME` on Windows.

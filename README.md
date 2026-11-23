@@ -6,7 +6,7 @@ patterns, arrange them into sections, and keep your songs in a regular folder.
 ![Strudeland playing a synth arrangement, with the code editor, section timeline, and live output meter visible](docs/strudeland.png)
 
 - Edit patterns with live note highlighting, an oscilloscope, and optional Vim keybindings.
-- Arrange songs with named sections, loops, and per-song tempo and meter.
+- Arrange songs with named sections, section-range loops, and meter changes.
 - Keep songs, reusable instruments, voice memos, and renders together in a project.
 - Export synth arrangements to WAV, MP3, Ogg Vorbis, or Opus, or export aligned WAV stems.
 
@@ -71,6 +71,16 @@ before switching.
 Songs are plain Strudel scripts in `songs/*.js`. A song’s `meta` header sets its tempo, meter, and
 sections. The editor watches the project for changes on disk.
 
+Use `song(meta, parts)` for a structured arrangement. Mark one section with `loop: true`
+or set `loop: { from: 'verse', through: 'chorus' }` in `meta` to loop both named sections and
+everything between them. The timeline's **loop through…** command auditions a temporary range.
+
+`meta.meter` sets the first bar's time signature. For example,
+`meterChanges: [{ bar: 5, meter: '7/8' }, { bar: 6, meter: '4/4' }]` makes bar 5 a 7/8 measure,
+even within a section. Bar numbers are one-based. One pattern cycle still plays one written
+bar at the declared quarter-note BPM. Playback and export both follow these meter changes.
+Song-backed recording and playing a memo against the song require a fixed time signature.
+
 Enable **Audition notes** in the status bar to hear a short preview when you finish typing
 a pitch such as `g3` in a note pattern while the song is stopped. The preview uses the pattern's
 fixed built-in synth, for example `note("g3").s("supersaw")`, and works on unsaved edits. The
@@ -112,7 +122,7 @@ unsaved edits. Choose WAV, MP3, Ogg Vorbis, or Opus. Check the filenames in the 
 exporting to the project's `renders/` folder or another folder.
 
 Standard render and one-shot can export the clip, one section, or a length in bars. One-shot
-lets the notes and effects decay. Mark a section with `loop: true` to use the loop modes.
+lets the notes and effects decay. The loop modes use the authored loop section or range.
 **Intro + loop** writes an opening and a repeat. Play the opening once, then repeat the second
 file from its start. **Tagged loop** and **folded loop** mark a repeat in a single file. Tagged
 loop includes any intro, and folded loop starts at the loop's first bar.
@@ -153,7 +163,7 @@ strudeland render songs/main.js --stems voice --out soundtrack-stems
 strudeland transcribe memo-01 --grid 8
 ```
 
-Mark the loop section with `loop: true` in the song's metadata. The split preset always writes
+The split preset uses the authored loop range and always writes
 `soundtrack-intro.wav` and `soundtrack-loop.wav`. Play the first file once to hear any intro
 and the first pass through the loop. Then repeat `soundtrack-loop.wav` from frame zero.
 
