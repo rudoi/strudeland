@@ -2744,7 +2744,12 @@ const SECTIONED = `const meta = {
 $: song(meta, { intro: s("a"), body: s("b") })
 `;
 const SIXEIGHT = { cps: cpsFor(90, { num: 6, den: 8 }), meter: { num: 6, den: 8 } };
-const DEFAULT_TEMPO = { cps: 0.5, meter: { num: 4, den: 4 }, engine: 'superdough' as const };
+const DEFAULT_TEMPO = {
+  cps: 0.5,
+  meter: { num: 4, den: 4 },
+  engine: 'superdough' as const,
+  expectedArrangement: buildStructure({}),
+};
 
 /** Replace the whole doc of the shown song, as typing would. */
 const replaceAll = (h: Awaited<ReturnType<typeof opened>>, text: string) =>
@@ -3285,14 +3290,11 @@ describe('evaluateBuffer', () => {
     await h.session.evaluateBuffer(PA, { autostart: true });
     expect(h.rt.options).toEqual([
       {
-        cps: 0.5,
-        meter: { num: 4, den: 4 },
-        seed: undefined,
-        engine: 'superdough',
+        ...DEFAULT_TEMPO,
         autostart: false,
       },
-      { cps: 0.5, meter: { num: 4, den: 4 }, seed: undefined, engine: 'superdough' },
-      { cps: 0.5, meter: { num: 4, den: 4 }, seed: undefined, engine: 'superdough' },
+      DEFAULT_TEMPO,
+      DEFAULT_TEMPO,
     ]);
   });
 
