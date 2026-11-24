@@ -130,14 +130,21 @@ range. Test astral characters, line endings, and concurrent editor changes. Keep
 transport and error handling out of the instrument semantics so the CLI behaves the
 same way when the app is closed or the requested project changes.
 
-## Open questions for refinement
+## Refinement decisions
 
-- Confirm the instrument-only stdio MCP server fits task #24 while task #6 stays
-  deferred.
-- Confirm that Apply should wrap an explicitly selected pattern, and that Pin and
-  Apply should stay separate operations.
-- Confirm whether the browser should preview defaults only or support temporary
-  parameter overrides.
+- Shelve the broader catalog in #6. Include the five instrument tools over stdio here.
+- Preview defaults. Keep temporary parameter editing out of the browser so the same
+  Preview button always plays the stored version indicated on screen.
+- Apply wraps a complete pattern expression selected in the editor. Keep Pin to Project
+  and Apply to Selection separate. Apply is enabled for project pins, and the browser
+  explains how to select a pattern when Apply is unavailable.
+- Use a compact, searchable browser with a Global Library and Project Pins switch.
+  Give Preview and Stop consistent positions, put the selected preset name above its
+  voice and parameter details, and place project actions together. Preserve the filter
+  and selection on refresh when possible. Use the app's typography, surfaces, focus
+  states and controls. Keep the layout usable by keyboard and at narrow widths.
+- Refresh the list after each write. An update is an explicit action and identifies
+  the two versions it affects. Offer project actions only for an open project.
 
 This is a large change across storage, desktop UI, audio, editor, CLI, and MCP.
 Keep Fracture, Singletonize, and Loss Check.
