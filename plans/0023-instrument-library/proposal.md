@@ -1,5 +1,8 @@
 # Instrument library
 
+Implemented in [PR #21](https://github.com/rudoi/strudeland/pull/21).
+See the [implementation and validation record](implementation.md).
+
 ## Goal
 
 Give composers a reusable library of sound chains and multi-voice kits. A song can apply a
