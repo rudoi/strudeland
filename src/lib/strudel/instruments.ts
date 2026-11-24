@@ -52,9 +52,13 @@ export function registerInstrumentOperation(): void {
   ) {
     throw new Error(`Instrument operation '${OPERATION}' is already registered`);
   }
-  applyInstrument = core.register(OPERATION, (transform: Transform, pattern: StrudelPattern) =>
-    transform(pattern),
-  );
+  core.register(OPERATION, (transform: Transform, pattern: StrudelPattern) => transform(pattern));
+  // A compiled transform is already scalar and has no source location to merge.
+  const applyRaw = core.Pattern.prototype[`_${OPERATION}`] as (
+    this: StrudelPattern,
+    transform: Transform,
+  ) => StrudelPattern;
+  applyInstrument = (transform, pattern) => applyRaw.call(core.reify(pattern), transform);
 }
 
 function scalar(value: unknown): value is Scalar {

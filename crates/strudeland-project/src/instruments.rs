@@ -161,16 +161,22 @@ pub struct InstrumentEntry {
     pub fingerprint: String,
 }
 
+impl InstrumentEntry {
+    fn from_bytes(id: String, bytes: &[u8]) -> Self {
+        Self {
+            id,
+            fingerprint: fingerprint(bytes),
+        }
+    }
+}
+
+fn fingerprint(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 impl InstrumentDefinition {
     fn bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("validated JSON instrument definition")
-    }
-
-    fn entry(&self, id: &str) -> InstrumentEntry {
-        InstrumentEntry {
-            id: id.into(),
-            fingerprint: format!("{:x}", Sha256::digest(self.bytes())),
-        }
     }
 }
 
@@ -216,6 +222,10 @@ fn open_store(path: &Path) -> Result<Option<ScopedDirectory>, ProjectError> {
         ),
         other => other,
     })?;
+    checked_directory(path).map(Some)
+}
+
+fn checked_directory(path: &Path) -> Result<ScopedDirectory, ProjectError> {
     let dir = ScopedDirectory::open(path, "the instrument directory changed")?;
     dir.check_current()?;
     if dir.canonical_path() != path {
@@ -224,7 +234,7 @@ fn open_store(path: &Path) -> Result<Option<ScopedDirectory>, ProjectError> {
             "directory changed during open",
         ));
     }
-    Ok(Some(dir))
+    Ok(dir)
 }
 
 pub fn instrument_dir_entries(root: &Path) -> Result<Option<fs::ReadDir>, ProjectError> {
@@ -331,8 +341,9 @@ fn snapshot(path: &Path) -> Result<InstrumentSnapshot, ProjectError> {
     let names = catalog(&dir)?;
     check_sizes(&names)?;
     let mut defs = BTreeMap::new();
-    for id in names.keys() {
-        defs.insert(id.clone(), read_definition(&dir, id)?);
+    for id in names.into_keys() {
+        let definition = read_definition(&dir, &id)?;
+        defs.insert(id, definition);
     }
     validate_instrument_snapshot(&defs)?;
     dir.check_current()?;
@@ -356,7 +367,7 @@ fn check_sizes(names: &BTreeMap<String, u64>) -> Result<(), ProjectError> {
 fn entries(path: &Path) -> Result<Vec<InstrumentEntry>, ProjectError> {
     Ok(snapshot(path)?
         .into_iter()
-        .map(|(id, definition)| definition.entry(&id))
+        .map(|(id, definition)| InstrumentEntry::from_bytes(id, &definition.bytes()))
         .collect())
 }
 
@@ -373,11 +384,9 @@ impl InstrumentLibrary {
         let base = base
             .canonicalize()
             .map_err(|e| ProjectError::io(&base, e))?;
-        let app = base.join(APP_IDENTIFIER);
-        create_directory(&app)?;
-        check_dir(&app, APP_IDENTIFIER, "")?;
-        let path = app.join(INSTRUMENTS_DIR);
-        create_directory(&path)?;
+        let base = checked_directory(&base)?;
+        let app = checked_directory(&create_directory(&base, APP_IDENTIFIER)?)?;
+        let path = create_directory(&app, INSTRUMENTS_DIR)?;
         open_store(&path)?;
         Ok(Self { path })
     }
@@ -415,12 +424,25 @@ impl InstrumentLibrary {
     }
 }
 
-fn create_directory(path: &Path) -> Result<(), ProjectError> {
-    match fs::create_dir(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(ProjectError::io(path, e)),
+fn create_directory(parent: &ScopedDirectory, name: &str) -> Result<PathBuf, ProjectError> {
+    parent.check_current()?;
+    let path = parent.path().join(name);
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let created = rustix::fs::mkdirat(
+        parent.file(),
+        name,
+        rustix::fs::Mode::from_bits_truncate(0o777),
+    )
+    .map_err(io::Error::from);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let created = fs::create_dir(&path);
+    match created {
+        Ok(()) => (),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+        Err(e) => return Err(ProjectError::io(path, e)),
     }
+    parent.check_current()?;
+    Ok(path)
 }
 
 impl Project {
@@ -457,8 +479,8 @@ impl Project {
     ) -> Result<InstrumentEntry, ProjectError> {
         check_id(id)?;
         let def = library.selected(id)?;
-        let path = self.root().join(INSTRUMENTS_DIR);
-        create_directory(&path)?;
+        let parent = checked_directory(self.root())?;
+        let path = create_directory(&parent, INSTRUMENTS_DIR)?;
         let dir =
             open_store(&path)?.ok_or_else(|| invalid(id, "instrument directory disappeared"))?;
         let lock = open_member(&dir, LOCK_FILE, true)?;
@@ -469,7 +491,7 @@ impl Project {
             (None, true) => return Err(invalid(id, "already pinned")),
             (Some(_), false) => return Err(invalid(id, "not pinned")),
             (Some(expected), true) => {
-                let current = read_definition(&dir, id)?.entry(id).fingerprint;
+                let current = fingerprint(&read_definition(&dir, id)?.bytes());
                 if expected != current {
                     return Err(invalid(
                         id,
@@ -488,7 +510,7 @@ impl Project {
         names.insert(id.into(), bytes.len() as u64);
         check_sizes(&names)?;
         dir.publish(&format!("{id}.json"), &bytes, expected.is_some())?;
-        Ok(def.entry(id))
+        Ok(InstrumentEntry::from_bytes(id.into(), &bytes))
     }
 }
 
@@ -578,6 +600,30 @@ mod tests {
             .replace(r#""alpha":2,"beta":1"#, r#""beta":1,"alpha":2"#);
         fs::write(&p, text).unwrap();
         assert_eq!(library.entries().unwrap(), [first]);
+    }
+
+    #[test]
+    fn fractional_values_keep_the_same_fingerprint_after_publication() {
+        let (_tmp, project, library) = setup();
+        fs::create_dir(library.path()).unwrap();
+        let source = definition(2)
+            .to_string()
+            .replace(r#""cutoff":2"#, r#""cutoff":995097304719337844e-19"#);
+        fs::write(library.path().join("lead.json"), source).unwrap();
+        let pin = project.pin_instrument(&library, "lead").unwrap();
+        assert_eq!(project.instrument_entries().unwrap(), [pin]);
+    }
+
+    #[test]
+    fn pinning_rejects_a_redirected_project_root_before_creating_directories() {
+        let (tmp, project, library) = setup();
+        write_def(&library, "lead", definition(1));
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::rename(project.root(), tmp.path().join("displaced")).unwrap();
+        crate::test_symlink!(&outside, project.root()).unwrap();
+        assert!(project.pin_instrument(&library, "lead").is_err());
+        assert!(!outside.join(INSTRUMENTS_DIR).exists());
     }
 
     #[test]

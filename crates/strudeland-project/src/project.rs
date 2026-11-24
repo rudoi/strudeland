@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ProjectError;
+use crate::instruments::INSTRUMENTS_DIR;
 use crate::template::{MAIN_SONG, new_song};
 
 /// The `project.json` schema this crate reads and writes.
@@ -414,7 +415,7 @@ impl Project {
             &root.join(".gitignore"),
             "renders/\n/recordings/*\n!/recordings/.gitkeep\n/instruments/.strudeland.lock\n",
         )?;
-        for sub in [SONGS_DIR, "instruments", "recordings", "renders"] {
+        for sub in [SONGS_DIR, INSTRUMENTS_DIR, "recordings", "renders"] {
             let path = root.join(sub);
             fs::create_dir(&path).map_err(|e| ProjectError::io(&path, e))?;
         }
@@ -526,7 +527,7 @@ impl Project {
         }
         check_dir(&dir, RENDERS_DIR, name)?;
         let set = RenderSet::reserve(path)?;
-        if set.0.canonical != path {
+        if set.0.canonical_path() != path {
             return Err(ProjectError::PathOutsideProject(path.display().to_string()));
         }
         Ok(set)

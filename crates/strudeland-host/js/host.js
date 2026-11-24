@@ -28808,7 +28808,9 @@ Please check with "npm ls @strudel/core".`);
     if (OPERATION in Pattern.prototype || `_${OPERATION}` in Pattern.prototype || OPERATION in strudelScope) {
       throw new Error(`Instrument operation '${OPERATION}' is already registered`);
     }
-    applyInstrument = register(OPERATION, (transform, pattern3) => transform(pattern3));
+    register(OPERATION, (transform, pattern3) => transform(pattern3));
+    const applyRaw = Pattern.prototype[`_${OPERATION}`];
+    applyInstrument = (transform, pattern3) => applyRaw.call(reify(pattern3), transform);
   }
   function scalar(value) {
     return typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value);

@@ -825,7 +825,12 @@ export function createSession(deps: SessionDeps): Session {
     if (!project || change.root !== project.root) return;
     const { root } = project;
     const paths = [...changed, ...added];
-    const reads = await Promise.allSettled(paths.map((path) => readText(root, path)));
+    // Reconciling a playing song can evaluate it immediately. Load pins from the
+    // same watcher batch before that evaluate captures a snapshot.
+    const [reads] = await Promise.all([
+      Promise.allSettled(paths.map((path) => readText(root, path))),
+      change.instruments ? refreshInstruments(root) : undefined,
+    ]);
     let inserted = false;
     paths.forEach((path, i) => {
       if (reconcile(path, reads[i])) inserted = true;
@@ -839,7 +844,6 @@ export function createSession(deps: SessionDeps): Session {
         error = `reloading project.json failed: ${errorMessage(e)}`;
       }
     }
-    if (change.instruments) await refreshInstruments(root);
     emit();
   }
 
