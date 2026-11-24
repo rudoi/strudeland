@@ -90,6 +90,7 @@ export interface InstrumentSelection {
 export type InstrumentApplyRequest = Omit<InstrumentSelection, 'song'> & {
   id: string;
   song?: string;
+  pinFingerprint?: string;
 };
 
 export interface InstrumentApplyResult {
@@ -1435,7 +1436,7 @@ export function createSession(deps: SessionDeps): Session {
       return { root: project.root, song: active, from, to, expect };
     },
 
-    async applyInstrument({ root, song, id, from, to, expect }) {
+    async applyInstrument({ root, song, id, from, to, expect, pinFingerprint }) {
       const checkProject = () => {
         if (project?.root !== root || opening !== null) {
           throw new InstrumentApplyError('project', 'The requested project is not open.');
@@ -1464,14 +1465,18 @@ export function createSession(deps: SessionDeps): Session {
         throw new InstrumentApplyError('invalid', errorMessage(error));
       }
       const gen = generation;
-      const pins = await api.instruments(root);
+      const pins = await api.projectEntries(root);
       checkProject();
       if (generation !== gen) {
         throw new InstrumentApplyError('project', 'The project changed. Try again.');
       }
       const target = checkSong();
-      if (!Object.hasOwn(pins, id)) {
+      const pin = pins.find((entry) => entry.id === id);
+      if (!pin) {
         throw new InstrumentApplyError('invalid', `Pin '${id}' to the project before applying it.`);
+      }
+      if (pinFingerprint !== undefined && pin.fingerprint !== pinFingerprint) {
+        throw new InstrumentApplyError('invalid', 'The project pin changed. Refresh the browser.');
       }
       const end = edit.from + edit.insert.length;
       apply(target, {

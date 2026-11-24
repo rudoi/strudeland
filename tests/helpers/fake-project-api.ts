@@ -171,8 +171,8 @@ export function fakeProjectApi(
       return [];
     },
     async projectEntries(root) {
-      check(root);
-      return [];
+      const pins = await api.instruments(root);
+      return Object.keys(pins).map((id) => ({ id, fingerprint: id }));
     },
     async instrumentDefinition() {
       throw new Error('no instrument definition');

@@ -1712,12 +1712,22 @@ describe('instrument.apply', () => {
     h.view.destroy();
   });
 
+  test('a browser action rejects a pin that changed after it was displayed', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    await expect(
+      h.session.applyInstrument({ ...request, pinFingerprint: 'stale' }),
+    ).rejects.toThrow('The project pin changed.');
+    expect(h.doc()).toBe(A);
+    h.view.destroy();
+  });
+
   test('rechecks the buffer after reading pins', async () => {
     const h = await setup();
     const pending = deferred();
     h.fake.instrumentSnapshots.set('/p', pins);
-    const read = h.api.instruments;
-    h.api.instruments = async (root) => {
+    const read = h.api.projectEntries;
+    h.api.projectEntries = async (root) => {
       await pending.promise;
       return read(root);
     };

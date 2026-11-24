@@ -86,7 +86,11 @@
     applying = true;
     applyError = '';
     try {
-      await app.session.applyInstrument({ ...selection, id: version.id });
+      await app.session.applyInstrument({
+        ...selection,
+        id: version.id,
+        pinFingerprint: version.fingerprint,
+      });
       if (mounted) onclose(true);
     } catch (e) {
       if (mounted) applyError = errorMessage(e);
