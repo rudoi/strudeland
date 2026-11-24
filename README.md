@@ -140,9 +140,10 @@ save this as `lead.json` in that directory.
 ```
 
 From your project directory, run `strudeland instrument pin lead` to copy the definition
-into the project's `instruments/` directory. Keep this folder with your songs to share
-the same definitions for playback and export. Inside a song, apply the instrument to
-an existing pattern.
+into the project's `instruments/` directory. Keep the JSON files with your songs to share
+the same definitions for playback and export. The store uses `instruments/.strudeland.lock`
+for cooperating readers and writers. Newly created projects ignore it in Git. Inside a song,
+apply the instrument to an existing pattern.
 
 ```js
 const { lead } = instruments;
