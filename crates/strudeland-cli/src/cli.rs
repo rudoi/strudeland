@@ -118,6 +118,8 @@ pub enum Command {
         #[command(subcommand)]
         command: InstrumentCommand,
     },
+    /// Serve the instrument tools over MCP stdio.
+    Mcp,
     /// List and inspect voice memos (offline, no app needed).
     Memo {
         #[command(subcommand)]
@@ -319,6 +321,12 @@ pub enum SkillCommand {
 pub enum InstrumentCommand {
     /// List the global library's definitions and fingerprints.
     Library,
+    /// Create a global library instrument from a schema-1 JSON definition.
+    Create {
+        id: String,
+        #[arg(long, value_name = "PATH")]
+        file: PathBuf,
+    },
     /// List the project's pinned definitions and fingerprints.
     List {
         /// The project folder (default: the current directory's project, else the app's).
@@ -331,6 +339,24 @@ pub enum InstrumentCommand {
         /// The project folder (default: the current directory's project, else the app's).
         #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
+    },
+    /// Apply a pinned instrument to a complete expression in the active editor.
+    Apply {
+        id: String,
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+        /// Assert the active song's project-relative path.
+        #[arg(long)]
+        song: Option<String>,
+        /// Zero-based UTF-16 start offset.
+        #[arg(long, value_name = "N")]
+        from: u32,
+        /// Exclusive UTF-16 end offset.
+        #[arg(long, value_name = "N")]
+        to: u32,
+        /// File containing the entire expected editor buffer, including unsaved edits.
+        #[arg(long, value_name = "PATH")]
+        expect_file: PathBuf,
     },
     /// Replace a pin from the library if its fingerprint matches.
     Update {

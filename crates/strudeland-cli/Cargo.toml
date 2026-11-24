@@ -17,8 +17,10 @@ strudeland-render = { path = "../strudeland-render" }
 strudeland-project = { path = "../strudeland-project" }
 strudeland-transcribe = { path = "../strudeland-transcribe" }
 clap = { version = "4.6.7", features = ["derive"] }
+rmcp = { version = "3.10.0", default-features = false, features = ["server", "macros", "transport-io"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["rt"] }
 
 [dev-dependencies]
 strudeland-transcribe = { path = "../strudeland-transcribe", features = ["eval"] }
