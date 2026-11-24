@@ -4,8 +4,13 @@
  * crosses as base64 one channel at a time.
  */
 
-import type { RenderRequest, RenderResult, ScheduleResult } from '../lib/render/contract';
-import type { PlannedRender, RenderPlanRequest } from '../lib/render/job-plan';
+import type {
+  RenderPlanInput,
+  RenderRequest,
+  RenderResult,
+  ScheduleResult,
+} from '../lib/render/contract';
+import type { PlannedRender } from '../lib/render/job-plan';
 import type { PageJobInfo } from '../lib/render/page-job';
 import type { InstrumentSnapshot } from '../lib/strudel/instruments';
 import type { BINARY, UNARY } from './math';
@@ -27,7 +32,7 @@ export type StartArgs =
   | {
       kind: 'plan';
       code: string;
-      request: RenderPlanRequest;
+      request: RenderPlanInput;
       samples?: RenderRequest['samples'];
       samplesBase: string;
     }

@@ -6,13 +6,14 @@
 
 import { errors, type Page } from 'playwright';
 import type {
+  RenderPlanInput,
   RenderRequest,
   RenderResult,
   Renderer,
   ScheduleResult,
 } from '../../src/lib/render/contract';
 import type { EngineJob } from '../../src/lib/render/engine-job';
-import type { PlannedRender, RenderPlanRequest } from '../../src/lib/render/job-plan';
+import type { PlannedRender } from '../../src/lib/render/job-plan';
 import { sliceCount } from '../../src/render/pcm';
 import type {
   MathGroupInput,
@@ -129,7 +130,7 @@ export class SuperdoughRenderer implements Renderer, JobSource {
 
   async planRender(
     code: string,
-    request: RenderPlanRequest,
+    request: RenderPlanInput,
     samples?: RenderRequest['samples'],
   ): Promise<PlannedRender> {
     await this.chromium.open();

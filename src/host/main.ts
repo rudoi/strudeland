@@ -11,7 +11,12 @@
 
 import type { Readable } from 'svelte/store';
 import { errorMessage } from '../lib/errors';
-import type { RenderError, RenderRequest, SegmentLayout } from '../lib/render/contract';
+import type {
+  RenderError,
+  RenderPlanInput,
+  RenderRequest,
+  SegmentLayout,
+} from '../lib/render/contract';
 import { loggedError, loggerMessage } from '../lib/render/logged-errors';
 import {
   evaluateSong,
@@ -20,7 +25,6 @@ import {
   planRender,
   querySong,
   type PlannerRuntime,
-  type RenderPlanRequest,
 } from '../lib/render/job-plan';
 import { asciiJson } from '../lib/render/page-job';
 import { classifyError, eventSources, selectHaps } from '../lib/render/plan';
@@ -184,7 +188,7 @@ async function runPlanJob(code: string, requestJson: string): Promise<string> {
 /** Plans every chunk (`planRender` validates the request's fields) and stores the plan as one
  *  ASCII JSON text in `__strudelandRender`; the slot's value is unused. */
 async function runPlanRender(code: string, requestJson: string): Promise<string> {
-  const request = parseRequest(requestJson) as RenderPlanRequest;
+  const request = parseRequest(requestJson) as RenderPlanInput;
   const captured: RenderError[] = [];
   const restore = captureConsole(captured);
   try {

@@ -7,7 +7,6 @@
 
 import { errorMessage } from '../errors';
 import { evaluateOptions, staticStructure } from '../project/evaluate-options';
-import type { InstrumentSnapshot } from '../strudel/instruments';
 import { parseMeta, type Meta } from '../project/meta';
 import type { EvaluateOptions } from '../strudel/runtime';
 import {
@@ -257,8 +256,6 @@ export interface RenderPlanRequest {
   sampleRate: 44100;
   /** Also return the schedule's events. Default false. */
   includeEvents?: boolean;
-  /** A project pin snapshot captured by the caller before evaluation. */
-  instruments?: InstrumentSnapshot;
 }
 
 /** A chunk's `WindowPlan` plus its content window and the exact lookback its request carries
