@@ -31,3 +31,9 @@ underruns, zero late or skipped haps, and 32.02 ms of minimum fill.
 The direct-convolution tests cover the transition into the grouped tail, stereo signals with
 distinct histories, short final partitions, and output through the tail. A warm A-to-B-to-A
 room change tests immediate cached application after out-of-order worker results.
+
+## Delivery
+
+The implementation passed 2,166 workspace tests, Clippy, Rust formatting, and the
+48 kHz release regression. The reviewed implementation passed hosted checks on macOS,
+Windows, and Ubuntu. The final hardware playback check remains pending.
