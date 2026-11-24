@@ -1714,7 +1714,7 @@ describe('instrument.apply', () => {
 
   test('rechecks the buffer after reading pins', async () => {
     const h = await setup();
-    const pending = deferred<void>();
+    const pending = deferred();
     h.fake.instrumentSnapshots.set('/p', pins);
     const read = h.api.instruments;
     h.api.instruments = async (root) => {
