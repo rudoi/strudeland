@@ -87,3 +87,17 @@ a baseline for the existing fixture.
 - Recommend medium complexity. The work spans the live player, engine, and test harness, with
   the final implementation determined by the profile. Skip fracture and retain design
   verification and a light loss check.
+
+## Refinement
+
+- Attribute setup, installation, and convolution separately. Cache hits can clone large mutable
+  histories without a worker request. The first quantum with a cloned convolver can also allocate
+  FFT scratch. Include it in the installation measurement.
+- For a steady-state comparison, warm up through the longest impulse response and verify that
+  the output includes wet signal. Use aligned, repeated dry and fixed-size comparisons.
+- If repeated long-tail FFTs dominate, retain the existing early stages and evaluate sharing input
+  transforms and summing late partitions in the frequency domain. Late partitions have enough
+  delay to spread their work over multiple quanta. Bound peak render-slice cost as well as average
+  cost, and test the early/late boundary, stereo routing, partial partitions, and tail flush.
+- Preserve the immediate replacement of a warm cached room and keep each destination's history
+  independent. Cover a return to a previously used room and responses arriving out of order.
