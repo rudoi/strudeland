@@ -18,8 +18,12 @@ See the [proposal](proposal.md) and [native commands](storage-and-preview.md).
   before the action is available.
 - Validate expression bounds using Acorn as used by the existing editor formatter.
   Keep whitespace and surrounding text, and verify syntax before dispatch. Check
-  that the name resolves through the song's pinned namespace. No write or automatic
-  evaluation is part of this editor operation.
+  that the name resolves through the song's pinned namespace. Accept a whole enabled
+  mini-notation literal or an explicitly constructed Pattern. Reject a mini token
+  inside a literal, a call's callee, and a visible declaration of `instruments`.
+- Serialize Apply with project and song mutations. Verify the browser's displayed
+  fingerprint against the same captured pin snapshot the next evaluation will use.
+  Apply updates the buffer without saving or starting playback.
 - Verify editor transaction, keyboard use, error recovery, and desktop layout with a
   capture. Use a fake graph for lifecycle tests.
 

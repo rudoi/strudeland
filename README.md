@@ -123,8 +123,8 @@ Pins**. Select an instrument to see its voices and parameter defaults. While the
 is stopped, choose **Preview** to hear a short phrase using the selected version.
 If the audio engine cannot preview a sound or control, the browser shows the reason.
 
-Choose **Pin to Project** to make a portable copy. If a newer library version is
-available, the browser lets you preview both versions and choose **Update Pin**.
+Choose **Pin to Project** to make a portable copy. If the library and project versions
+differ, you can preview both and choose **Update Project Pin**.
 To apply a pin, select a complete expression such as `note("c4 e4")` in the song,
 open **Instruments**, select the project pin, and choose **Apply to Selection**.
 The change is one undo step. Save and evaluate the song when you are ready to use it.
