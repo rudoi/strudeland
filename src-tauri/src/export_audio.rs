@@ -229,12 +229,13 @@ impl ExportRequest {
             .map(Targets::Mix)
     }
 
-    fn options(&self) -> RenderOptions {
+    fn options(&self, instruments: strudeland_project::InstrumentSnapshot) -> RenderOptions {
         RenderOptions {
             length: self.length.clone(),
             jobs: None,
             plan_timeout: Some(Duration::from_secs(120)),
             include_events: false,
+            instruments,
             output: if self.stems.is_some() {
                 OutputOptions {
                     loudness: Loudness::Off,
@@ -254,15 +255,15 @@ impl ExportRequest {
     fn render_mix(
         &self,
         source: &str,
+        options: &RenderOptions,
         progress: &dyn Fn(Progress),
     ) -> Result<Vec<ExportFile>, ExportError> {
-        let options = self.options();
         if let Some(preset) = self.preset {
-            render_export(source, &options, preset, progress).map_err(problem)
+            render_export(source, options, preset, progress).map_err(problem)
         } else {
             Ok(vec![ExportFile {
                 role: ExportRole::Single,
-                output: render(source, &options, progress).map_err(problem)?,
+                output: render(source, options, progress).map_err(problem)?,
                 loop_points: None,
             }])
         }
@@ -318,11 +319,12 @@ fn run(
     progress: &dyn Fn(ExportProgress),
 ) -> Result<ExportResult, ExportError> {
     let (project, targets) = checked_targets(projects, state, request, preview)?;
+    let options = request.options(project.instrument_snapshot().map_err(problem)?);
     let targets = match targets {
         Targets::Mix(files) => files,
         Targets::Stems(grouping, target) => {
             let written = std::cell::RefCell::new(Vec::new());
-            let set = render_stems(source, &request.options(), grouping, &target, &|event| {
+            let set = render_stems(source, &options, grouping, &target, &|event| {
                 if let Progress::Written { path } = &event {
                     written.borrow_mut().push(path.clone());
                 }
@@ -343,7 +345,7 @@ fn run(
         return Err(problem("replacement requires confirmation"));
     }
 
-    let rendered = request.render_mix(source, &|p| progress(p.into()))?;
+    let rendered = request.render_mix(source, &options, &|p| progress(p.into()))?;
     if !rendered
         .iter()
         .map(|f| f.role)

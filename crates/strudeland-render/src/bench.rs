@@ -330,6 +330,7 @@ const MIB: f64 = 1024.0 * 1024.0;
 pub fn render_options(bars: u32, jobs: usize) -> RenderOptions {
     RenderOptions {
         length: LengthRequest::Length { bars },
+        instruments: Default::default(),
         jobs: Some(jobs),
         plan_timeout: Some(PLAN_TIMEOUT),
         include_events: false,

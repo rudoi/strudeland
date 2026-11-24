@@ -34,6 +34,7 @@ fn batch_and_per_chunk_renders_join_bit_identically() {
         .plan_render(
             &code,
             &RenderPlanRequest {
+                instruments: Default::default(),
                 preset: None,
                 length,
                 mode: Mode::Mix,

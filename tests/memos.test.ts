@@ -95,6 +95,7 @@ function setup(
       songs: { changed: [], added: [], removed: [] },
       manifest: false,
       recordings: false,
+      instruments: false,
       ...c,
     };
     handlers.forEach((h) => h(change));

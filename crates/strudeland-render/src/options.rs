@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use strudeland_host::LengthRequest;
+use strudeland_project::InstrumentSnapshot;
 
 use crate::RenderError;
 
@@ -22,6 +23,8 @@ pub const DEFAULT_MAX_JOBS: usize = 4;
 /// song.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderOptions {
+    /// Project pins shared by all passes and stems. Empty for standalone songs.
+    pub instruments: InstrumentSnapshot,
     pub length: LengthRequest,
     /// Worker threads. `None`: `min(available_parallelism, 4)`. `Some(0)` is a usage error
     /// (`--jobs`). A value above the chunk count is clamped to it (no error).

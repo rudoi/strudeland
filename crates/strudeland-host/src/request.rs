@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use strudeland_project::{InstrumentSnapshot, validate_instrument_snapshot};
 
 /// The largest `toBar + overlapBars` a request may ask for.
 pub const MAX_BARS: u64 = 100_000;
@@ -191,6 +192,9 @@ pub enum ExportPreset {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenderPlanRequest {
+    /// Project pins captured for this evaluation.
+    #[serde(default, skip_serializing_if = "InstrumentSnapshot::is_empty")]
+    pub instruments: InstrumentSnapshot,
     pub length: LengthRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<ExportPreset>,
@@ -211,6 +215,7 @@ impl RenderPlanRequest {
     /// `bars` 1 to [`MAX_BARS`], a window `from_bar < to_bar <= MAX_BARS`, and a finite timeout
     /// in `(0, MAX_TIMEOUT_SEC]`.
     pub fn validate(&self) -> Result<(), String> {
+        validate_instrument_snapshot(&self.instruments).map_err(|e| e.to_string())?;
         if self.mode != Mode::Mix {
             return Err("mode: stems is not supported yet; v1 renders the mix".into());
         }
@@ -442,6 +447,7 @@ mod tests {
     fn plan_req(length: LengthRequest) -> RenderPlanRequest {
         RenderPlanRequest {
             length,
+            instruments: Default::default(),
             preset: None,
             mode: Mode::Mix,
             sample_rate: 44_100,
@@ -514,6 +520,22 @@ mod tests {
             r.to_json().unwrap(),
             r#"{"length":{"kind":"clip","loops":3},"mode":"mix","sampleRate":44100,"includeEvents":false}"#
         );
+    }
+
+    #[test]
+    fn render_plan_carries_only_valid_instrument_ids_to_the_bundle() {
+        let definition = serde_json::json!({"schema":1,"parameters":{},"voices":[
+            {"name":"tone","chain":[{"control":"s","value":"sine"}]}
+        ]});
+        let mut request = plan_req(LengthRequest::Length { bars: 1 });
+        let parsed = serde_json::from_value(definition.clone()).unwrap();
+        request.instruments.insert("lead".into(), parsed);
+        assert_eq!(request.validate(), Ok(()));
+        let wire: serde_json::Value = serde_json::from_str(&request.to_json().unwrap()).unwrap();
+        assert_eq!(wire["instruments"]["lead"], definition);
+        let entry = request.instruments.remove("lead").unwrap();
+        request.instruments.insert("../lead".into(), entry);
+        assert!(request.validate().unwrap_err().contains("../lead"));
     }
 
     #[test]

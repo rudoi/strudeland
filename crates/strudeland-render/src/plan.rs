@@ -21,6 +21,7 @@ pub(crate) fn plan(
 ) -> Result<(PlannedRender, f64), RenderError> {
     let started = Instant::now();
     let request = RenderPlanRequest {
+        instruments: opts.instruments.clone(),
         length: opts.length.clone(),
         preset,
         mode: Mode::Mix,

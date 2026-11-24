@@ -3298,6 +3298,43 @@ describe('evaluateBuffer', () => {
     ]);
   });
 
+  test('captures project pins on open and refreshes them after a watcher event', async () => {
+    const h = setup();
+    const preset = (gain: number) =>
+      ({
+        lead: {
+          schema: 1,
+          parameters: {},
+          voices: [{ name: 'lead', chain: [{ control: 'gain', value: gain }] }],
+        },
+      }) satisfies NonNullable<Parameters<typeof h.rt.runtime.evaluate>[1]>['instruments'];
+    const initial = preset(0.2);
+    h.fake.instrumentSnapshots.set('/p', initial);
+    await h.session.init();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
+    expect(h.rt.options.at(-1)?.instruments).toEqual(initial);
+
+    h.fake.instrumentSnapshots.set('/p', 'lead.json: invalid parameter');
+    h.fake.emit({ instruments: true, root: '/q' });
+    await flush();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
+    h.fake.emit({ instruments: true });
+    await flush();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({
+      ok: false,
+      error: 'reading instruments failed: lead.json: invalid parameter',
+    });
+    expect(h.rt.options).toHaveLength(2);
+
+    const updated = preset(0.7);
+    h.fake.instrumentSnapshots.set('/p', updated);
+    h.fake.emit({ instruments: true });
+    await flush();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
+    expect(h.rt.options.at(-1)?.instruments).toEqual(updated);
+    expect(h.rt.options[0]?.instruments).toEqual(initial);
+  });
+
   test('autostart false with a meta error evaluates nothing', async () => {
     const h = await opened();
     h.session.externalEdit(PA, A.replace("title: 'Alpha'", "title: 'Alpha', bpm: 'fast'"));

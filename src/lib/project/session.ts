@@ -6,6 +6,7 @@ import type { EvalOutcome } from '../control/protocol';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
 import { attachState } from '../editor/visuals';
+import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
 import { EMPTY_STRUCTURE, evaluateOptions, staticStructure } from './evaluate-options';
@@ -414,6 +415,8 @@ export function createSession(deps: SessionDeps): Session {
   const available = isTauri();
   let recents: RecentProject[] = [];
   let project: ProjectInfo | null = null;
+  let instruments: InstrumentSnapshot | undefined;
+  let instrumentError: string | null = null;
   let order: string[] = [];
   let songs = new Map<string, Song>();
   let active: string | null = null;
@@ -711,6 +714,8 @@ export function createSession(deps: SessionDeps): Session {
     runtime.stop(); // playback always stops when the project changes
     runtime.transport.reset();
     project = info;
+    instruments = undefined;
+    instrumentError = null;
     // Empty while the songs are read; `order` and `songs` are only ever swapped in together, so
     // every reader (guard, emit, a late write) sees a consistent pair meanwhile.
     songs = new Map();
@@ -721,7 +726,10 @@ export function createSession(deps: SessionDeps): Session {
     evaluated = null;
 
     const paths = info.songs.map((s) => s.path);
-    const reads = await Promise.allSettled(paths.map((path) => readText(info.root, path)));
+    const [reads] = await Promise.all([
+      Promise.allSettled(paths.map((path) => readText(info.root, path))),
+      refreshInstruments(info.root),
+    ]);
     const failed: string[] = [];
     const loaded = new Map<string, Song>();
     paths.forEach((path, i) => {
@@ -831,7 +839,21 @@ export function createSession(deps: SessionDeps): Session {
         error = `reloading project.json failed: ${errorMessage(e)}`;
       }
     }
+    if (change.instruments) await refreshInstruments(root);
     emit();
+  }
+
+  /** Called in the same serialized project queue as installation and other watcher reads. */
+  async function refreshInstruments(root: string): Promise<void> {
+    try {
+      const snapshot = await api.instruments(root);
+      instruments = Object.keys(snapshot).length ? snapshot : undefined;
+      if (instrumentError !== null && error === instrumentError) error = null;
+      instrumentError = null;
+    } catch (e) {
+      instruments = undefined;
+      instrumentError = `reading instruments failed: ${errorMessage(e)}`;
+    }
   }
 
   /** A song was changed or added on disk and read. True if it was new to the list. */
@@ -937,12 +959,19 @@ export function createSession(deps: SessionDeps): Session {
       if (!started) runtime.transport.reset();
       return false;
     }
+    if (instrumentError !== null) {
+      if (!started) runtime.transport.reset();
+      error = instrumentError;
+      emit();
+      return false;
+    }
     // A different song taking over playback must not inherit the playing song's transport. While
     // stopped the transport belongs to the active song (reset on every switch), so a start armed
     // before Play is kept.
     if (started && evaluated?.song.path !== path) runtime.transport.reset();
     const gen = generation;
     const opts = evaluateOptions(meta);
+    if (instruments !== undefined) opts.instruments = instruments;
     const ok = await runtime.evaluate(text, autostart ? opts : { ...opts, autostart: false });
     if (ok && gen === generation) {
       evaluated = { song: { path, title: titleFrom(path, meta.title) }, metaTitle: meta.title };
@@ -1377,6 +1406,7 @@ export function createSession(deps: SessionDeps): Session {
       const text = textOf(path);
       // Title and metaError of the text being evaluated, read before the evaluate awaits.
       const d = songs.has(path) ? derive(path) : null;
+      const pinsError = instrumentError;
       let ok = false;
       try {
         ok = text !== null && (await evaluateSong(path, text, opts?.autostart ?? true));
@@ -1386,7 +1416,9 @@ export function createSession(deps: SessionDeps): Session {
       const rs = get(runtime.store);
       let error: string | null = null;
       if (!ok) {
-        error = d?.metaError ? `meta: ${d.metaError}` : (rs.evalError ?? 'evaluate failed');
+        error = d?.metaError
+          ? `meta: ${d.metaError}`
+          : (pinsError ?? rs.evalError ?? 'evaluate failed');
       }
       return {
         ok,

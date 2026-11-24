@@ -7,6 +7,7 @@ import {
   type RecentProject,
   type UnsavedChoice,
 } from '../../src/lib/project/api';
+import type { InstrumentSnapshot } from '../../src/lib/strudel/instruments';
 
 export const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -75,6 +76,7 @@ export function fakeProjectApi(
     failSave: new Set<string>(),
     failOpen: new Set<string>(),
     failInfo: false,
+    instrumentSnapshots: new Map<string, InstrumentSnapshot | string>(),
     failOnChange: false,
     failPick: false,
     confirm: [] as UnsavedChoice[],
@@ -108,6 +110,7 @@ export function fakeProjectApi(
       change: Partial<ProjectChange['songs']> & {
         manifest?: boolean;
         recordings?: boolean;
+        instruments?: boolean;
         root?: string;
       },
     ) {
@@ -120,6 +123,7 @@ export function fakeProjectApi(
         },
         manifest: change.manifest ?? false,
         recordings: change.recordings ?? false,
+        instruments: change.instruments ?? false,
       };
       handlers.forEach((h) => h(payload));
     },
@@ -156,6 +160,12 @@ export function fakeProjectApi(
       check(root);
       if (fake.failInfo) throw 'project.json: expected value at line 1 column 1';
       return fake.projectInfo(fake.current!);
+    },
+    async instruments(root) {
+      check(root);
+      const pins = fake.instrumentSnapshots.get(root);
+      if (typeof pins === 'string') throw pins;
+      return pins ?? {};
     },
     async last() {
       calls.push('last');

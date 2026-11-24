@@ -66,6 +66,7 @@ pub fn run() {
             project::project_create,
             project::project_open,
             project::project_info,
+            project::project_instruments,
             project::project_last,
             project::recent_list,
             project::prefs_get,

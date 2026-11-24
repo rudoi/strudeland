@@ -69,6 +69,8 @@ the text and the editor keeps its vim mode.
 | `strudeland events [--bars N\|N-M] [--section NAME] [--all] [--limit N]` | the evaluated song's events with bar, beat, value and source position |
 | `strudeland screenshot [PATH]` | PNG of the app window; prints `wrote PATH (WxH)` |
 | `strudeland docs NAME` / `docs --search TERM` / `docs --list` | Strudel function docs (exactly one of the three) |
+| `strudeland instrument library` / `strudeland instrument list [--project DIR]` | show the global library or project pin directory, instrument IDs and fingerprints |
+| `strudeland instrument pin ID [--project DIR]` / `strudeland instrument update ID --expect HASH [--project DIR]` | copy a definition from the library into the project or update a matching pin |
 | `strudeland render SONG [--out PATH] [--format F] [--stems orbit\|voice\|instrument \| --preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` | render a song file to audio, offline (see Rendering) |
 | `strudeland memo list [--project DIR]` / `strudeland memo show NAME [--project DIR]` | list the project's voice memos / show one memo's timing and settings, offline (see Memos) |
 | `strudeland transcribe NAME [--project DIR] [--grid G] [--bpm N] [--meter N/D] [--bar1 S] [--shift MS] [--key ROOT:SCALE] [--tuning CENTS] [--start S --end S \| --bars A-B] [--debug]` | turn a voice memo into proposed Strudel code, offline; never writes a song (see Transcribing memos) |
@@ -411,6 +413,41 @@ Warnings on stderr (exit stays 0):
 `screenshot [PATH]` writes a PNG of the window: editor, timeline with sections and playhead,
 Claude's line marks, and any error bar. A relative PATH is taken against the current directory; no
 PATH writes a new file in the temp dir. Open the printed path with the Read tool.
+
+## Pinned instruments
+
+Run `strudeland instrument library` to find the library directory. Create it if needed.
+Store each definition as `<id>.json`. Use lowercase letters, digits and underscores for IDs,
+starting with a letter. For example, save the following definition as `lead.json`.
+
+```json
+{
+  "schema": 1,
+  "parameters": { "cutoff": 1200 },
+  "voices": [{
+    "name": "lead",
+    "chain": [
+      { "control": "s", "value": "sawtooth" },
+      { "control": "lpf", "value": { "param": "cutoff" } }
+    ]
+  }]
+}
+```
+
+Run `strudeland instrument pin lead` in the project. In a song,
+`note("c4 e4").apply(instruments.lead())` uses its defaults. Pass `{ cutoff: 900 }` to
+`lead` to override the parameter. Each override takes the same type as its default.
+To make a kit, add more named voices. They layer on the input pattern and each gets a
+voice stem label of `<id>/<voice>` when the song supplies no label.
+
+Commit the project's `instruments/` directory with the song. Playback, queries, and renders
+use these copies offline. After editing a global definition, get the current pin fingerprint
+from `strudeland instrument list` and pass it to `strudeland instrument update lead --expect HASH`.
+A duplicate first pin or a mismatched update exits 1. The next evaluation picks up the change.
+Project commands use `--project DIR`, the current directory's enclosing project, or the
+running app's project, in that order. A missing project exits 4 when discovery fails.
+With `--json`, each list returns `directory` and `entries`. A successful pin or update returns
+the entry's `id` and `fingerprint`.
 
 ## Rendering
 

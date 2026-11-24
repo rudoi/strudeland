@@ -287,6 +287,106 @@ fn render(args: &[&std::ffi::OsStr]) -> Output {
 }
 
 #[test]
+fn pinned_instrument_renders_offline_and_changes_only_on_explicit_update() {
+    use std::fs;
+    let temp = tempfile::tempdir().unwrap();
+    let project =
+        strudeland_project::Project::create(&temp.path().join("project"), "duet").unwrap();
+    let song = "songs/main.js";
+    fs::write(
+        project.root().join(song),
+        r#"
+const meta = { bpm: 240, meter: '1/4', sections: [{ name: 'body', bars: 1, loop: true }] };
+const { duet } = instruments;
+$: song(meta, { body: note("c4 e4").apply(duet()) });
+"#,
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_strudeland"))
+            .current_dir(project.root())
+            .arg("--json")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let ok = |args: &[&str]| -> Value {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let directory = temp.path().join("library");
+    let library = strudeland_project::InstrumentLibrary::at(directory.clone());
+    fs::create_dir(&directory).unwrap();
+    let record = directory.join("duet.json");
+    let write = |sound: &str| {
+        let def = serde_json::json!({"schema": 1, "parameters": {}, "voices": [
+            {"name": "left", "chain": [{"control":"s","value":sound},{"control":"pan","value":0}]},
+            {"name": "right", "chain": [{"control":"s","value":"triangle"},{"control":"pan","value":1}]}
+        ]});
+        fs::write(&record, def.to_string()).unwrap();
+    };
+    write("sine");
+    let first = project.pin_instrument(&library, "duet").unwrap();
+    assert_eq!(
+        ok(&["instrument", "list"])["entries"],
+        serde_json::json!([first])
+    );
+    let mix = || {
+        ok(&[
+            "render",
+            song,
+            "--length",
+            "1",
+            "--loudness",
+            "off",
+            "--out",
+            "mix.wav",
+        ]);
+        fs::read(project.root().join("mix.wav")).unwrap()
+    };
+    let old_audio = mix();
+    let moved = temp.path().join("unavailable");
+    fs::rename(&directory, &moved).unwrap();
+    assert!(mix() == old_audio);
+    ok(&[
+        "render",
+        song,
+        "--preset",
+        "tagged-loop",
+        "--out",
+        "loop.wav",
+    ]);
+    assert!(wav_chunk(&fs::read(project.root().join("loop.wav")).unwrap(), b"smpl").is_some());
+    ok(&["render", song, "--stems", "voice", "--out", "set"]);
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(project.root().join("set/stems.json")).unwrap()).unwrap();
+    let voices: Vec<_> = manifest["stems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|stem| stem["kind"] == "voice")
+        .map(|stem| stem["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(voices, ["duet/left", "duet/right"]);
+    fs::rename(&moved, &directory).unwrap();
+    write("sawtooth");
+    assert_eq!(
+        ok(&["instrument", "list"])["entries"],
+        serde_json::json!([first])
+    );
+    let updated = project
+        .update_instrument(&library, "duet", &first.fingerprint)
+        .unwrap();
+    assert_ne!(updated.fingerprint, first.fingerprint);
+    assert!(mix() != old_audio);
+}
+
+#[test]
 fn render_writes_a_wav_through_the_real_pipeline() {
     use std::ffi::OsStr;
     let dir = tempfile::tempdir().unwrap();
