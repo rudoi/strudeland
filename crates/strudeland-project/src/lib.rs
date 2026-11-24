@@ -4,6 +4,7 @@
 //! This crate has no Tauri dependency so the app and the CLI can share it.
 
 mod error;
+mod instruments;
 mod prefs;
 mod project;
 mod recents;
@@ -11,6 +12,11 @@ mod recordings;
 mod template;
 
 pub use error::ProjectError;
+pub use instruments::{
+    INSTRUMENTS_DIR, InstrumentDefinition, InstrumentEntry, InstrumentLibrary, InstrumentSnapshot,
+    MAX_INSTRUMENT_ENTRIES, instrument_dir_entries, instrument_file_candidate,
+    validate_instrument_snapshot,
+};
 pub use prefs::{PREFS_FILE, Prefs};
 pub use project::{
     MANIFEST_FILE, Manifest, Project, ProjectInfo, RenderSet, SCHEMA, SONG_EXT, SONGS_DIR,

@@ -39,6 +39,7 @@ pub fn float_wav() -> OutputOptions {
 pub fn options(length: LengthRequest) -> RenderOptions {
     RenderOptions {
         length,
+        instruments: Default::default(),
         jobs: None,
         plan_timeout: Some(Duration::from_secs(120)),
         include_events: false,

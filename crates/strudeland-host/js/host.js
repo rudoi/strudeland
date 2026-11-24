@@ -25290,6 +25290,128 @@ Please check with "npm ls @strudel/core".`);
   }
   globalThis._strudelLoaded = true;
 
+  // src/lib/levels/levels.ts
+  function mergeFrames(a, b) {
+    return {
+      peak: [Math.max(a.peak[0], b.peak[0]), Math.max(a.peak[1], b.peak[1])],
+      rms: [Math.max(a.rms[0], b.rms[0]), Math.max(a.rms[1], b.rms[1])],
+      overs: [a.overs[0] + b.overs[0], a.overs[1] + b.overs[1]],
+      limitDb: Math.min(a.limitDb, b.limitDb)
+    };
+  }
+  function createLevelHold() {
+    let held = null;
+    return {
+      push(f) {
+        const overs = f.overs[0] + f.overs[1];
+        held = held === null ? { peak: [f.peak[0], f.peak[1]], overs, limitDb: f.limitDb } : {
+          peak: [Math.max(held.peak[0], f.peak[0]), Math.max(held.peak[1], f.peak[1])],
+          overs: held.overs + overs,
+          limitDb: Math.min(held.limitDb, f.limitDb)
+        };
+      },
+      reset() {
+        held = null;
+      },
+      snapshot() {
+        return held === null ? null : { ...held, peak: [held.peak[0], held.peak[1]] };
+      }
+    };
+  }
+  var EMPTY_VIEW = { rms: 0, peak: 0, clip: false };
+  var INACTIVE_VIEW = Object.freeze({
+    active: false,
+    channels: [EMPTY_VIEW, EMPTY_VIEW],
+    readout: "-",
+    clip: false,
+    limiting: false
+  });
+
+  // src/lib/strudel/metered-pattern.ts
+  var MIXED_CPS_ERROR = "mixed-meter songs use meta.bpm and cannot change CPS in the code";
+  var scheduled = Symbol("metered schedule");
+  var meteredSchedule = (hap2) => hap2[scheduled];
+  function queryMetered(pattern3, state2, structure, clock, referenceCps) {
+    const end2 = Number(state2.span.end);
+    let from = Number(state2.span.begin);
+    const haps = [];
+    const mixedMeter = !!structure.meterChanges?.length;
+    const painters = state2.controls.painters;
+    const registered = mixedMeter && painters ? new Map : undefined;
+    do {
+      const to = Math.min(end2, clock.nextMeterBoundary(from));
+      const localCps = cpsAtMeter(referenceCps, structure.meter, clock.meterAt(from));
+      const piece = new State(new TimeSpan(from, to), {
+        ...state2.controls,
+        _cps: localCps,
+        _mixedMeter: mixedMeter
+      });
+      if (registered)
+        piece.controls.painters = [];
+      const result = pattern3.query(piece);
+      if (registered) {
+        const occurrences = new Map;
+        for (const painter of piece.controls.painters) {
+          const count = (occurrences.get(painter) ?? 0) + 1;
+          occurrences.set(painter, count);
+          if (count > (registered.get(painter) ?? 0)) {
+            painters.push(painter);
+            registered.set(painter, count);
+          }
+        }
+      }
+      if (mixedMeter && result.some((h) => h.value?.cps !== undefined)) {
+        throw new Error(MIXED_CPS_ERROR);
+      }
+      for (const h of result)
+        haps.push(h);
+      if (to >= end2)
+        return haps;
+      if (to <= from)
+        throw new Error("meter clock did not advance");
+      from = to;
+    } while (true);
+  }
+  function meteredPlayback(pattern3, structure, getClock, phaseOffset, onError) {
+    return new Pattern((state2) => {
+      const clock = getClock();
+      if (!clock)
+        return pattern3.query(state2);
+      const cps2 = state2.controls._cps ?? structure.cps;
+      const span = state2.span.withTime((t) => clock.toCycle(Number(t)));
+      const toReference = (t) => clock.toClock(Number(t));
+      try {
+        return queryMetered(pattern3, state2.setSpan(span), structure, clock, cps2).map((h) => {
+          if (!h.whole)
+            return new Hap(undefined, h.part.withTime(toReference), h.value, h.context, h.stateful);
+          const onset = Number(h.whole.begin);
+          const at2 = clock.toClock(onset);
+          const localCps = cpsAtMeter(cps2, structure.meter, clock.meterAt(onset));
+          const timing = {
+            phaseSec: phaseOffset() + at2 / cps2,
+            durationSec: (clock.toClock(Number(h.whole.begin.add(h.duration))) - at2) / cps2
+          };
+          let context = h.context;
+          if (context.onSchedule) {
+            const callbackHap = Object.create(h, {
+              duration: { value: fraction_default(timing.durationSec * localCps) }
+            });
+            context = {
+              ...context,
+              onSchedule: (_h, t) => h.context.onSchedule(callbackHap, t, localCps)
+            };
+          }
+          const mapped = new Hap(h.whole.withTime(toReference), h.part.withTime(toReference), h.value, context, h.stateful);
+          mapped[scheduled] = { hap: h, cps: localCps, timing };
+          return mapped;
+        });
+      } catch (error) {
+        onError(error);
+        throw error;
+      }
+    });
+  }
+
   // vendor/strudel/packages/transpiler/transpiler.mjs
   var import_escodegen = __toESM(require_escodegen(), 1);
 
@@ -28642,126 +28764,229 @@ Please check with "npm ls @strudel/core".`);
     return node;
   }
   registerTranspilerPlugin(widgetTranspilerPlugins);
-  // src/lib/levels/levels.ts
-  function mergeFrames(a, b) {
-    return {
-      peak: [Math.max(a.peak[0], b.peak[0]), Math.max(a.peak[1], b.peak[1])],
-      rms: [Math.max(a.rms[0], b.rms[0]), Math.max(a.rms[1], b.rms[1])],
-      overs: [a.overs[0] + b.overs[0], a.overs[1] + b.overs[1]],
-      limitDb: Math.min(a.limitDb, b.limitDb)
-    };
-  }
-  function createLevelHold() {
-    let held = null;
-    return {
-      push(f) {
-        const overs = f.overs[0] + f.overs[1];
-        held = held === null ? { peak: [f.peak[0], f.peak[1]], overs, limitDb: f.limitDb } : {
-          peak: [Math.max(held.peak[0], f.peak[0]), Math.max(held.peak[1], f.peak[1])],
-          overs: held.overs + overs,
-          limitDb: Math.min(held.limitDb, f.limitDb)
-        };
-      },
-      reset() {
-        held = null;
-      },
-      snapshot() {
-        return held === null ? null : { ...held, peak: [held.peak[0], held.peak[1]] };
-      }
-    };
-  }
-  var EMPTY_VIEW = { rms: 0, peak: 0, clip: false };
-  var INACTIVE_VIEW = Object.freeze({
-    active: false,
-    channels: [EMPTY_VIEW, EMPTY_VIEW],
-    readout: "-",
-    clip: false,
-    limiting: false
-  });
+  // crates/strudeland-project/instrument-controls.json
+  var instrument_controls_default = [
+    "s",
+    "gain",
+    "pan",
+    "orbit",
+    "attack",
+    "decay",
+    "sustain",
+    "release",
+    "lpf",
+    "lpq",
+    "hpf",
+    "hpq",
+    "room",
+    "roomsize",
+    "delay",
+    "delaytime",
+    "delayfeedback",
+    "distort",
+    "shape",
+    "crush"
+  ];
 
-  // src/lib/strudel/metered-pattern.ts
-  var MIXED_CPS_ERROR = "mixed-meter songs use meta.bpm and cannot change CPS in the code";
-  var scheduled = Symbol("metered schedule");
-  var meteredSchedule = (hap2) => hap2[scheduled];
-  function queryMetered(pattern3, state2, structure, clock, referenceCps) {
-    const end2 = Number(state2.span.end);
-    let from = Number(state2.span.begin);
-    const haps = [];
-    const mixedMeter = !!structure.meterChanges?.length;
-    const painters = state2.controls.painters;
-    const registered = mixedMeter && painters ? new Map : undefined;
-    do {
-      const to = Math.min(end2, clock.nextMeterBoundary(from));
-      const localCps = cpsAtMeter(referenceCps, structure.meter, clock.meterAt(from));
-      const piece = new State(new TimeSpan(from, to), {
-        ...state2.controls,
-        _cps: localCps,
-        _mixedMeter: mixedMeter
+  // src/lib/strudel/instruments.ts
+  var IDENTIFIER = /^[a-z][a-z0-9_]{0,63}$/;
+  var WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
+  var OPERATION = "strudelandApplyInstrument";
+  var BINDING = "strudeland.instrument-namespace";
+  var namespaceKey = Symbol.for(BINDING);
+  var bindings = globalThis;
+  var setters = new Map(instrument_controls_default.map((name) => {
+    const setter = exports_core[name];
+    if (typeof setter !== "function")
+      throw new Error(`Unknown core instrument control '${name}'`);
+    return [name, setter];
+  }));
+  var applyInstrument;
+  function registerInstrumentOperation() {
+    if (applyInstrument)
+      return;
+    if (OPERATION in Pattern.prototype || `_${OPERATION}` in Pattern.prototype || OPERATION in strudelScope) {
+      throw new Error(`Instrument operation '${OPERATION}' is already registered`);
+    }
+    register(OPERATION, (transform, pattern3) => transform(pattern3));
+    const applyRaw = Pattern.prototype[`_${OPERATION}`];
+    applyInstrument = (transform, pattern3) => applyRaw.call(reify(pattern3), transform);
+  }
+  function scalar(value) {
+    return typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value);
+  }
+  function utf8Length(text) {
+    let bytes = 0;
+    for (const char of text) {
+      const point = char.codePointAt(0);
+      if (point >= 55296 && point <= 57343)
+        return Infinity;
+      if (point < 128)
+        bytes++;
+      else if (point < 2048)
+        bytes += 2;
+      else if (point < 65536)
+        bytes += 3;
+      else
+        bytes += 4;
+    }
+    return bytes;
+  }
+  function definitionScalar(value) {
+    if (typeof value === "string")
+      return value.length <= 1024 && utf8Length(value) <= 1024;
+    return scalar(value);
+  }
+  function isRecord(value) {
+    if (typeof value !== "object" || value === null)
+      return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === null || proto === Object.prototype;
+  }
+  function compileInstrument(id2, definition) {
+    const fail = (message) => {
+      throw new Error(`Instrument '${id2}': ${message}`);
+    };
+    if (!isRecord(definition) || definition.schema !== 1)
+      return fail("expected schema 1");
+    if (Object.keys(definition).length !== 3)
+      return fail("expected schema, parameters and voices");
+    const { parameters, voices } = definition;
+    if (!isRecord(parameters))
+      return fail("parameters must be an object");
+    const defaults = new Map;
+    const entries = Object.entries(parameters);
+    if (entries.length > 64)
+      return fail("at most 64 parameters are allowed");
+    for (const [name, value] of entries) {
+      if (!IDENTIFIER.test(name) || !definitionScalar(value))
+        return fail(`invalid parameter '${name}'`);
+      defaults.set(name, value);
+    }
+    if (!Array.isArray(voices) || voices.length === 0)
+      return fail("expected at least one voice");
+    if (voices.length > 32)
+      return fail("at most 32 voices are allowed");
+    const names = new Set;
+    const kit = voices.length > 1;
+    const compiledVoices = voices.map((voice2) => {
+      if (!isRecord(voice2) || typeof voice2.name !== "string" || !IDENTIFIER.test(voice2.name)) {
+        return fail("invalid voice name");
+      }
+      const { name, chain } = voice2;
+      if (Object.keys(voice2).length !== 2)
+        return fail(`voice '${name}' must contain name and chain`);
+      if (names.has(name))
+        return fail(`duplicate voice '${name}'`);
+      names.add(name);
+      if (!Array.isArray(chain) || chain.length === 0)
+        return fail(`voice '${name}' has no controls`);
+      if (chain.length > 64)
+        return fail(`voice '${name}' exceeds 64 controls`);
+      const controls2 = chain.map((step) => {
+        if (!isRecord(step) || Object.keys(step).length !== 2 || typeof step.control !== "string") {
+          return fail(`invalid control in voice '${name}'`);
+        }
+        const { control: control2, value } = step;
+        const set2 = setters.get(control2);
+        if (!set2)
+          return fail(`unknown control '${control2}' in voice '${name}'`);
+        if (definitionScalar(value))
+          return { set: set2, resolve: () => value };
+        if (isRecord(value) && Object.keys(value).length === 1 && typeof value.param === "string") {
+          const { param } = value;
+          if (!defaults.has(param))
+            return fail(`unknown parameter '${param}' in voice '${name}'`);
+          return { set: set2, resolve: (options) => options.get(param) };
+        }
+        return fail(`invalid value for '${control2}' in voice '${name}'`);
       });
-      if (registered)
-        piece.controls.painters = [];
-      const result = pattern3.query(piece);
-      if (registered) {
-        const occurrences = new Map;
-        for (const painter of piece.controls.painters) {
-          const count = (occurrences.get(painter) ?? 0) + 1;
-          occurrences.set(painter, count);
-          if (count > (registered.get(painter) ?? 0)) {
-            painters.push(painter);
-            registered.set(painter, count);
+      return { name, controls: controls2 };
+    });
+    return (options = {}) => {
+      if (!isRecord(options))
+        return fail("options must be an object");
+      const parameters2 = new Map(defaults);
+      for (const [name, value] of Object.entries(options)) {
+        const fallback = defaults.get(name);
+        if (fallback === undefined)
+          return fail(`unknown option '${name}'`);
+        if (!scalar(value) || typeof value !== typeof fallback) {
+          return fail(`option '${name}' must be a ${typeof fallback}`);
+        }
+        parameters2.set(name, value);
+      }
+      const voices2 = compiledVoices.map(({ name, controls: controls2 }) => ({
+        label: `${id2}/${name}`,
+        controls: controls2.map(({ set: set2, resolve }) => ({
+          set: set2,
+          value: pure(resolve(parameters2))
+        }))
+      }));
+      const transform = (input) => {
+        const patterns = voices2.map(({ label: label2, controls: controls2 }) => {
+          const voice2 = controls2.reduce((pattern3, { set: set2, value }) => set2(value, pattern3), input);
+          return kit ? voice2.fmap((value) => value.label == null ? { ...value, label: label2 } : value) : voice2;
+        });
+        return kit ? stack(...patterns) : patterns[0];
+      };
+      return (pattern3) => applyInstrument(transform, pattern3);
+    };
+  }
+  function compileNamespace(snapshot) {
+    if (!isRecord(snapshot))
+      throw new Error("Instrument snapshot must be an object");
+    const entries = Object.entries(snapshot);
+    if (entries.length > 128)
+      throw new Error("At most 128 instruments are allowed");
+    const namespace = Object.create(null);
+    let total = 0;
+    for (const [id2, definition] of entries) {
+      if (!IDENTIFIER.test(id2) || WINDOWS_DEVICE.test(id2))
+        throw new Error(`Invalid instrument '${id2}'`);
+      namespace[id2] = compileInstrument(id2, definition);
+      const bytes = utf8Length(JSON.stringify(definition, (_key, value) => typeof value === "number" ? 0 : value));
+      total += bytes;
+      if (bytes > 64 * 1024 || total > 2 * 1024 * 1024) {
+        throw new Error(`Instrument '${id2}': definition or snapshot exceeds size limit`);
+      }
+    }
+    return Object.freeze(namespace);
+  }
+  function createInstrumentTranspiler() {
+    let takeNamespace;
+    const clear = () => {
+      if (takeNamespace && bindings[namespaceKey] === takeNamespace)
+        delete bindings[namespaceKey];
+      takeNamespace = undefined;
+    };
+    return {
+      clear,
+      transpile(code, options, snapshot) {
+        const result = transpiler(code, options);
+        let binding = "Object.freeze(Object.create(null))";
+        if (snapshot !== undefined) {
+          const namespace = compileNamespace(snapshot);
+          if (Object.keys(namespace).length > 0) {
+            if (!applyInstrument)
+              throw new Error("Instrument operation is unavailable");
+            if (Object.hasOwn(bindings, namespaceKey))
+              throw new Error("Instrument scope is occupied");
+            takeNamespace = () => {
+              clear();
+              return namespace;
+            };
+            bindings[namespaceKey] = takeNamespace;
+            binding = `globalThis[Symbol.for(${JSON.stringify(BINDING)})]()`;
           }
         }
+        return {
+          ...result,
+          output: `return ((instruments) => (async () => { ${result.output}
+})())(${binding});`
+        };
       }
-      if (mixedMeter && result.some((h2) => h2.value?.cps !== undefined)) {
-        throw new Error(MIXED_CPS_ERROR);
-      }
-      for (const h2 of result)
-        haps.push(h2);
-      if (to >= end2)
-        return haps;
-      if (to <= from)
-        throw new Error("meter clock did not advance");
-      from = to;
-    } while (true);
-  }
-  function meteredPlayback(pattern3, structure, getClock, phaseOffset, onError) {
-    return new Pattern((state2) => {
-      const clock = getClock();
-      if (!clock)
-        return pattern3.query(state2);
-      const cps2 = state2.controls._cps ?? structure.cps;
-      const span = state2.span.withTime((t) => clock.toCycle(Number(t)));
-      const toReference = (t) => clock.toClock(Number(t));
-      try {
-        return queryMetered(pattern3, state2.setSpan(span), structure, clock, cps2).map((h2) => {
-          if (!h2.whole)
-            return new Hap(undefined, h2.part.withTime(toReference), h2.value, h2.context, h2.stateful);
-          const onset = Number(h2.whole.begin);
-          const at2 = clock.toClock(onset);
-          const localCps = cpsAtMeter(cps2, structure.meter, clock.meterAt(onset));
-          const timing = {
-            phaseSec: phaseOffset() + at2 / cps2,
-            durationSec: (clock.toClock(Number(h2.whole.begin.add(h2.duration))) - at2) / cps2
-          };
-          let context = h2.context;
-          if (context.onSchedule) {
-            const callbackHap = Object.create(h2, {
-              duration: { value: fraction_default(timing.durationSec * localCps) }
-            });
-            context = {
-              ...context,
-              onSchedule: (_h, t) => h2.context.onSchedule(callbackHap, t, localCps)
-            };
-          }
-          const mapped = new Hap(h2.whole.withTime(toReference), h2.part.withTime(toReference), h2.value, context, h2.stateful);
-          mapped[scheduled] = { hap: h2, cps: localCps, timing };
-          return mapped;
-        });
-      } catch (error) {
-        onError(error);
-        throw error;
-      }
-    });
+    };
   }
 
   // src/lib/strudel/seed.ts
@@ -28945,6 +29170,7 @@ Please check with "npm ls @strudel/core".`);
       seed: undefined
     };
     let evaluating = false;
+    const instrumentTranspiler = createInstrumentTranspiler();
     let codeRunning = false;
     let codeSetCps = false;
     let segments = INITIAL_SEGMENTS;
@@ -29039,7 +29265,7 @@ Please check with "npm ls @strudel/core".`);
         hooks.onSchedule(mapped?.hap ?? hap2, t, mapped?.cps ?? cps2, route);
       }),
       getTime: () => active().getTime(),
-      transpiler,
+      transpiler: (code, options) => instrumentTranspiler.transpile(code, options, pending.instruments),
       editPattern: (pattern3) => {
         const structure = registeredStructure();
         const expected = pending.expectedArrangement;
@@ -29544,6 +29770,8 @@ Please check with "npm ls @strudel/core".`);
             ok = await r.evaluate(code, autostart && running && generation === stops) !== undefined;
             return ok;
           } finally {
+            instrumentTranspiler.clear();
+            delete pending.instruments;
             codeRunning = false;
             if (!ok && r.scheduler.cps !== cpsBefore)
               setCps(cpsBefore);
@@ -31716,6 +31944,7 @@ Please check with "npm ls @strudel/core".`);
   }
   async function hostPrebake() {
     await evalScope(exports_core, exports_mini, exports_tonal, exports_draw, { song }, shims, superdoughStubs());
+    registerInstrumentOperation();
   }
 
   // src/host/main.ts
@@ -31748,13 +31977,13 @@ Please check with "npm ls @strudel/core".`);
       clearInterval: () => {}
     });
   }
-  function hostAdapter(runtime) {
+  function hostAdapter(runtime, instruments) {
     let rejected = null;
     return {
       evaluate: async (code, opts) => {
         rejected = null;
         try {
-          return await runtime.evaluate(code, opts);
+          return await runtime.evaluate(code, { ...opts, instruments });
         } catch (e) {
           rejected = errorMessage(e);
           return false;
@@ -31829,7 +32058,7 @@ Please check with "npm ls @strudel/core".`);
     const captured = [];
     const restore = captureConsole(captured);
     try {
-      const planned = await planRender(hostAdapter(hostRuntime()), code, request, captured, mark);
+      const planned = await planRender(hostAdapter(hostRuntime(), request.instruments), code, request, captured, mark);
       g.__strudelandRender = asciiJson(planned);
       return "ok";
     } finally {

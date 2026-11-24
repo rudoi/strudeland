@@ -8,6 +8,7 @@ import * as core from '@strudel/core';
 import * as draw from '@strudel/draw';
 import * as mini from '@strudel/mini';
 import * as tonal from '@strudel/tonal';
+import { registerInstrumentOperation } from '../lib/strudel/instruments';
 import { song } from '../lib/strudel/song';
 import { shims } from './shims';
 import { SUPERDOUGH_FUNCTIONS } from './superdough-names';
@@ -39,4 +40,5 @@ export function superdoughStubs(): Record<string, () => unknown> {
  *  win over any same-named export of the real modules. */
 export async function hostPrebake(): Promise<void> {
   await core.evalScope(core, mini, tonal, draw, { song }, shims, superdoughStubs());
+  registerInstrumentOperation();
 }

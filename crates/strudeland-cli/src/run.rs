@@ -10,7 +10,10 @@ use strudeland_ctl::{
     ProjectOpenParams, SaveParams, ScreenshotParams, SongDeleteParams, SongNewParams, SongParams,
     SongRenameParams, SongSwitchParams, StopResult, codes,
 };
-use strudeland_project::{Project, ProjectError, RecordingEntry, Sidecar};
+use strudeland_project::{
+    INSTRUMENTS_DIR, InstrumentEntry, InstrumentLibrary, Project, ProjectError, RecordingEntry,
+    Sidecar,
+};
 use strudeland_transcribe::load::{Span, load_wav_span};
 use strudeland_transcribe::report::BackingReport;
 use strudeland_transcribe::{
@@ -19,8 +22,8 @@ use strudeland_transcribe::{
 };
 
 use crate::cli::{
-    Cli, CodeCommand, Command, MemoCommand, ProjectCommand, SkillCommand, SongCommand,
-    TranscribeArgs,
+    Cli, CodeCommand, Command, InstrumentCommand, MemoCommand, ProjectCommand, SkillCommand,
+    SongCommand, TranscribeArgs,
 };
 use crate::docs;
 use crate::output::{self, Report};
@@ -205,6 +208,14 @@ fn execute(
     let json = cli.json;
     match &cli.command {
         Command::Render(args) => run_render(args, json, backend, env),
+        Command::Instrument { command } => run_instrument(
+            command,
+            json,
+            transport,
+            env,
+            &current_dir,
+            InstrumentLibrary::open_default,
+        ),
         Command::Docs { name, search, .. } => {
             Ok(run_docs(name.as_deref(), search.as_deref(), json, env))
         }
@@ -464,7 +475,10 @@ fn run_render(
     env: &mut Env,
 ) -> Result<i32, Failure> {
     let code = read_utf8_file(&args.song, &args.song.display().to_string())?;
-    let plan = render::plan(args).map_err(Failure::Render)?;
+    let mut plan = render::plan(args).map_err(Failure::Render)?;
+    if let Some((project, _)) = Project::find(&args.song) {
+        plan.opts.instruments = project.instrument_snapshot().map_err(Failure::Project)?;
+    }
     let lines = ProgressLines::new(&mut *env.stderr);
     let progress = |p| lines.report(p);
     let summary = match plan.destination {
@@ -503,19 +517,20 @@ fn run_render(
     Ok(EXIT_OK)
 }
 
-/// The project `memo` works on: `--project` (no walk up, no fallthrough), the project the current
+/// The project an offline command works on: `--project` (no walk up, no fallthrough), the project the current
 /// directory is in, then the project open in the running app. Every failure of that last step is
 /// swallowed: it is a fallback.
-fn memo_project(
+fn offline_project(
     flag: Option<&Path>,
     transport: &mut dyn Transport,
     cwd: &dyn Fn() -> Result<PathBuf, Failure>,
+    find_local: impl FnOnce(&Path) -> Result<Option<Project>, ProjectError>,
 ) -> Result<Project, Failure> {
     let cwd = cwd()?;
     if let Some(dir) = flag {
         return Project::open(&absolute(dir, &cwd)).map_err(Failure::Project);
     }
-    if let Some(p) = Project::find_from_dir(&cwd) {
+    if let Some(p) = find_local(&cwd).map_err(Failure::Project)? {
         return Ok(p);
     }
     let from_app = call::<AppState>(transport, Method::State, json!({}))
@@ -528,6 +543,70 @@ fn memo_project(
                 .into(),
         )
     })
+}
+
+fn instrument_list(
+    directory: &Path,
+    entries: &[InstrumentEntry],
+    json: bool,
+    env: &mut Env,
+) -> i32 {
+    let mut human = format!("{}\n", directory.display());
+    for entry in entries {
+        human.push_str(&format!("{}  {}\n", entry.id, entry.fingerprint));
+    }
+    emit(
+        env,
+        json,
+        &json!({ "directory": directory.to_string_lossy(), "entries": entries }),
+        stdout_only(human),
+    )
+}
+
+fn run_instrument(
+    command: &InstrumentCommand,
+    json: bool,
+    transport: &mut dyn Transport,
+    env: &mut Env,
+    cwd: &dyn Fn() -> Result<PathBuf, Failure>,
+    library: impl FnOnce() -> Result<InstrumentLibrary, ProjectError>,
+) -> Result<i32, Failure> {
+    let open_library = || library().map_err(Failure::Project);
+    let mut open_project = |flag: &Option<PathBuf>| {
+        offline_project(flag.as_deref(), transport, cwd, Project::discover_from_dir)
+    };
+    let entry = match command {
+        InstrumentCommand::Library => {
+            let library = open_library()?;
+            let entries = library.entries().map_err(Failure::Project)?;
+            return Ok(instrument_list(library.path(), &entries, json, env));
+        }
+        InstrumentCommand::List { project } => {
+            let project = open_project(project)?;
+            let entries = project.instrument_entries().map_err(Failure::Project)?;
+            return Ok(instrument_list(
+                &project.root().join(INSTRUMENTS_DIR),
+                &entries,
+                json,
+                env,
+            ));
+        }
+        InstrumentCommand::Pin { id, project } => {
+            open_project(project)?.pin_instrument(&open_library()?, id)
+        }
+        InstrumentCommand::Update {
+            id,
+            expect,
+            project,
+        } => open_project(project)?.update_instrument(&open_library()?, id, expect),
+    }
+    .map_err(Failure::Project)?;
+    Ok(emit(
+        env,
+        json,
+        &json!(entry),
+        stdout_only(format!("{}  {}\n", entry.id, entry.fingerprint)),
+    ))
 }
 
 /// The memo `name` among `entries`. An invalid name is a usage error, a missing memo a plain
@@ -561,7 +640,9 @@ fn run_memo(
         MemoCommand::List { project } => (project, None),
         MemoCommand::Show { name, project } => (project, Some(name)),
     };
-    let project = memo_project(flag.as_deref(), transport, cwd)?;
+    let project = offline_project(flag.as_deref(), transport, cwd, |dir| {
+        Ok(Project::find_from_dir(dir))
+    })?;
     let root = project.root().to_string_lossy().into_owned();
     let entries = project.recordings().map_err(Failure::Project)?;
     let report = match name {
@@ -636,7 +717,9 @@ fn run_transcribe(
     if args.debug && !json {
         return Err(Failure::Usage("--debug needs --json".into()));
     }
-    let project = memo_project(args.project.as_deref(), transport, cwd)?;
+    let project = offline_project(args.project.as_deref(), transport, cwd, |dir| {
+        Ok(Project::find_from_dir(dir))
+    })?;
     let name = &args.name;
     let entries = project.recordings().map_err(Failure::Project)?;
     let entry = find_memo(&project, &entries, name)?;
@@ -1857,6 +1940,113 @@ mod tests {
         let o = go(&["docs", "fats", "--json"], &mut f, IO);
         assert_eq!((o.code, o.out()), (1, ""));
         assert!(f.calls.is_empty());
+    }
+
+    #[test]
+    fn instrument_cli_lists_pins_and_requires_the_current_fingerprint_to_update() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = temp.path().join("library");
+        std::fs::create_dir(&lib).unwrap();
+        let project = Project::create(&temp.path().join("p"), "test").unwrap();
+        let root = project.root().to_str().unwrap();
+        let invoke = |args: &[&str]| -> Result<Value, String> {
+            let cli = Cli::try_parse_from(
+                ["strudeland", "instrument"]
+                    .into_iter()
+                    .chain(args.iter().copied()),
+            )
+            .unwrap();
+            let Command::Instrument { command } = cli.command else {
+                unreachable!()
+            };
+            let mut stdout = Vec::new();
+            let mut env = Env {
+                stdin: &mut std::io::empty(),
+                stdin_is_tty: false,
+                stdout: &mut stdout,
+                stdout_is_tty: false,
+                stderr: &mut Vec::new(),
+            };
+            let status = run_instrument(
+                &command,
+                true,
+                &mut Fake::default(),
+                &mut env,
+                &current_dir,
+                || Ok(InstrumentLibrary::at(lib.clone())),
+            )
+            .map_err(|e| e.message())?;
+            assert_eq!(status, EXIT_OK);
+            Ok(serde_json::from_slice(&stdout).unwrap())
+        };
+        let write = |sound: &str| {
+            let def = json!({"schema": 1, "parameters": {}, "voices": [
+                {"name": "main", "chain": [{"control": "s", "value": sound}]}
+            ]});
+            std::fs::write(lib.join("lead.json"), def.to_string()).unwrap();
+        };
+        assert_eq!(invoke(&["library"]).unwrap()["entries"], json!([]));
+        write("sine");
+        let library = invoke(&["library"]).unwrap();
+        let pin = ["pin", "lead", "--project", root];
+        let entry = invoke(&pin).unwrap();
+        assert_eq!(library["entries"][0], entry);
+        assert_eq!(entry["id"], "lead");
+        assert!(invoke(&pin).is_err());
+        write("sawtooth");
+        let update = [
+            "update",
+            "lead",
+            "--expect",
+            entry["fingerprint"].as_str().unwrap(),
+            "--project",
+            root,
+        ];
+        let changed = invoke(&update).unwrap();
+        assert_ne!(changed["fingerprint"], entry["fingerprint"]);
+        assert!(invoke(&update).is_err());
+        assert_eq!(
+            invoke(&["list", "--project", root]).unwrap()["entries"],
+            json!([changed])
+        );
+    }
+
+    #[test]
+    fn instrument_pin_does_not_fall_back_past_an_invalid_local_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let invalid = temp.path().join("invalid");
+        std::fs::create_dir(&invalid).unwrap();
+        std::fs::write(invalid.join("project.json"), "{").unwrap();
+        let open = Project::create(&temp.path().join("open"), "open").unwrap();
+        let mut state = state_json();
+        state["project"] = json!({ "name": "open", "root": open.root() });
+        let mut transport = Fake::ok(state);
+        let mut output = Vec::new();
+        let mut env = Env {
+            stdin: &mut std::io::empty(),
+            stdin_is_tty: false,
+            stdout: &mut output,
+            stdout_is_tty: false,
+            stderr: &mut Vec::new(),
+        };
+        let error = run_instrument(
+            &InstrumentCommand::Pin {
+                id: "lead".into(),
+                project: None,
+            },
+            true,
+            &mut transport,
+            &mut env,
+            &|| Ok(invalid.clone()),
+            || panic!("the library must not open"),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Failure::Project(ProjectError::InvalidManifest(_))
+        ));
+        assert!(transport.calls.is_empty());
+        assert!(open.instrument_snapshot().unwrap().is_empty());
     }
 
     // --- memo ---

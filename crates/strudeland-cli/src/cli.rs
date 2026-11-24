@@ -113,6 +113,11 @@ pub enum Command {
     },
     /// Render a song file to audio, offline (no app needed).
     Render(Box<RenderArgs>),
+    /// Inspect the global instrument library and manage project pins.
+    Instrument {
+        #[command(subcommand)]
+        command: InstrumentCommand,
+    },
     /// List and inspect voice memos (offline, no app needed).
     Memo {
         #[command(subcommand)]
@@ -306,6 +311,35 @@ pub enum SkillCommand {
         /// Install into DIR/.claude/skills (default: the current directory) instead of ~/.claude.
         /// Write `--project=DIR`: a bare `--project` followed by a word would take it as DIR.
         #[arg(long, num_args = 0..=1, default_missing_value = ".", value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum InstrumentCommand {
+    /// List the global library's definitions and fingerprints.
+    Library,
+    /// List the project's pinned definitions and fingerprints.
+    List {
+        /// The project folder (default: the current directory's project, else the app's).
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+    /// Copy a library instrument into the project for the first time.
+    Pin {
+        id: String,
+        /// The project folder (default: the current directory's project, else the app's).
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+    /// Replace a pin from the library if its fingerprint matches.
+    Update {
+        id: String,
+        /// The current project pin fingerprint from instrument list.
+        #[arg(long, value_name = "HASH")]
+        expect: String,
+        /// The project folder (default: the current directory's project, else the app's).
+        #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
     },
 }

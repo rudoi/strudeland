@@ -175,6 +175,7 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
     };
     Ok(Plan {
         opts: RenderOptions {
+            instruments: Default::default(),
             length,
             jobs: args.jobs,
             plan_timeout: Some(args.plan_timeout),
@@ -1103,6 +1104,29 @@ mod tests {
             fake.seen[0].1.length,
             LengthRequest::Clip { loops: Some(3) }
         );
+    }
+
+    #[test]
+    fn malformed_project_pin_fails_before_rendering_even_with_explicit_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = strudeland_project::Project::create(&dir.path().join("p"), "test").unwrap();
+        std::fs::write(project.root().join("instruments/lead.json"), "{}").unwrap();
+        let song = project.root().join("songs/main.js");
+        let out = dir.path().join("mix.wav");
+        let mut fake = Fake::ok();
+        let result = run(
+            &[
+                "render",
+                song.to_str().unwrap(),
+                "--out",
+                out.to_str().unwrap(),
+            ],
+            &mut fake,
+        );
+        assert_eq!(result.code, 1);
+        assert!(result.stderr.contains("lead"), "{}", result.stderr);
+        assert!(fake.seen.is_empty());
+        assert!(!out.exists());
     }
 
     #[test]

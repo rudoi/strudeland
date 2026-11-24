@@ -166,6 +166,7 @@ fn options(a: &RenderArgs) -> Result<RenderOptions, String> {
         )
     })?;
     Ok(RenderOptions {
+        instruments: Default::default(),
         length,
         jobs: a.jobs,
         plan_timeout: Some(plan_timeout),

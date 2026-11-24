@@ -1,5 +1,6 @@
 {
   "files": {
+    "crates/strudeland-project/instrument-controls.json": "7c67baad0c79fbb42566f72b702d9a25df7bc18cd3713f6d18cd3232c8b91859",
     "node_modules/@tonaljs/abc-notation/dist/index.js": "d48bdcebfe010e2142b49ce20d7ed5675ce6c428d5e533b37ee6385f80213459",
     "node_modules/@tonaljs/array/dist/index.js": "f646d476d422757adc46a6fac6ffd90f41e52f29695ad13c6298905db19847d3",
     "node_modules/@tonaljs/chord-detect/dist/index.js": "0b653cce07223e98a9fda1604638eca028798f5f255ad1127c950c6d5b09fe4a",
@@ -75,8 +76,8 @@
     "node_modules/source-map/lib/util.js": "c83bf8e825fc7366ff511da21c58dde4c4a032308a51c0a71865760c3b43a401",
     "node_modules/source-map/source-map.js": "dc098456c2d9ab90a4c0a17cca9be16665b9813df20906553a98b0088a157be7",
     "src/host/backend.ts": "25b2d9391bcfa7cc3cab8912460f9dbffaeb0d21d2a0d6e8804deadf784af7ab",
-    "src/host/main.ts": "bc6965940d246c8ec0a18704f91c0c553c7417ca4f515b1114f600b48daba8d1",
-    "src/host/prebake.ts": "f622039102f63c9696357bc7c6cf033352249baf20371f79f7bc3e282a468cd3",
+    "src/host/main.ts": "4f59ed4088b25650e4f4ab57fb8a59e0f2e2276e36435d6dbbde4be81270fc89",
+    "src/host/prebake.ts": "0a55dd01f4bb7a246d19abc24f9e947908ba02af5a0b3d657d562ae70692e9c0",
     "src/host/shims.ts": "6af1da421ab0fdcf8a38fde7f7dbbd514b550d55204dfdee694b26f88b6039a3",
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
     "src/lib/errors.ts": "e9f80c51df62e192fe8d0ca2a463bf2c2208c08dc7e8f7d80531d7243ff8de5a",
@@ -84,7 +85,7 @@
     "src/lib/project/evaluate-options.ts": "94b3d3ed2d8bf54aaa0a36216e93d59a4c131d185814228c534c3d7c695fe2cb",
     "src/lib/project/meta.ts": "338f74b0267457b29fe4c97d064782bebe3b595a5e5b60d42156c213a3292c91",
     "src/lib/render/chunks.ts": "abf5d3ecc4a68458832948c2fe051a524d8a730f82e5c379d12481d197e7cf6a",
-    "src/lib/render/contract.ts": "bbe90c333bce7552654343dac81c344c66f1f4532ff3a33ca616d9d38c539ec8",
+    "src/lib/render/contract.ts": "e822bf42d1806f80c011ed87c4212f724ba002519b7b4851484b08c6c4648a20",
     "src/lib/render/dsp.ts": "9d14ea2c303e21d79699fb658588af9309465e1502cbb2dda4277725d7518d2b",
     "src/lib/render/engine-job.ts": "74f51e997b2df27e7084d7f18f2b3d87f5d2ac03c52842de2bbe0827197e600e",
     "src/lib/render/gates/stems.ts": "764c7fa27262d21ca39788c5079ce25fe46f5e4d248ef0a41f73c0625467b2f8",
@@ -97,8 +98,9 @@
     "src/lib/render/schedule.ts": "acf0d5725d561816f6e5cc3824106e1c8ceb012215da6c4f6f0fa7f6e652f811",
     "src/lib/render/thresholds.ts": "5d724732d426a5e17e8a77af9b5f93916d816a286f2333fbbf67bd33c6dfe089",
     "src/lib/render/timing.ts": "a6ec0899423b10d0f21ea74c04c0249e529d1ed300ef108d24e987a2b00a6047",
+    "src/lib/strudel/instruments.ts": "a9aee0178c3013271b00316add1c354ba419f47be3de2aa503a21a84afed2029",
     "src/lib/strudel/metered-pattern.ts": "98dfc133580639c70f9c4016141bbd2a833a8f9185f37143148dc082473b706b",
-    "src/lib/strudel/runtime.ts": "eb241e5d12d8f17d51cc7ecacf802cbf9f05c9fd3c17de48ad0d6446212ba7d3",
+    "src/lib/strudel/runtime.ts": "525b0b8ecf4a6039084b04edb7e6ed07b18b2daa6392f7402f713c8dbbcc6862",
     "src/lib/strudel/seed.ts": "d2453dfd92566e735aa67e36efffa3c0cafd17924134be001527024b760edc06",
     "src/lib/strudel/song.ts": "3847a9ef3924b2ca9b4a3199bf9038559747593f86b13cf2172a06ccb30d104d",
     "src/lib/strudel/structure.ts": "126fd0b95bf8c2bff1be03eb19a03ab051dcf2b9a5d329de7501af6212bae6a2",
@@ -149,5 +151,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "39fdf809cb1ac414386e56264b052f933a78b0d3bcb2406cac550dc776219f17"
+  "combined": "c91fd7401eb1f6627ca2fb062b81d1de51063a95380a0c8e561af8fed0072137"
 }

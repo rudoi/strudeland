@@ -24,6 +24,7 @@ const { claudeMarkField, hasClaudeMark } = await import('../src/lib/editor/claud
 const { get } = await import('svelte/store');
 const { highlightMiniLocations, updateMiniLocations } = await import('@strudel/codemirror');
 import type { Session } from '../src/lib/project/session';
+import type { InstrumentSnapshot } from '../src/lib/strudel/instruments';
 import type { EditorState } from '@codemirror/state';
 import { ProjectError } from '../src/lib/project/api';
 import { deferred, fakeProjectApi, flush } from './helpers/fake-project-api';
@@ -39,6 +40,14 @@ const Q = `const meta = { title: 'Queue' };\n$: s("q")\n`;
 const PA = 'songs/a.js';
 const PB = 'songs/b.js';
 const PC = 'songs/c.js';
+
+const leadPin = (gain: number): InstrumentSnapshot => ({
+  lead: {
+    schema: 1,
+    parameters: {},
+    voices: [{ name: 'lead', chain: [{ control: 'gain', value: gain }] }],
+  },
+});
 
 /** Ranges currently drawn by the mini-notation highlights (marks styled inline, unlike the rest). */
 function highlighted(view: InstanceType<typeof EditorView>): [number, number][] {
@@ -2848,6 +2857,20 @@ describe('evaluateSong', () => {
     expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
   });
 
+  test('hot reload captures updated pins from the same watcher batch', async () => {
+    const h = setup();
+    h.fake.instrumentSnapshots.set('/p', leadPin(0.2));
+    await h.session.init();
+    h.rt.setStarted(true);
+    const updated = leadPin(0.7);
+    h.fake.instrumentSnapshots.set('/p', updated);
+    h.fake.files().set(PA, SECTIONED);
+    h.fake.emit({ changed: [PA], instruments: true });
+    await flush();
+    expect(h.rt.evaluated).toEqual([SECTIONED]);
+    expect(h.rt.options[0]?.instruments).toEqual(updated);
+  });
+
   test('a meta error: saved, but not evaluated', async () => {
     const h = await opened();
     const bad = A.replace("title: 'Alpha'", "title: 'Alpha', bpm: 'fast'");
@@ -3296,6 +3319,41 @@ describe('evaluateBuffer', () => {
       DEFAULT_TEMPO,
       DEFAULT_TEMPO,
     ]);
+  });
+
+  test('captures project pins on open and refreshes them after a watcher event', async () => {
+    const h = setup();
+    const initial = leadPin(0.2);
+    h.fake.instrumentSnapshots.set('/p', initial);
+    await h.session.init();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
+    expect(h.rt.options.at(-1)?.instruments).toEqual(initial);
+
+    h.fake.instrumentSnapshots.set('/p', 'lead.json: invalid parameter');
+    h.fake.emit({ instruments: true, root: '/q' });
+    await flush();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
+    h.fake.emit({ instruments: true });
+    await flush();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({
+      ok: false,
+      error: 'reading instruments failed: lead.json: invalid parameter',
+    });
+    expect(h.rt.options).toHaveLength(2);
+
+    h.fake.instrumentSnapshots.set('/p', 'lead.json: incomplete definition');
+    h.fake.emit({ instruments: true });
+    await flush();
+    expect(h.st().error).toBe('reading instruments failed: lead.json: incomplete definition');
+
+    const updated = leadPin(0.7);
+    h.fake.instrumentSnapshots.set('/p', updated);
+    h.fake.emit({ instruments: true });
+    await flush();
+    expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
+    expect(h.rt.options.at(-1)?.instruments).toEqual(updated);
+    expect(h.rt.options[0]?.instruments).toEqual(initial);
+    expect(h.st().error).toBeNull();
   });
 
   test('autostart false with a meta error evaluates nothing', async () => {

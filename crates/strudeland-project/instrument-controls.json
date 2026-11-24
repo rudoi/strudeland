@@ -1,0 +1,22 @@
+[
+  "s",
+  "gain",
+  "pan",
+  "orbit",
+  "attack",
+  "decay",
+  "sustain",
+  "release",
+  "lpf",
+  "lpq",
+  "hpf",
+  "hpq",
+  "room",
+  "roomsize",
+  "delay",
+  "delaytime",
+  "delayfeedback",
+  "distort",
+  "shape",
+  "crush"
+]

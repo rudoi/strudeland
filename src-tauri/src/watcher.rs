@@ -1,4 +1,4 @@
-//! Watches the open project folder and reports song and manifest changes.
+//! Watches the open project folder and reports song, manifest, memo and pin changes.
 //!
 //! A debounced `notify` watcher collects raw events; after each batch the pure [`classify_in`] looks
 //! at which kept files exist now, so an atomic save (rename-over, seen as remove plus create)
@@ -18,7 +18,8 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer_opt};
 use serde::Serialize;
 use strudeland_project::{
-    MANIFEST_FILE, Project, RECORDINGS_DIR, is_recording_file_name, list_songs,
+    INSTRUMENTS_DIR, MANIFEST_FILE, MAX_INSTRUMENT_ENTRIES, Project, RECORDINGS_DIR,
+    instrument_dir_entries, instrument_file_candidate, is_recording_file_name, list_songs,
     recording_dir_entries, song_rel_path,
 };
 
@@ -48,6 +49,8 @@ pub struct ProjectChanged {
     pub manifest: bool,
     /// True iff a memo `.wav` or `.json` under `recordings/` (or the folder itself) changed.
     pub recordings: bool,
+    /// True iff the project's pinned instrument definitions changed.
+    pub instruments: bool,
 }
 
 enum Kept {
@@ -60,6 +63,8 @@ enum Kept {
     Recording,
     /// The `recordings` directory itself.
     RecordingFolder,
+    Instrument,
+    InstrumentFolder,
 }
 
 /// Native notifications can omit the verbatim drive/UNC prefix used by canonical Windows
@@ -106,18 +111,24 @@ fn keep(root: &Path, path: &Path) -> Option<Kept> {
     if rel == Path::new(RECORDINGS_DIR) {
         return Some(Kept::RecordingFolder);
     }
+    if rel == Path::new(INSTRUMENTS_DIR) {
+        return Some(Kept::InstrumentFolder);
+    }
     if rel.components().nth(1).is_none() {
         return Some(Kept::TopLevel);
     }
     let mut parts = rel.components();
-    if let (Some(dir), Some(name), None) = (parts.next(), parts.next(), parts.next())
-        && dir.as_os_str() == RECORDINGS_DIR
-    {
-        return name
-            .as_os_str()
-            .to_str()
-            .filter(|n| is_recording_file_name(n))
-            .map(|_| Kept::Recording);
+    if let (Some(dir), Some(name), None) = (parts.next(), parts.next(), parts.next()) {
+        if dir.as_os_str() == RECORDINGS_DIR {
+            return name
+                .as_os_str()
+                .to_str()
+                .filter(|n| is_recording_file_name(n))
+                .map(|_| Kept::Recording);
+        }
+        if dir.as_os_str() == INSTRUMENTS_DIR {
+            return instrument_file_candidate(name.as_os_str()).then_some(Kept::Instrument);
+        }
     }
     song_rel_path(rel).map(Kept::Song)
 }
@@ -162,6 +173,7 @@ struct Touched {
     revalidate: bool,
     manifest: bool,
     recordings: bool,
+    instruments: bool,
 }
 
 impl Touched {
@@ -201,8 +213,11 @@ impl Touched {
             Some(Kept::TopLevel) => self.rescan = true,
             // Windows reports directory modifications for child writes, including ignored
             // partials and temporaries. Recheck the catalog before reporting a change.
-            Some(Kept::RecordingFolder) if folder_metadata => self.rescan = true,
+            Some(Kept::RecordingFolder | Kept::InstrumentFolder) if folder_metadata => {
+                self.rescan = true;
+            }
             Some(Kept::Recording | Kept::RecordingFolder) => self.recordings = true,
+            Some(Kept::Instrument | Kept::InstrumentFolder) => self.instruments = true,
             None => {}
         }
     }
@@ -213,18 +228,19 @@ impl Touched {
             revalidate: true,
             manifest: true,
             recordings: true,
+            instruments: true,
             ..Self::default()
         }
     }
 
-    /// Nothing kept: no song, top-level entry, manifest or memo.
+    /// Nothing kept: no song, top-level entry, manifest, memo or pin.
     fn is_empty(&self) -> bool {
         self.named.is_empty() && !self.rescan && !self.reported_alone()
     }
 
-    /// Whether the batch is reported even without a song change (the manifest or a memo).
+    /// Whether the batch is reported even without a song change.
     fn reported_alone(&self) -> bool {
-        self.manifest || self.recordings
+        self.manifest || self.recordings || self.instruments
     }
 }
 
@@ -279,6 +295,7 @@ fn classify_in(
         songs: changes,
         manifest: touched.manifest,
         recordings: touched.recordings,
+        instruments: touched.instruments,
     })
 }
 
@@ -315,6 +332,42 @@ impl From<std::fs::Metadata> for Revision {
 struct Catalogs {
     manifest: Option<Revision>,
     recordings: Option<BTreeMap<String, Revision>>,
+    instruments: InstrumentCatalog,
+}
+
+#[derive(Default, PartialEq)]
+enum InstrumentCatalog {
+    #[default]
+    Missing,
+    Unreadable,
+    Present(BTreeMap<std::ffi::OsString, Revision>),
+}
+
+impl InstrumentCatalog {
+    fn scan(root: &Path) -> Self {
+        let entries = match instrument_dir_entries(root) {
+            Ok(Some(entries)) => entries,
+            Ok(None) => return Self::Missing,
+            Err(_) => return Self::Unreadable,
+        };
+        let mut revisions = BTreeMap::new();
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return Self::Unreadable;
+            };
+            let name = entry.file_name();
+            if instrument_file_candidate(&name) {
+                if revisions.len() == MAX_INSTRUMENT_ENTRIES {
+                    return Self::Unreadable;
+                }
+                let Ok(metadata) = entry.metadata() else {
+                    return Self::Unreadable;
+                };
+                revisions.insert(name, Revision::from(metadata));
+            }
+        }
+        Self::Present(revisions)
+    }
 }
 
 impl Catalogs {
@@ -341,6 +394,11 @@ impl Catalogs {
             });
             touched.recordings |= now != self.recordings;
             self.recordings = now;
+        }
+        if touched.rescan || touched.instruments {
+            let now = InstrumentCatalog::scan(root);
+            touched.instruments |= now != self.instruments;
+            self.instruments = now;
         }
     }
 }
@@ -370,7 +428,7 @@ impl Watcher {
         let handler_root = root.clone();
         let handler = move |result: DebounceEventResult| {
             // A lost batch can change contents without changing any filenames. Re-read every
-            // known song and refresh both catalogs even when the backend supplied no paths.
+            // known song and refresh the catalogs even when the backend supplied no paths.
             let mut touched = match result {
                 Ok(events) if !events.iter().any(|e| e.need_rescan()) => {
                     Touched::from_events(&handler_root, events.into_iter().map(|e| e.event))
@@ -479,6 +537,7 @@ mod tests {
             },
             manifest: false,
             recordings: false,
+            instruments: false,
         }
     }
 
@@ -545,6 +604,21 @@ mod tests {
         );
         let p = d.touch("project.json");
         assert_eq!(run(&d, &mut known, [p]), Some(expected));
+    }
+
+    #[test]
+    fn instrument_pin_changes_ignore_temporary_files() {
+        let d = Dir::new();
+        let mut known = HashSet::new();
+        let pin = d.touch("instruments/lead.json");
+        let temp = d.touch("instruments/.lead.tmp");
+        let expected = ProjectChanged {
+            instruments: true,
+            ..Default::default()
+        };
+        assert_eq!(run(&d, &mut known, [temp]), None);
+        assert_eq!(run(&d, &mut known, [pin]), Some(expected.clone()));
+        assert_eq!(run(&d, &mut known, [d.path("instruments")]), Some(expected));
     }
 
     #[test]
@@ -823,29 +897,36 @@ mod tests {
     }
 
     #[test]
-    fn destination_only_moves_detect_removed_manifest_or_memo_without_reporting_unrelated_writes() {
+    fn destination_only_moves_detect_removals_without_reporting_unrelated_writes() {
         let d = Dir::new();
         let manifest = d.touch("project.json");
         let memo = d.touch("recordings/a.wav");
+        let pin = d.touch("instruments/lead.json");
         let mut catalogs = Catalogs::default();
         catalogs.reconcile(&d.root, &mut Touched::full_rescan());
         let mut reconcile = |dest: &str| {
             let mut touched = Touched::new(&d.root, [d.path(dest)]);
             touched.rescan = true;
             catalogs.reconcile(&d.root, &mut touched);
-            (touched.manifest, touched.recordings)
+            (touched.manifest, touched.recordings, touched.instruments)
         };
         d.touch("recordings/.take.wav.partial");
-        assert_eq!(reconcile("recordings/.take.wav.partial"), (false, false));
+        assert_eq!(
+            reconcile("recordings/.take.wav.partial"),
+            (false, false, false)
+        );
         fs::rename(manifest, d.path("old-manifest")).unwrap();
-        assert_eq!(reconcile("old-manifest"), (true, false));
+        assert_eq!(reconcile("old-manifest"), (true, false, false));
         fs::rename(memo, d.path("recordings/backup")).unwrap();
-        assert_eq!(reconcile("recordings/backup"), (false, true));
-        assert_eq!(reconcile("recordings/backup"), (false, false));
+        assert_eq!(reconcile("recordings/backup"), (false, true, false));
+        assert_eq!(reconcile("recordings/backup"), (false, false, false));
+        fs::rename(pin, d.path("instruments/backup")).unwrap();
+        assert_eq!(reconcile("instruments/backup"), (false, false, true));
+        assert_eq!(reconcile("instruments/backup"), (false, false, false));
     }
 
     #[test]
-    fn loss_of_events_revalidates_known_contents_and_both_catalogs() {
+    fn loss_of_events_revalidates_known_contents_and_catalogs() {
         let d = Dir::new();
         let mut known = set(&["songs/same.js", "songs/gone.js"]);
         d.touch("songs/same.js");
@@ -854,7 +935,20 @@ mod tests {
         assert_eq!(batch.songs.changed, ["songs/same.js"]);
         assert_eq!(batch.songs.added, ["songs/new.js"]);
         assert_eq!(batch.songs.removed, ["songs/gone.js"]);
-        assert!(batch.manifest && batch.recordings);
+        assert!(batch.manifest && batch.recordings && batch.instruments);
+    }
+
+    #[test]
+    fn destination_only_move_clears_an_invalid_instrument_directory() {
+        let d = Dir::new();
+        let invalid = d.touch(INSTRUMENTS_DIR);
+        let mut catalogs = Catalogs::default();
+        catalogs.reconcile(&d.root, &mut Touched::full_rescan());
+        let backup = d.path("backup");
+        fs::rename(invalid, &backup).unwrap();
+        let mut touched = Touched::new(&d.root, [backup]);
+        catalogs.reconcile(&d.root, &mut touched);
+        assert!(touched.instruments);
     }
 
     #[cfg(windows)]
@@ -914,6 +1008,7 @@ mod tests {
         let mut payload = songs(&["songs/a.js"], &["songs/b.js"], &["songs/c.js"]);
         payload.manifest = true;
         payload.recordings = true;
+        payload.instruments = true;
         payload.root = "/p/song".to_string();
         assert_eq!(
             serde_json::to_value(&payload).unwrap(),
@@ -926,6 +1021,7 @@ mod tests {
                 },
                 "manifest": true,
                 "recordings": true,
+                "instruments": true,
             })
         );
     }

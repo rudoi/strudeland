@@ -16,6 +16,7 @@ use strudeland_host::{
 fn plan_request(length: LengthRequest) -> RenderPlanRequest {
     RenderPlanRequest {
         length,
+        instruments: Default::default(),
         preset: None,
         mode: Mode::Mix,
         sample_rate: 44_100,

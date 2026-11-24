@@ -19,6 +19,7 @@ path = "src/bin/strudeland-host.rs"
 jitless = []
 
 [dependencies]
+strudeland-project = { path = "../strudeland-project" }
 strudeland-engine = { path = "../strudeland-engine" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }

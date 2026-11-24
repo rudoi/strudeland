@@ -4,9 +4,11 @@
  * gate shares. Pure: no imports but types.
  */
 
+import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { SongStructure } from '../strudel/structure';
 import type { UnsupportedSignature } from './engine-job';
 import type { EngineName } from './engines';
+import type { RenderPlanRequest } from './job-plan';
 import type { RenderEvent } from './schedule';
 
 /** The only supported sample rate. */
@@ -40,6 +42,11 @@ export interface RenderRequest {
   mutation?: HapMutation;
   /** Sample-pack base URL or manifest path forwarded to the renderer; opaque to gates. */
   samples?: Record<string, string>;
+}
+
+/** Whole-render wire input. Evaluation captures pins before shared planning begins. */
+export interface RenderPlanInput extends RenderPlanRequest {
+  instruments?: InstrumentSnapshot;
 }
 
 /** `unsupported`: a hap uses a sound or control the renderer does not implement (the Rust

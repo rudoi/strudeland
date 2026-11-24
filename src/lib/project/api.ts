@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { message, open } from '@tauri-apps/plugin-dialog';
 import { kindedError } from '../command-error';
 import { errorMessage } from '../errors';
+import type { InstrumentSnapshot } from '../strudel/instruments';
 
 // The OS seam of the project feature. Everything that talks to Tauri (invoke, events, dialogs,
 // the window) lives in `createTauriProjectApi`; `session.ts` only sees the `ProjectApi` type, so it
@@ -32,6 +33,7 @@ export interface ProjectChange {
   manifest: boolean;
   /** True iff a memo `.wav` or `.json` under `recordings/` changed. */
   recordings: boolean;
+  instruments: boolean;
 }
 export type ProjectErrorKind =
   'songExists' | 'songNotFound' | 'invalidName' | 'projectChanged' | 'other';
@@ -67,6 +69,7 @@ export interface ProjectApi {
    * the error string if the manifest is invalid.
    */
   info(root: string): Promise<ProjectInfo>;
+  instruments(root: string): Promise<InstrumentSnapshot>;
   last(): Promise<ProjectInfo | null>;
   recents(): Promise<RecentProject[]>;
   /** Sorted byte-wise by path. */
@@ -165,6 +168,7 @@ export function createTauriProjectApi(): ProjectApi {
     create: (dir, name) => invoke<ProjectInfo>('project_create', { dir, name }),
     open: (dir) => invoke<ProjectInfo>('project_open', { dir }),
     info: (root) => invoke<ProjectInfo>('project_info', { root }),
+    instruments: (root) => invoke<InstrumentSnapshot>('project_instruments', { root }),
     last: () => invoke<ProjectInfo | null>('project_last'),
     recents: () => invoke<RecentProject[]>('recent_list'),
     listSongs: (root) => invoke<SongEntry[]>('song_list', { root }),

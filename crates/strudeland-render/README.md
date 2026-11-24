@@ -8,6 +8,8 @@ with the headless host (`strudeland-host`), renders the chunks with the engine
 
 `strudeland_render::render(code, &RenderOptions, progress)` runs the whole thing; `render_audio`
 stops after the join and `finish` levels and encodes a joined buffer.
+Callers pass the project's validated pins in `RenderOptions.instruments`. All chunks, loop
+passes and stems share this snapshot. Standalone sources use an empty snapshot.
 
 1. **Plan** (`plan`): `Host::plan_render` evaluates the song once and plans every chunk's engine
    job (the length request is the song's clip, a section, the first N bars or an explicit window).

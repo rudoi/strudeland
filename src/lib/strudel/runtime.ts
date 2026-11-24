@@ -9,7 +9,6 @@ import {
   TimeSpan,
   useRNG,
 } from '@strudel/core';
-import { transpiler } from '@strudel/transpiler';
 import type { AudioBackend } from '../audio/backend';
 import type { LiveStats } from '../audio/playback-api';
 import type { EngineWarning } from '../audio/backend';
@@ -22,6 +21,7 @@ import {
 import type { Readable } from 'svelte/store';
 import type { Hap, ScheduleRoute } from './types';
 import { meteredPlayback, meteredSchedule, MIXED_CPS_ERROR, queryMetered } from './metered-pattern';
+import { createInstrumentTranspiler, type InstrumentSnapshot } from './instruments';
 import { layoutClock, type LayoutClock } from './timing';
 import { applySeed } from './seed';
 import { beginEvaluate, registeredStructure, setSegmentSource } from './song';
@@ -64,6 +64,8 @@ export interface EvaluateOptions {
   meter?: Meter;
   /** Seeds the whole pattern (an inner `.seed()` still wins); omitted: unseeded. */
   seed?: number;
+  /** Project-pinned definitions captured for this evaluation. */
+  instruments?: InstrumentSnapshot;
   /**
    * Default true. False installs the pattern without starting the scheduler (`start()` starts it
    * later). While playing it changes nothing: an evaluate always replaces the live pattern.
@@ -319,8 +321,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   };
 
   /**
-   * The tempo of the evaluate in progress. `repl()`'s hooks are created once, so they read it from
-   * here; evaluates are serialized (`queue`), so no other call can change it meanwhile.
+   * The options of the evaluate in progress. `repl()`'s hooks are created once, so they read them
+   * from here. Evaluates are serialized (`queue`).
    */
   let pending: EvaluateOptions & { cps: number; meter: Meter; seed: number | undefined } = {
     cps: defaultCps,
@@ -328,6 +330,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     seed: undefined,
   };
   let evaluating = false;
+  const instrumentTranspiler = createInstrumentTranspiler();
   /** True while an evaluate's code runs (from the end of beforeEval to afterEval/onEvalError). */
   let codeRunning = false;
   /** Whether the running evaluate's code called setcps/setcpm. */
@@ -461,7 +464,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         hooks.onSchedule!(mapped?.hap ?? hap, t, mapped?.cps ?? cps, route);
       }),
     getTime: () => active().getTime(),
-    transpiler,
+    transpiler: (code: string, options: object) =>
+      instrumentTranspiler.transpile(code, options, pending.instruments),
     // Runs only after the code evaluated, right before the scheduler gets the pattern: starting
     // from stopped schedules the first haps synchronously, before afterEval, so the audio seed is
     // set here. Every successful evaluate sets it; a song without one gets 0.
@@ -1109,6 +1113,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
           ok = (await r.evaluate(code, autostart && running && generation === stops)) !== undefined;
           return ok;
         } finally {
+          instrumentTranspiler.clear();
+          delete pending.instruments;
           codeRunning = false;
           // A failed evaluate changes nothing: undo a tempo its code (or, stopped, meta) set.
           if (!ok && r.scheduler.cps !== cpsBefore) setCps(cpsBefore);
