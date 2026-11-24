@@ -68,6 +68,8 @@ use crate::param::{ParamError, idl_float};
 use std::collections::HashMap;
 use std::fmt;
 
+mod tail;
+
 /// `generate`'s defaults (reverb.mjs:32), applied to `undefined` settings only.
 pub const DEFAULT_ROOMSIZE: f64 = 2.0;
 pub const DEFAULT_ROOMFADE: f64 = 0.1;
@@ -554,6 +556,21 @@ struct FftKernel {
     imag: Vec<f32>,
 }
 
+impl FftKernel {
+    fn from_frame(frame: &FftFrame, scale: f32) -> Self {
+        let mut kernel = Self {
+            real: frame.real.clone(),
+            imag: frame.imag.clone(),
+        };
+        if scale != 1.0 {
+            for sample in kernel.real.iter_mut().chain(&mut kernel.imag) {
+                *sample *= scale;
+            }
+        }
+        kernel
+    }
+}
+
 #[derive(Debug, Clone)]
 enum StageKind {
     Direct(Box<DirectConvolver>),
@@ -604,18 +621,9 @@ impl Stage {
             let mut padded = vec![0.0f32; fft_size];
             padded[..length].copy_from_slice(&ir[offset..offset + length]);
             frame.do_fft(&padded);
-            let mut kernel = FftKernel {
-                real: frame.real.clone(),
-                imag: frame.imag.clone(),
-            };
-            if scale != 1.0 {
-                for x in kernel.real.iter_mut().chain(kernel.imag.iter_mut()) {
-                    *x *= scale;
-                }
-            }
             StageKind::Fft {
                 size: fft_size,
-                kernel,
+                kernel: FftKernel::from_frame(frame, scale),
                 convolver: FftConvolver::new(fft_size),
             }
         };
@@ -799,6 +807,7 @@ pub struct Convolver {
     channels: [ChannelConvolver; IR_CHANNELS],
     frames: FftFrames,
     length: usize,
+    tail: Option<Box<[tail::Tail; IR_CHANNELS]>>,
 }
 
 impl Convolver {
@@ -806,19 +815,56 @@ impl Convolver {
     /// ([`normalization_scale`] of `ir`, or 1 without normalization). Both channels must have
     /// the same length of at least one frame.
     pub fn new(ir: &[Vec<f32>; IR_CHANNELS], scale: f32) -> Convolver {
+        Self::build(ir, scale, false)
+    }
+
+    /// Live playback groups long tails so their largest FFTs can share work.
+    pub(crate) fn new_live(ir: &[Vec<f32>; IR_CHANNELS], scale: f32) -> Convolver {
+        Self::build(ir, scale, true)
+    }
+
+    fn build(ir: &[Vec<f32>; IR_CHANNELS], scale: f32, live: bool) -> Convolver {
         assert!(
             !ir[0].is_empty() && ir[0].len() == ir[1].len(),
             "a convolver needs two IR channels of one length"
         );
+        let length = ir[0].len();
+        let early = if live {
+            length.min(tail::START)
+        } else {
+            length
+        };
         let mut frames = FftFrames::default();
         let channels = [
-            ChannelConvolver::new(&ir[0], 0, scale, &mut frames),
-            ChannelConvolver::new(&ir[1], QUANTUM, scale, &mut frames),
+            ChannelConvolver::new(&ir[0][..early], 0, scale, &mut frames),
+            ChannelConvolver::new(&ir[1][..early], QUANTUM, scale, &mut frames),
         ];
         Convolver {
             channels,
             frames,
-            length: ir[0].len(),
+            length,
+            tail: (early < length).then(|| {
+                Box::new([
+                    tail::Tail::new(&ir[0][early..], scale),
+                    tail::Tail::new(&ir[1][early..], scale),
+                ])
+            }),
+        }
+    }
+
+    /// Instantiate a cached live convolver with fresh state and its FFT plans ready.
+    /// The cache only holds convolvers which have never processed audio.
+    pub(crate) fn fresh_live(&self) -> Self {
+        Self {
+            channels: self.channels.clone(),
+            frames: FftFrames {
+                frames: self.frames.frames.clone(),
+            },
+            length: self.length,
+            tail: self
+                .tail
+                .as_ref()
+                .map(|t| Box::new([t[0].fresh_history(), t[1].fresh_history()])),
         }
     }
 
@@ -868,6 +914,10 @@ impl Convolver {
         let (o0, o1) = out.split_at_mut(1);
         c0.process(l, &mut o0[0], &mut self.frames);
         c1.process(r, &mut o1[0], &mut self.frames);
+        if let Some(tail) = &mut self.tail {
+            tail[0].process(l, &mut o0[0]);
+            tail[1].process(r, &mut o1[0]);
+        }
     }
 }
 
@@ -917,7 +967,7 @@ impl IrCache {
 
     /// A clone of the cached convolver for `key` (a fresh history), if the cache holds it.
     pub(crate) fn get(&self, key: &IrKey) -> Option<Convolver> {
-        self.map.get(key).map(|c| c.convolver.clone())
+        self.map.get(key).map(|c| c.convolver.fresh_live())
     }
 
     /// Caches a convolver built elsewhere (the live engine's IR worker) under `key`.
@@ -1068,12 +1118,12 @@ impl Reverb {
     /// Lands the convolver built for `request`, as [`Self::settle_cached`] does, when the
     /// request's number is above the applied one (so the newest request wins whatever order
     /// results arrive in). Returns whether it was applied.
-    pub fn apply(&mut self, request: u64, convolver: Convolver) -> bool {
+    pub fn apply(&mut self, request: u64, convolver: impl FnOnce() -> Convolver) -> bool {
         if request <= self.applied {
             return false;
         }
         self.applied = request;
-        self.convolver = Some(convolver);
+        self.convolver = Some(convolver());
         #[cfg(test)]
         {
             self.ir = None;
@@ -1883,6 +1933,51 @@ mod tests {
                 assert!(e < 1e-5, "n {n}: relative error {e}");
             }
         }
+    }
+
+    #[test]
+    fn live_tail_matches_linear_convolution_across_partition_boundaries() {
+        for length in [
+            tail::START - 1,
+            tail::START,
+            tail::START + 1,
+            tail::START * 3 + 37,
+        ] {
+            let ir = noise_ir(length, 19);
+            let frames = (2 * length + tail::START).next_multiple_of(QUANTUM);
+            let mut left = vec![0.0; frames];
+            let mut right = vec![0.0; frames];
+            for (i, frame) in [0, 17, MAX_FFT_SIZE / 2 - 1, MAX_FFT_SIZE / 2, length]
+                .into_iter()
+                .enumerate()
+            {
+                left[frame] = 0.5 - i as f32 * 0.0625;
+                right[frame + 5] = 0.125 + i as f32 * 0.0625;
+            }
+            let mut live = Convolver::new_live(&ir, 0.25);
+            let output = run(&mut live, &[left.clone(), right.clone()]);
+            for (output, input, ir) in [(&output[0], &left, &ir[0]), (&output[1], &right, &ir[1])] {
+                let mut expected = naive(input, ir, frames);
+                expected.iter_mut().for_each(|sample| *sample *= 0.25);
+                let error = max_error(output, &expected);
+                assert!(error < 1e-5, "IR length {length}: relative error {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn cached_live_tail_starts_with_empty_independent_history() {
+        let ir = noise_ir(tail::START * 2, 7);
+        let template = Convolver::new_live(&ir, 1.0);
+        let mut a = template.fresh_live();
+        let mut b = template.fresh_live();
+        let input = bursts(3 * tail::START / QUANTUM, 29);
+        let silence = vec![0.0; input.len()];
+        let output = run(&mut a, std::slice::from_ref(&input));
+        let silent = run(&mut b, &[silence]);
+        assert!(silent.iter().flatten().all(|sample| *sample == 0.0));
+        assert!(output[0][tail::START..].iter().any(|sample| *sample != 0.0));
+        assert_eq!(output, run(&mut template.fresh_live(), &[input]));
     }
 
     #[test]

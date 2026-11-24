@@ -3,9 +3,9 @@
 //! the way the webview sends them (one per 100 ms window, 100 ms ahead). The last `Stats`
 //! must show zero underruns, zero late haps and zero skipped haps.
 //!
-//! `dropout_short` (3 s, up to two busy threads) runs in `cargo test`; `dropout_full` (30 s,
-//! `available_parallelism - 1` busy threads) by hand on a quiet machine:
-//! `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture`.
+//! `dropout_short` (3 s, up to two busy threads) runs in `cargo test`. Run `dropout_full`
+//! (30 s under load) and `dropout_long_reverb` (sustained reverb) on a quiet machine:
+//! `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture --test-threads=1`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::Value as Json;
-use strudeland_engine::OrbitSpec;
+use strudeland_engine::{OrbitSpec, SAMPLE_RATE};
 use strudeland_live::testing::{FakeOutput, Pace};
 use strudeland_live::{Batch, Event, HapEntry, OutputInfo, Player, Stats, ValueEntry};
 
@@ -258,4 +258,108 @@ fn dropout_short() {
 fn dropout_full() {
     let busy = std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1));
     check(&run(30.0, busy));
+}
+
+#[test]
+#[ignore = "real-time 48 kHz convolution budget: run with --release --ignored --nocapture"]
+fn dropout_long_reverb() {
+    const RATE: u32 = 48_000;
+    const BLOCK: u32 = 512;
+    const FREQUENCIES: [f64; 4] = [137.0, 178.0, 219.0, 260.0];
+    const ROOM_SIZE: f64 = 22.0;
+    // Every IR must land in the first two seconds. Allow its 33-second history to fill.
+    const SECONDS: f64 = 36.0;
+    const STATS_GRACE: Duration = Duration::from_secs(3);
+    let (out, handle) = FakeOutput::new(
+        OutputInfo {
+            sample_rate: RATE,
+            buffer_frames: Some(BLOCK),
+        },
+        Pace::RealTime,
+    );
+    let (player, events) = Player::start(Box::new(out), 0).expect("player starts");
+    let mut batch = Batch {
+        values: vec![],
+        haps: vec![],
+        cps: 1.0,
+    };
+    for (i, freq) in FREQUENCIES.into_iter().enumerate() {
+        let orbit = i as f64;
+        let value = serde_json::json!({
+            "s": "sine", "freq": freq, "gain": 0.06,
+            "dry": 0.0, "room": 0.8, "roomsize": ROOM_SIZE, "orbit": orbit,
+        });
+        batch.values.push(ValueEntry(
+            i as u32,
+            value,
+            Some(OrbitSpec {
+                orbit,
+                channels: vec![0, 1],
+            }),
+        ));
+        batch.haps.push(HapEntry(
+            LEAD_IN,
+            SECONDS + STATS_GRACE.as_secs_f64(),
+            LEAD_IN,
+            i as u32,
+            None,
+        ));
+    }
+    player.schedule(batch);
+
+    let mut headroom = f64::INFINITY;
+    let mut stats = None;
+    let mut errors = Vec::new();
+    let end_frame = (f64::from(SAMPLE_RATE) * SECONDS) as u64;
+    let mut reached_end = false;
+    let deadline = Instant::now() + Duration::from_secs_f64(SECONDS) + STATS_GRACE;
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match events.recv_timeout(remaining) {
+            Ok(Event::Anchor { frame, .. }) if frame >= end_frame => reached_end = true,
+            Ok(Event::Stats(s)) if s.haps == FREQUENCIES.len() as u64 => {
+                headroom = headroom.min(s.render_headroom_ms);
+                if reached_end {
+                    stats = Some(s);
+                    break;
+                }
+            }
+            Ok(Event::Error { message }) => errors.push(message),
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    player.stop();
+    let stats = stats.expect("stats reported scheduled haps through the end of playback");
+    let samples = handle.pulled();
+    println!("long reverb: {stats:?}; minimum fill {headroom:.2} ms; {errors:?}");
+    assert!(errors.is_empty(), "{errors:?}");
+    check(&stats);
+    assert!(
+        headroom >= f64::from(BLOCK) * 1000.0 / f64::from(RATE),
+        "{headroom:.2} ms"
+    );
+
+    // Check wet-only output during startup and before the stop fade. Every orbit must play.
+    let second = RATE as usize * 2;
+    let end = samples.len() - RATE as usize / 2;
+    for (label, wet) in [
+        ("startup", &samples[second..2 * second]),
+        ("sustained", &samples[end - second..end]),
+    ] {
+        for freq in FREQUENCIES {
+            let (re, im) =
+                wet.chunks_exact(2)
+                    .enumerate()
+                    .fold((0.0, 0.0), |(re, im), (i, stereo)| {
+                        let phase = std::f64::consts::TAU * freq * i as f64 / f64::from(RATE);
+                        let (sin, cos) = phase.sin_cos();
+                        let sample = f64::from(stereo[0]);
+                        (re + sample * cos, im + sample * sin)
+                    });
+            assert!(
+                re.hypot(im) / f64::from(RATE) > 1e-5,
+                "{label} wet tone {freq} Hz"
+            );
+        }
+    }
 }

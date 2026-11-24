@@ -521,6 +521,12 @@ thread owns it (it is `!Send`).
   quantum boundary; a reverb's newest request wins whatever order results arrive in. Until then
   the previous IR plays, so the **first use of a reverb is silent** for the build time (a default
   room takes milliseconds). A worker that is gone falls back to a synchronous build.
+- **Long live reverbs.** The worker prepares the existing zero-latency stages for the first
+  8192 taps. Later 4096-tap partitions share each input transform and accumulate in the frequency
+  domain over 32 render quanta. Each attached convolver has independent input and overlap history.
+  Cached IRs share the immutable late spectra and reuse prepared FFT plans on installation.
+  Summing ahead of the inverse FFT changes floating-point rounding. Offline rendering and
+  the synchronous parity path use the Blink stage layout and summation.
 - **Seed and IRs.** A request carries the seed in force when it was sent; after a `set_seed` the
   result still lands on the reverbs that asked for it (under the old seed), and the next request
   rebuilds for the new seed (the cache was cleared). Live playback is not byte-reproducible; the
