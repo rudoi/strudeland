@@ -10,7 +10,7 @@ The [live tail](../../crates/strudeland-engine/src/reverb/tail.rs) shares input 
 sums late partitions over the next 32 quanta, then overlap-adds the inverse transform when the
 output is due. The first 8192 taps retain the existing early stages. A cached key shares late IR
 spectra and FFT plans while obtaining an independent history. Stale worker results skip
-instantiation. The synchronous reference path retains the original convolution.
+instantiation. The synchronous reference path uses the Blink stage layout.
 
 ## Public synthetic evidence
 
@@ -25,6 +25,8 @@ chosen room size. Three sustained tones passed. Four produced 457 underruns and 
 fill in a seven-second baseline run. The regression requires all four wet tones during startup
 and sustained playback, zero playback and scheduling failures, and at least one callback of
 minimum fill. The test waits for stats covering the final measurement interval.
+The release [regression](../../crates/strudeland-live/tests/dropout.rs) passed with zero
+underruns, zero late or skipped haps, and 32.02 ms of minimum fill.
 
 The direct-convolution tests cover the transition into the grouped tail, stereo signals with
 distinct histories, short final partitions, and output through the tail. A warm A-to-B-to-A
