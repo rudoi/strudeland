@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::Value as Json;
-use strudeland_engine::OrbitSpec;
+use strudeland_engine::{OrbitSpec, SAMPLE_RATE};
 use strudeland_live::testing::{FakeOutput, Pace};
 use strudeland_live::{Batch, Event, HapEntry, OutputInfo, Player, Stats, ValueEntry};
 
@@ -310,13 +310,15 @@ fn dropout_long_reverb() {
     let mut headroom = f64::INFINITY;
     let mut stats = None;
     let mut errors = Vec::new();
-    let end = Instant::now() + Duration::from_secs_f64(SECONDS);
-    let deadline = end + STATS_GRACE;
+    let end_frame = (f64::from(SAMPLE_RATE) * SECONDS) as u64;
+    let mut reached_end = false;
+    let deadline = Instant::now() + Duration::from_secs_f64(SECONDS) + STATS_GRACE;
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match events.recv_timeout(remaining) {
+            Ok(Event::Anchor { frame, .. }) if frame >= end_frame => reached_end = true,
             Ok(Event::Stats(s)) if s.haps == FREQUENCIES.len() as u64 => {
                 headroom = headroom.min(s.render_headroom_ms);
-                if Instant::now() >= end {
+                if reached_end {
                     stats = Some(s);
                     break;
                 }
