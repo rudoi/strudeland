@@ -82,7 +82,7 @@ and pin files are untouched by Preview.
 
 Require a pinned instrument and a complete pattern expression selected in the active
 song. Wrap the expression as
-`(<expression>).apply(instruments["<id>"]())` using an encoded ID. Check the selection
+`(<expression>).apply(instruments.<id>())` using a validated ID. Check the selection
 against the existing script parser so unrelated statements, comments, and mini-notation
 tokens are outside the replacement. Preserve the selected source and its surrounding
 text. Commit the edit to the buffer as one undoable transaction. Saving and evaluating

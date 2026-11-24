@@ -6,8 +6,10 @@ import { get } from 'svelte/store';
 import {
   errorMessage,
   fileStem,
+  InstrumentApplyError,
   shouldAutoEval,
   toLF,
+  type InstrumentApplyResult,
   type Session,
   type SessionState,
 } from '../project/session';
@@ -463,6 +465,33 @@ export function createControlHandler({
     return { song: target, changed: r.changed, dirty: r.dirty, conflict: r.conflict, evaluated };
   }
 
+  async function instrumentApply(params: unknown): Promise<InstrumentApplyResult> {
+    const p = object(params, ['root', 'song', 'id', 'from', 'to', 'expect']);
+    const root = requireString(p, 'root');
+    const id = requireString(p, 'id');
+    const expect = requireString(p, 'expect');
+    const song = optSong(p);
+    const { from, to } = p;
+    if (!isInt(from, 0, 0xffffffff) || !isInt(to, 0, 0xffffffff) || from >= to) {
+      throw invalid("'from' and 'to' must be an increasing range of UTF-16 offsets");
+    }
+    try {
+      return await session.applyInstrument({ root, song, id, from, to, expect });
+    } catch (error) {
+      if (!(error instanceof InstrumentApplyError)) throw error;
+      switch (error.kind) {
+        case 'project':
+          throw new ControlError(ErrorCode.NO_PROJECT, error.message);
+        case 'song':
+          throw new ControlError(ErrorCode.NO_SUCH_SONG, error.message);
+        case 'stale':
+          throw songChanged();
+        case 'invalid':
+          throw invalid(error.message);
+      }
+    }
+  }
+
   /**
    * As the toolbar's play: a playing memo stops first, and during a take the evaluate never
    * starts the song (a song the take plays takes the new code, as a re-evaluate does).
@@ -635,6 +664,8 @@ export function createControlHandler({
         return codeGet(params);
       case 'code.set':
         return codeSet(params);
+      case 'instrument.apply':
+        return instrumentApply(params);
       case 'eval':
       case 'play':
         return evaluate(params);

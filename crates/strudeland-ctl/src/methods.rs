@@ -28,11 +28,12 @@ pub enum Method {
     SongDelete,
     Save,
     ProjectOpen,
+    InstrumentApply,
 }
 
 impl Method {
     /// Every method, in table order.
-    pub const ALL: [Method; 15] = [
+    pub const ALL: [Method; 16] = [
         Method::Ping,
         Method::State,
         Method::CodeGet,
@@ -48,6 +49,7 @@ impl Method {
         Method::SongDelete,
         Method::Save,
         Method::ProjectOpen,
+        Method::InstrumentApply,
     ];
 
     /// The wire name, e.g. `"code.get"`.
@@ -68,6 +70,7 @@ impl Method {
             Method::SongDelete => "song.delete",
             Method::Save => "save",
             Method::ProjectOpen => "project.open",
+            Method::InstrumentApply => "instrument.apply",
         }
     }
 
@@ -120,6 +123,8 @@ pub struct SongDeleteCall;
 pub struct SaveCall;
 /// `project.open`: open another project.
 pub struct ProjectOpenCall;
+/// `instrument.apply`: apply a project pin to a selected pattern in the active song.
+pub struct InstrumentApply;
 
 impl Rpc for Ping {
     const METHOD: Method = Method::Ping;
@@ -140,6 +145,11 @@ impl Rpc for CodeSet {
     const METHOD: Method = Method::CodeSet;
     type Params = CodeSetParams;
     type Result = CodeSetResult;
+}
+impl Rpc for InstrumentApply {
+    const METHOD: Method = Method::InstrumentApply;
+    type Params = InstrumentApplyParams;
+    type Result = InstrumentApplyResult;
 }
 impl Rpc for EvalCall {
     const METHOD: Method = Method::Eval;
@@ -224,6 +234,30 @@ pub struct CodeSetParams {
     /// The exact text last read; the call fails with `SONG_CHANGED` when the buffer differs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expect: Option<String>,
+}
+
+/// A conditional edit of the active song. Offsets are UTF-16, with an exclusive end.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstrumentApplyParams {
+    pub root: String,
+    /// Optional assertion of the active song's project-relative path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<String>,
+    pub id: String,
+    pub from: u32,
+    pub to: u32,
+    /// The exact active buffer from `code.get`.
+    pub expect: String,
+}
+
+/// The edited song and its replacement range, in UTF-16.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstrumentApplyResult {
+    pub song: String,
+    pub from: u32,
+    pub to: u32,
 }
 
 /// When `code.set` evaluates.
@@ -707,7 +741,8 @@ mod tests {
                 "song.rename",
                 "song.delete",
                 "save",
-                "project.open"
+                "project.open",
+                "instrument.apply"
             ]
         );
         for m in Method::ALL {
@@ -740,7 +775,8 @@ mod tests {
         assert_eq!(SongDeleteCall::METHOD, Method::SongDelete);
         assert_eq!(SaveCall::METHOD, Method::Save);
         assert_eq!(ProjectOpenCall::METHOD, Method::ProjectOpen);
-        assert_eq!(Method::ALL.len(), 15);
+        assert_eq!(InstrumentApply::METHOD, Method::InstrumentApply);
+        assert_eq!(Method::ALL.len(), 16);
     }
 
     fn song_ref(path: &str, title: &str) -> SongRef {

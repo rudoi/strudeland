@@ -3,6 +3,7 @@ import { Text, type ChangeSpec, type EditorState, type TransactionSpec } from '@
 import type { EditorView } from '@codemirror/view';
 import { get, writable, type Readable } from 'svelte/store';
 import type { EvalOutcome } from '../control/protocol';
+import { instrumentApplication } from '../editor/apply-instrument';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
 import { attachState } from '../editor/visuals';
@@ -77,6 +78,34 @@ export type OpenOutcome =
   | { ok: false; reason: 'unsaved'; dirty: string[] }
   | { ok: false; reason: 'busy' }
   | { ok: false; reason: 'failed'; error: string };
+
+export interface InstrumentSelection {
+  root: string;
+  song: string;
+  from: number;
+  to: number;
+  expect: string;
+}
+
+export type InstrumentApplyRequest = Omit<InstrumentSelection, 'song'> & {
+  id: string;
+  song?: string;
+};
+
+export interface InstrumentApplyResult {
+  song: string;
+  from: number;
+  to: number;
+}
+
+export class InstrumentApplyError extends Error {
+  constructor(
+    readonly kind: 'project' | 'song' | 'stale' | 'invalid',
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 export interface Session {
   readonly store: Readable<SessionState>;
@@ -154,6 +183,10 @@ export interface Session {
   evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<EvalOutcome>;
   /** Loads the song if needed (ensureLoaded) without showing it; its live text + dirty, or null if it cannot be read. */
   peekSong(path: string): Promise<{ text: string; dirty: boolean } | null>;
+  /** Snapshot a usable selection before focus moves to the browser. */
+  instrumentSelection(): InstrumentSelection | null;
+  /** Wrap an expression in the active buffer as one undo step. */
+  applyInstrument(request: InstrumentApplyRequest): Promise<InstrumentApplyResult>;
   /** The active song's editor text, or null without one. */
   activeText(): string | null;
   /** True if the caller may proceed (no dirty songs, discard, or every save succeeded). */
@@ -1386,6 +1419,69 @@ export function createSession(deps: SessionDeps): Session {
       apply(active, { changes: edit, userEvent: 'input.meta' });
       emit(); // a stashed state has no view listener to report the change
       return true;
+    },
+
+    instrumentSelection() {
+      if (!project || !active || !view || shown !== active) return null;
+      const state = view.state;
+      if (state.selection.ranges.length !== 1) return null;
+      const { from, to } = state.selection.main;
+      const expect = state.doc.toString();
+      try {
+        instrumentApplication(expect, from, to, 'instrument');
+      } catch {
+        return null;
+      }
+      return { root: project.root, song: active, from, to, expect };
+    },
+
+    async applyInstrument({ root, song, id, from, to, expect }) {
+      const checkProject = () => {
+        if (project?.root !== root || opening !== null) {
+          throw new InstrumentApplyError('project', 'The requested project is not open.');
+        }
+      };
+      checkProject();
+      const path = active;
+      const checkSong = () => {
+        if (!path || active !== path || (song !== undefined && song !== path)) {
+          throw new InstrumentApplyError('song', 'Open the requested song in the editor.');
+        }
+        const text = textOf(path);
+        if (text === null || songs.get(path)?.conflict === 'deleted') {
+          throw new InstrumentApplyError('song', 'Open an available song in the editor.');
+        }
+        if (text !== expect) {
+          throw new InstrumentApplyError('stale', 'The song changed since you read it.');
+        }
+        return path;
+      };
+      checkSong();
+      let edit;
+      try {
+        edit = instrumentApplication(expect, from, to, id);
+      } catch (error) {
+        throw new InstrumentApplyError('invalid', errorMessage(error));
+      }
+      const gen = generation;
+      const pins = await api.instruments(root);
+      checkProject();
+      if (generation !== gen) {
+        throw new InstrumentApplyError('project', 'The project changed. Try again.');
+      }
+      const target = checkSong();
+      if (!Object.hasOwn(pins, id)) {
+        throw new InstrumentApplyError('invalid', `Pin '${id}' to the project before applying it.`);
+      }
+      const end = edit.from + edit.insert.length;
+      apply(target, {
+        changes: edit,
+        selection: { anchor: edit.from, head: end },
+        userEvent: 'input.instrument',
+        annotations: isolateHistory.of('full'),
+      });
+      emit();
+      return { song: target, from: edit.from, to: end };
     },
 
     externalEdit(path, text, opts) {
