@@ -5,6 +5,7 @@ import * as mini from '@strudel/mini';
 import * as tonal from '@strudel/tonal';
 import * as webaudio from '@strudel/webaudio';
 import { registerSynthSounds, registerZZFXSounds } from 'superdough';
+import { registerInstrumentOperation } from './instruments';
 import { song } from './song';
 
 /** Offline subset of @strudel/repl's prebake. Runs once, before the first evaluate. */
@@ -18,6 +19,7 @@ export async function prebake(): Promise<void> {
     codemirror, // provides sliderWithID and registers the widget methods
     { song },
   );
+  registerInstrumentOperation();
   registerSynthSounds();
   registerZZFXSounds();
 }

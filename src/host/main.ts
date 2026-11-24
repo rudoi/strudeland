@@ -25,6 +25,7 @@ import {
 import { asciiJson } from '../lib/render/page-job';
 import { classifyError, eventSources, selectHaps } from '../lib/render/plan';
 import { eventsFromValues } from '../lib/render/schedule';
+import type { InstrumentSnapshot } from '../lib/strudel/instruments';
 import { createRuntime } from '../lib/strudel/runtime';
 import { createHostBackend } from './backend';
 import { hostPrebake } from './prebake';
@@ -88,13 +89,16 @@ function hostRuntime() {
 /** The host adapter (`createRuntime` result to `PlannerRuntime`), the page adapter's four
  *  members. `evaluate` never rejects: a rejection (a failed prebake) becomes a failed evaluate
  *  whose message `evalError` reports, since `planJob` does not wrap `evaluate`. */
-export function hostAdapter(runtime: ReturnType<typeof createRuntime>): PlannerRuntime {
+export function hostAdapter(
+  runtime: ReturnType<typeof createRuntime>,
+  instruments?: InstrumentSnapshot,
+): PlannerRuntime {
   let rejected: string | null = null;
   return {
     evaluate: async (code, opts) => {
       rejected = null;
       try {
-        return await runtime.evaluate(code, opts);
+        return await runtime.evaluate(code, { ...opts, instruments });
       } catch (e) {
         rejected = errorMessage(e);
         return false;
@@ -184,7 +188,13 @@ async function runPlanRender(code: string, requestJson: string): Promise<string>
   const captured: RenderError[] = [];
   const restore = captureConsole(captured);
   try {
-    const planned = await planRender(hostAdapter(hostRuntime()), code, request, captured, mark);
+    const planned = await planRender(
+      hostAdapter(hostRuntime(), request.instruments),
+      code,
+      request,
+      captured,
+      mark,
+    );
     g.__strudelandRender = asciiJson(planned);
     return 'ok';
   } finally {

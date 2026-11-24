@@ -7,6 +7,7 @@
 import type { RenderRequest, RenderResult, ScheduleResult } from '../lib/render/contract';
 import type { PlannedRender, RenderPlanRequest } from '../lib/render/job-plan';
 import type { PageJobInfo } from '../lib/render/page-job';
+import type { InstrumentSnapshot } from '../lib/strudel/instruments';
 import type { BINARY, UNARY } from './math';
 
 export type { PageJobInfo } from '../lib/render/page-job';
@@ -19,6 +20,7 @@ export type StartArgs =
   | {
       kind: 'render' | 'schedule' | 'job';
       request: RenderRequest;
+      instruments?: InstrumentSnapshot;
       /** Where corpus samples are served, ending in `/` (`${origin}/samples/`). */
       samplesBase: string;
     }

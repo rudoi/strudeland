@@ -186,6 +186,38 @@ test('planJob: a request without the window fields fails in the plan step', asyn
 const renderRequest = (length: object, o: object = {}) =>
   JSON.stringify({ length, mode: 'mix', sampleRate: 44100, ...o });
 
+test('planRender: a project snapshot contributes labeled kit voices to the engine job', async () => {
+  const h = host();
+  const code = 'note("c2").apply(instruments.drums({ gain: 0.25 }))';
+  const request = renderRequest(
+    { kind: 'length', bars: 1 },
+    {
+      instruments: {
+        drums: {
+          schema: 1,
+          parameters: { gain: 0.5 },
+          voices: [
+            {
+              name: 'kick',
+              chain: [
+                { control: 's', value: 'sine' },
+                { control: 'gain', value: { param: 'gain' } },
+              ],
+            },
+            { name: 'hat', chain: [{ control: 's', value: 'white' }] },
+          ],
+        },
+      },
+    },
+  );
+  expect(await h.call('planRender', code, request)).toEqual({ ok: true, value: 'ok' });
+  const planned = JSON.parse(h.get('__strudelandRender'));
+  expect(JSON.parse(planned.chunks[0].json).values).toEqual([
+    { note: 'c2', s: 'sine', gain: 0.25, label: 'drums/kick' },
+    { note: 'c2', s: 'white', label: 'drums/hat' },
+  ]);
+});
+
 test('planRender: the plan as ASCII JSON in __strudelandRender, ok in the slot', async () => {
   const h = host();
   const code = `const meta = { bpm: 120 };\nnote("c e").s("sine").room(0.3).gain("<1 0.5>")`;

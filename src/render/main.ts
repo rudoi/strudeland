@@ -129,7 +129,11 @@ async function run(args: StartArgs): Promise<void> {
     );
 
     const rt: PlannerRuntime = {
-      evaluate: (code, opts) => runtime.evaluate(code, opts),
+      evaluate: (code, opts) =>
+        runtime.evaluate(code, {
+          ...opts,
+          instruments: kind === 'plan' ? args.request.instruments : args.instruments,
+        }),
       evalError: () => get(runtime.store).evalError,
       state: () => {
         const s = get(runtime.store);
