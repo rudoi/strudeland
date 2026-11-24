@@ -28945,7 +28945,7 @@ Please check with "npm ls @strudel/core".`);
       if (!IDENTIFIER.test(id2) || WINDOWS_DEVICE.test(id2))
         throw new Error(`Invalid instrument '${id2}'`);
       namespace[id2] = compileInstrument(id2, definition);
-      const bytes = utf8Length(JSON.stringify(definition));
+      const bytes = utf8Length(JSON.stringify(definition, (_key, value) => typeof value === "number" ? 0 : value));
       total += bytes;
       if (bytes > 64 * 1024 || total > 2 * 1024 * 1024) {
         throw new Error(`Instrument '${id2}': definition or snapshot exceeds size limit`);

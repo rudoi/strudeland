@@ -14,6 +14,9 @@ covers how the snapshot reaches the runtime.
   The supported control list ships with the project crate and is shared with the JS adapter.
   All named parameter references must resolve. Bound file size, entry count, string length,
   voice count and chain length before passing a snapshot to the webview or host.
+  Measure compact snapshot JSON with numeric fields normalized to zero, so Rust and JS use
+  the same budget even when they serialize the original numbers differently. Disk reads
+  and pin writes also enforce the actual bytes on disk.
 - Rust exposes a validated `InstrumentSnapshot`, a map from ID to definition.
   List project pin and global records with fingerprints. A first pin is atomic and refuses
   replacement. Updating requires the expected current pin fingerprint and uses the project

@@ -178,6 +178,22 @@ impl InstrumentDefinition {
     fn bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("validated JSON instrument definition")
     }
+
+    fn snapshot_size(&self) -> usize {
+        // JavaScript and serde_json can spell the same number differently (e.g. 1e20).
+        // Count each number as one byte on both sides of the evaluation boundary.
+        fn normalize_numbers(value: &mut Value) {
+            match value {
+                Value::Number(_) => *value = Value::from(0),
+                Value::Array(items) => items.iter_mut().for_each(normalize_numbers),
+                Value::Object(items) => items.values_mut().for_each(normalize_numbers),
+                _ => {}
+            }
+        }
+        let mut value = serde_json::to_value(self).expect("validated JSON instrument definition");
+        normalize_numbers(&mut value);
+        serde_json::to_vec(&value).expect("JSON value").len()
+    }
 }
 
 /// Also check snapshots supplied through a JSON host request.
@@ -191,7 +207,7 @@ pub fn validate_instrument_snapshot(snapshot: &InstrumentSnapshot) -> Result<(),
     let mut total = 0;
     for (id, definition) in snapshot {
         check_id(id)?;
-        let size = definition.bytes().len();
+        let size = definition.snapshot_size();
         total += size;
         if size > MAX_FILE || total > MAX_SNAPSHOT {
             return Err(invalid(id, "definition or snapshot exceeds size limit"));
@@ -796,6 +812,28 @@ mod tests {
         let (ok, err) = if a.is_ok() { (a, b) } else { (b, a) };
         assert!(err.unwrap_err().to_string().contains("current fingerprint"));
         assert_eq!(project.instrument_entries().unwrap(), [ok.unwrap()]);
+    }
+
+    #[test]
+    fn snapshot_quota_is_independent_of_number_formatting() {
+        let record = |value: Value| {
+            let chain = vec![json!({"control":"gain","value":value}); 64];
+            let voices: Vec<_> = (0..32)
+                .map(|i| json!({"name":format!("voice{i}"),"chain":chain}))
+                .collect();
+            let data = json!({"schema":1,"parameters":{},"voices":voices});
+            serde_json::from_value::<InstrumentDefinition>(data).unwrap()
+        };
+        let large_numbers = record(json!(1e20));
+        assert!(large_numbers.bytes().len() > MAX_FILE);
+        assert_eq!(
+            large_numbers.snapshot_size(),
+            record(json!(0)).snapshot_size()
+        );
+        let mut snapshot = BTreeMap::from([("pad".into(), large_numbers)]);
+        validate_instrument_snapshot(&snapshot).unwrap();
+        snapshot.insert("pad".into(), record(json!("long literal")));
+        assert!(validate_instrument_snapshot(&snapshot).is_err());
     }
 
     #[test]

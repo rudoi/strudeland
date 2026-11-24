@@ -186,7 +186,10 @@ function compileNamespace(snapshot: unknown): Namespace {
     if (!IDENTIFIER.test(id) || WINDOWS_DEVICE.test(id))
       throw new Error(`Invalid instrument '${id}'`);
     namespace[id] = compileInstrument(id, definition);
-    const bytes = utf8Length(JSON.stringify(definition));
+    // Measure the same compact structure as Rust regardless of number spelling.
+    const bytes = utf8Length(
+      JSON.stringify(definition, (_key, value) => (typeof value === 'number' ? 0 : value)),
+    );
     total += bytes;
     if (bytes > 64 * 1024 || total > 2 * 1024 * 1024) {
       throw new Error(`Instrument '${id}': definition or snapshot exceeds size limit`);

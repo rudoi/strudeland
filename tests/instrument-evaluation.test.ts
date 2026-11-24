@@ -132,6 +132,22 @@ note(typeof instruments === 'undefined' ? voice() : 0)`;
   }
 });
 
+test('snapshot budget is independent of the serialized spelling of numbers', async () => {
+  const instruments: InstrumentSnapshot = {
+    large: {
+      schema: 1,
+      parameters: {},
+      voices: Array.from({ length: 25 }, (_, index) => ({
+        name: `voice_${index}`,
+        chain: Array.from({ length: 64 }, () => ({ control: 'gain', value: 1e20 })),
+      })),
+    },
+  };
+  expect(JSON.stringify(instruments.large).length).toBeGreaterThan(64 * 1024);
+  const { rt } = fakeRuntime({ prebake });
+  expect(await rt.evaluate('note(60)', { instruments, autostart: false })).toBe(true);
+});
+
 test('raw render-page snapshots enforce the project schema bounds', () => {
   registerInstrumentOperation();
   const transpiler = createInstrumentTranspiler();
