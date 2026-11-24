@@ -15,6 +15,7 @@ use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
 /// A real FFT frame of even size (`FFTFrame` with Blink's `RustFft` even strategy).
+#[derive(Clone)]
 pub struct FftFrame {
     size: usize,
     half_size: usize,
@@ -22,7 +23,7 @@ pub struct FftFrame {
     middle_index: Option<usize>,
     forward: Arc<dyn Fft<f32>>,
     inverse: Arc<dyn Fft<f32>>,
-    twiddles: Vec<Complex<f32>>,
+    twiddles: Arc<[Complex<f32>]>,
     complex: Vec<Complex<f32>>,
     scratch: Vec<Complex<f32>>,
     scale: f32,

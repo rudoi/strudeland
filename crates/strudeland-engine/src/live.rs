@@ -98,7 +98,7 @@ pub fn build_ir(req: IrRequest) -> IrBuilt {
     IrBuilt {
         id: req.id,
         key: req.key,
-        convolver: Convolver::new(&ir, normalization_scale(&ir)),
+        convolver: Convolver::new_live(&ir, normalization_scale(&ir)),
     }
 }
 
@@ -328,7 +328,7 @@ impl LiveEngine {
                 if *key != b.key {
                     return true;
                 }
-                apply(core, *target, *request, b.convolver.clone());
+                apply(core, *target, *request, || b.convolver.fresh_live());
                 false
             });
             core.ir_cache.insert(b.key, b.convolver);
@@ -377,11 +377,20 @@ impl LiveEngine {
         let seed = self.core.seed;
         let key = plan.key(seed);
         if let Some(c) = self.core.ir_cache.get(&key) {
-            apply(&mut self.core, target, request, c);
+            apply(&mut self.core, target, request, || c);
             return;
         }
         let Some(link) = &mut self.ir else {
-            return self.build_now(target, request, plan);
+            return self.build_now(
+                target,
+                request,
+                IrRequest {
+                    id: 0,
+                    key,
+                    plan,
+                    seed,
+                },
+            );
         };
         if !link.in_flight.contains_key(&key) {
             let id = link.next_id;
@@ -394,38 +403,25 @@ impl LiveEngine {
             });
             if let Err(e) = sent {
                 self.ir = None;
-                return self.build_now(target, request, e.0.plan);
+                return self.build_now(target, request, e.0);
             }
             link.in_flight.insert(key.clone(), id);
         }
         link.waiting.push((target, request, key));
     }
 
-    /// Builds one request's IR on this thread (through the cache) and applies it.
-    fn build_now(&mut self, target: Target, request: u64, plan: IrPlan) {
-        let seed = self.core.seed;
-        let key = plan.key(seed);
-        let convolver = match self.core.ir_cache.get(&key) {
-            Some(c) => c,
-            None => {
-                let built = build_ir(IrRequest {
-                    id: 0,
-                    key,
-                    plan,
-                    seed,
-                });
-                self.core
-                    .ir_cache
-                    .insert(built.key, built.convolver.clone());
-                built.convolver
-            }
-        };
-        apply(&mut self.core, target, request, convolver);
+    /// Builds a cache miss on this thread after the IR worker disconnects.
+    fn build_now(&mut self, target: Target, request: u64, ir: IrRequest) {
+        let built = build_ir(ir);
+        apply(&mut self.core, target, request, || {
+            built.convolver.fresh_live()
+        });
+        self.core.ir_cache.insert(built.key, built.convolver);
     }
 }
 
 /// Applies a built convolver to its target (a voice that has ended is skipped).
-fn apply(core: &mut Core, target: Target, request: u64, convolver: Convolver) {
+fn apply(core: &mut Core, target: Target, request: u64, convolver: impl FnOnce() -> Convolver) {
     match target {
         Target::Orbit(k) => {
             if let Some(o) = core.orbits.orbits_mut().get_mut(k) {
@@ -822,6 +818,20 @@ mod tests {
         assert_eq!(r.applied(), 2);
         assert_eq!(r.convolver().unwrap().length(), newer_len);
         assert_eq!(newer_len, (2.0f64 * 1.5 * SR).round() as usize);
+
+        e.schedule(hap(e.now_frame() as f64 / SR, 0.02, 0, 0.5));
+        render(&mut e, 1);
+        let r = e.core.orbits.orbits()[0].reverb().unwrap();
+        assert_eq!(
+            r.applied(),
+            3,
+            "returning to a cached room applies immediately"
+        );
+        assert_eq!(
+            r.convolver().unwrap().length(),
+            (0.5 * 1.5 * SR).round() as usize
+        );
+        assert!(req_rx.try_recv().is_err(), "the cache hit needs no rebuild");
     }
 
     #[test]

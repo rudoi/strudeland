@@ -486,7 +486,7 @@ impl Orbit {
     }
 
     /// Lands a convolver built for the reverb's request `request` (newest request wins).
-    pub fn apply_reverb(&mut self, request: u64, convolver: Convolver) -> bool {
+    pub fn apply_reverb(&mut self, request: u64, convolver: impl FnOnce() -> Convolver) -> bool {
         self.reverb
             .as_mut()
             .is_some_and(|r| r.apply(request, convolver))

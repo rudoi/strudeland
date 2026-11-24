@@ -1830,7 +1830,7 @@ impl Voice {
         &mut self,
         stage: usize,
         request: u64,
-        convolver: crate::reverb::Convolver,
+        convolver: impl FnOnce() -> crate::reverb::Convolver,
     ) {
         if let Some(Stage::LocalReverb(r)) = self.stages.get_mut(stage) {
             r.reverb.apply(request, convolver);
