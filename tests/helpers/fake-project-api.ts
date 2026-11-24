@@ -161,10 +161,13 @@ export function fakeProjectApi(
       if (fake.failInfo) throw 'project.json: expected value at line 1 column 1';
       return fake.projectInfo(fake.current!);
     },
-    async instruments(root) {
+    async instruments(root, pin) {
       check(root);
       const pins = fake.instrumentSnapshots.get(root);
       if (typeof pins === 'string') throw pins;
+      if (pin && (!pins || !Object.hasOwn(pins, pin.id) || pin.id !== pin.fingerprint)) {
+        throw new Error('The project pin changed. Refresh the browser.');
+      }
       return pins ?? {};
     },
     async libraryEntries() {

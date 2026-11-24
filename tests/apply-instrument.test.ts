@@ -16,6 +16,9 @@ test('wraps a complete nested multiline expression using editor offsets', () => 
 test('rejects partial tokens, metadata, bindings, and unsafe replacement contexts', () => {
   const cases = [
     ['note("c4 e4")', 'c4 e4'],
+    ['note("c4 e4")', 'note'],
+    ['(note)("c4 e4")', '(note)'],
+    ['const count = (4); note("c4 e4")', '(4)'],
     ['const meta = { bpm: getBpm() };\nnote("c4")', 'getBpm()'],
     ['const part = note("c4");', 'part'],
     ['voice.lead', 'lead'],
@@ -37,7 +40,31 @@ ${expression}`,
   ]) {
     const from = source.indexOf(expression);
     expect(() => instrumentApplication(source, from, from + expression.length, 'lead')).toThrow(
-      'declares its own instruments namespace',
+      'has its own instruments namespace',
     );
   }
+});
+
+test('allows a target outside a shadowing scope but detects a visible hoisted binding', () => {
+  const expression = 'note("c4")';
+  const sources = [
+    `const route = instruments => instruments.id;
+${expression}`,
+    `{ let instruments; }
+${expression}`,
+  ];
+  for (const source of sources) {
+    const from = source.indexOf(expression);
+    expect(instrumentApplication(source, from, source.length, 'lead').insert).toContain(
+      '.apply(instruments.lead())',
+    );
+  }
+  const source = `function pattern() {
+  if (false) { var instruments; }
+  return ${expression};
+}`;
+  const from = source.indexOf(expression);
+  expect(() => instrumentApplication(source, from, from + expression.length, 'lead')).toThrow(
+    'has its own instruments namespace',
+  );
 });

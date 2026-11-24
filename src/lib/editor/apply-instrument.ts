@@ -6,10 +6,8 @@ const patternExpressions = new Set([
   'Identifier',
   'CallExpression',
   'MemberExpression',
-  'ParenthesizedExpression',
   'ConditionalExpression',
   'LogicalExpression',
-  'ChainExpression',
 ]);
 
 function childNodes(node: Node): AnyNode[] {
@@ -38,23 +36,80 @@ function isNamed(pattern: Pattern | null | undefined, name: string): boolean {
   }
 }
 
-function shadowsInstruments(node: AnyNode): boolean {
+type Visit = {
+  node: AnyNode;
+  parent?: Visit;
+  lexical: AnyNode;
+  variable: AnyNode;
+};
+
+function scopeForChildren({ node, lexical, variable }: Visit) {
   switch (node.type) {
-    case 'VariableDeclarator':
-    case 'ClassDeclaration':
-    case 'ClassExpression':
-      return isNamed(node.id, 'instruments');
     case 'FunctionDeclaration':
     case 'FunctionExpression':
     case 'ArrowFunctionExpression':
-      return isNamed(node.id, 'instruments') || node.params.some((p) => isNamed(p, 'instruments'));
+    case 'StaticBlock':
+      return { lexical: node, variable: node };
+    case 'BlockStatement':
     case 'CatchClause':
-      return isNamed(node.param, 'instruments');
-    case 'WithStatement':
-      return true;
+    case 'ForStatement':
+    case 'ForInStatement':
+    case 'ForOfStatement':
+    case 'SwitchStatement':
+      return { lexical: node, variable };
     default:
-      return false;
+      return { lexical, variable };
   }
+}
+
+function instrumentBindingScopes({ node, lexical, variable }: Visit): AnyNode[] {
+  switch (node.type) {
+    case 'VariableDeclaration':
+      return node.declarations.some((decl) => isNamed(decl.id, 'instruments'))
+        ? [node.kind === 'var' ? variable : lexical]
+        : [];
+    case 'ClassDeclaration':
+      return isNamed(node.id, 'instruments') ? [lexical] : [];
+    case 'ClassExpression':
+      return isNamed(node.id, 'instruments') ? [node] : [];
+    case 'FunctionDeclaration':
+    case 'FunctionExpression':
+    case 'ArrowFunctionExpression': {
+      if (node.type === 'FunctionDeclaration' && isNamed(node.id, 'instruments')) return [lexical];
+      const binds =
+        isNamed(node.id, 'instruments') || node.params.some((p) => isNamed(p, 'instruments'));
+      return binds ? [node] : [];
+    }
+    case 'CatchClause':
+      return isNamed(node.param, 'instruments') ? [node] : [];
+    case 'WithStatement':
+      return [node.body];
+    default:
+      return [];
+  }
+}
+
+function isPatternSelection({ node, parent }: Visit): boolean {
+  let expression = node;
+  while (expression.type === 'ParenthesizedExpression' || expression.type === 'ChainExpression') {
+    expression = expression.expression;
+  }
+  let selected = node;
+  while (
+    parent?.node.type === 'ParenthesizedExpression' ||
+    parent?.node.type === 'ChainExpression'
+  ) {
+    selected = parent.node;
+    parent = parent.parent;
+  }
+  const enclosing = parent?.node;
+  if (
+    ((enclosing?.type === 'CallExpression' || enclosing?.type === 'NewExpression') &&
+      enclosing.callee === selected) ||
+    (enclosing?.type === 'TaggedTemplateExpression' && enclosing.tag === selected)
+  )
+    return false;
+  return patternExpressions.has(expression.type);
 }
 
 /** Replace one whole expression, keeping the surrounding script's parse tree intact. */
@@ -80,18 +135,19 @@ export function instrumentApplication(source: string, from: number, to: number, 
   const start = from + selection.length - selection.trimStart().length;
   const end = start + expression.length;
   let target: AnyNode | undefined;
-  const pending: AnyNode[] = [...script.body];
+  const pending: Visit[] = [{ node: script, lexical: script, variable: script }];
   while (pending.length) {
-    const node = pending.pop()!;
-    if (shadowsInstruments(node)) {
-      throw new Error('The song declares its own instruments namespace.');
+    const visit = pending.pop()!;
+    const { node } = visit;
+    if (instrumentBindingScopes(visit).some((scope) => scope.start <= start && scope.end >= end)) {
+      throw new Error('The selected expression has its own instruments namespace.');
     }
-    if (node.start === start && node.end === end && patternExpressions.has(node.type)) {
-      target = node;
-    }
+    if (node.start === start && node.end === end && isPatternSelection(visit)) target = node;
     // Static metadata values are read independently of Strudel.
-    if (node.type !== 'VariableDeclarator' || !isNamed(node.id, 'meta')) {
-      pending.push(...childNodes(node));
+    if (node.type === 'VariableDeclarator' && isNamed(node.id, 'meta')) continue;
+    const scopes = scopeForChildren(visit);
+    for (const child of childNodes(node)) {
+      pending.push({ node: child, parent: visit, ...scopes });
     }
   }
   if (!target) throw new Error('Select a complete pattern expression in the editor.');

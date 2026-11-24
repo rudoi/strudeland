@@ -92,7 +92,7 @@ export interface ProjectApi extends InstrumentBrowserApi {
    * the error string if the manifest is invalid.
    */
   info(root: string): Promise<ProjectInfo>;
-  instruments(root: string): Promise<InstrumentSnapshot>;
+  instruments(root: string, pin?: InstrumentEntry): Promise<InstrumentSnapshot>;
   last(): Promise<ProjectInfo | null>;
   recents(): Promise<RecentProject[]>;
   /** Sorted byte-wise by path. */
@@ -191,7 +191,7 @@ export function createTauriProjectApi(): ProjectApi {
     create: (dir, name) => invoke<ProjectInfo>('project_create', { dir, name }),
     open: (dir) => invoke<ProjectInfo>('project_open', { dir }),
     info: (root) => invoke<ProjectInfo>('project_info', { root }),
-    instruments: (root) => invoke<InstrumentSnapshot>('project_instruments', { root }),
+    instruments: (root, pin) => invoke<InstrumentSnapshot>('project_instruments', { root, pin }),
     libraryEntries: () => invoke('instrument_library_entries'),
     projectEntries: (root) => invoke('project_instrument_entries', { root }),
     instrumentDefinition: (version) => invoke('instrument_definition', { ...version }),

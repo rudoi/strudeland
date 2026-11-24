@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use serde::Serialize;
 use strudeland_project::{
-    InstrumentSnapshot, PREFS_FILE, Prefs, Project, ProjectError, ProjectInfo, RecentProject,
-    Recents, SongEntry,
+    InstrumentEntry, InstrumentSnapshot, PREFS_FILE, Prefs, Project, ProjectError, ProjectInfo,
+    RecentProject, Recents, SongEntry,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -368,8 +368,12 @@ pub async fn prefs_set(app: AppHandle, prefs: Prefs) -> Result<(), String> {
 pub async fn project_instruments(
     state: State<'_, ProjectState>,
     root: String,
+    pin: Option<InstrumentEntry>,
 ) -> Result<InstrumentSnapshot, String> {
-    with_project(&state, &root, Project::instrument_snapshot)
+    with_project(&state, &root, |project| match pin {
+        Some(pin) => project.instrument_snapshot_with_pin(&pin),
+        None => project.instrument_snapshot(),
+    })
 }
 
 #[tauri::command]

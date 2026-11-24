@@ -1722,14 +1722,38 @@ describe('instrument.apply', () => {
     h.view.destroy();
   });
 
+  test('uses the fresh snapshot on the next evaluation without waiting for the watcher', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    await h.handle('instrument.apply', request);
+    await h.handle('eval', {});
+    expect(h.rt.options.at(-1)?.instruments).toEqual(pins);
+    h.view.destroy();
+  });
+
+  test('waits behind a delete already operating on the same song', async () => {
+    const h = await setup();
+    const pending = deferred();
+    h.fake.holdDeletes = pending.promise;
+    h.fake.instrumentSnapshots.set('/p', pins);
+    const deleting = h.session.deleteSong(PA, { discard: false });
+    await flush();
+    const applying = h.session.applyInstrument(request);
+    pending.resolve();
+    expect(await deleting).toEqual({ ok: true, stopped: false });
+    await expect(applying).rejects.toThrow('Open the requested song');
+    expect(h.st().active).toBe(PB);
+    h.view.destroy();
+  });
+
   test('rechecks the buffer after reading pins', async () => {
     const h = await setup();
     const pending = deferred();
     h.fake.instrumentSnapshots.set('/p', pins);
-    const read = h.api.projectEntries;
-    h.api.projectEntries = async (root) => {
+    const read = h.api.instruments;
+    h.api.instruments = async (root, pin) => {
       await pending.promise;
-      return read(root);
+      return read(root, pin);
     };
     const applying = h.fail('instrument.apply', request);
     await flush();

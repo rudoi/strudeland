@@ -881,13 +881,16 @@ export function createSession(deps: SessionDeps): Session {
     emit();
   }
 
+  function acceptInstrumentSnapshot(snapshot: InstrumentSnapshot): void {
+    instruments = Object.keys(snapshot).length ? snapshot : undefined;
+    if (instrumentError !== null && error === instrumentError) error = null;
+    instrumentError = null;
+  }
+
   /** Called in the same serialized project queue as installation and other watcher reads. */
   async function refreshInstruments(root: string): Promise<void> {
     try {
-      const snapshot = await api.instruments(root);
-      instruments = Object.keys(snapshot).length ? snapshot : undefined;
-      if (instrumentError !== null && error === instrumentError) error = null;
-      instrumentError = null;
+      acceptInstrumentSnapshot(await api.instruments(root));
     } catch (e) {
       instruments = undefined;
       const message = `reading instruments failed: ${errorMessage(e)}`;
@@ -1437,8 +1440,9 @@ export function createSession(deps: SessionDeps): Session {
     },
 
     async applyInstrument({ root, song, id, from, to, expect, pinFingerprint }) {
+      const gen = generation;
       const checkProject = () => {
-        if (project?.root !== root || opening !== null) {
+        if (project?.root !== root || opening !== null || generation !== gen) {
           throw new InstrumentApplyError('project', 'The requested project is not open.');
         }
       };
@@ -1464,29 +1468,30 @@ export function createSession(deps: SessionDeps): Session {
       } catch (error) {
         throw new InstrumentApplyError('invalid', errorMessage(error));
       }
-      const gen = generation;
-      const pins = await api.projectEntries(root);
-      checkProject();
-      if (generation !== gen) {
-        throw new InstrumentApplyError('project', 'The project changed. Try again.');
-      }
-      const target = checkSong();
-      const pin = pins.find((entry) => entry.id === id);
-      if (!pin) {
-        throw new InstrumentApplyError('invalid', `Pin '${id}' to the project before applying it.`);
-      }
-      if (pinFingerprint !== undefined && pin.fingerprint !== pinFingerprint) {
-        throw new InstrumentApplyError('invalid', 'The project pin changed. Refresh the browser.');
-      }
-      const end = edit.from + edit.insert.length;
-      apply(target, {
-        changes: edit,
-        selection: { anchor: edit.from, head: end },
-        userEvent: 'input.instrument',
-        annotations: isolateHistory.of('full'),
+      return serial(async () => {
+        checkProject();
+        checkSong();
+        const pin = pinFingerprint === undefined ? undefined : { id, fingerprint: pinFingerprint };
+        const snapshot = await api.instruments(root, pin);
+        const target = checkSong();
+        if (!Object.hasOwn(snapshot, id)) {
+          throw new InstrumentApplyError(
+            'invalid',
+            `Pin '${id}' to the project before applying it.`,
+          );
+        }
+        // The next evaluation uses the same pins as Apply, even before the watcher fires.
+        acceptInstrumentSnapshot(snapshot);
+        const end = edit.from + edit.insert.length;
+        apply(target, {
+          changes: edit,
+          selection: { anchor: edit.from, head: end },
+          userEvent: 'input.instrument',
+          annotations: isolateHistory.of('full'),
+        });
+        emit();
+        return { song: target, from: edit.from, to: end };
       });
-      emit();
-      return { song: target, from: edit.from, to: end };
     },
 
     externalEdit(path, text, opts) {

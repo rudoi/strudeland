@@ -155,7 +155,7 @@ fn check_id(id: &str) -> Result<(), ProjectError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstrumentEntry {
     pub id: String,
     pub fingerprint: String,
@@ -577,6 +577,21 @@ impl Project {
         read_store(&dir, || snapshot(&dir))
     }
 
+    /// Read the evaluation snapshot with the selected pin still at the displayed version.
+    pub fn instrument_snapshot_with_pin(
+        &self,
+        pin: &InstrumentEntry,
+    ) -> Result<InstrumentSnapshot, ProjectError> {
+        let snapshot = self.instrument_snapshot()?;
+        let definition = snapshot
+            .get(&pin.id)
+            .ok_or_else(|| invalid(&pin.id, "The project pin was removed. Refresh the browser."))?;
+        definition
+            .check_fingerprint(&pin.id, &pin.fingerprint)
+            .map_err(|_| invalid(&pin.id, "The project pin changed. Refresh the browser."))?;
+        Ok(snapshot)
+    }
+
     pub fn instrument_entries(&self) -> Result<Vec<InstrumentEntry>, ProjectError> {
         Ok(entries(self.instrument_snapshot()?))
     }
@@ -791,6 +806,21 @@ mod tests {
         let second = library.entries().unwrap().remove(0).fingerprint;
         assert!(library.definition("lead", &first).is_err());
         assert!(project.instrument_definition("lead", &second).is_err());
+        let requested = |fingerprint: &str| InstrumentEntry {
+            id: "lead".into(),
+            fingerprint: fingerprint.into(),
+        };
+        assert_eq!(
+            project
+                .instrument_snapshot_with_pin(&requested(&first))
+                .unwrap(),
+            project.instrument_snapshot().unwrap()
+        );
+        assert!(
+            project
+                .instrument_snapshot_with_pin(&requested(&second))
+                .is_err()
+        );
         for (src, dst) in [
             (&first, Some(first.as_str())),
             (&second, Some(second.as_str())),
