@@ -68,3 +68,17 @@ ${expression}`,
     'has its own instruments namespace',
   );
 });
+
+test('accepts whole enabled mini patterns and explicitly constructed patterns', () => {
+  const expressions = ['"c4 e4"', '`c4 e4`', 'new Pattern(state => note("c4").query(state))'];
+  for (const expression of expressions) {
+    expect(instrumentApplication(expression, 0, expression.length, 'lead').insert).toBe(
+      `(${expression}).apply(instruments.lead())`,
+    );
+  }
+  const literals = ['// mini-off\n"c4 e4"', "'c4 e4'", '"use strict"'];
+  for (const source of literals) {
+    const from = source.startsWith('//') ? source.indexOf('"') : 0;
+    expect(() => instrumentApplication(source, from, source.length, 'lead')).toThrow();
+  }
+});

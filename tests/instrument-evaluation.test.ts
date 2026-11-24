@@ -202,3 +202,12 @@ test('an editor-generated apply expression resolves through the Strudel transpil
     { note: 'e4', s: 'sawtooth', cutoff: 1200 },
   ]);
 });
+
+test('an editor-generated apply on whole mini notation evaluates with the pin', async () => {
+  const { instrumentApplication } = await import('../src/lib/editor/apply-instrument');
+  const { rt } = fakeRuntime({ prebake });
+  const source = '"c4 e4"';
+  const edit = instrumentApplication(source, 0, source.length, 'lead');
+  expect(await rt.evaluate(edit.insert, { instruments: lead(1200), autostart: false })).toBe(true);
+  expect(rt.query(0, 1)?.map(({ value }) => value.cutoff)).toEqual([1200, 1200]);
+});

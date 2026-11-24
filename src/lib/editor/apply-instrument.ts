@@ -1,4 +1,5 @@
-import { parse, type AnyNode, type Node, type Pattern } from 'acorn';
+import { parse, type AnyNode, type Comment, type Node, type Pattern } from 'acorn';
+import { miniDisabledRanges } from './format-song';
 import { scriptOptions, scriptShape } from './format-script';
 
 const options = { ...scriptOptions, preserveParens: true };
@@ -89,7 +90,10 @@ function instrumentBindingScopes({ node, lexical, variable }: Visit): AnyNode[] 
   }
 }
 
-function isPatternSelection({ node, parent }: Visit): boolean {
+function isPatternSelection(
+  { node, parent }: Visit,
+  miniDisabled: ReturnType<typeof miniDisabledRanges>,
+): boolean {
   let expression = node;
   while (expression.type === 'ParenthesizedExpression' || expression.type === 'ChainExpression') {
     expression = expression.expression;
@@ -109,6 +113,23 @@ function isPatternSelection({ node, parent }: Visit): boolean {
     (enclosing?.type === 'TaggedTemplateExpression' && enclosing.tag === selected)
   )
     return false;
+  if (expression.type === 'NewExpression') {
+    return expression.callee.type === 'Identifier' && expression.callee.name === 'Pattern';
+  }
+  if (
+    enclosing?.type === 'ExpressionStatement' &&
+    (enclosing.directive === 'use strict' || enclosing.directive === 'use asm')
+  ) {
+    return false;
+  }
+  const mini =
+    (expression.type === 'Literal' && expression.raw?.startsWith('"')) ||
+    (expression.type === 'TemplateLiteral' && expression.expressions.length === 0);
+  if (mini) {
+    return !miniDisabled.some(
+      ([start, end]) => start <= expression.start && expression.start < end,
+    );
+  }
   return patternExpressions.has(expression.type);
 }
 
@@ -124,9 +145,10 @@ export function instrumentApplication(source: string, from: number, to: number, 
     throw new Error('Select a complete pattern expression in the editor.');
   }
 
+  const comments: Comment[] = [];
   let script;
   try {
-    script = parse(source, options);
+    script = parse(source, { ...options, onComment: comments });
   } catch {
     throw new Error('Fix the song syntax before applying an instrument.');
   }
@@ -134,7 +156,8 @@ export function instrumentApplication(source: string, from: number, to: number, 
   const expression = selection.trim();
   const start = from + selection.length - selection.trimStart().length;
   const end = start + expression.length;
-  let target: AnyNode | undefined;
+  let target: Visit | undefined;
+  const miniDisabled = miniDisabledRanges(comments, source.length);
   const pending: Visit[] = [{ node: script, lexical: script, variable: script }];
   while (pending.length) {
     const visit = pending.pop()!;
@@ -142,9 +165,17 @@ export function instrumentApplication(source: string, from: number, to: number, 
     if (instrumentBindingScopes(visit).some((scope) => scope.start <= start && scope.end >= end)) {
       throw new Error('The selected expression has its own instruments namespace.');
     }
-    if (node.start === start && node.end === end && isPatternSelection(visit)) target = node;
+    if (node.start === start && node.end === end && isPatternSelection(visit, miniDisabled)) {
+      target = visit;
+    }
     // Static metadata values are read independently of Strudel.
-    if (node.type === 'VariableDeclarator' && isNamed(node.id, 'meta')) continue;
+    if (
+      node.type === 'VariableDeclarator' &&
+      visit.parent?.parent?.node === script &&
+      node.id.type === 'Identifier' &&
+      node.id.name === 'meta'
+    )
+      continue;
     const scopes = scopeForChildren(visit);
     for (const child of childNodes(node)) {
       pending.push({ node: child, parent: visit, ...scopes });
@@ -163,8 +194,12 @@ export function instrumentApplication(source: string, from: number, to: number, 
   } catch {
     throw new Error('The selection cannot be replaced with a pattern here.');
   }
+  const parent = target.parent?.node;
+  // Acorn marks a leading quoted mini pattern as a directive. The transpiler plays it.
+  if (parent?.type === 'ExpressionStatement') delete parent.directive;
   if (
-    scriptShape(script, { target, expression: replacement.expression }) !== scriptShape(rewritten)
+    scriptShape(script, { target: target.node, expression: replacement.expression }) !==
+    scriptShape(rewritten)
   ) {
     throw new Error('The selection cannot be replaced with a pattern here.');
   }
