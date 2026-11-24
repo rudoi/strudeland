@@ -25,3 +25,13 @@ covers how the snapshot reaches the runtime.
   Put example definitions and commands in the contributor-facing documentation and embedded CLI skill.
 - Verify portable names, invalid definitions, duplicate pins, stale updates, symlink containment,
   missing legacy directories, filesystem limits and a reopen with the global library absent.
+
+## Binding interfaces
+
+Expose `InstrumentDefinition`, `InstrumentSnapshot` (a string-keyed map), `InstrumentEntry`
+(with `id` and `fingerprint`), `InstrumentLibrary::open_default`, and project operations
+`instrument_snapshot`, `instrument_entries`, `pin_instrument`, and `update_instrument`.
+Use a structured diagnostic including the offending path or ID. Keep the canonical control
+names in `crates/strudeland-project/instrument-controls.json`. Pin file names and the keys
+in the snapshot are the IDs. List returns stable ID ordering. Use SHA-256 of the validated
+deterministic JSON, so whitespace edits do not change the fingerprint.
