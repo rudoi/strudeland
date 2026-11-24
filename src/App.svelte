@@ -9,6 +9,7 @@
   import ConflictBar from './components/ConflictBar.svelte';
   import Editor from './components/Editor.svelte';
   import ExportAudio from './components/ExportAudio.svelte';
+  import InstrumentBrowser from './components/InstrumentBrowser.svelte';
   import NewProject from './components/NewProject.svelte';
   import NewSong from './components/NewSong.svelte';
   import SongList from './components/SongList.svelte';
@@ -17,7 +18,7 @@
   import Toolbar from './components/Toolbar.svelte';
   import Welcome from './components/Welcome.svelte';
   import { SCOPE_CLOCK_KEY } from './lib/scope/clock';
-  import { onDestroy, onMount, setContext } from 'svelte';
+  import { onDestroy, onMount, setContext, tick } from 'svelte';
 
   const app = createApp();
   // Every Scope reads the one shared clock; set before any child renders.
@@ -32,6 +33,24 @@
   const playingPath = $derived($rt.started ? ($store.evaluated?.path ?? null) : null);
 
   let newSongOpen = $state(false);
+  let instruments = $state.raw<{
+    root: string;
+    selection: ReturnType<typeof session.instrumentSelection>;
+    opener: HTMLButtonElement;
+  } | null>(null);
+  function openInstruments(opener: HTMLButtonElement) {
+    if ($store.project)
+      instruments = { root: $store.project.root, selection: session.instrumentSelection(), opener };
+  }
+  function closeInstruments(applied = false) {
+    const opener = instruments?.opener;
+    instruments = null;
+    app.instrumentPreview.stop();
+    void tick().then(() => (applied ? app.focusEditor() : opener?.focus()));
+  }
+  $effect(() => {
+    if (instruments && instruments.root !== $store.project?.root) instruments = null;
+  });
   let projectsReady = $state(false);
   let nativeMenuReady = $state(false);
   let quitting = false;
@@ -49,13 +68,20 @@
   });
 
   function runProjectAction(action: ProjectAction) {
-    if (projectsReady && !quitting && !exportDialog) void projectActions.run(action);
+    if (projectsReady && !quitting && !exportDialog && !instruments)
+      void projectActions.run(action);
   }
 
   function onMenuAction(action: ProjectMenuAction) {
     if (action !== 'exportAudio') {
       runProjectAction(action);
-    } else if (exportAvailable && !quitting && !exportDialog && !projectActions.isBusy()) {
+    } else if (
+      exportAvailable &&
+      !quitting &&
+      !instruments &&
+      !exportDialog &&
+      !projectActions.isBusy()
+    ) {
       const song = captureExportSong($store, session.activeText());
       if (song) exportDialog = { song, controller: createExportDialog(song, exportApi) };
     }
@@ -122,7 +148,10 @@
 
   // Unlock the editor's preview graph on its own gestures. Other gestures resume song audio.
   function onGesture(event: Event) {
-    if (event.target instanceof Element && event.target.closest('[data-note-audition-toggle]'))
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[data-note-audition-toggle], [data-instrument-browser]')
+    )
       return;
     if (!app.prepareNoteAudition(event.target)) void app.runtime.resumeAudio();
   }
@@ -135,7 +164,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (quitting || exportDialog) return;
+    if (quitting || exportDialog || instruments) return;
     if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }
@@ -146,6 +175,7 @@
 <main>
   {#if $store.project}
     <SongList
+      oninstruments={openInstruments}
       {session}
       state={$store}
       {playingPath}
@@ -191,6 +221,15 @@
     folder={$newProjectFolder}
     oncreate={projectActions.create}
     oncancel={projectActions.cancel}
+  />
+{/if}
+
+{#if instruments && instruments.root === $store.project?.root}
+  <InstrumentBrowser
+    {app}
+    root={instruments.root}
+    selection={instruments.selection}
+    onclose={closeInstruments}
   />
 {/if}
 

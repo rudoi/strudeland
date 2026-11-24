@@ -167,6 +167,22 @@ export function fakeProjectApi(
       if (typeof pins === 'string') throw pins;
       return pins ?? {};
     },
+    async libraryEntries() {
+      return [];
+    },
+    async projectEntries(root) {
+      check(root);
+      return [];
+    },
+    async instrumentDefinition() {
+      throw new Error('no instrument definition');
+    },
+    async instrumentPreview() {
+      throw new Error('no preview');
+    },
+    async writeInstrumentPin() {
+      throw new Error('no library entry');
+    },
     async last() {
       calls.push('last');
       if (fake.lastFails) throw 'recents are broken';

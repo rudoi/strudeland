@@ -5,6 +5,7 @@
   import type { Memos } from '../lib/recording/memos';
   import MemoList from './MemoList.svelte';
   import NewSong from './NewSong.svelte';
+  import Button from './ui/Button.svelte';
   import Chip from './ui/Chip.svelte';
   import Dot from './ui/Dot.svelte';
   import ListRow from './ui/ListRow.svelte';
@@ -12,6 +13,7 @@
 
   let {
     session,
+    oninstruments,
     state,
     playingPath,
     newSongOpen = $bindable(false),
@@ -19,6 +21,7 @@
     recording,
   }: {
     session: Session;
+    oninstruments: (opener: HTMLButtonElement) => void;
     state: SessionState;
     playingPath: string | null;
     newSongOpen?: boolean;
@@ -59,6 +62,11 @@
     {/each}
   </ul>
   <NewSong {session} bind:open={newSongOpen} showField={state.songs.length > 0} />
+  <div class="instruments">
+    <Button onclick={(e) => oninstruments(e.currentTarget)} aria-haspopup="dialog"
+      >instruments</Button
+    >
+  </div>
   {#if memos}<MemoList {memos} {recording} {song} />{/if}
 </aside>
 
@@ -71,6 +79,10 @@
     background-color: var(--surface);
     border-right: 1px solid var(--border);
     overflow: hidden;
+  }
+  .instruments {
+    padding: var(--space-2);
+    border-top: 1px solid var(--border);
   }
   .project {
     padding: var(--space-2) var(--space-3);
