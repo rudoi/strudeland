@@ -332,7 +332,39 @@ impl From<std::fs::Metadata> for Revision {
 struct Catalogs {
     manifest: Option<Revision>,
     recordings: Option<BTreeMap<String, Revision>>,
-    instruments: Option<BTreeMap<std::ffi::OsString, Revision>>,
+    instruments: InstrumentCatalog,
+}
+
+#[derive(Default, PartialEq)]
+enum InstrumentCatalog {
+    #[default]
+    Missing,
+    Unreadable,
+    Present(BTreeMap<std::ffi::OsString, Revision>),
+}
+
+impl InstrumentCatalog {
+    fn scan(root: &Path) -> Self {
+        let entries = match instrument_dir_entries(root) {
+            Ok(Some(entries)) => entries,
+            Ok(None) => return Self::Missing,
+            Err(_) => return Self::Unreadable,
+        };
+        let mut revisions = BTreeMap::new();
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return Self::Unreadable;
+            };
+            let name = entry.file_name();
+            if instrument_file_candidate(&name) {
+                let Ok(metadata) = entry.metadata() else {
+                    return Self::Unreadable;
+                };
+                revisions.insert(name, Revision::from(metadata));
+            }
+        }
+        Self::Present(revisions)
+    }
 }
 
 impl Catalogs {
@@ -361,18 +393,7 @@ impl Catalogs {
             self.recordings = now;
         }
         if touched.rescan || touched.instruments {
-            let now = instrument_dir_entries(root).ok().flatten().map(|entries| {
-                entries
-                    .flatten()
-                    .filter_map(|entry| {
-                        let name = entry.file_name();
-                        if !instrument_file_candidate(&name) {
-                            return None;
-                        }
-                        Some((name, Revision::from(entry.metadata().ok()?)))
-                    })
-                    .collect()
-            });
+            let now = InstrumentCatalog::scan(root);
             touched.instruments |= now != self.instruments;
             self.instruments = now;
         }
@@ -912,6 +933,19 @@ mod tests {
         assert_eq!(batch.songs.added, ["songs/new.js"]);
         assert_eq!(batch.songs.removed, ["songs/gone.js"]);
         assert!(batch.manifest && batch.recordings && batch.instruments);
+    }
+
+    #[test]
+    fn destination_only_move_clears_an_invalid_instrument_directory() {
+        let d = Dir::new();
+        let invalid = d.touch(INSTRUMENTS_DIR);
+        let mut catalogs = Catalogs::default();
+        catalogs.reconcile(&d.root, &mut Touched::full_rescan());
+        let backup = d.path("backup");
+        fs::rename(invalid, &backup).unwrap();
+        let mut touched = Touched::new(&d.root, [backup]);
+        catalogs.reconcile(&d.root, &mut touched);
+        assert!(touched.instruments);
     }
 
     #[cfg(windows)]
