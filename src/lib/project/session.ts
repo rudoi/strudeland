@@ -1445,6 +1445,9 @@ export function createSession(deps: SessionDeps): Session {
         if (project?.root !== root || opening !== null || generation !== gen) {
           throw new InstrumentApplyError('project', 'The requested project is not open.');
         }
+        if (uiOpening > 0) {
+          throw new InstrumentApplyError('project', 'A project change is in progress. Try again.');
+        }
       };
       checkProject();
       const path = active;
@@ -1473,6 +1476,8 @@ export function createSession(deps: SessionDeps): Session {
         checkSong();
         const pin = pinFingerprint === undefined ? undefined : { id, fingerprint: pinFingerprint };
         const snapshot = await api.instruments(root, pin);
+        // A UI open may have checked for unsaved edits before entering the project queue.
+        checkProject();
         const target = checkSong();
         if (!Object.hasOwn(snapshot, id)) {
           throw new InstrumentApplyError(

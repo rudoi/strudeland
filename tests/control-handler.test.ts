@@ -1746,6 +1746,26 @@ describe('instrument.apply', () => {
     h.view.destroy();
   });
 
+  test('a pending edit cannot dirty the song after a UI open has checked it', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    const pending = deferred();
+    const read = h.api.instruments;
+    h.api.instruments = async (root, pin) => {
+      await pending.promise;
+      return read(root, pin);
+    };
+    const applying = h.fail('instrument.apply', request);
+    await flush();
+    const opening = h.session.openRecent('/empty');
+    await flush();
+    pending.resolve();
+    expect((await applying).message).toContain('A project change is in progress');
+    await opening;
+    expect(h.st().project?.root).toBe('/empty');
+    h.view.destroy();
+  });
+
   test('rechecks the buffer after reading pins', async () => {
     const h = await setup();
     const pending = deferred();
