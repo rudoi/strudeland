@@ -30,9 +30,14 @@ test('rejects partial tokens, metadata, bindings, and unsafe replacement context
 
 test('refuses to inject the pinned lookup if a song declares an instruments namespace', () => {
   const expression = 'note("c4")';
-  const source = `const { presets: instruments } = app;\n${expression}`;
-  const from = source.indexOf(expression);
-  expect(() => instrumentApplication(source, from, source.length, 'lead')).toThrow(
-    'declares its own instruments namespace',
-  );
+  for (const source of [
+    `const { presets: instruments } = app;
+${expression}`,
+    `const C = class instruments { method() { return ${expression}; } };`,
+  ]) {
+    const from = source.indexOf(expression);
+    expect(() => instrumentApplication(source, from, from + expression.length, 'lead')).toThrow(
+      'declares its own instruments namespace',
+    );
+  }
 });

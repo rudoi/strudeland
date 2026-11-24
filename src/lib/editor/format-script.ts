@@ -47,17 +47,21 @@ function readScript(source: string) {
   return { ast, tokens, comments };
 }
 
+/** Ignore parser offsets when checking that a source edit preserved the script structure. */
+export function scriptShape(ast: Node, replacement?: { target: Node; expression: Node }): string {
+  return JSON.stringify(ast, (key, value) => {
+    if (key === 'start' || key === 'end') return undefined;
+    if (replacement && value === replacement.target) return replacement.expression;
+    return typeof value === 'bigint' ? String(value) : value;
+  });
+}
+
 function sameSyntax(
   source: string,
   before: ReturnType<typeof readScript>,
   result: string,
 ): boolean {
   const after = readScript(result);
-  const syntax = (ast: AnyNode) =>
-    JSON.stringify(ast, (key, value) => {
-      if (key === 'start' || key === 'end') return undefined;
-      return typeof value === 'bigint' ? String(value) : value;
-    });
   type Span = Pick<Node, 'start' | 'end'>;
   const sameText = (original: Span[], formatted: Span[]) =>
     original.length === formatted.length &&
@@ -66,7 +70,7 @@ function sameSyntax(
         source.slice(start, end) === result.slice(formatted[i].start, formatted[i].end),
     );
   return (
-    syntax(before.ast) === syntax(after.ast) &&
+    scriptShape(before.ast) === scriptShape(after.ast) &&
     sameText(before.tokens, after.tokens) &&
     sameText(before.comments, after.comments)
   );

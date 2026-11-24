@@ -1,5 +1,5 @@
 import { parse, type AnyNode, type Node, type Pattern } from 'acorn';
-import { scriptOptions } from './format-script';
+import { scriptOptions, scriptShape } from './format-script';
 
 const options = { ...scriptOptions, preserveParens: true };
 const patternExpressions = new Set([
@@ -42,6 +42,7 @@ function shadowsInstruments(node: AnyNode): boolean {
   switch (node.type) {
     case 'VariableDeclarator':
     case 'ClassDeclaration':
+    case 'ClassExpression':
       return isNamed(node.id, 'instruments');
     case 'FunctionDeclaration':
     case 'FunctionExpression':
@@ -100,22 +101,15 @@ export function instrumentApplication(source: string, from: number, to: number, 
   const replacement = parse(insert, options).body[0];
   if (replacement?.type !== 'ExpressionStatement') throw new Error('Select a pattern expression.');
 
-  const replacementExpression = replacement.expression;
-  function shape(ast: Node, substitute?: AnyNode): string {
-    return JSON.stringify(ast, (key, value) => {
-      if (key === 'start' || key === 'end') return undefined;
-      if (substitute && value === substitute) return replacementExpression;
-      return typeof value === 'bigint' ? String(value) : value;
-    });
-  }
-
   let rewritten;
   try {
     rewritten = parse(source.slice(0, start) + insert + source.slice(end), options);
   } catch {
     throw new Error('The selection cannot be replaced with a pattern here.');
   }
-  if (shape(script, target) !== shape(rewritten)) {
+  if (
+    scriptShape(script, { target, expression: replacement.expression }) !== scriptShape(rewritten)
+  ) {
     throw new Error('The selection cannot be replaced with a pattern here.');
   }
   return { from: start, to: end, insert };

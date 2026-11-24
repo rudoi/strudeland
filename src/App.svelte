@@ -45,7 +45,6 @@
   function closeInstruments(applied = false) {
     const opener = instruments?.opener;
     instruments = null;
-    app.instrumentPreview.stop();
     void tick().then(() => (applied ? app.focusEditor() : opener?.focus()));
   }
   $effect(() => {

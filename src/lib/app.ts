@@ -121,14 +121,11 @@ export function createApp(
   let playRequests = 0;
   let takeActive = false;
   let memoActive = false;
-  const canAudition = () =>
-    Boolean(view) &&
-    playRequests === 0 &&
-    prefs.auditionNotes() &&
-    runtime.canAudition() &&
-    !takeActive &&
-    !memoActive;
-  const player = createNoteAuditionPlayer({ graph: () => superdough.graph?.() ?? null });
+  const auditionsAvailable = () =>
+    playRequests === 0 && runtime.canAudition() && !takeActive && !memoActive;
+  const canAudition = () => Boolean(view) && prefs.auditionNotes() && auditionsAvailable();
+  const auditionGraph = () => superdough.graph?.() ?? null;
+  const player = createNoteAuditionPlayer({ graph: auditionGraph });
   const audition = createAuditionQueue({
     eligible: canAudition,
     prepare: runtime.prepareAudition,
@@ -144,9 +141,9 @@ export function createApp(
     stop: player.stop,
   });
   const instrumentPreview = createInstrumentPreview({
-    eligible: () => playRequests === 0 && runtime.canAudition() && !takeActive && !memoActive,
+    eligible: auditionsAvailable,
     prepare: runtime.prepareAudition,
-    graph: () => superdough.graph?.() ?? null,
+    graph: auditionGraph,
     render: (version) => api.instrumentPreview(version),
   });
   function stopAuditions() {
