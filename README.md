@@ -116,6 +116,49 @@ root `.gitignore`.
 Previously tracked files stay in Git until you remove them from the index. Earlier commits may
 still contain them. Review recordings and their timing sidecars before sharing a project.
 
+## Instrument library
+
+Store reusable instrument definitions as JSON files in the global library. Run
+`strudeland instrument library` to find its location and list its entries. For example,
+save this as `lead.json` in that directory.
+
+```json
+{
+  "schema": 1,
+  "parameters": { "cutoff": 1200 },
+  "voices": [
+    {
+      "name": "lead",
+      "chain": [
+        { "control": "s", "value": "sawtooth" },
+        { "control": "lpf", "value": { "param": "cutoff" } },
+        { "control": "gain", "value": 0.25 }
+      ]
+    }
+  ]
+}
+```
+
+From your project directory, run `strudeland instrument pin lead` to copy the definition
+into the project's `instruments/` directory. Keep this folder with your songs to share
+the same definitions for playback and export. Inside a song, apply the instrument to
+an existing pattern.
+
+```js
+const { lead } = instruments;
+note("c4 e4 g4").apply(lead({ cutoff: 900 }))
+```
+
+You can layer multiple voices in a definition. The
+[supported controls](crates/strudeland-project/instrument-controls.json) use Strudel's
+usual effect order. A parameter override uses the same type as its default. Call
+`lead()` to use all defaults.
+
+When you edit a global definition, projects keep their existing pins. Run
+`strudeland instrument list` for the current fingerprints, then
+`strudeland instrument update lead --expect HASH` to replace the pin with the current
+library version. The next editor evaluation or render picks up the updated pin.
+
 ## Export audio
 
 Open a song and choose **File → Export Audio…** to render the current editor buffer, including
