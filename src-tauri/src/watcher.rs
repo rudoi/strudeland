@@ -873,29 +873,36 @@ mod tests {
     }
 
     #[test]
-    fn destination_only_moves_detect_removed_manifest_or_memo_without_reporting_unrelated_writes() {
+    fn destination_only_moves_detect_removals_without_reporting_unrelated_writes() {
         let d = Dir::new();
         let manifest = d.touch("project.json");
         let memo = d.touch("recordings/a.wav");
+        let pin = d.touch("instruments/lead.json");
         let mut catalogs = Catalogs::default();
         catalogs.reconcile(&d.root, &mut Touched::full_rescan());
         let mut reconcile = |dest: &str| {
             let mut touched = Touched::new(&d.root, [d.path(dest)]);
             touched.rescan = true;
             catalogs.reconcile(&d.root, &mut touched);
-            (touched.manifest, touched.recordings)
+            (touched.manifest, touched.recordings, touched.instruments)
         };
         d.touch("recordings/.take.wav.partial");
-        assert_eq!(reconcile("recordings/.take.wav.partial"), (false, false));
+        assert_eq!(
+            reconcile("recordings/.take.wav.partial"),
+            (false, false, false)
+        );
         fs::rename(manifest, d.path("old-manifest")).unwrap();
-        assert_eq!(reconcile("old-manifest"), (true, false));
+        assert_eq!(reconcile("old-manifest"), (true, false, false));
         fs::rename(memo, d.path("recordings/backup")).unwrap();
-        assert_eq!(reconcile("recordings/backup"), (false, true));
-        assert_eq!(reconcile("recordings/backup"), (false, false));
+        assert_eq!(reconcile("recordings/backup"), (false, true, false));
+        assert_eq!(reconcile("recordings/backup"), (false, false, false));
+        fs::rename(pin, d.path("instruments/backup")).unwrap();
+        assert_eq!(reconcile("instruments/backup"), (false, false, true));
+        assert_eq!(reconcile("instruments/backup"), (false, false, false));
     }
 
     #[test]
-    fn loss_of_events_revalidates_known_contents_and_both_catalogs() {
+    fn loss_of_events_revalidates_known_contents_and_catalogs() {
         let d = Dir::new();
         let mut known = set(&["songs/same.js", "songs/gone.js"]);
         d.touch("songs/same.js");
@@ -904,7 +911,7 @@ mod tests {
         assert_eq!(batch.songs.changed, ["songs/same.js"]);
         assert_eq!(batch.songs.added, ["songs/new.js"]);
         assert_eq!(batch.songs.removed, ["songs/gone.js"]);
-        assert!(batch.manifest && batch.recordings);
+        assert!(batch.manifest && batch.recordings && batch.instruments);
     }
 
     #[cfg(windows)]
@@ -964,6 +971,7 @@ mod tests {
         let mut payload = songs(&["songs/a.js"], &["songs/b.js"], &["songs/c.js"]);
         payload.manifest = true;
         payload.recordings = true;
+        payload.instruments = true;
         payload.root = "/p/song".to_string();
         assert_eq!(
             serde_json::to_value(&payload).unwrap(),
@@ -976,6 +984,7 @@ mod tests {
                 },
                 "manifest": true,
                 "recordings": true,
+                "instruments": true,
             })
         );
     }
