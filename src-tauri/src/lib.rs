@@ -4,6 +4,7 @@ mod cli_install;
 mod commands;
 mod control;
 mod export_audio;
+mod instruments;
 mod playback;
 mod project;
 mod project_menu;
@@ -67,6 +68,11 @@ pub fn run() {
             project::project_open,
             project::project_info,
             project::project_instruments,
+            instruments::instrument_library_entries,
+            instruments::project_instrument_entries,
+            instruments::instrument_definition,
+            instruments::instrument_preview,
+            instruments::project_write_instrument_pin,
             project::project_last,
             project::recent_list,
             project::prefs_get,

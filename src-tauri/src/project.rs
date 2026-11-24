@@ -174,7 +174,7 @@ pub fn reload_info(state: &ProjectState, root: &str) -> Result<ProjectInfo, Stri
 }
 
 /// Runs `f` on the open project, if it is the one at `root` (see [`PROJECT_CHANGED`]).
-fn with_project<T>(
+pub(crate) fn with_project<T>(
     state: &ProjectState,
     root: &str,
     f: impl FnOnce(&Project) -> Result<T, strudeland_project::ProjectError>,
