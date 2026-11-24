@@ -21,6 +21,29 @@ export interface ProjectInfo {
   name: string;
   songs: SongEntry[];
 }
+export interface InstrumentEntry {
+  id: string;
+  fingerprint: string;
+}
+
+/** A null root identifies the global library copy. */
+export interface InstrumentVersion extends InstrumentEntry {
+  root: string | null;
+}
+
+export interface InstrumentBrowserApi {
+  libraryEntries(): Promise<InstrumentEntry[]>;
+  projectEntries(root: string): Promise<InstrumentEntry[]>;
+  instrumentDefinition(version: InstrumentVersion): Promise<InstrumentSnapshot[string]>;
+  instrumentPreview(version: InstrumentVersion): Promise<Uint8Array>;
+  writeInstrumentPin(
+    root: string,
+    id: string,
+    libraryFingerprint: string,
+    pinFingerprint: string | null,
+  ): Promise<InstrumentEntry>;
+}
+
 export interface RecentProject {
   path: string;
   name: string;
@@ -61,7 +84,7 @@ export const PROJECT_CHANGED = 'the project changed';
  * The song and info commands take `root`, the `ProjectInfo.root` of the project the caller
  * believes is open, and reject with `PROJECT_CHANGED` when it is not.
  */
-export interface ProjectApi {
+export interface ProjectApi extends InstrumentBrowserApi {
   create(dir: string, name: string): Promise<ProjectInfo>;
   open(dir: string): Promise<ProjectInfo>;
   /**
@@ -69,7 +92,7 @@ export interface ProjectApi {
    * the error string if the manifest is invalid.
    */
   info(root: string): Promise<ProjectInfo>;
-  instruments(root: string): Promise<InstrumentSnapshot>;
+  instruments(root: string, pin?: InstrumentEntry): Promise<InstrumentSnapshot>;
   last(): Promise<ProjectInfo | null>;
   recents(): Promise<RecentProject[]>;
   /** Sorted byte-wise by path. */
@@ -168,7 +191,14 @@ export function createTauriProjectApi(): ProjectApi {
     create: (dir, name) => invoke<ProjectInfo>('project_create', { dir, name }),
     open: (dir) => invoke<ProjectInfo>('project_open', { dir }),
     info: (root) => invoke<ProjectInfo>('project_info', { root }),
-    instruments: (root) => invoke<InstrumentSnapshot>('project_instruments', { root }),
+    instruments: (root, pin) => invoke<InstrumentSnapshot>('project_instruments', { root, pin }),
+    libraryEntries: () => invoke('instrument_library_entries'),
+    projectEntries: (root) => invoke('project_instrument_entries', { root }),
+    instrumentDefinition: (version) => invoke('instrument_definition', { ...version }),
+    instrumentPreview: async (version) =>
+      new Uint8Array(await invoke<ArrayBuffer>('instrument_preview', { ...version })),
+    writeInstrumentPin: (root, id, libraryFingerprint, pinFingerprint) =>
+      invoke('project_write_instrument_pin', { root, id, libraryFingerprint, pinFingerprint }),
     last: () => invoke<ProjectInfo | null>('project_last'),
     recents: () => invoke<RecentProject[]>('recent_list'),
     listSongs: (root) => invoke<SongEntry[]>('song_list', { root }),

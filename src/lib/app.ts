@@ -2,6 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import type { EditorView } from '@codemirror/view';
 import { writable, type Readable, type Writable } from 'svelte/store';
 import type { AudioGraph } from './audio/backend';
+import { createInstrumentPreview } from './audio/instrument-preview';
 import { createMemoPlayer } from './audio/memo-player';
 import { createMetronome } from './audio/metronome';
 import { createOutputClock } from './audio/output-clock';
@@ -16,7 +17,7 @@ import { createVimMode, defineVimWrite, type VimMode } from './editor/vim-mode';
 import { createVisuals, highlightAudition } from './editor/visuals';
 import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
 import { createPrefs, type PrefsStore } from './prefs/store';
-import { createTauriProjectApi, type ProjectApi } from './project/api';
+import { createTauriProjectApi, type InstrumentBrowserApi, type ProjectApi } from './project/api';
 import { createSession, errorMessage, windowTitle, type Session } from './project/session';
 import { createTauriRecordingApi, type RecordingApi } from './recording/api';
 import { createBackingStarter } from './recording/backing';
@@ -33,6 +34,9 @@ import { createRuntime, type Runtime } from './strudel/runtime';
 export interface App {
   runtime: Runtime;
   session: Session;
+  instruments: InstrumentBrowserApi;
+  instrumentPreview: ReturnType<typeof createInstrumentPreview>;
+  focusEditor(): void;
   /** The control socket's state; `off` outside Tauri (no `ControlApi`). */
   control: Readable<ControlInfo>;
   /** Editor callbacks wired to the session; the editor view is created with these. */
@@ -101,7 +105,7 @@ export function createApp(
       await prebake();
       captureAuditionSynths();
     },
-    hooks: { ...visuals, onPlaybackRequest: () => audition.stop() },
+    hooks: { ...visuals, onPlaybackRequest: stopAuditions },
     limiter: loadLimiter(),
   });
   const scopeClock = createScopeClock((buf) => runtime.readScope(buf));
@@ -117,14 +121,11 @@ export function createApp(
   let playRequests = 0;
   let takeActive = false;
   let memoActive = false;
-  const canAudition = () =>
-    Boolean(view) &&
-    playRequests === 0 &&
-    prefs.auditionNotes() &&
-    runtime.canAudition() &&
-    !takeActive &&
-    !memoActive;
-  const player = createNoteAuditionPlayer({ graph: () => superdough.graph?.() ?? null });
+  const auditionsAvailable = () =>
+    playRequests === 0 && runtime.canAudition() && !takeActive && !memoActive;
+  const canAudition = () => Boolean(view) && prefs.auditionNotes() && auditionsAvailable();
+  const auditionGraph = () => superdough.graph?.() ?? null;
+  const player = createNoteAuditionPlayer({ graph: auditionGraph });
   const audition = createAuditionQueue({
     eligible: canAudition,
     prepare: runtime.prepareAudition,
@@ -139,9 +140,19 @@ export function createApp(
     },
     stop: player.stop,
   });
+  const instrumentPreview = createInstrumentPreview({
+    eligible: auditionsAvailable,
+    prepare: runtime.prepareAudition,
+    graph: auditionGraph,
+    render: (version) => api.instrumentPreview(version),
+  });
+  function stopAuditions() {
+    audition.stop();
+    instrumentPreview.stop();
+  }
   function evaluateDoc(): void {
     if (takeActive) return;
-    audition.stop();
+    stopAuditions();
     playRequests++;
     memos?.stopPlayback();
     void session.saveAndEvaluate().finally(() => playRequests--);
@@ -167,7 +178,7 @@ export function createApp(
     },
     // A project switch stops the memo and the take first.
     beforeProjectChange: async () => {
-      audition.stop();
+      stopAuditions();
       memos?.stopPlayback();
       await recording?.stop();
     },
@@ -183,11 +194,11 @@ export function createApp(
   }
   const unrecording = recording?.store.subscribe(({ phase }) => {
     takeActive = takeRunning(phase);
-    if (takeActive) audition.stop();
+    if (takeActive) stopAuditions();
   });
   const unmemo = memos?.player.subscribe(({ status }) => {
     memoActive = status === 'loading' || status === 'playing';
-    if (memoActive) audition.stop();
+    if (memoActive) stopAuditions();
   });
   if (inTauri()) syncWindowTitle(session, api);
   const control = writable<ControlInfo>({ status: 'off', path: null, detail: null });
@@ -210,6 +221,9 @@ export function createApp(
   return {
     runtime,
     session,
+    instruments: api,
+    instrumentPreview,
+    focusEditor: () => view?.focus(),
     control: { subscribe: control.subscribe },
     hooks,
     prefs,
@@ -238,7 +252,7 @@ export function createApp(
     recording,
     memos,
     destroy() {
-      audition.stop();
+      stopAuditions();
       unrecording?.();
       unmemo?.();
       if (unprefs) {

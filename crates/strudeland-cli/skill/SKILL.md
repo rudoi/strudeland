@@ -70,6 +70,9 @@ the text and the editor keeps its vim mode.
 | `strudeland screenshot [PATH]` | PNG of the app window; prints `wrote PATH (WxH)` |
 | `strudeland docs NAME` / `docs --search TERM` / `docs --list` | Strudel function docs (exactly one of the three) |
 | `strudeland instrument library` / `strudeland instrument list [--project DIR]` | show the global library or project pin directory, instrument IDs and fingerprints |
+| `strudeland instrument create ID --file PATH` | create a global instrument from a schema-1 JSON definition |
+| `strudeland instrument apply ID [--project DIR] [--song SONG] --from N --to N --expect-file PATH` | wrap a selected pattern with a project pin in the active editor |
+| `strudeland mcp` | serve the five instrument tools over local stdio |
 | `strudeland instrument pin ID [--project DIR]` / `strudeland instrument update ID --expect HASH [--project DIR]` | copy a definition from the library into the project or update a matching pin |
 | `strudeland render SONG [--out PATH] [--format F] [--stems orbit\|voice\|instrument \| --preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` | render a song file to audio, offline (see Rendering) |
 | `strudeland memo list [--project DIR]` / `strudeland memo show NAME [--project DIR]` | list the project's voice memos / show one memo's timing and settings, offline (see Memos) |
@@ -77,9 +80,10 @@ the text and the editor keeps its vim mode.
 | `strudeland ping` | is the app running and ready |
 | `strudeland skill print` / `strudeland skill install` | print this skill / install it for Claude Code |
 
-`--song` exists on `code get`, `code set`, `eval`, `play`, `save`, `song rename` and `song delete`
-only; `song switch` takes its song as an argument. It takes a stem (`main`, `main.js`) or a path
-(`songs/main.js`) and defaults to the active song. `code set`, `eval`, `play`, `song new` and `song
+On `code get`, `code set`, `eval`, `play`, `save`, `song rename`, and `song delete`,
+`--song` takes a stem (`main`, `main.js`) or a path (`songs/main.js`) and defaults to the active
+song. On `instrument apply`, it asserts the active song’s exact project-relative path.
+`song switch` takes its song as an argument. `code set`, `eval`, `play`, `song new` and `song
 switch` switch the editor to that song; `code get`, `save`, `song rename` and `song delete` do not.
 An unknown song fails with `error: no such song 'x' (available: main, verse)`.
 
@@ -416,8 +420,8 @@ PATH writes a new file in the temp dir. Open the printed path with the Read tool
 
 ## Pinned instruments
 
-Run `strudeland instrument library` to find the library directory. Create it if needed.
-Store each definition as `<id>.json`. Use lowercase letters, digits and underscores for IDs,
+Run `strudeland instrument library` to find the library directory and its entries.
+Use lowercase letters, digits and underscores for IDs,
 starting with a letter. For example, save the following definition as `lead.json`.
 
 ```json
@@ -434,7 +438,8 @@ starting with a letter. For example, save the following definition as `lead.json
 }
 ```
 
-Run `strudeland instrument pin lead` in the project. In a song,
+Run `strudeland instrument create lead --file lead.json` to validate and publish it. An
+invalid definition or an existing ID exits 1. Then run `strudeland instrument pin lead` in the project. In a song,
 `note("c4 e4").apply(instruments.lead())` uses its defaults. Pass `{ cutoff: 900 }` to
 `lead` to override the parameter. Each override takes the same type as its default.
 To make a kit, add more named voices. They layer on the input pattern and each gets a
@@ -447,8 +452,29 @@ A duplicate first pin or a mismatched update exits 1. The next evaluation picks 
 Project commands use `--project DIR`, the current directory's enclosing project, or the
 running app's project, in that order. An invalid enclosing manifest exits 1. If discovery
 finds no project, the command exits 4.
-With `--json`, each list returns `directory` and `entries`. A successful pin or update returns
+With `--json`, each list returns `directory` and `entries`. A successful create, pin, or update returns
 the entry's `id` and `fingerprint`.
+
+To apply a pin, read the active editor buffer, including unsaved changes, with
+`strudeland code get > before.js`. Choose one complete pattern expression and count
+zero-based UTF-16 code units in that exact buffer. For example, when the expression starts
+at offset 0 and ends immediately before offset 10, run
+`strudeland instrument apply lead --song songs/main.js --from 0 --to 10 --expect-file before.js`.
+The command makes one undoable edit. Evaluate or save separately when requested. Its JSON
+result gives the edited `song`, `from`, and exclusive `to` of the replacement. A changed
+buffer, project, or song, a missing pin, or an invalid selection exits 1. Read the active buffer
+again before retrying. An unreadable input file exits 4. With a resolved project, a missing
+app exits 2 and a timed-out or unready app exits 3.
+
+For MCP clients, configure the stdio command as `strudeland` with arguments `["mcp"]`.
+`instrument_list` takes `source` (`library` or `project`). `instrument_create` takes
+`id` and a JSON object `definition`. `instrument_pin` takes `id`, and `instrument_update`
+takes `id` and the current pin fingerprint in `expect`. `instrument_apply` takes `id`,
+`from`, `to`, and the entire expected buffer as the string `expect`. Its optional `song`
+asserts the active song path. Project operations accept an optional `project` directory
+and use the same lookup order as the CLI. Successful tool calls return the CLI JSON
+result in `structuredContent` and as text. A failed operation returns `isError: true`
+with the error message. Closing stdin ends the server.
 
 ## Rendering
 

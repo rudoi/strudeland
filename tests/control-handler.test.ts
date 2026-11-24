@@ -1659,3 +1659,128 @@ describe('project.open', () => {
     );
   });
 });
+
+describe('instrument.apply', () => {
+  const pins = {
+    lead: {
+      schema: 1 as const,
+      parameters: {},
+      voices: [{ name: 'lead', chain: [{ control: 's', value: 'sine' }] }],
+    },
+  };
+  const from = A.indexOf('s("a")');
+  const to = from + 's("a")'.length;
+  const request = { root: '/p', song: PA, id: 'lead', from, to, expect: A };
+
+  test('applies the current project pin in one undo step without saving or evaluating', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    h.view.dispatch({ selection: { anchor: to, head: from } });
+    expect(h.session.instrumentSelection()).toEqual({ root: '/p', song: PA, from, to, expect: A });
+    const insert = '(s("a")).apply(instruments.lead())';
+    expect(await h.handle('instrument.apply', request)).toEqual({
+      song: PA,
+      from,
+      to: from + insert.length,
+    });
+    expect(h.doc()).toBe(A.slice(0, from) + insert + A.slice(to));
+    expect(h.item(PA).dirty).toBe(true);
+    expect(h.st().evaluated).toBeNull();
+    expect(await h.api.readSong('/p', PA)).toBe(A);
+    expect(undo(h.view)).toBe(true);
+    expect(h.doc()).toBe(A);
+    h.view.destroy();
+  });
+
+  test('refuses invalid ranges, a missing pin, and stale or mismatched targets', async () => {
+    const h = await setup();
+    expect((await h.fail('instrument.apply', request)).code).toBe(ErrorCode.INVALID_PARAMS);
+    h.fake.instrumentSnapshots.set('/p', pins);
+    expect((await h.fail('instrument.apply', { ...request, from: from + 3 })).code).toBe(
+      ErrorCode.INVALID_PARAMS,
+    );
+    expect((await h.fail('instrument.apply', { ...request, root: '/empty' })).code).toBe(
+      ErrorCode.NO_PROJECT,
+    );
+    expect((await h.fail('instrument.apply', { ...request, song: PB })).code).toBe(
+      ErrorCode.NO_SUCH_SONG,
+    );
+    expect((await h.fail('instrument.apply', { ...request, expect: A + '\n' })).code).toBe(
+      ErrorCode.SONG_CHANGED,
+    );
+    expect(h.doc()).toBe(A);
+    h.view.destroy();
+  });
+
+  test('a browser action rejects a pin that changed after it was displayed', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    await expect(
+      h.session.applyInstrument({ ...request, pinFingerprint: 'stale' }),
+    ).rejects.toThrow('The project pin changed.');
+    expect(h.doc()).toBe(A);
+    h.view.destroy();
+  });
+
+  test('uses the fresh snapshot on the next evaluation without waiting for the watcher', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    await h.handle('instrument.apply', request);
+    await h.handle('eval', {});
+    expect(h.rt.options.at(-1)?.instruments).toEqual(pins);
+    h.view.destroy();
+  });
+
+  test('waits behind a delete already operating on the same song', async () => {
+    const h = await setup();
+    const pending = deferred();
+    h.fake.holdDeletes = pending.promise;
+    h.fake.instrumentSnapshots.set('/p', pins);
+    const deleting = h.session.deleteSong(PA, { discard: false });
+    await flush();
+    const applying = h.session.applyInstrument(request);
+    pending.resolve();
+    expect(await deleting).toEqual({ ok: true, stopped: false });
+    await expect(applying).rejects.toThrow('Open the requested song');
+    expect(h.st().active).toBe(PB);
+    h.view.destroy();
+  });
+
+  test('a pending edit cannot dirty the song after a UI open has checked it', async () => {
+    const h = await setup();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    const pending = deferred();
+    const read = h.api.instruments;
+    h.api.instruments = async (root, pin) => {
+      await pending.promise;
+      return read(root, pin);
+    };
+    const applying = h.fail('instrument.apply', request);
+    await flush();
+    const opening = h.session.openRecent('/empty');
+    await flush();
+    pending.resolve();
+    expect((await applying).message).toContain('A project change is in progress');
+    await opening;
+    expect(h.st().project?.root).toBe('/empty');
+    h.view.destroy();
+  });
+
+  test('rechecks the buffer after reading pins', async () => {
+    const h = await setup();
+    const pending = deferred();
+    h.fake.instrumentSnapshots.set('/p', pins);
+    const read = h.api.instruments;
+    h.api.instruments = async (root, pin) => {
+      await pending.promise;
+      return read(root, pin);
+    };
+    const applying = h.fail('instrument.apply', request);
+    await flush();
+    h.view.dispatch({ changes: { from: A.length, insert: '// new edit' } });
+    pending.resolve();
+    expect((await applying).code).toBe(ErrorCode.SONG_CHANGED);
+    expect(h.doc()).toBe(A + '// new edit');
+    h.view.destroy();
+  });
+});

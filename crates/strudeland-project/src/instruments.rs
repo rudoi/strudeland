@@ -155,7 +155,7 @@ fn check_id(id: &str) -> Result<(), ProjectError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstrumentEntry {
     pub id: String,
     pub fingerprint: String,
@@ -175,6 +175,17 @@ fn fingerprint(bytes: &[u8]) -> String {
 }
 
 impl InstrumentDefinition {
+    fn check_fingerprint(&self, id: &str, expected: &str) -> Result<(), ProjectError> {
+        let current = fingerprint(&self.bytes());
+        if expected != current {
+            return Err(invalid(
+                id,
+                format!("expected fingerprint {expected}, current fingerprint is {current}"),
+            ));
+        }
+        Ok(())
+    }
+
     fn bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("validated JSON instrument definition")
     }
@@ -344,10 +355,14 @@ fn read_definition(dir: &ScopedDirectory, id: &str) -> Result<InstrumentDefiniti
     file.take((MAX_FILE + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|e| ProjectError::io(dir.path().join(&name), e))?;
+    parse_definition(id, &bytes)
+}
+
+fn parse_definition(id: &str, bytes: &[u8]) -> Result<InstrumentDefinition, ProjectError> {
     if bytes.len() > MAX_FILE {
         return Err(invalid(id, "definition exceeds 64 KiB"));
     }
-    serde_json::from_slice(&bytes).map_err(|e| invalid(id, e.to_string()))
+    serde_json::from_slice(bytes).map_err(|e| invalid(id, e.to_string()))
 }
 
 fn snapshot(dir: &ScopedDirectory) -> Result<InstrumentSnapshot, ProjectError> {
@@ -363,7 +378,7 @@ fn snapshot(dir: &ScopedDirectory) -> Result<InstrumentSnapshot, ProjectError> {
     Ok(defs)
 }
 
-fn existing_pin_lock(dir: &ScopedDirectory) -> Result<Option<File>, ProjectError> {
+fn existing_store_lock(dir: &ScopedDirectory) -> Result<Option<File>, ProjectError> {
     match open_member(dir, LOCK_FILE, false) {
         Ok(lock) => Ok(Some(lock)),
         Err(ProjectError::Io { path, source })
@@ -375,17 +390,17 @@ fn existing_pin_lock(dir: &ScopedDirectory) -> Result<Option<File>, ProjectError
     }
 }
 
-fn read_pins(
+fn read_store(
     dir: &ScopedDirectory,
     mut read: impl FnMut() -> Result<InstrumentSnapshot, ProjectError>,
 ) -> Result<InstrumentSnapshot, ProjectError> {
-    let lock = match existing_pin_lock(dir)? {
+    let lock = match existing_store_lock(dir)? {
         Some(lock) => lock,
         None => {
             // A read-only checkout may never have had a writer. If the first writer
             // created its lock during our scan, discard the scan and read under the lock.
             let first = read();
-            let Some(lock) = existing_pin_lock(dir)? else {
+            let Some(lock) = existing_store_lock(dir)? else {
                 return first;
             };
             lock
@@ -460,20 +475,80 @@ impl InstrumentLibrary {
         let Some(dir) = open_store(&self.path)? else {
             return Ok(Vec::new());
         };
-        Ok(entries(snapshot(&dir)?))
+        Ok(entries(read_store(&dir, || snapshot(&dir))?))
     }
 
-    fn selected(&self, id: &str) -> Result<InstrumentDefinition, ProjectError> {
-        let missing = || invalid(id, "not found in the instrument library");
-        let dir = open_store(&self.path)?.ok_or_else(missing)?;
-        if !catalog(&dir)?.contains_key(id) {
-            return Err(missing());
-        }
-        read_definition(&dir, id)
+    /// Create a validated global entry without replacing an existing definition.
+    pub fn create(&self, id: &str, definition_json: &str) -> Result<InstrumentEntry, ProjectError> {
+        check_id(id)?;
+        let definition = parse_definition(id, definition_json.as_bytes())?;
+        let dir = ensure_store(&self.path)?;
+        publish(&dir, id, Publication::Create, || Ok(definition))
+    }
+
+    pub fn definition(
+        &self,
+        id: &str,
+        expected: &str,
+    ) -> Result<InstrumentDefinition, ProjectError> {
+        self.selected(id, Some(expected))
+    }
+
+    fn selected(
+        &self,
+        id: &str,
+        expected: Option<&str>,
+    ) -> Result<InstrumentDefinition, ProjectError> {
+        selected(
+            &self.path,
+            id,
+            expected,
+            "not found in the instrument library",
+        )
     }
 }
 
-fn create_directory(parent: &ScopedDirectory, name: &str) -> Result<PathBuf, ProjectError> {
+fn selected(
+    path: &Path,
+    id: &str,
+    expected: Option<&str>,
+    missing: &str,
+) -> Result<InstrumentDefinition, ProjectError> {
+    check_id(id)?;
+    let dir = open_store(path)?.ok_or_else(|| invalid(id, missing))?;
+    if !catalog(&dir)?.contains_key(id) {
+        return Err(invalid(id, missing));
+    }
+    let definition = read_definition(&dir, id)?;
+    if let Some(expected) = expected {
+        definition.check_fingerprint(id, expected)?;
+    }
+    dir.check_current()?;
+    Ok(definition)
+}
+
+fn ensure_store(path: &Path) -> Result<ScopedDirectory, ProjectError> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(invalid(
+            &path.display().to_string(),
+            "expected an instrument directory",
+        ));
+    };
+    let parent = checked_directory(parent)?;
+    create_directory(&parent, name)?;
+    open_store(path)?.ok_or_else(|| {
+        invalid(
+            &path.display().to_string(),
+            "instrument directory disappeared",
+        )
+    })
+}
+
+fn create_directory(
+    parent: &ScopedDirectory,
+    name: impl AsRef<Path>,
+) -> Result<PathBuf, ProjectError> {
+    let name = name.as_ref();
     parent.check_current()?;
     let path = parent.path().join(name);
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -499,11 +574,39 @@ impl Project {
         let Some(dir) = open_store(&self.root().join(INSTRUMENTS_DIR))? else {
             return Ok(InstrumentSnapshot::new());
         };
-        read_pins(&dir, || snapshot(&dir))
+        read_store(&dir, || snapshot(&dir))
+    }
+
+    /// Read the evaluation snapshot with the selected pin still at the displayed version.
+    pub fn instrument_snapshot_with_pin(
+        &self,
+        pin: &InstrumentEntry,
+    ) -> Result<InstrumentSnapshot, ProjectError> {
+        let snapshot = self.instrument_snapshot()?;
+        let definition = snapshot
+            .get(&pin.id)
+            .ok_or_else(|| invalid(&pin.id, "The project pin was removed. Refresh the browser."))?;
+        definition
+            .check_fingerprint(&pin.id, &pin.fingerprint)
+            .map_err(|_| invalid(&pin.id, "The project pin changed. Refresh the browser."))?;
+        Ok(snapshot)
     }
 
     pub fn instrument_entries(&self) -> Result<Vec<InstrumentEntry>, ProjectError> {
         Ok(entries(self.instrument_snapshot()?))
+    }
+
+    pub fn instrument_definition(
+        &self,
+        id: &str,
+        expected: &str,
+    ) -> Result<InstrumentDefinition, ProjectError> {
+        selected(
+            &self.root().join(INSTRUMENTS_DIR),
+            id,
+            Some(expected),
+            "not pinned",
+        )
     }
 
     pub fn pin_instrument(
@@ -511,7 +614,7 @@ impl Project {
         library: &InstrumentLibrary,
         id: &str,
     ) -> Result<InstrumentEntry, ProjectError> {
-        self.publish_instrument(library, id, None)
+        self.publish_instrument(library, id, None, None)
     }
 
     pub fn update_instrument(
@@ -520,50 +623,76 @@ impl Project {
         id: &str,
         expected: &str,
     ) -> Result<InstrumentEntry, ProjectError> {
-        self.publish_instrument(library, id, Some(expected))
+        self.publish_instrument(library, id, None, Some(expected))
+    }
+
+    /// Publish exactly the selected global version against the displayed pin (or its absence).
+    pub fn write_instrument_pin(
+        &self,
+        library: &InstrumentLibrary,
+        id: &str,
+        library_fingerprint: &str,
+        pin_fingerprint: Option<&str>,
+    ) -> Result<InstrumentEntry, ProjectError> {
+        self.publish_instrument(library, id, Some(library_fingerprint), pin_fingerprint)
     }
 
     fn publish_instrument(
         &self,
         library: &InstrumentLibrary,
         id: &str,
-        expected: Option<&str>,
+        library_fingerprint: Option<&str>,
+        pin_fingerprint: Option<&str>,
     ) -> Result<InstrumentEntry, ProjectError> {
         check_id(id)?;
-        let def = library.selected(id)?;
-        let parent = checked_directory(self.root())?;
-        let path = create_directory(&parent, INSTRUMENTS_DIR)?;
-        let dir =
-            open_store(&path)?.ok_or_else(|| invalid(id, "instrument directory disappeared"))?;
-        let lock = open_member(&dir, LOCK_FILE, true)?;
-        lock.lock()
-            .map_err(|e| ProjectError::io(path.join(LOCK_FILE), e))?;
-        let mut names = catalog(&dir)?;
-        match (expected, names.contains_key(id)) {
-            (None, true) => return Err(invalid(id, "already pinned")),
-            (Some(_), false) => return Err(invalid(id, "not pinned")),
-            (Some(expected), true) => {
-                let current = fingerprint(&read_definition(&dir, id)?.bytes());
-                if expected != current {
-                    return Err(invalid(
-                        id,
-                        format!(
-                            "expected fingerprint {expected}, current fingerprint is {current}"
-                        ),
-                    ));
-                }
-            }
-            (None, false) if names.len() == MAX_INSTRUMENT_ENTRIES => {
-                return Err(invalid(id, "at most 128 instruments are allowed"));
-            }
-            _ => (),
-        }
-        let bytes = def.bytes();
-        names.insert(id.into(), bytes.len() as u64);
-        check_sizes(&names)?;
-        dir.publish(&format!("{id}.json"), &bytes, expected.is_some())?;
-        Ok(InstrumentEntry::from_bytes(id.into(), &bytes))
+        let dir = ensure_store(&self.root().join(INSTRUMENTS_DIR))?;
+        publish(&dir, id, Publication::Pin(pin_fingerprint), || {
+            library.selected(id, library_fingerprint)
+        })
     }
+}
+
+enum Publication<'a> {
+    Create,
+    Pin(Option<&'a str>),
+}
+
+fn publish(
+    dir: &ScopedDirectory,
+    id: &str,
+    operation: Publication<'_>,
+    definition: impl FnOnce() -> Result<InstrumentDefinition, ProjectError>,
+) -> Result<InstrumentEntry, ProjectError> {
+    let lock = open_member(dir, LOCK_FILE, true)?;
+    lock.lock()
+        .map_err(|e| ProjectError::io(dir.path().join(LOCK_FILE), e))?;
+    // A competing pin write can hold this lock while the global file is edited.
+    // Read the selected source after the wait so both guards refer to this write.
+    let definition = definition()?;
+    let mut names = catalog(dir)?;
+    match (&operation, names.contains_key(id)) {
+        (Publication::Create, true) => {
+            return Err(invalid(id, "already exists in the instrument library"));
+        }
+        (Publication::Pin(None), true) => return Err(invalid(id, "already pinned")),
+        (Publication::Pin(Some(_)), false) => return Err(invalid(id, "not pinned")),
+        (Publication::Pin(Some(expected)), true) => {
+            read_definition(dir, id)?.check_fingerprint(id, expected)?
+        }
+        (_, false) if names.len() == MAX_INSTRUMENT_ENTRIES => {
+            return Err(invalid(id, "at most 128 instruments are allowed"));
+        }
+        _ => (),
+    }
+    let bytes = definition.bytes();
+    names.insert(id.into(), bytes.len() as u64);
+    check_sizes(&names)?;
+    dir.publish(
+        &format!("{id}.json"),
+        &bytes,
+        matches!(operation, Publication::Pin(Some(_))),
+    )?;
+    Ok(InstrumentEntry::from_bytes(id.into(), &bytes))
 }
 
 #[cfg(test)]
@@ -593,6 +722,123 @@ mod tests {
     fn write_def(library: &InstrumentLibrary, id: &str, value: Value) {
         fs::create_dir_all(library.path()).unwrap();
         fs::write(library.path().join(format!("{id}.json")), value.to_string()).unwrap();
+    }
+
+    #[test]
+    fn creation_validates_before_publication_and_refuses_replacement() {
+        let (_tmp, _, library) = setup();
+        let source = definition(1200).to_string();
+        assert!(library.create("../escape", &source).is_err());
+        for invalid_source in ["{".to_owned(), "{}".to_owned(), " ".repeat(MAX_FILE + 1)] {
+            assert!(library.create("lead", &invalid_source).is_err());
+        }
+        assert!(library.entries().unwrap().is_empty());
+        let entry = library.create("lead", &source).unwrap();
+        assert_eq!(
+            library.entries().unwrap().as_slice(),
+            std::slice::from_ref(&entry)
+        );
+        assert!(
+            library
+                .create("lead", &definition(1).to_string())
+                .unwrap_err()
+                .to_string()
+                .contains("already exists")
+        );
+        let selected = library.definition("lead", &entry.fingerprint).unwrap();
+        assert_eq!(serde_json::to_value(selected).unwrap(), definition(1200));
+    }
+
+    #[test]
+    fn global_creation_rejects_a_redirected_directory_or_file() {
+        let (tmp, _, library) = setup();
+        let target = tmp.path().join("outside");
+        fs::create_dir(&target).unwrap();
+        crate::test_symlink!(&target, library.path()).unwrap();
+        let source = definition(1).to_string();
+        assert!(library.create("lead", &source).is_err());
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+
+        let other = InstrumentLibrary::at(tmp.path().join("other"));
+        fs::create_dir(other.path()).unwrap();
+        let outside = target.join("record");
+        fs::write(&outside, "untouched").unwrap();
+        crate::test_symlink!(&outside, other.path().join("lead.json")).unwrap();
+        assert!(other.create("lead", &source).is_err());
+        assert_eq!(fs::read_to_string(outside).unwrap(), "untouched");
+    }
+
+    #[test]
+    fn competing_creates_publish_one_complete_definition() {
+        let (_tmp, _, library) = setup();
+        let ready = std::sync::Barrier::new(2);
+        let create = |value| {
+            ready.wait();
+            library.create("kit", &definition(value).to_string())
+        };
+        let (a, b) = std::thread::scope(|s| {
+            let a = s.spawn(|| create(100));
+            let b = create(200);
+            (a.join().unwrap(), b)
+        });
+        let (winner, loser) = if a.is_ok() { (a, b) } else { (b, a) };
+        assert!(loser.unwrap_err().to_string().contains("already exists"));
+        assert_eq!(library.entries().unwrap(), [winner.unwrap()]);
+    }
+
+    #[test]
+    fn guarded_reads_and_pin_writes_honor_both_versions() {
+        let (_tmp, project, library) = setup();
+        let first = library
+            .create("lead", &definition(1).to_string())
+            .unwrap()
+            .fingerprint;
+        assert!(
+            project
+                .write_instrument_pin(&library, "lead", "stale", None)
+                .is_err()
+        );
+        assert!(project.instrument_entries().unwrap().is_empty());
+        project
+            .write_instrument_pin(&library, "lead", &first, None)
+            .unwrap();
+        write_def(&library, "lead", definition(2));
+        let second = library.entries().unwrap().remove(0).fingerprint;
+        assert!(library.definition("lead", &first).is_err());
+        assert!(project.instrument_definition("lead", &second).is_err());
+        let requested = |fingerprint: &str| InstrumentEntry {
+            id: "lead".into(),
+            fingerprint: fingerprint.into(),
+        };
+        assert_eq!(
+            project
+                .instrument_snapshot_with_pin(&requested(&first))
+                .unwrap(),
+            project.instrument_snapshot().unwrap()
+        );
+        assert!(
+            project
+                .instrument_snapshot_with_pin(&requested(&second))
+                .is_err()
+        );
+        for (src, dst) in [
+            (&first, Some(first.as_str())),
+            (&second, Some(second.as_str())),
+            (&second, None),
+        ] {
+            assert!(
+                project
+                    .write_instrument_pin(&library, "lead", src, dst)
+                    .is_err()
+            );
+            assert!(project.instrument_definition("lead", &first).is_ok());
+        }
+        project
+            .write_instrument_pin(&library, "lead", &second, Some(&first))
+            .unwrap();
+        fs::remove_dir_all(library.path()).unwrap();
+        assert!(library.definition("lead", &second).is_err());
+        assert!(project.instrument_definition("lead", &second).is_ok());
     }
 
     #[test]
@@ -775,7 +1021,7 @@ mod tests {
         assert!(!path.join(LOCK_FILE).exists());
         let dir = open_store(&path).unwrap().unwrap();
         let mut captures = 0;
-        let captured = read_pins(&dir, || {
+        let captured = read_store(&dir, || {
             captures += 1;
             if captures == 1 {
                 let a = read_definition(&dir, "a")?;

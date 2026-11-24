@@ -166,7 +166,7 @@ function formatLiteral(literal: string, indent: string, followsAsi: boolean): Fo
   return miniStructure(root) === miniStructure(nextRoot) ? edits : [];
 }
 
-function miniDisabledRanges(comments: Comment[], codeEnd: number): [number, number][] {
+export function miniDisabledRanges(comments: Comment[], codeEnd: number): [number, number][] {
   const ranges: [number, number][] = [];
   const stack: number[] = [];
   for (const comment of comments) {

@@ -17,14 +17,14 @@ fn main() {
         }
     };
     let mut transport = SocketTransport::new(cli.socket.clone(), cli.timeout);
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
     let code = {
         let mut env = Env {
             stdin_is_tty: stdin.is_terminal(),
             stdout_is_tty: stdout.is_terminal(),
-            stdin: &mut stdin.lock(),
-            stdout: &mut stdout.lock(),
+            stdin: &mut stdin,
+            stdout: &mut stdout,
             stderr: &mut std::io::stderr(),
         };
         run(&cli, &mut transport, &mut env)

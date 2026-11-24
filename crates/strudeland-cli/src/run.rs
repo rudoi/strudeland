@@ -10,10 +10,7 @@ use strudeland_ctl::{
     ProjectOpenParams, SaveParams, ScreenshotParams, SongDeleteParams, SongNewParams, SongParams,
     SongRenameParams, SongSwitchParams, StopResult, codes,
 };
-use strudeland_project::{
-    INSTRUMENTS_DIR, InstrumentEntry, InstrumentLibrary, Project, ProjectError, RecordingEntry,
-    Sidecar,
-};
+use strudeland_project::{InstrumentLibrary, Project, ProjectError, RecordingEntry, Sidecar};
 use strudeland_transcribe::load::{Span, load_wav_span};
 use strudeland_transcribe::report::BackingReport;
 use strudeland_transcribe::{
@@ -29,6 +26,10 @@ use crate::docs;
 use crate::output::{self, Report};
 use crate::render::{self, Destination, ProgressLines, RenderBackend, StrudelandBackend};
 use crate::skill;
+
+mod instruments;
+mod mcp;
+use instruments::run_instrument;
 
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_APP_ERROR: i32 = 1;
@@ -114,6 +115,12 @@ impl Failure {
         } else {
             format!("error: {text}")
         }
+    }
+}
+
+impl From<ProjectError> for Failure {
+    fn from(error: ProjectError) -> Self {
+        Self::Project(error)
     }
 }
 
@@ -207,6 +214,7 @@ fn execute(
 ) -> Result<i32, Failure> {
     let json = cli.json;
     match &cli.command {
+        Command::Mcp => Ok(mcp::serve(cli.socket.clone(), cli.timeout, env.stderr)),
         Command::Render(args) => run_render(args, json, backend, env),
         Command::Instrument { command } => run_instrument(
             command,
@@ -543,70 +551,6 @@ fn offline_project(
                 .into(),
         )
     })
-}
-
-fn instrument_list(
-    directory: &Path,
-    entries: &[InstrumentEntry],
-    json: bool,
-    env: &mut Env,
-) -> i32 {
-    let mut human = format!("{}\n", directory.display());
-    for entry in entries {
-        human.push_str(&format!("{}  {}\n", entry.id, entry.fingerprint));
-    }
-    emit(
-        env,
-        json,
-        &json!({ "directory": directory.to_string_lossy(), "entries": entries }),
-        stdout_only(human),
-    )
-}
-
-fn run_instrument(
-    command: &InstrumentCommand,
-    json: bool,
-    transport: &mut dyn Transport,
-    env: &mut Env,
-    cwd: &dyn Fn() -> Result<PathBuf, Failure>,
-    library: impl FnOnce() -> Result<InstrumentLibrary, ProjectError>,
-) -> Result<i32, Failure> {
-    let open_library = || library().map_err(Failure::Project);
-    let mut open_project = |flag: &Option<PathBuf>| {
-        offline_project(flag.as_deref(), transport, cwd, Project::discover_from_dir)
-    };
-    let entry = match command {
-        InstrumentCommand::Library => {
-            let library = open_library()?;
-            let entries = library.entries().map_err(Failure::Project)?;
-            return Ok(instrument_list(library.path(), &entries, json, env));
-        }
-        InstrumentCommand::List { project } => {
-            let project = open_project(project)?;
-            let entries = project.instrument_entries().map_err(Failure::Project)?;
-            return Ok(instrument_list(
-                &project.root().join(INSTRUMENTS_DIR),
-                &entries,
-                json,
-                env,
-            ));
-        }
-        InstrumentCommand::Pin { id, project } => {
-            open_project(project)?.pin_instrument(&open_library()?, id)
-        }
-        InstrumentCommand::Update {
-            id,
-            expect,
-            project,
-        } => open_project(project)?.update_instrument(&open_library()?, id, expect),
-    }
-    .map_err(Failure::Project)?;
-    Ok(emit(
-        env,
-        json,
-        &json!(entry),
-        stdout_only(format!("{}  {}\n", entry.id, entry.fingerprint)),
-    ))
 }
 
 /// The memo `name` among `entries`. An invalid name is a usage error, a missing memo a plain
@@ -1979,21 +1923,28 @@ mod tests {
             assert_eq!(status, EXIT_OK);
             Ok(serde_json::from_slice(&stdout).unwrap())
         };
-        let write = |sound: &str| {
-            let def = json!({"schema": 1, "parameters": {}, "voices": [
+        let definition = |sound: &str| {
+            json!({"schema": 1, "parameters": {}, "voices": [
                 {"name": "main", "chain": [{"control": "s", "value": sound}]}
-            ]});
-            std::fs::write(lib.join("lead.json"), def.to_string()).unwrap();
+            ]})
+            .to_string()
         };
         assert_eq!(invoke(&["library"]).unwrap()["entries"], json!([]));
-        write("sine");
+        let input = temp.path().join("source.json");
+        let create = ["create", "lead", "--file", input.to_str().unwrap()];
+        std::fs::write(&input, "{}").unwrap();
+        assert!(invoke(&create).is_err());
+        std::fs::write(&input, definition("sine")).unwrap();
+        let created = invoke(&create).unwrap();
+        assert_eq!(created["id"], "lead");
+        assert!(invoke(&create).is_err());
         let library = invoke(&["library"]).unwrap();
         let pin = ["pin", "lead", "--project", root];
         let entry = invoke(&pin).unwrap();
         assert_eq!(library["entries"][0], entry);
         assert_eq!(entry["id"], "lead");
         assert!(invoke(&pin).is_err());
-        write("sawtooth");
+        std::fs::write(lib.join("lead.json"), definition("sawtooth")).unwrap();
         let update = [
             "update",
             "lead",
@@ -2009,6 +1960,53 @@ mod tests {
             invoke(&["list", "--project", root]).unwrap()["entries"],
             json!([changed])
         );
+    }
+
+    #[test]
+    fn instrument_apply_preserves_the_exact_snapshot_and_returns_the_replacement_range() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = Project::create(&temp.path().join("demo"), "test").unwrap();
+        let before = temp.path().join("before.js");
+        let source = "// 🎵\r\n note(\"c4\")\n";
+        std::fs::write(&before, source).unwrap();
+        let mut args = vec![
+            "instrument",
+            "apply",
+            "lead",
+            "--project",
+            project.root().to_str().unwrap(),
+            "--from",
+            "8",
+            "--to",
+            "18",
+            "--expect-file",
+            before.to_str().unwrap(),
+        ];
+        let result = json!({"song":"songs/main.js","from":8,"to":48});
+        let mut transport = Fake::ok(result.clone());
+        let human = go(&args, &mut transport, IO);
+        assert_eq!(
+            (human.code, human.out()),
+            (0, "applied lead to songs/main.js [8, 48)\n")
+        );
+        let mut expected =
+            json!({"root":project.root(),"id":"lead","from":8,"to":18,"expect":source});
+        assert_eq!(
+            transport.calls,
+            vec![(Method::InstrumentApply, expected.clone())]
+        );
+
+        args.extend(["--song", "songs/main.js", "--json"]);
+        let mut transport = Fake::ok(result.clone());
+        let machine = go(&args, &mut transport, IO);
+        assert_eq!(
+            serde_json::from_str::<Value>(machine.out()).unwrap(),
+            result
+        );
+        expected["song"] = json!("songs/main.js");
+        assert_eq!(transport.calls, vec![(Method::InstrumentApply, expected)]);
+        std::fs::remove_file(&before).unwrap();
+        assert_eq!(go(&args, &mut Fake::default(), IO).code, EXIT_USAGE);
     }
 
     #[test]

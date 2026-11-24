@@ -392,6 +392,28 @@ describe('recording and memos', () => {
     expect(stops).toBe(1);
   });
 
+  test('project changes, recording and play requests retire an instrument preview immediately', async () => {
+    const { app, fake } = await withRecording();
+    const stop = app.instrumentPreview.stop;
+    let stops = 0;
+    app.instrumentPreview.stop = () => {
+      stops++;
+      stop();
+    };
+    app.evaluateDoc();
+    expect(stops).toBeGreaterThan(0);
+    stops = 0;
+    const recording = app.recording!.record({ song: false, metronome: false, countIn: false });
+    expect(stops).toBeGreaterThan(0);
+    await recording;
+    await app.recording!.stop();
+    stops = 0;
+    fake.picks.push('/q');
+    await app.session.openProject();
+    expect(stops).toBeGreaterThan(0);
+    app.destroy();
+  });
+
   test('during a take Cmd-Enter and evaluateDoc do nothing, as the disabled play button', async () => {
     const { app } = await withRecording();
     const calls: string[] = [];

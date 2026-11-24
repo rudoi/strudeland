@@ -53,6 +53,7 @@ export const METHOD_NAMES = [
   'song.delete',
   'save',
   'project.open',
+  'instrument.apply',
 ] as const;
 
 export type MethodName = (typeof METHOD_NAMES)[number];

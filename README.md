@@ -118,9 +118,21 @@ still contain them. Review recordings and their timing sidecars before sharing a
 
 ## Instrument library
 
+Open **Instruments** beside the song list to browse the **Global Library** or **Project
+Pins**. Select an instrument to see its voices and parameter defaults. While the song
+is stopped, choose **Preview** to hear a short phrase using the selected version.
+If the audio engine cannot preview a sound or control, the browser shows the reason.
+
+Choose **Pin to Project** to make a portable copy. If the library and project versions
+differ, you can preview both and choose **Update Project Pin**.
+To apply a pin, select a complete expression such as `note("c4 e4")` in the song,
+open **Instruments**, select the project pin, and choose **Apply to Selection**.
+The change is one undo step. Save and evaluate the song when you are ready to use it.
+
 Store reusable instrument definitions as JSON files in the global library. Run
 `strudeland instrument library` to find its location and list its entries. For example,
-save this as `lead.json` in that directory.
+save this as `lead.json` in that directory or run
+`strudeland instrument create lead --file lead.json` from another directory.
 
 ```json
 {
@@ -159,6 +171,17 @@ When you edit a global definition, projects keep their existing pins. Run
 `strudeland instrument list` for the current fingerprints, then
 `strudeland instrument update lead --expect HASH` to replace the pin with the current
 library version. The next editor evaluation or render picks up the updated pin.
+
+`strudeland instrument apply lead --from N --to N --expect-file buffer.js` applies a
+pin to the open editor. Use the exact buffer from `strudeland code get`, including
+unsaved edits, and a zero-based UTF-16 selection with an exclusive end. Supply
+`--project DIR` and `--song songs/main.js` to assert the project and song.
+
+For an MCP client, configure the `strudeland` executable with the argument `mcp` and
+stdio transport. It exposes `instrument_list`, `instrument_create`, `instrument_pin`,
+`instrument_apply`, and `instrument_update`. Applying requires the desktop app with
+the target song active. The [CLI skill](crates/strudeland-cli/skill/SKILL.md) documents
+the arguments and results.
 
 ## Export audio
 

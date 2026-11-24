@@ -161,11 +161,30 @@ export function fakeProjectApi(
       if (fake.failInfo) throw 'project.json: expected value at line 1 column 1';
       return fake.projectInfo(fake.current!);
     },
-    async instruments(root) {
+    async instruments(root, pin) {
       check(root);
       const pins = fake.instrumentSnapshots.get(root);
       if (typeof pins === 'string') throw pins;
+      if (pin && (!pins || !Object.hasOwn(pins, pin.id) || pin.id !== pin.fingerprint)) {
+        throw new Error('The project pin changed. Refresh the browser.');
+      }
       return pins ?? {};
+    },
+    async libraryEntries() {
+      return [];
+    },
+    async projectEntries(root) {
+      const pins = await api.instruments(root);
+      return Object.keys(pins).map((id) => ({ id, fingerprint: id }));
+    },
+    async instrumentDefinition() {
+      throw new Error('no instrument definition');
+    },
+    async instrumentPreview() {
+      throw new Error('no preview');
+    },
+    async writeInstrumentPin() {
+      throw new Error('no library entry');
     },
     async last() {
       calls.push('last');
