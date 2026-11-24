@@ -35,6 +35,8 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Measure the live batch decode cost at 1/16/64/256 haps per batch (JSON to values and haps; prints a table; the app side is the invoke round trip in `strudeland state`) | `cargo test --release -p strudeland-live --test ipc_decode -- --ignored --nocapture` |
 | Render a song file to audio (offline, no app needed; defaults -23 LUFS (EBU R128), -1 dBTP, wav 24-bit; exit 1 render failed, 4 bad length request) | `cargo run -p strudeland-cli -- render <song> [--out PATH] [--format F] [--preset tagged-loop\|intro-loop\|folded-loop\|one-shot] [--section NAME \| --length N] [--loops N] [--lufs DB] [--true-peak DBTP] [--loudness on\|off] [--bit-depth B] [--mp3-mode M] [--quality Q] [--jobs N] [--plan-timeout SECS]` |
 | List the global instrument library and its location, or manage project pins | `cargo run -p strudeland-cli -- instrument library`, `… -- instrument list [--project DIR]`, `… -- instrument pin ID [--project DIR]`, `… -- instrument update ID --expect HASH [--project DIR]` |
+| Create a validated instrument in the global library or apply a project pin to the active editor | `cargo run -p strudeland-cli -- instrument create ID --file PATH`, `… -- instrument apply ID --from N --to N --expect-file PATH [--project DIR] [--song songs/NAME.js]` (zero-based UTF-16 offsets, exclusive end) |
+| Run the local instrument tools over MCP stdio | `cargo run -p strudeland-cli -- mcp` |
 | Export an aligned pre-master mix and stereo float WAV stems (new directory in the project's renders folder by default) | `cargo run -p strudeland-cli -- render <song> --stems orbit\|voice\|instrument [--out DIR] [--section NAME \| --length N] [--loops N] [--jobs N] [--plan-timeout SECS]` |
 | List a project's voice memos / show one's timing (offline; project from --project, the cwd, then the running app; exit 1 not found or bad sidecar, 4 no project) | `cargo run -p strudeland-cli -- memo list [--project DIR]`, `… -- memo show <name> [--project DIR]` |
 | Transcribe a voice memo to Strudel code (offline; project as for memo; exit 1 not found, bad sidecar or unreadable WAV, 4 usage: bad flags, no project, `--bars` without a known grid, a grid that does not divide the bar, `--debug` without `--json`, a memo over 10 minutes without a span) | `cargo run -p strudeland-cli -- transcribe <name> [--project DIR] [--grid 4\|8\|16\|8t\|16t] [--bpm N] [--meter N/D] [--bar1 S] [--shift MS] [--key ROOT:SCALE] [--tuning CENTS] [--start S --end S \| --bars A-B] [--debug --json]` |
@@ -127,6 +129,11 @@ the V8 download the host brings.
   `src/lib/strudel/instruments.ts` binds the pinned snapshot as `instruments` at
   evaluation. The project session refreshes the snapshot through the watcher, and the desktop
   export and CLI each capture the project pins for the entire render.
+  `InstrumentBrowser.svelte` and `src/lib/project/instrument-browser.ts` browse and compare
+  versions through the project API. `src-tauri/src/instruments.rs` renders bounded WAV previews,
+  played by `src/lib/audio/instrument-preview.ts`. The session and `instrument.apply` control
+  method share a conditional selection edit. `strudeland-cli/src/run/instruments.rs` shares
+  instrument operations with its local stdio MCP server in `src/run/mcp.rs`.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,
   blocking `Client`). Windows uses per-user named pipes. Linux uses private XDG Unix sockets
   with peer credentials. No Tauri dependency.
