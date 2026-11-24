@@ -18,9 +18,9 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer_opt};
 use serde::Serialize;
 use strudeland_project::{
-    INSTRUMENTS_DIR, MANIFEST_FILE, Project, RECORDINGS_DIR, instrument_dir_entries,
-    instrument_file_candidate, is_recording_file_name, list_songs, recording_dir_entries,
-    song_rel_path,
+    INSTRUMENTS_DIR, MANIFEST_FILE, MAX_INSTRUMENT_ENTRIES, Project, RECORDINGS_DIR,
+    instrument_dir_entries, instrument_file_candidate, is_recording_file_name, list_songs,
+    recording_dir_entries, song_rel_path,
 };
 
 /// The Tauri event name carrying a [`ProjectChanged`] payload.
@@ -357,6 +357,9 @@ impl InstrumentCatalog {
             };
             let name = entry.file_name();
             if instrument_file_candidate(&name) {
+                if revisions.len() == MAX_INSTRUMENT_ENTRIES {
+                    return Self::Unreadable;
+                }
                 let Ok(metadata) = entry.metadata() else {
                     return Self::Unreadable;
                 };

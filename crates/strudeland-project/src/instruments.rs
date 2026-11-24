@@ -14,9 +14,9 @@ use crate::project::{ScopedDirectory, check_dir, device_basename, redirects};
 use crate::{Project, ProjectError};
 
 pub const INSTRUMENTS_DIR: &str = "instruments";
+pub const MAX_INSTRUMENT_ENTRIES: usize = 128;
 const APP_IDENTIFIER: &str = "com.rudoi.strudeland";
 const LOCK_FILE: &str = ".strudeland.lock";
-const MAX_ENTRIES: usize = 128;
 const MAX_FILE: usize = 64 * 1024;
 const MAX_SNAPSHOT: usize = 2 * 1024 * 1024;
 const MAX_STRING: usize = 1024;
@@ -182,7 +182,7 @@ impl InstrumentDefinition {
 
 /// Also check snapshots supplied through a JSON host request.
 pub fn validate_instrument_snapshot(snapshot: &InstrumentSnapshot) -> Result<(), ProjectError> {
-    if snapshot.len() > MAX_ENTRIES {
+    if snapshot.len() > MAX_INSTRUMENT_ENTRIES {
         return Err(invalid(
             INSTRUMENTS_DIR,
             "at most 128 instruments are allowed",
@@ -267,7 +267,7 @@ fn catalog(dir: &ScopedDirectory) -> Result<BTreeMap<String, u64>, ProjectError>
             return Err(invalid(id, "expected a regular instrument file"));
         }
         catalog.insert(id.to_owned(), meta.len());
-        if catalog.len() > MAX_ENTRIES {
+        if catalog.len() > MAX_INSTRUMENT_ENTRIES {
             return Err(invalid(id, "at most 128 instruments are allowed"));
         }
     }
@@ -292,7 +292,7 @@ fn open_member(dir: &ScopedDirectory, name: &str, lock: bool) -> Result<File, Pr
             dir.file(),
             name,
             access | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-            Mode::from_bits_truncate(0o600),
+            Mode::from_bits_truncate(0o666),
         )
         .map(File::from)
         .map_err(io::Error::from)
@@ -334,20 +334,50 @@ fn read_definition(dir: &ScopedDirectory, id: &str) -> Result<InstrumentDefiniti
     serde_json::from_slice(&bytes).map_err(|e| invalid(id, e.to_string()))
 }
 
-fn snapshot(path: &Path) -> Result<InstrumentSnapshot, ProjectError> {
-    let Some(dir) = open_store(path)? else {
-        return Ok(BTreeMap::new());
-    };
-    let names = catalog(&dir)?;
+fn snapshot(dir: &ScopedDirectory) -> Result<InstrumentSnapshot, ProjectError> {
+    let names = catalog(dir)?;
     check_sizes(&names)?;
     let mut defs = BTreeMap::new();
     for id in names.into_keys() {
-        let definition = read_definition(&dir, &id)?;
+        let definition = read_definition(dir, &id)?;
         defs.insert(id, definition);
     }
     validate_instrument_snapshot(&defs)?;
     dir.check_current()?;
     Ok(defs)
+}
+
+fn existing_pin_lock(dir: &ScopedDirectory) -> Result<Option<File>, ProjectError> {
+    match open_member(dir, LOCK_FILE, false) {
+        Ok(lock) => Ok(Some(lock)),
+        Err(ProjectError::Io { path, source })
+            if path == dir.path().join(LOCK_FILE) && source.kind() == io::ErrorKind::NotFound =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn read_pins(
+    dir: &ScopedDirectory,
+    mut read: impl FnMut() -> Result<InstrumentSnapshot, ProjectError>,
+) -> Result<InstrumentSnapshot, ProjectError> {
+    let lock = match existing_pin_lock(dir)? {
+        Some(lock) => lock,
+        None => {
+            // A read-only checkout may never have had a writer. If the first writer
+            // created its lock during our scan, discard the scan and read under the lock.
+            let first = read();
+            let Some(lock) = existing_pin_lock(dir)? else {
+                return first;
+            };
+            lock
+        }
+    };
+    lock.lock_shared()
+        .map_err(|e| ProjectError::io(dir.path().join(LOCK_FILE), e))?;
+    read()
 }
 
 fn check_sizes(names: &BTreeMap<String, u64>) -> Result<(), ProjectError> {
@@ -364,11 +394,11 @@ fn check_sizes(names: &BTreeMap<String, u64>) -> Result<(), ProjectError> {
     Ok(())
 }
 
-fn entries(path: &Path) -> Result<Vec<InstrumentEntry>, ProjectError> {
-    Ok(snapshot(path)?
+fn entries(snapshot: InstrumentSnapshot) -> Vec<InstrumentEntry> {
+    snapshot
         .into_iter()
         .map(|(id, definition)| InstrumentEntry::from_bytes(id, &definition.bytes()))
-        .collect())
+        .collect()
 }
 
 pub struct InstrumentLibrary {
@@ -411,7 +441,10 @@ impl InstrumentLibrary {
     }
 
     pub fn entries(&self) -> Result<Vec<InstrumentEntry>, ProjectError> {
-        entries(&self.path)
+        let Some(dir) = open_store(&self.path)? else {
+            return Ok(Vec::new());
+        };
+        Ok(entries(snapshot(&dir)?))
     }
 
     fn selected(&self, id: &str) -> Result<InstrumentDefinition, ProjectError> {
@@ -447,11 +480,14 @@ fn create_directory(parent: &ScopedDirectory, name: &str) -> Result<PathBuf, Pro
 
 impl Project {
     pub fn instrument_snapshot(&self) -> Result<InstrumentSnapshot, ProjectError> {
-        snapshot(&self.root().join(INSTRUMENTS_DIR))
+        let Some(dir) = open_store(&self.root().join(INSTRUMENTS_DIR))? else {
+            return Ok(InstrumentSnapshot::new());
+        };
+        read_pins(&dir, || snapshot(&dir))
     }
 
     pub fn instrument_entries(&self) -> Result<Vec<InstrumentEntry>, ProjectError> {
-        entries(&self.root().join(INSTRUMENTS_DIR))
+        Ok(entries(self.instrument_snapshot()?))
     }
 
     pub fn pin_instrument(
@@ -501,7 +537,7 @@ impl Project {
                     ));
                 }
             }
-            (None, false) if names.len() == MAX_ENTRIES => {
+            (None, false) if names.len() == MAX_INSTRUMENT_ENTRIES => {
                 return Err(invalid(id, "at most 128 instruments are allowed"));
             }
             _ => (),
@@ -706,6 +742,42 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_retries_under_a_shared_lock_when_the_first_writer_arrives() {
+        let (_tmp, project, library) = setup();
+        let path = project.root().join(INSTRUMENTS_DIR);
+        for id in ["a", "b"] {
+            fs::write(path.join(format!("{id}.json")), definition(100).to_string()).unwrap();
+            write_def(&library, id, definition(200));
+        }
+        let pins = project.instrument_entries().unwrap();
+        assert!(!path.join(LOCK_FILE).exists());
+        let dir = open_store(&path).unwrap().unwrap();
+        let mut captures = 0;
+        let captured = read_pins(&dir, || {
+            captures += 1;
+            if captures == 1 {
+                let a = read_definition(&dir, "a")?;
+                for pin in &pins {
+                    project.update_instrument(&library, &pin.id, &pin.fingerprint)?;
+                }
+                let b = read_definition(&dir, "b")?;
+                assert_ne!(a, b);
+                return Ok(BTreeMap::from([("a".into(), a), ("b".into(), b)]));
+            }
+            let writer = open_member(&dir, LOCK_FILE, true)?;
+            assert!(matches!(
+                writer.try_lock(),
+                Err(fs::TryLockError::WouldBlock)
+            ));
+            snapshot(&dir)
+        })
+        .unwrap();
+        assert_eq!(captures, 2);
+        assert_eq!(captured["a"], captured["b"]);
+        assert_eq!(captured, project.instrument_snapshot().unwrap());
+    }
+
+    #[test]
     fn simultaneous_updates_from_one_revision_only_publish_once() {
         use std::sync::Barrier;
         let (_tmp, project, library) = setup();
@@ -755,7 +827,7 @@ mod tests {
                 .to_string()
                 .contains("2 MiB")
         );
-        for i in 0..MAX_ENTRIES {
+        for i in 0..MAX_INSTRUMENT_ENTRIES {
             fs::write(dir.join(format!("entry_{i}.json")), "{}").unwrap();
         }
         assert!(

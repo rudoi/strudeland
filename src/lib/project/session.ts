@@ -856,7 +856,9 @@ export function createSession(deps: SessionDeps): Session {
       instrumentError = null;
     } catch (e) {
       instruments = undefined;
-      instrumentError = `reading instruments failed: ${errorMessage(e)}`;
+      const message = `reading instruments failed: ${errorMessage(e)}`;
+      if (instrumentError !== null && error === instrumentError) error = message;
+      instrumentError = message;
     }
   }
 

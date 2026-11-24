@@ -28815,6 +28815,28 @@ Please check with "npm ls @strudel/core".`);
   function scalar(value) {
     return typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value);
   }
+  function utf8Length(text) {
+    let bytes = 0;
+    for (const char of text) {
+      const point = char.codePointAt(0);
+      if (point >= 55296 && point <= 57343)
+        return Infinity;
+      if (point < 128)
+        bytes++;
+      else if (point < 2048)
+        bytes += 2;
+      else if (point < 65536)
+        bytes += 3;
+      else
+        bytes += 4;
+    }
+    return bytes;
+  }
+  function definitionScalar(value) {
+    if (typeof value === "string")
+      return value.length <= 1024 && utf8Length(value) <= 1024;
+    return scalar(value);
+  }
   function isRecord(value) {
     if (typeof value !== "object" || value === null)
       return false;
@@ -28833,13 +28855,18 @@ Please check with "npm ls @strudel/core".`);
     if (!isRecord(parameters))
       return fail("parameters must be an object");
     const defaults = new Map;
-    for (const [name, value] of Object.entries(parameters)) {
-      if (!IDENTIFIER.test(name) || !scalar(value))
+    const entries = Object.entries(parameters);
+    if (entries.length > 64)
+      return fail("at most 64 parameters are allowed");
+    for (const [name, value] of entries) {
+      if (!IDENTIFIER.test(name) || !definitionScalar(value))
         return fail(`invalid parameter '${name}'`);
       defaults.set(name, value);
     }
     if (!Array.isArray(voices) || voices.length === 0)
       return fail("expected at least one voice");
+    if (voices.length > 32)
+      return fail("at most 32 voices are allowed");
     const names = new Set;
     const kit = voices.length > 1;
     const compiledVoices = voices.map((voice2) => {
@@ -28854,6 +28881,8 @@ Please check with "npm ls @strudel/core".`);
       names.add(name);
       if (!Array.isArray(chain) || chain.length === 0)
         return fail(`voice '${name}' has no controls`);
+      if (chain.length > 64)
+        return fail(`voice '${name}' exceeds 64 controls`);
       const controls2 = chain.map((step) => {
         if (!isRecord(step) || Object.keys(step).length !== 2 || typeof step.control !== "string") {
           return fail(`invalid control in voice '${name}'`);
@@ -28862,7 +28891,7 @@ Please check with "npm ls @strudel/core".`);
         const set2 = setters.get(control2);
         if (!set2)
           return fail(`unknown control '${control2}' in voice '${name}'`);
-        if (scalar(value))
+        if (definitionScalar(value))
           return { set: set2, resolve: () => value };
         if (isRecord(value) && Object.keys(value).length === 1 && typeof value.param === "string") {
           const { param } = value;
@@ -28907,11 +28936,20 @@ Please check with "npm ls @strudel/core".`);
   function compileNamespace(snapshot) {
     if (!isRecord(snapshot))
       throw new Error("Instrument snapshot must be an object");
+    const entries = Object.entries(snapshot);
+    if (entries.length > 128)
+      throw new Error("At most 128 instruments are allowed");
     const namespace = Object.create(null);
-    for (const [id2, definition] of Object.entries(snapshot)) {
+    let total = 0;
+    for (const [id2, definition] of entries) {
       if (!IDENTIFIER.test(id2) || WINDOWS_DEVICE.test(id2))
         throw new Error(`Invalid instrument '${id2}'`);
       namespace[id2] = compileInstrument(id2, definition);
+      const bytes = utf8Length(JSON.stringify(definition));
+      total += bytes;
+      if (bytes > 64 * 1024 || total > 2 * 1024 * 1024) {
+        throw new Error(`Instrument '${id2}': definition or snapshot exceeds size limit`);
+      }
     }
     return Object.freeze(namespace);
   }
@@ -28944,8 +28982,8 @@ Please check with "npm ls @strudel/core".`);
         }
         return {
           ...result,
-          output: `return await (async (instruments) => { { ${result.output}
-} })(${binding});`
+          output: `return ((instruments) => (async () => { ${result.output}
+})())(${binding});`
         };
       }
     };

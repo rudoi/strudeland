@@ -445,7 +445,8 @@ use these copies offline. After editing a global definition, get the current pin
 from `strudeland instrument list` and pass it to `strudeland instrument update lead --expect HASH`.
 A duplicate first pin or a mismatched update exits 1. The next evaluation picks up the change.
 Project commands use `--project DIR`, the current directory's enclosing project, or the
-running app's project, in that order. A missing project exits 4 when discovery fails.
+running app's project, in that order. An invalid enclosing manifest exits 1. If discovery
+finds no project, the command exits 4.
 With `--json`, each list returns `directory` and `entries`. A successful pin or update returns
 the entry's `id` and `fingerprint`.
 

@@ -213,6 +213,7 @@ fn execute(
             json,
             transport,
             env,
+            &current_dir,
             InstrumentLibrary::open_default,
         ),
         Command::Docs { name, search, .. } => {
@@ -523,12 +524,13 @@ fn offline_project(
     flag: Option<&Path>,
     transport: &mut dyn Transport,
     cwd: &dyn Fn() -> Result<PathBuf, Failure>,
+    find_local: impl FnOnce(&Path) -> Result<Option<Project>, ProjectError>,
 ) -> Result<Project, Failure> {
     let cwd = cwd()?;
     if let Some(dir) = flag {
         return Project::open(&absolute(dir, &cwd)).map_err(Failure::Project);
     }
-    if let Some(p) = Project::find_from_dir(&cwd) {
+    if let Some(p) = find_local(&cwd).map_err(Failure::Project)? {
         return Ok(p);
     }
     let from_app = call::<AppState>(transport, Method::State, json!({}))
@@ -566,11 +568,13 @@ fn run_instrument(
     json: bool,
     transport: &mut dyn Transport,
     env: &mut Env,
+    cwd: &dyn Fn() -> Result<PathBuf, Failure>,
     library: impl FnOnce() -> Result<InstrumentLibrary, ProjectError>,
 ) -> Result<i32, Failure> {
     let open_library = || library().map_err(Failure::Project);
-    let mut open_project =
-        |flag: &Option<PathBuf>| offline_project(flag.as_deref(), transport, &current_dir);
+    let mut open_project = |flag: &Option<PathBuf>| {
+        offline_project(flag.as_deref(), transport, cwd, Project::discover_from_dir)
+    };
     let entry = match command {
         InstrumentCommand::Library => {
             let library = open_library()?;
@@ -636,7 +640,9 @@ fn run_memo(
         MemoCommand::List { project } => (project, None),
         MemoCommand::Show { name, project } => (project, Some(name)),
     };
-    let project = offline_project(flag.as_deref(), transport, cwd)?;
+    let project = offline_project(flag.as_deref(), transport, cwd, |dir| {
+        Ok(Project::find_from_dir(dir))
+    })?;
     let root = project.root().to_string_lossy().into_owned();
     let entries = project.recordings().map_err(Failure::Project)?;
     let report = match name {
@@ -711,7 +717,9 @@ fn run_transcribe(
     if args.debug && !json {
         return Err(Failure::Usage("--debug needs --json".into()));
     }
-    let project = offline_project(args.project.as_deref(), transport, cwd)?;
+    let project = offline_project(args.project.as_deref(), transport, cwd, |dir| {
+        Ok(Project::find_from_dir(dir))
+    })?;
     let name = &args.name;
     let entries = project.recordings().map_err(Failure::Project)?;
     let entry = find_memo(&project, &entries, name)?;
@@ -1959,9 +1967,14 @@ mod tests {
                 stdout_is_tty: false,
                 stderr: &mut Vec::new(),
             };
-            let status = run_instrument(&command, true, &mut Fake::default(), &mut env, || {
-                Ok(InstrumentLibrary::at(lib.clone()))
-            })
+            let status = run_instrument(
+                &command,
+                true,
+                &mut Fake::default(),
+                &mut env,
+                &current_dir,
+                || Ok(InstrumentLibrary::at(lib.clone())),
+            )
             .map_err(|e| e.message())?;
             assert_eq!(status, EXIT_OK);
             Ok(serde_json::from_slice(&stdout).unwrap())
@@ -1996,6 +2009,44 @@ mod tests {
             invoke(&["list", "--project", root]).unwrap()["entries"],
             json!([changed])
         );
+    }
+
+    #[test]
+    fn instrument_pin_does_not_fall_back_past_an_invalid_local_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let invalid = temp.path().join("invalid");
+        std::fs::create_dir(&invalid).unwrap();
+        std::fs::write(invalid.join("project.json"), "{").unwrap();
+        let open = Project::create(&temp.path().join("open"), "open").unwrap();
+        let mut state = state_json();
+        state["project"] = json!({ "name": "open", "root": open.root() });
+        let mut transport = Fake::ok(state);
+        let mut output = Vec::new();
+        let mut env = Env {
+            stdin: &mut std::io::empty(),
+            stdin_is_tty: false,
+            stdout: &mut output,
+            stdout_is_tty: false,
+            stderr: &mut Vec::new(),
+        };
+        let error = run_instrument(
+            &InstrumentCommand::Pin {
+                id: "lead".into(),
+                project: None,
+            },
+            true,
+            &mut transport,
+            &mut env,
+            &|| Ok(invalid.clone()),
+            || panic!("the library must not open"),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Failure::Project(ProjectError::InvalidManifest(_))
+        ));
+        assert!(transport.calls.is_empty());
+        assert!(open.instrument_snapshot().unwrap().is_empty());
     }
 
     // --- memo ---

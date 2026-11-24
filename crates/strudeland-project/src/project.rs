@@ -466,6 +466,29 @@ impl Project {
         None
     }
 
+    /// Finds the nearest project while distinguishing an invalid manifest from no project.
+    /// Mutating commands use this before considering a different project from the app.
+    pub fn discover_from_dir(dir: &Path) -> Result<Option<Project>, ProjectError> {
+        let start = dir.canonicalize().map_err(|e| ProjectError::io(dir, e))?;
+        for dir in start.ancestors() {
+            let manifest = dir.join(MANIFEST_FILE);
+            match fs::symlink_metadata(&manifest) {
+                Ok(meta) if meta.is_file() && !redirects(&meta) => {
+                    return Project::open(dir).map(Some);
+                }
+                Ok(_) => {
+                    return Err(ProjectError::InvalidManifest(format!(
+                        "{} must be a regular file",
+                        manifest.display()
+                    )));
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(ProjectError::io(manifest, e)),
+            }
+        }
+        Ok(None)
+    }
+
     /// The output path `renders/<stem>[-<suffix>].<ext>` inside this project. `ext` is one of
     /// `wav`, `mp3`, `ogg`, `opus`; `suffix` (a section name, or a length tag such as `len16`) is
     /// slugged to `[A-Za-z0-9_-]` (each run of other characters becomes one `-`, the ends are

@@ -14,7 +14,8 @@ mod template;
 pub use error::ProjectError;
 pub use instruments::{
     INSTRUMENTS_DIR, InstrumentDefinition, InstrumentEntry, InstrumentLibrary, InstrumentSnapshot,
-    instrument_dir_entries, instrument_file_candidate, validate_instrument_snapshot,
+    MAX_INSTRUMENT_ENTRIES, instrument_dir_entries, instrument_file_candidate,
+    validate_instrument_snapshot,
 };
 pub use prefs::{PREFS_FILE, Prefs};
 pub use project::{

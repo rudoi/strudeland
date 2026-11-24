@@ -69,6 +69,25 @@ function scalar(value: unknown): value is Scalar {
   );
 }
 
+// Raw V8 has no TextEncoder. Unpaired surrogates cannot be represented by a Rust String.
+function utf8Length(text: string): number {
+  let bytes = 0;
+  for (const char of text) {
+    const point = char.codePointAt(0)!;
+    if (point >= 0xd800 && point <= 0xdfff) return Infinity;
+    if (point < 0x80) bytes++;
+    else if (point < 0x800) bytes += 2;
+    else if (point < 0x10000) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
+}
+
+function definitionScalar(value: unknown): value is Scalar {
+  if (typeof value === 'string') return value.length <= 1024 && utf8Length(value) <= 1024;
+  return scalar(value);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false;
   const proto = Object.getPrototypeOf(value);
@@ -84,11 +103,15 @@ function compileInstrument(id: string, definition: unknown): Namespace[string] {
   const { parameters, voices } = definition;
   if (!isRecord(parameters)) return fail('parameters must be an object');
   const defaults = new Map<string, Scalar>();
-  for (const [name, value] of Object.entries(parameters)) {
-    if (!IDENTIFIER.test(name) || !scalar(value)) return fail(`invalid parameter '${name}'`);
+  const entries = Object.entries(parameters);
+  if (entries.length > 64) return fail('at most 64 parameters are allowed');
+  for (const [name, value] of entries) {
+    if (!IDENTIFIER.test(name) || !definitionScalar(value))
+      return fail(`invalid parameter '${name}'`);
     defaults.set(name, value);
   }
   if (!Array.isArray(voices) || voices.length === 0) return fail('expected at least one voice');
+  if (voices.length > 32) return fail('at most 32 voices are allowed');
   const names = new Set<string>();
   const kit = voices.length > 1;
   const compiledVoices = voices.map((voice: unknown) => {
@@ -100,6 +123,7 @@ function compileInstrument(id: string, definition: unknown): Namespace[string] {
     if (names.has(name)) return fail(`duplicate voice '${name}'`);
     names.add(name);
     if (!Array.isArray(chain) || chain.length === 0) return fail(`voice '${name}' has no controls`);
+    if (chain.length > 64) return fail(`voice '${name}' exceeds 64 controls`);
     const controls = chain.map((step: unknown) => {
       if (!isRecord(step) || Object.keys(step).length !== 2 || typeof step.control !== 'string') {
         return fail(`invalid control in voice '${name}'`);
@@ -107,7 +131,7 @@ function compileInstrument(id: string, definition: unknown): Namespace[string] {
       const { control, value } = step;
       const set = setters.get(control);
       if (!set) return fail(`unknown control '${control}' in voice '${name}'`);
-      if (scalar(value)) return { set, resolve: () => value };
+      if (definitionScalar(value)) return { set, resolve: () => value };
       if (isRecord(value) && Object.keys(value).length === 1 && typeof value.param === 'string') {
         const { param } = value;
         if (!defaults.has(param)) return fail(`unknown parameter '${param}' in voice '${name}'`);
@@ -154,11 +178,19 @@ function compileInstrument(id: string, definition: unknown): Namespace[string] {
 
 function compileNamespace(snapshot: unknown): Namespace {
   if (!isRecord(snapshot)) throw new Error('Instrument snapshot must be an object');
+  const entries = Object.entries(snapshot);
+  if (entries.length > 128) throw new Error('At most 128 instruments are allowed');
   const namespace: Record<string, Namespace[string]> = Object.create(null);
-  for (const [id, definition] of Object.entries(snapshot)) {
+  let total = 0;
+  for (const [id, definition] of entries) {
     if (!IDENTIFIER.test(id) || WINDOWS_DEVICE.test(id))
       throw new Error(`Invalid instrument '${id}'`);
     namespace[id] = compileInstrument(id, definition);
+    const bytes = utf8Length(JSON.stringify(definition));
+    total += bytes;
+    if (bytes > 64 * 1024 || total > 2 * 1024 * 1024) {
+      throw new Error(`Instrument '${id}': definition or snapshot exceeds size limit`);
+    }
   }
   return Object.freeze(namespace);
 }
@@ -189,10 +221,11 @@ export function createInstrumentTranspiler() {
           binding = `globalThis[Symbol.for(${JSON.stringify(BINDING)})]()`;
         }
       }
-      // The inner block permits a song-local declaration named `instruments`.
+      // Keep the original function body so declarations and hoisting retain their semantics.
+      // A song-local declaration of instruments shadows the outer parameter.
       return {
         ...result,
-        output: `return await (async (instruments) => { { ${result.output}\n} })(${binding});`,
+        output: `return ((instruments) => (async () => { ${result.output}\n})())(${binding});`,
       };
     },
   };

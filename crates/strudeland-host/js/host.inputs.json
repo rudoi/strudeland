@@ -98,7 +98,7 @@
     "src/lib/render/schedule.ts": "acf0d5725d561816f6e5cc3824106e1c8ceb012215da6c4f6f0fa7f6e652f811",
     "src/lib/render/thresholds.ts": "5d724732d426a5e17e8a77af9b5f93916d816a286f2333fbbf67bd33c6dfe089",
     "src/lib/render/timing.ts": "a6ec0899423b10d0f21ea74c04c0249e529d1ed300ef108d24e987a2b00a6047",
-    "src/lib/strudel/instruments.ts": "fd579e4df7d5dfbec5925602230c777cc82c981d0a6ec04d56d6ba8ed048cec6",
+    "src/lib/strudel/instruments.ts": "355607390a8218785127b2d3b9ed4946de87ad1b9f7b6b876d3b456c7b07d671",
     "src/lib/strudel/metered-pattern.ts": "98dfc133580639c70f9c4016141bbd2a833a8f9185f37143148dc082473b706b",
     "src/lib/strudel/runtime.ts": "525b0b8ecf4a6039084b04edb7e6ed07b18b2daa6392f7402f713c8dbbcc6862",
     "src/lib/strudel/seed.ts": "d2453dfd92566e735aa67e36efffa3c0cafd17924134be001527024b760edc06",
@@ -151,5 +151,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "83fe7c2559b478afc9a5b24b9079b73a81dd6984fd13181d7dfb595ad67d5432"
+  "combined": "24d077a48657dbe207d46564cda6389003e601444b522ba1f78d2915e11ee624"
 }

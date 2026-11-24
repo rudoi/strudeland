@@ -1,12 +1,12 @@
 //! The requests the host plans. [`RenderRequest`] (one job) is a serde mirror of `RenderRequest`
 //! in `src/lib/render/contract.ts` without `code` (passed separately), `samples` and `mutation`
 //! (the planner does not read them; an unknown field is an error). [`RenderPlanRequest`] (every
-//! chunk of a render) mirrors `RenderPlanRequest` in `src/lib/render/job-plan.ts`, plus the
+//! chunk of a render) mirrors `RenderPlanInput` in `src/lib/render/contract.ts`, plus the
 //! host-only `timeoutSec`.
 
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use strudeland_project::{InstrumentSnapshot, validate_instrument_snapshot};
 
 /// The largest `toBar + overlapBars` a request may ask for.
@@ -193,7 +193,11 @@ pub enum ExportPreset {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenderPlanRequest {
     /// Project pins captured for this evaluation.
-    #[serde(default, skip_serializing_if = "InstrumentSnapshot::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "instrument_snapshot",
+        skip_serializing_if = "InstrumentSnapshot::is_empty"
+    )]
     pub instruments: InstrumentSnapshot,
     pub length: LengthRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +212,31 @@ pub struct RenderPlanRequest {
     /// Seconds the planning may take; host-side only, never sent to the bundle.
     #[serde(default, skip_serializing)]
     pub timeout_sec: Option<f64>,
+}
+
+fn instrument_snapshot<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<InstrumentSnapshot, D::Error> {
+    struct SnapshotVisitor;
+    impl<'de> de::Visitor<'de> for SnapshotVisitor {
+        type Value = InstrumentSnapshot;
+
+        fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt.write_str("an object of instrument definitions")
+        }
+
+        fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut snapshot = InstrumentSnapshot::new();
+            while let Some(id) = map.next_key::<String>()? {
+                let definition = map.next_value().map_err(|error| {
+                    <A::Error as de::Error>::custom(format_args!("instrument {id:?}: {error}"))
+                })?;
+                snapshot.insert(id, definition);
+            }
+            Ok(snapshot)
+        }
+    }
+    deserializer.deserialize_map(SnapshotVisitor)
 }
 
 impl RenderPlanRequest {
@@ -531,8 +560,17 @@ mod tests {
         let parsed = serde_json::from_value(definition.clone()).unwrap();
         request.instruments.insert("lead".into(), parsed);
         assert_eq!(request.validate(), Ok(()));
-        let wire: serde_json::Value = serde_json::from_str(&request.to_json().unwrap()).unwrap();
+        let mut wire: serde_json::Value =
+            serde_json::from_str(&request.to_json().unwrap()).unwrap();
         assert_eq!(wire["instruments"]["lead"], definition);
+        wire["instruments"]["bass"] = definition;
+        wire["instruments"]["bass"]["voices"][0]["chain"][0]["value"] =
+            serde_json::json!({"param":"missing"});
+        let error = serde_json::from_str::<RenderPlanRequest>(&wire.to_string())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("instrument \"bass\""), "{error}");
+        assert!(error.contains("unknown parameter \"missing\""), "{error}");
         let entry = request.instruments.remove("lead").unwrap();
         request.instruments.insert("../lead".into(), entry);
         assert!(request.validate().unwrap_err().contains("../lead"));

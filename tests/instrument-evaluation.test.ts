@@ -3,6 +3,7 @@ import * as core from '@strudel/core';
 import * as mini from '@strudel/mini';
 import { get } from 'svelte/store';
 import {
+  createInstrumentTranspiler,
   registerInstrumentOperation,
   type InstrumentSnapshot,
 } from '../src/lib/strudel/instruments';
@@ -116,4 +117,57 @@ test('rejects malformed chains and unknown options, and permits ordinary and sha
     true,
   );
   expect(rt.query(0, 1)![0].value.note).toBe(0);
+});
+
+test('song-local var and function declarations retain function-body semantics', async () => {
+  const { rt } = fakeRuntime({ prebake });
+  const source = `var voice;
+function voice() { return 1 }
+function voice() { return 2 }
+var instruments;
+note(typeof instruments === 'undefined' ? voice() : 0)`;
+  for (const instruments of [undefined, lead(1200)]) {
+    expect(await rt.evaluate(source, { instruments, autostart: false })).toBe(true);
+    expect(rt.query(0, 1)![0].value.note).toBe(2);
+  }
+});
+
+test('raw render-page snapshots enforce the project schema bounds', () => {
+  registerInstrumentOperation();
+  const transpiler = createInstrumentTranspiler();
+  const check = (snapshot: InstrumentSnapshot) => {
+    try {
+      transpiler.transpile('silence', {}, snapshot);
+    } finally {
+      transpiler.clear();
+    }
+  };
+  const base = kit.drums;
+  const voice = base.voices[0];
+  const voices = Array.from({ length: 33 }, (_, i) => ({ ...voice, name: `v${i}` }));
+  const checkVoices = (voices: typeof base.voices) => check({ kit: { ...base, voices } });
+  expect(() => checkVoices(voices.slice(0, 32))).not.toThrow();
+  expect(() => checkVoices(voices)).toThrow('32 voices');
+  expect(() => checkVoices([{ ...voice, chain: Array(65).fill(voice.chain[0]) }])).toThrow(
+    '64 controls',
+  );
+
+  const parameters = (count: number, value: string) =>
+    Object.fromEntries(Array.from({ length: count }, (_, i) => [`p${i}`, value]));
+  const defs = (count: number, definition: typeof base) =>
+    Object.fromEntries(Array.from({ length: count }, (_, i) => [`i${i}`, definition]));
+  expect(() => check(defs(129, base))).toThrow('128 instruments');
+  expect(() => check({ kit: { ...base, parameters: parameters(65, 'x') } })).toThrow(
+    '64 parameters',
+  );
+  const maxString = '🎵'.repeat(256);
+  expect(() => check({ kit: { ...base, parameters: { text: maxString + 'x' } } })).toThrow(
+    "invalid parameter 'text'",
+  );
+  const large = { ...base, parameters: parameters(63, maxString) };
+  expect(() => check(defs(32, large))).not.toThrow();
+  expect(() => check(defs(33, large))).toThrow('snapshot exceeds size limit');
+  expect(() => check({ kit: { ...base, parameters: parameters(64, maxString) } })).toThrow(
+    'size limit',
+  );
 });

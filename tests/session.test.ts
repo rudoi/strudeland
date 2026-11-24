@@ -3341,6 +3341,11 @@ describe('evaluateBuffer', () => {
     });
     expect(h.rt.options).toHaveLength(2);
 
+    h.fake.instrumentSnapshots.set('/p', 'lead.json: incomplete definition');
+    h.fake.emit({ instruments: true });
+    await flush();
+    expect(h.st().error).toBe('reading instruments failed: lead.json: incomplete definition');
+
     const updated = leadPin(0.7);
     h.fake.instrumentSnapshots.set('/p', updated);
     h.fake.emit({ instruments: true });
@@ -3348,6 +3353,7 @@ describe('evaluateBuffer', () => {
     expect(await h.session.evaluateBuffer(PA)).toMatchObject({ ok: true });
     expect(h.rt.options.at(-1)?.instruments).toEqual(updated);
     expect(h.rt.options[0]?.instruments).toEqual(initial);
+    expect(h.st().error).toBeNull();
   });
 
   test('autostart false with a meta error evaluates nothing', async () => {
