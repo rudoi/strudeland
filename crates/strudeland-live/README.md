@@ -150,8 +150,10 @@ through the fake, `tests/rt_alloc.rs` through an output of its own, and `tests/d
 (`dropout_short`, 3 s) plays the synthetic job (`tests/data/live-pressure.job.json`) through the
 real-time fake at 48 kHz under load. By hand:
 
-- `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture`: the full
-  dropout test (30 s, every core but one busy); run it on a quiet machine.
+- `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture --test-threads=1`:
+  the full dropout test (30 s with every core but one busy) and the long-reverb test at 48 kHz (36 s).
+  Run them on a quiet machine. The long-reverb test verifies a callback's worth of minimum
+  buffer fill and the wet output of every synthetic orbit after the IR histories have filled.
 - `cargo test --release -p strudeland-live --test ipc_decode -- --ignored --nocapture`: the batch
   decode benchmark.
 
