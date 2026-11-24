@@ -1,5 +1,8 @@
 # Instrument browser and tools
 
+Implemented and verified for [PR #22](https://github.com/rudoi/strudeland/pull/22).
+See the [delivery record](implementation.md).
+
 ## Goal
 
 Let someone find a reusable preset or kit, hear its sound, and apply it to a song that

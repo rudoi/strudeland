@@ -1,17 +1,14 @@
-# Instrument browser execution
+# Instrument browser execution record
 
-Work on `llm/andrew/strudeland/0024-instrument-browser`. Follow the [proposal](proposal.md),
-[storage and preview](storage-and-preview.md), [browser and editor](browser-and-editor.md),
-and [automation](automation.md). Keep these design records and the [comparison](loss-check.md).
+The task branch was `llm/andrew/strudeland/0024-instrument-browser`.
+The [proposal](proposal.md) and [design comparison](loss-check.md) record the agreed scope.
 
-| Stage | Work and dependencies | Validation |
+| Stage | Retained contract | Validation |
 |---|---|---|
-| 1 | [Store and native preview](001-storage.md) | Real preset and kit audio, scoped storage and stale version tests |
-| 2 | [Editor and RPC](002-editor.md) | Parser ranges and session edits, protocol parity |
-| 3 | [Browser](003-browser.md) uses stages 1 and 2 | Fake-audio lifecycle, desktop capture |
-| 4 | [CLI and MCP](004-automation.md) use stages 1 and 2 | CLI behavior and subprocess discovery and calls |
+| Store and native preview | [Storage and preview](storage-and-preview.md) | Preset and kit audio, scoped storage, stale versions |
+| Editor and control socket | [Browser and editor](browser-and-editor.md) | Selection, session edits, protocol parity |
+| Desktop browser | [Browser and editor](browser-and-editor.md) | Preview lifecycle, keyboard use, native capture |
+| CLI and MCP | [Automation](automation.md) | CLI tests and subprocess tool calls |
 
-The stages can implement disjoint files in parallel against the defined interfaces.
-Run one Cargo command at a time. Run the full canonical frontend and Rust validation
-and the desktop and MCP smoke checks when integrated. Stop at the PR review gate.
-Remove only the four numbered execution files during finalization.
+The [delivery record](implementation.md) covers implementation, review, and validation.
+The four temporary stage files were removed during finalization.
