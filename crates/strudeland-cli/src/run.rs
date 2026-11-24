@@ -1987,7 +1987,7 @@ mod tests {
         let human = go(&args, &mut transport, IO);
         assert_eq!(
             (human.code, human.out()),
-            (0, "applied lead to songs/main.js [8..48)\n")
+            (0, "applied lead to songs/main.js [8, 48)\n")
         );
         let mut expected =
             json!({"root":project.root(),"id":"lead","from":8,"to":18,"expect":source});

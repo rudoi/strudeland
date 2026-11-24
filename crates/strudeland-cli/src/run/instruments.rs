@@ -163,7 +163,7 @@ pub(super) fn run_instrument(
                 expect: read_utf8_file(expect_file, "expected buffer")?,
             })?;
             let human = format!(
-                "applied {id} to {} [{}..{})\n",
+                "applied {id} to {} [{}, {})\n",
                 result.song, result.from, result.to
             );
             return Ok(emit(env, json, &json!(result), stdout_only(human)));
