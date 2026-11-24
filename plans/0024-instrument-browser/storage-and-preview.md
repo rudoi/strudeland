@@ -22,3 +22,7 @@ The [proposal](proposal.md) defines the product scope. The
 
 See the [browser and editor contract](browser-and-editor.md) for audio delivery and
 [automation](automation.md) for the CLI surface.
+
+The native definition result is the schema-1 instrument itself. The native write result
+is the resulting `InstrumentEntry`. Both list endpoints return `InstrumentEntry[]`.
+The native layer passes a captured definition to render without a second store lookup.

@@ -16,3 +16,9 @@ See the [storage and preview contract](storage-and-preview.md) for creation and 
   tools with the same instrument store and control socket operations. Validate
   discovery and calls using a subprocess. Keep diagnostic output on stderr.
 - Update the embedded CLI skill for the commands, flags, results and exit behavior.
+
+Create and list are offline. Apply checks the open app's project root and requires an
+active song; an optional song argument asserts its existing project-relative path.
+The CLI reads the expected buffer from the supplied file. MCP passes expected source
+text and a structured definition directly. Project locator and validation errors supply
+the same message on both transports.

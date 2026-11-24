@@ -22,3 +22,9 @@ See the [proposal](proposal.md) and [native commands](storage-and-preview.md).
   evaluation is part of this editor operation.
 - Verify editor transaction, keyboard use, error recovery, and desktop layout with a
   capture. Use a fake graph for lifecycle tests.
+
+Project commands receive the captured root from the session. The browser can reuse the
+existing `InstrumentSnapshot[string]` type in `src/lib/strudel/instruments.ts`. The
+live app owns preview audio so it can stop it synchronously from transport hooks, and
+the modal owns the request lifecycle and visible state. The preview audio result
+uses the existing WAV decoder. Return focus to the editor after a successful Apply.
