@@ -20,7 +20,7 @@ const LOCK_FILE: &str = ".strudeland.lock";
 const MAX_FILE: usize = 64 * 1024;
 const MAX_SNAPSHOT: usize = 2 * 1024 * 1024;
 const MAX_STRING: usize = 1024;
-const CONTROLS: LazyLock<Vec<&str>> = LazyLock::new(|| {
+static CONTROLS: LazyLock<Vec<&str>> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../instrument-controls.json"))
         .expect("instrument controls JSON")
 });
@@ -602,7 +602,10 @@ mod tests {
         write_def(&library, "lead", definition(1200));
         let first = project.pin_instrument(&library, "lead").unwrap();
         let first_snapshot = project.instrument_snapshot().unwrap();
-        assert_eq!(library.entries().unwrap(), [first.clone()]);
+        assert_eq!(
+            library.entries().unwrap().as_slice(),
+            std::slice::from_ref(&first)
+        );
         assert_eq!(first.fingerprint.len(), 64);
         assert!(
             project
@@ -621,7 +624,10 @@ mod tests {
                 .update_instrument(&library, "lead", &second.fingerprint)
                 .is_err()
         );
-        assert_eq!(project.instrument_entries().unwrap(), [first.clone()]);
+        assert_eq!(
+            project.instrument_entries().unwrap().as_slice(),
+            std::slice::from_ref(&first)
+        );
         assert_eq!(
             project
                 .update_instrument(&library, "lead", &first.fingerprint)
