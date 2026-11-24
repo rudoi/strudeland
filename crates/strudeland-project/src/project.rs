@@ -59,7 +59,12 @@ pub struct Project {
 
 /// An exclusively created render directory that must stay in place through publication.
 #[derive(Debug)]
-pub struct RenderSet {
+pub struct RenderSet(ScopedDirectory);
+
+/// A directory held open while publishing files relative to its identity.
+#[derive(Debug)]
+pub(crate) struct ScopedDirectory {
+    moved_error: &'static str,
     path: PathBuf,
     canonical: PathBuf,
     identity: same_file::Handle,
@@ -67,17 +72,37 @@ pub struct RenderSet {
 
 impl RenderSet {
     pub fn reserve(path: &Path) -> Result<Self, ProjectError> {
+        fs::create_dir(path).map_err(|e| ProjectError::io(path, e))?;
+        Ok(Self(ScopedDirectory::open(
+            path,
+            "the reserved render directory changed",
+        )?))
+    }
+
+    pub fn check_current(&self) -> Result<(), ProjectError> {
+        self.0.check_current()
+    }
+
+    /// Publishes a complete file and refuses an occupied name or a moved set directory.
+    pub fn create_file(&self, name: &str, bytes: &[u8]) -> Result<(), ProjectError> {
+        self.0.publish(name, bytes, false)
+    }
+}
+
+impl ScopedDirectory {
+    pub(crate) fn open(path: &Path, moved_error: &'static str) -> Result<Self, ProjectError> {
         let open = || -> io::Result<Self> {
-            fs::create_dir(path)?;
             let canonical = path.canonicalize()?;
-            let identity = open_render_set(path)?;
-            if !identity.as_file().metadata()?.is_dir() {
+            let identity = open_scoped_dir(path)?;
+            let meta = identity.as_file().metadata()?;
+            if !meta.is_dir() || redirects(&meta) {
                 return Err(io::Error::new(
                     io::ErrorKind::NotADirectory,
                     "not a directory",
                 ));
             }
             Ok(Self {
+                moved_error,
                 path: path.to_owned(),
                 canonical,
                 identity,
@@ -86,22 +111,39 @@ impl RenderSet {
         open().map_err(|e| ProjectError::io(path, e))
     }
 
+    pub(crate) fn canonical_path(&self) -> &Path {
+        &self.canonical
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn file(&self) -> &fs::File {
+        self.identity.as_file()
+    }
+
     fn check_identity(&self) -> io::Result<()> {
         if self.path.canonicalize()? != self.canonical
             || same_file::Handle::from_path(&self.path)? != self.identity
         {
-            return Err(io::Error::other("the reserved render directory changed"));
+            return Err(io::Error::other(self.moved_error));
         }
         Ok(())
     }
 
-    pub fn check_current(&self) -> Result<(), ProjectError> {
+    pub(crate) fn check_current(&self) -> Result<(), ProjectError> {
         self.check_identity()
             .map_err(|e| ProjectError::io(&self.path, e))
     }
 
-    /// Publishes a complete file and refuses an occupied name or a moved set directory.
-    pub fn create_file(&self, name: &str, bytes: &[u8]) -> Result<(), ProjectError> {
+    pub(crate) fn publish(
+        &self,
+        name: &str,
+        bytes: &[u8],
+        replace: bool,
+    ) -> Result<(), ProjectError> {
         let path = self.path.join(name);
         if !windows_file_name(name) || path.parent() != Some(self.path.as_path()) {
             return Err(ProjectError::PathOutsideProject(path.display().to_string()));
@@ -109,12 +151,16 @@ impl RenderSet {
         self.check_current()?;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let result = self
-            .write_at(name, |file| file.write_all(bytes))
+            .write_at(name, replace, |file| file.write_all(bytes))
             .map_err(|e| ProjectError::io(&path, e));
         #[cfg(windows)]
         let result = write_and_publish(&self.canonical.join(name), bytes, |from, to| {
             self.check_identity()?;
-            move_noreplace(from, to)
+            if replace {
+                fs::rename(from, to)
+            } else {
+                move_noreplace(from, to)
+            }
         })
         .map_err(|error| match error {
             ProjectError::Io { source, .. } => ProjectError::io(&path, source),
@@ -135,6 +181,7 @@ impl RenderSet {
     fn write_at(
         &self,
         name: &str,
+        replace: bool,
         write: impl FnOnce(&mut fs::File) -> io::Result<()>,
     ) -> io::Result<()> {
         use rustix::fs::{AtFlags, Mode, OFlags, RenameFlags, openat, renameat_with, unlinkat};
@@ -158,7 +205,11 @@ impl RenderSet {
             write(&mut file)?;
             drop(file);
             self.check_identity()?;
-            renameat_with(dir, temporary.as_str(), dir, name, RenameFlags::NOREPLACE)?;
+            if replace {
+                rustix::fs::renameat(dir, temporary.as_str(), dir, name)?;
+            } else {
+                renameat_with(dir, temporary.as_str(), dir, name, RenameFlags::NOREPLACE)?;
+            }
             Ok(())
         })();
         if result.is_err() {
@@ -168,23 +219,34 @@ impl RenderSet {
     }
 }
 
-#[cfg(unix)]
-fn open_render_set(path: &Path) -> io::Result<same_file::Handle> {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn open_scoped_dir(path: &Path) -> io::Result<same_file::Handle> {
+    use rustix::fs::{Mode, OFlags, open};
+    let fd = open(
+        path,
+        OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    same_file::Handle::from_file(fd.into())
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn open_scoped_dir(path: &Path) -> io::Result<same_file::Handle> {
     same_file::Handle::from_path(path)
 }
 
 #[cfg(windows)]
-fn open_render_set(path: &Path) -> io::Result<same_file::Handle> {
+fn open_scoped_dir(path: &Path) -> io::Result<same_file::Handle> {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
 
     // Keep the directory in place until the set is complete. Windows requires
     // delete sharing to rename or remove a directory with an open handle.
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .open(path)?;
     same_file::Handle::from_file(file)
@@ -350,7 +412,7 @@ impl Project {
         write_new(&root.join(MANIFEST_FILE), &json)?;
         write_new(
             &root.join(".gitignore"),
-            "renders/\n/recordings/*\n!/recordings/.gitkeep\n",
+            "renders/\n/recordings/*\n!/recordings/.gitkeep\n/instruments/.strudeland.lock\n",
         )?;
         for sub in [SONGS_DIR, "instruments", "recordings", "renders"] {
             let path = root.join(sub);
@@ -464,7 +526,7 @@ impl Project {
         }
         check_dir(&dir, RENDERS_DIR, name)?;
         let set = RenderSet::reserve(path)?;
-        if set.canonical != path {
+        if set.0.canonical != path {
             return Err(ProjectError::PathOutsideProject(path.display().to_string()));
         }
         Ok(set)
@@ -845,7 +907,7 @@ pub(crate) fn is_valid_stem(stem: &str) -> bool {
 }
 
 /// Windows recognizes the basename as a device even when followed by an extension.
-fn device_basename(name: &str) -> bool {
+pub(crate) fn device_basename(name: &str) -> bool {
     let base = name
         .split('.')
         .next()
@@ -1052,7 +1114,7 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(root.join(".gitignore")).unwrap(),
-            "renders/\n/recordings/*\n!/recordings/.gitkeep\n"
+            "renders/\n/recordings/*\n!/recordings/.gitkeep\n/instruments/.strudeland.lock\n"
         );
         assert_eq!(fs::read(root.join("instruments/.gitkeep")).unwrap(), b"");
         assert_eq!(fs::read(root.join("recordings/.gitkeep")).unwrap(), b"");
@@ -2372,7 +2434,7 @@ mod tests {
         let set = project.render_set_path("song-stems").unwrap();
         let moved = set.with_file_name("moved");
         let reservation = project.create_render_set(&set).unwrap();
-        let result = reservation.write_at("mix.wav", |file| {
+        let result = reservation.0.write_at("mix.wav", false, |file| {
             file.write_all(b"float data")?;
             let temporary = fs::read_dir(&set)?.next().unwrap()?.file_name();
             fs::rename(&set, &moved)?;

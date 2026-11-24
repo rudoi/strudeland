@@ -23,6 +23,8 @@ pub enum ProjectError {
     SongNotFound(String),
     #[error("path {0:?} is outside the project's songs folder")]
     PathOutsideProject(String),
+    #[error("instrument {id:?}: {reason}")]
+    Instrument { id: String, reason: String },
     #[error("invalid render name {0:?}")]
     InvalidRenderName(String),
     #[error("invalid memo name {0:?} (use letters, digits, space, - and _; 1 to 64 characters)")]

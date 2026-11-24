@@ -8,6 +8,8 @@ rust-version = "1.94"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
+dirs = "7.0.0"
+sha2 = "0.10.9"
 file-id = "0.2.3"
 same-file = "1.0.6"
 thiserror = "2.0.21"
