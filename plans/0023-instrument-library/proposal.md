@@ -15,7 +15,7 @@ MCP tools (#24) depend on this work.
 - Define and document an editable library for one user across projects. Support single-voice
   sound chains, parameter defaults and overrides, and layered kits with named voices.
 - Provide explicit commands to list library entries, pin selected entries to a project,
-  inspect its pins, and update a selected pin. Confirm a replacement through an explicit
+  inspect its pins, and update a selected pin. Require the current pin fingerprint on an explicit
   update command. Report missing entries, malformed definitions, and invalid options with
   the relevant instrument and parameter names.
 - Load project pins for editor playback and queries, desktop audio and stems export, and
@@ -35,8 +35,8 @@ pins portable and prevents a kit from changing when a separate library entry cha
 `crates/strudeland-project/src/project.rs` already creates an `instruments/` directory.
 Extend that crate to resolve it, read a validated snapshot, and write pins using its
 project-path and atomic-write conventions. Treat a missing directory in an older project
-as empty. Use an app-owned data directory for the global library, with the desktop and
-CLI resolving the same location. Validate identifiers, schema version, payload size and
+as empty. Use the per-user data directory and the bundle identifier
+for the global library. Validate identifiers, schema version, payload size and
 path containment. Reject symlink escapes and ambiguous names on case-insensitive filesystems.
 Use one file per pin so replacing one entry needs a single atomic write. Detect competing
 writes, and leave the prior pin intact on validation or write failure.
@@ -111,11 +111,13 @@ case rules, and atomic writes on macOS, Windows, and Linux.
 This is a large change spanning storage, CLI, editor runtime, and render planning. Keep
 Fracture, Singletonize, and Loss Check.
 
-## Open questions for refinement
+## Refinement decisions
 
-- Is a declarative, manually editable format sufficient for the first release, or does
-  the library need author-defined Strudel functions beyond parameterized controls?
-- Is the song-local `lead({ cutoff })` binding sufficient, or should the first release
-  expose each instrument as a named Pattern method such as `.lead(...)`?
-- Should this stage provide a basic desktop pin/update action, or should those commands
-  be CLI-only until the browser in #24?
+- Use a manually editable JSON format. Presets accept literal controls and scalar parameter
+  references. Kit voices layer the input notes or rhythm. Built-in Strudel control ordering
+  still applies. Files contain data only.
+- Use the song-local `lead({ cutoff })` binding through `.apply()`. The fixed prebake
+  registration applies the compiled transform. Project-defined method names on
+  `Pattern.prototype` are outside this release.
+- Provide offline CLI commands for library and pin management. Watch pin files from the
+  desktop so a CLI update is available on the next evaluation. The browser remains #24.
