@@ -2,14 +2,30 @@
 
 ## Goal
 
-Place the caret inside pitched material and start editing from the piano roll while stopped. Work with a note pattern at its use or shared definition, and move through a multi-bar grid without copying it into a different notation. When editing is unavailable, explain the reason and offer a source action that fits the pattern.
+Open the piano roll and place the caret inside pitched material to work with it immediately.
+Every note the roll presents accepts a drag. Moving a note previews the result during the drag and
+updates the song source in the editor as soon as the gesture finishes. The editor scrolls to the
+change and the affected notes visibly acknowledge the edit.
 
 ## Scope
 
-- Infer Expression targets from a single caret. Keep an explicit selection as the override. Keep the persistent toggle, fitted pitch range, auditioning, shared-use display, and the In song view from [the original roll](../0109-meter-aware-piano-roll/proposal.md).
-- Use Luoyuan’s eight-bar flute grid as the acceptance case for authored arrays. Open on the row under the caret, provide access to all eight bars, and show continued notes in any row they overlap. Support pitch and row-local rhythm edits to the extent each gesture can be written safely. Prove at least one representative edit through the actual consumer.
-- Give existing mini notation and immutable aliases a fast source path. Inspect transformations and generated expressions through the bounded headless host. Explain the specific constraint or missing context when source editing is unavailable.
-- Provide a reusable way to author editable grids and prototype an explicit **Make editable** preview for compatible patterns. Preserve source until confirmation. Keep arbitrary generated-pattern flattening, velocity and pitch-envelope editing, and general cross-bar gestures outside this pass. Cross-bar gestures are tracked in Keitora #110.
+- Follow one caret while stopped or playing, with explicit selection as an override. Keep the
+  existing toggle, fitted pitch range, auditioning, and Expression and In song views from
+  [the original roll](../0109-meter-aware-piano-roll/proposal.md).
+- Every visible pitched note supports pitch and onset drags in either view. Preserve resize, add
+  and delete for the existing simple phrases and expand them wherever the new write path supports
+  the operation. The interaction is the same for authored, reused, transformed, and generated notes.
+- Prefer a localized edit to the original notation when it can express the requested change in its
+  intended scope. When that fails, write an explicit note edit into the song script around the
+  relevant pattern or arrangement. The first drag does this automatically in one undo step.
+- Use Luoyuan’s eight-bar grid as the direct-edit acceptance case. Focus the row under the caret,
+  keep neighboring bars accessible, and show notes that continue across rows. Keep the verified
+  glide behavior and retained suffix text when editing the original grid.
+- Ship no new automatic save or transport restart behavior. A successful drag changes the buffer
+  immediately and remains audible through the existing audition feature where it is enabled.
+  Playback adopts the changes through the existing Re-evaluate flow. General direct cross-bar
+  serialization is tracked in Keitora #110. A cross-bar drag that requires the fallback still
+  commits in this task.
 
 ## Evidence from Luoyuan
 
@@ -26,49 +42,141 @@ The existing host query over the intro returned ten orbit-12 sine onsets. The op
 
 A pitch change can therefore intentionally change the current or next gliding note’s bend even when the other note’s pitch, duration, and source text stay fixed. The test oracle must verify that coupled effect. A hold at the start of bar 8 may belong to the D5 onset in bar 7.
 
+A read-only probe against a temporary copy retuned the opening A5 to B5. The orbit-12 sine and noise events changed pitch at the same onset. The next gliding G5's bend changed from −2 to −4 semitones at the same onset and duration. The other queried events matched as a multiset between these paired runs.
+
 ## Architecture
 
-Keep source resolution, musical projection, and application of code edits as separate steps.
-
-1. **Editor context.** Extend [`pianoRollSnapshot`](../../src/lib/project/session.ts) to distinguish a caret, an explicit range, and unsupported multiple ranges. [`setup.ts`](../../src/lib/editor/setup.ts) already reports caret and document updates. Reuse it. Resolve the caret against editor syntax and verify ownership with the source resolver’s Acorn binding analysis. Cache source analysis by the active snapshot so cursor motion does not reparse the document or issue a new host request for the same expression.
-2. **Source target.** Extend [`resolveRollTarget`](../../src/lib/piano-roll/source.ts) to return a stable target identity and typed source capabilities. Resolve a pitch-bearing value to its smallest meaningful expression. Follow known immutable uses to their definitions with existing scope and affected-use analysis. For grids, retain grid identity, focused row, definition/use and exact source spans. Keep the occurrence that determines the meter separate from the authored grid identity.
-3. **Projection and edit planning.** Retain the [mini-notation phrase codec](../../src/lib/piano-roll/phrase.ts). Give an identified grid consumer a local codec that decodes all rows into exact intervals and can plan local token edits. Both codecs return patches through the existing source validation and [`editPianoRoll`](../../src/lib/project/session.ts) transaction. The roll uses their declared capabilities to enable individual gestures.
-4. **Fallback and authoring.** [`PianoRoll.svelte`](../../src/components/PianoRoll.svelte) uses authored notes when available. It keeps [bounded host inspection](../../src/lib/piano-roll/inspection.ts) for evaluated expressions and the song view. The dock maps reason codes to an appropriate action, such as inspecting the expression, opening the shared definition, navigating to an onset, or previewing a supported source conversion.
+| Step | Contract | Existing seam |
+| --- | --- | --- |
+| Resolve | Locate the pattern, exact snapshot, authored or arranged scope, and optional source bindings | [Editor setup](../../src/lib/editor/setup.ts), [session](../../src/lib/project/session.ts), [source resolver](../../src/lib/piano-roll/source.ts) |
+| Project | Return notes with exact logical spans and sufficient identity to select an edit. Preserve the written bar and meter anchor. | [Mini phrase codec](../../src/lib/piano-roll/phrase.ts), [host inspection](../../src/host/inspection.ts), [meter geometry](../../src/lib/piano-roll/grid.ts) |
+| Plan | Given one completed gesture, return checked source patches, the spans to reveal, and the identities and positions of affected roll notes. Prefer direct notation, then use the saved event edit. | [Source planner](../../src/lib/piano-roll/source.ts) and a shared event-edit operation to design |
+| Commit | Apply the plan to the same song and revision as a single CodeMirror transaction, map the caret, reveal the changed text, and return the result used for visual feedback | [Project session](../../src/lib/project/session.ts) and [editor visuals](../../src/lib/editor/visuals.ts) |
+| Reconcile | Render the new note immediately, then reconcile it with source projection or refreshed inspection while retaining focus and feedback | [Piano roll](../../src/components/PianoRoll.svelte), [grid gestures](../../src/components/PianoRollGrid.svelte), [inspection queue](../../src/lib/piano-roll/inspection.ts) |
 
 ## Technical design
 
-### Caret inference and dock state
+### Caret inference and target stability
 
-Keep the existing strict explicit-selection resolver for complete expressions and pitch atom ranges. Caret candidates include pitched literals, known pitched constructors and safe receiver chains, immutable declarations and references, and rows owned by a verified grid. Use lexical ownership to exclude gain, pitch-envelope and other effect arguments, object keys, and comments. Allow intra-pattern whitespace and closing delimiters when the caret still belongs to an unambiguous value. Clear the target on an unrelated line. An incomplete edit may retain the last pane context for orientation, with its write actions disabled until the current source can be resolved.
+Distinguish a single caret, explicit range, and multiple ranges in the snapshot. Use the existing
+editor listener and cached syntax analysis so intra-pattern caret motion can retain the target,
+scroll, mode, meter anchor, and inspection result. Keep exact explicit-selection resolution
+first. Infer unambiguous pitched literals, recognized array rows, constructors, receiver chains,
+and lexical aliases. Ignore unrelated automation arguments, comments, property keys, and blank
+lines. Keep the last context briefly during incomplete edits and invalidate pending gestures as soon
+as the document or edit scope changes.
 
-Currently the dock keys its page, anchor, and shared-definition view to a selection revision that changes with caret movement. Key those by project, song, and resolved target or occurrence. Keep the exact document and selection/target checks for committing a gesture. Snapshots from another song or old source must be rejected, and a change of active target cancels a pending gesture. CodeMirror edit transactions should map a caret as a caret and keep explicit ranges selected where possible. A roll edit should undo in one step. Crossing into another grid row updates the focused row without discarding the song anchor.
+The source/occurrence anchor is separate from editor scroll and selection revision. Scrolling the
+editor to reveal an edit should leave focus where the user is working and keep the viewed pattern
+and bar visible in the roll. A song switch, a different target, or a conflicting document mutation
+cancels a pending gesture. Dock collapse suspends inspection and cancels pending feedback.
 
-### Grid identification and write-back
+### Direct edits and scope
 
-Prototype a deliberately narrow syntax-and-binding match for the observed Luoyuan pipeline, with a parity test before enabling write-back. Check the complete chain that defines timing, rests, and glides, including local shadowing of builtins, immutable aliases, mutations, and unknown consumers. If the proof becomes brittle, use an explicit previewable adoption of a built-in grid helper with equivalent behavior. Support both a direct path for confirmed legacy code and a documented helper only when their behavior can be verified against the same oracle. A quoted array that happens to contain pitch-like words stays view-only until its consumer is established.
+Try the original notation first when the caret or explicit selection is in the authored definition
+or the user is editing a phrase expression whose effects are within scope. Resolve shared uses
+using the current binding analysis. A drag at a particular use or arrangement occurrence should
+default to that use or occurrence if a definition change would affect other music. A drag while
+viewing the actual definition changes its shared notes, with affected uses visible. Preserve an
+explicit route from a use to its definition. Neither route inserts a confirmation between the drag
+and its result.
 
-Decode one slot as 1/16 of a cycle for the observed pipeline. Use exact fractions and the existing [meter geometry](../../src/lib/piano-roll/grid.ts) and [song structure](../../src/lib/strudel/structure.ts). Anchor written bar labels and meters to a known song occurrence, with the existing preview meter and occurrence chooser as fallbacks. Keep slot snapping independent of visual beat grouping. Clip long notes for display but retain their actual onset, end, and source origin. A row-leading continuation links to the onset row.
+For grids, prove the Luoyuan interpretation using a narrowly recognized consumer and synthesize
+tests with the same semantics. Keep a built-in construction as the documented authoring route if
+a recognizer cannot prove equivalent legacy code. Map a retune to the pitch token. Map rhythm
+gestures to a fixed number of cells while preserving quotes, comments, glide suffixes, unaffected
+cells, and sister rows. Use the existing integer logical-cycle bars and exact fractions for
+timing. Draw cross-row holds from their originating token. Validate complete event effects,
+including the glide dependency on the previous onset. If a note edit is outside the direct
+codec’s range, try the event-edit route in the same gesture.
 
-For a retune, replace only the pitch characters and keep the glide text. For rhythm gestures, serialize a fixed number of cells and check that the rebuilt grid yields the requested event plus expected glide dependencies. Retain quotes, comments, delimiter whitespace, sibling rows, and unaffected tokens. When an edit would disturb another onset, extend across a row boundary, or change a duration that cannot be represented on the source lattice, surface the specific restriction. Reject changed array structure, escaped or computed rows outside the proven format, and unexpected changes in consumer behavior. An audition previews pitch using the existing voice/fallback path. The scheduled glide remains the song consumer’s responsibility.
+### Source-backed edits for generated and arranged notes
 
-### Explainable inspection and conversion
+Design a standard operation that wraps the relevant pattern and carries a compact, editable list
+of note edits in the script. The first drag can add the wrapper and its first entry together.
+Further gestures update an existing entry when they refer to the same edited note. Leave the
+original expression in place and evaluate it normally. Attach edits at or after the transforms
+that produced the displayed notes, so the gesture applies in the same musical coordinates shown
+to the user. The operation should be available in the desktop, browser, offline render and
+headless host from the same implementation. The review should verify pattern method metadata,
+painter behavior, source locations and runtime scope registration.
 
-Differentiate unresolved targets, recognized view-only expressions, missing inspection approval or runtime support, and edit limitations on otherwise writable notes. Offer fast local projection when syntax establishes pitches and time. Preserve the existing opt-in for inspecting unevaluated source and the host’s request bounds and stale-result handling. Runtime onsets alone do not establish a writable source origin.
+- In Expression, wrap the smallest expression that produced the inspected note. Use a
+  pattern-local scope, with a finite written window when the expression has no known period.
+  In In song, prefer a section or voice value whose timing matches the displayed event. Fall back
+  to a final-output edit keyed to the written song occurrence when the note has no trustworthy
+  contributor. Resolve occurrence through the song layout so repeated transport segments and
+  exports agree on which written note was changed. Free-running patterns use a declared logical
+  cycle.
+- A source contributor or host note index alone cannot identify an evaluated note. Use the
+  original whole span, pitch representation, voice, available contributor data and a validated
+  discriminator for duplicate haps. Establish identity in an onset-aligned probe and test that
+  it agrees across fragmented queries and repeated occurrences. A stochastic edit needs a
+  defined retry policy under fresh seeds and controls. Prototype an occurrence-scoped captured
+  event when live matching cannot preserve the demonstrated result. Its replacement scope and
+  reproducible controls must be explicit in the written source. A first-drag fallback must
+  neither change other voices nor silently guess which duplicate event to replace.
+- Filter the original event where it overlaps the query. Query its origin when the edited span
+  intersects a destination window that would otherwise never see it, then intersect the
+  replacement with the requested window. Preserve controls, callbacks and source provenance
+  when moving pitch and time. Test `note`, `freq`, numeric expression pitches, stateful or
+  continuous output, and overlapping voices. Represent fragmentary observations as explicit
+  editable occurrences when the original does not carry a discrete whole span. Verify whether
+  duration and clip controls require a separate representation to keep the visual and audible
+  lengths in sync.
+- Compile and validate the operation before notes become interactive. Prepare the necessary
+  identity and bounded data during inspection, so pointer release can update the editor without
+  round-tripping through a second evaluation. A replacement must remain understandable after
+  save, reopen, format, and re-evaluation. If prototype coverage exposes a class that cannot meet
+  this contract, bring that class back to refinement and document the product choice before
+  requesting implementation approval.
 
-Start the conversion prototype with a finite, deterministic pitched pattern for which the candidate matches exact queried events and relevant control values. Show the proposed text, affected uses, and any deliberate control changes before accepting. Recheck the document and target at confirmation and apply in one undoable transaction. Retain the current voice chain and section attachment where supported. Offer a documented editable construction when the conversion cannot establish parity. Keep generated output inspectable.
+### Reveal and feedback
+
+Use the grid’s existing pointer capture, live drag preview, and release handler. Keep release
+atomic with one undo step for all changed notes and source ranges. Scroll the editor to the
+resulting token, row, or event-edit entry in that transaction, centering an off-screen change
+without moving focus out of the roll. For several changed spans, reveal the primary one and mark
+the others where they are visible. Map feedback ranges through the committed changes.
+
+Add a short outline pulse to the edited note or notes and a corresponding editor decoration on
+the changed text. Use a static highlight with reduced motion. Clear feedback on expiration,
+target invalidation, or dock close, and ensure it remains distinct from audition and playback
+highlights. Key the visual response to the immediate edit result so it survives regenerated note
+IDs and delayed host responses. If a transaction is cancelled or rejected because the buffer
+changed, restore the current notes and explain the conflict without implying an edit succeeded.
 
 ## Dependencies and validation
 
-- Existing project session transaction and lifecycle rules, [editable phrase tests](../../tests/piano-roll-source.test.ts), [geometry tests](../../tests/piano-roll-grid.test.ts), and [host inspection tests](../../crates/strudeland-host/tests/inspection.rs). No dependency on Keitora #110.
-- Review local song forms during refinement, including Luoyuan’s authored arrays, weighted alternate rows via `note(...)`, stacked chord rows, shared voices, and rhythm-only patterns. Record a capability matrix and the first unsafe boundary for each form.
-- Exercise caret boundaries, effects and comments, nested and shadowed calls, incomplete source, alias definitions and uses, target stability, and explicit selection precedence. Verify caret-only editing while stopped and inspection deduplication.
-- Verify eight-row navigation, sustained notes across boundaries, pending gesture cancellation, exact gesture round trips, mixed meter, suffix preservation, expected glide dependencies, unchanged neighboring events, and one-step undo. Use synthetic source in the repository and query the local Luoyuan intro for acceptance.
-- If a built-in song helper ships, use the same implementation in playback and both rendering paths. Verify the render page and headless host agree, rebuild the committed host inputs and bundle when required, and compare pre/post conversion audio jobs. Run the workflow’s frontend gates and a desktop smoke covering the toggle, an actual row edit, auditioning, and undo.
+- Extend [source and phrase tests](../../tests/piano-roll-source.test.ts),
+  [geometry tests](../../tests/piano-roll-grid.test.ts),
+  [host inspection tests](../../crates/strudeland-host/tests/inspection.rs) and the project session
+  tests. Reuse the checked editor transaction and existing history isolation. Verify generated
+  edit source is formatted, reparsed and evaluated on every supported path.
+- Desktop acceptance starts with opening the dock once. Put the caret inside a mini note phrase
+  and drag. Repeat for a Luoyuan row, an alias use, a generated expression with no direct source
+  edit, and an In song event with ambiguous provenance. Every successful drag is visible in
+  source immediately, scrolls to the new text, pulses the edited note, and undoes in one step.
+  Repeat with the editor scrolled away, with keyboard note editing, and with reduced motion.
+- Query exact before/after haps for Luoyuan, including glides, noise/sine layers, holds across
+  rows, and edits unsupported by the row codec. Test overlap, repeats, mixed meter, random
+  notes, look-ahead windows, query partitioning, exact moved durations, and inverse shifts across
+  meter and section boundaries. Compare unaffected output and controls.
+- Measure caret movement and pointer release with a long song, dense overlapping events and
+  a slow inspection response. Verify cancellation and stale result handling on source changes,
+  save/reload, switching songs, and collapse. Compare playback, host query, desktop and CLI
+  rendering, and the render-page/headless job parity for the new source operation. Rebuild the
+  host bundle and its inputs if the shared runtime changes.
 
 ## Risks and open questions
 
-- The legacy parser sits inside general JavaScript. A superficial name or content match can expose edits for arrays with different timing. Refinement must establish the smallest trustworthy recognition test and determine when the app should offer conversion instead.
-- A movement that reorders onsets can change glide relationships even if every cell edit is encodable. Validate expected control dependencies and decide whether the first implementation should restrict these gestures to preserving onset order.
-- Proposed default is the row under the caret, with adjacent bar navigation and a whole-grid page view. Verify whether the desktop workflow benefits from keeping multiple adjacent rows visible by default, especially while editing a sustained note.
-- Proposed authoring route is a built-in helper if it can unify legacy conversion and new grid authoring without changing the event schedule. Refine its API after testing the legacy matcher and the conversion preview.
-- Large, cross-cutting work. Keep fracture, singletonize, loss check, and sequencing to verify the editor, source-editing, runtime parity and acceptance contracts before implementation.
+- Query-time identity across changing seeds, stateful and continuous signals, and indistinguishable
+  overlays is the central risk. Prove the deterministic and captured-occurrence routes and decide
+  how to expose stale matches after manual source changes.
+- Scope needs to be obvious when navigating shared phrases. The proposed default is to edit a
+  use where it appears, and affect all uses when working on the definition itself.
+- A local edit wrapper is a song syntax change. Prototype the source form with actual Strudel
+  transpilation and formatter coverage, including single-quoted plain strings and helper name
+  shadowing. Use exact source validity and playback/render parity as exit criteria.
+- Large cross-cutting work. Keep fracture, singletonize, loss check and sequencing. Resolve the
+  fallback matcher, occurrence scope and feedback transaction contract before building UI to them.
