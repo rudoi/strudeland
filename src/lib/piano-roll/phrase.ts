@@ -335,6 +335,23 @@ export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
   }
 }
 
+/** Locate explicitly written pitch leaves without running a variable or generated pattern. */
+export function matchesPitchSelection(input: PhraseInput, selection: SourceSpan): boolean {
+  if (input.kind !== 'mini' || input.body.length > 4096) return false;
+  try {
+    const quoted = `"${input.body}"`;
+    const origins = new Map<string, SourceSpan>();
+    collectAtoms(mini2ast(quoted), quoted, input, origins);
+    const spans = [...origins.values()];
+    return (
+      spans.some(({ from }) => from === selection.from) &&
+      spans.some(({ to }) => to === selection.to)
+    );
+  } catch {
+    return false;
+  }
+}
+
 const SHARP = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
 const FLAT = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b'];
 

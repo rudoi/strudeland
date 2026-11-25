@@ -26,6 +26,13 @@ function edit(source: string, operation: RollEdit, target = span(source, source)
 }
 
 describe('piano roll source projection', () => {
+  test('lifts a written pitch from a host-only alternating phrase', () => {
+    const source = 'note("<c4@2 d4>")';
+    expect(resolveRollTarget(source, span(source, 'd4'))).toMatchObject({
+      expression: { from: 0, to: source.length },
+    });
+    expect(resolveRollTarget(source, span(source, 'd4'))?.phrase).toBeUndefined();
+  });
   test('resolves an exact expression and complete pitch atom with UTF-16 source positions', () => {
     const source = '// 🎵\nlead: note(`  c4    e4  `).s("saw")';
     const { phrase } = editable(source, 'lead: note(`  c4    e4  `).s("saw")');

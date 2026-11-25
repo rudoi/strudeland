@@ -2,7 +2,13 @@ import { parse, type AnyNode, type Comment, type Pattern } from 'acorn';
 import { getLanguages } from '@strudel/transpiler';
 import { miniDisabledRanges } from '../editor/format-song';
 import { scriptOptions, scriptShape } from '../editor/format-script';
-import { planPhraseEdit, readPhrase, type AuthoredPhrase, type PhraseInput } from './phrase';
+import {
+  matchesPitchSelection,
+  planPhraseEdit,
+  readPhrase,
+  type AuthoredPhrase,
+  type PhraseInput,
+} from './phrase';
 import type { RollDefinition, RollEdit, RollPatch, RollTarget, RollUse, SourceSpan } from './types';
 
 type Scope = {
@@ -549,15 +555,8 @@ function selectedNode(source: string, selection: SourceSpan, script: Script): An
       continue;
     const expression = liftLiteral(script, node, source);
     if (!expression) continue;
-    const phrase = phraseAt(expression, script, source);
-    const origins = phrase?.notes
-      .map(({ origin }) => origin)
-      .filter((origin): origin is SourceSpan => origin !== undefined);
-    if (
-      origins?.some(({ from }) => from === selection.from) &&
-      origins.some(({ to }) => to === selection.to)
-    )
-      return expression;
+    const input = literal(node, script, source);
+    if (input && matchesPitchSelection(input, selection)) return expression;
   }
 }
 

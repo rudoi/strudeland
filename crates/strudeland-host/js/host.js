@@ -32386,9 +32386,10 @@ Please check with "npm ls @strudel/core".`);
         return "ok";
       }, (e) => {
         const { error, ...result } = failure(e);
+        const message = error.slice(0, MAX_INSPECTION_ERROR).replace(/[\uD800-\uDFFF]/gu, "�");
         return {
           ...result,
-          error: error.length > MAX_INSPECTION_ERROR ? error.slice(0, MAX_INSPECTION_ERROR) + "…" : error
+          error: error.length > MAX_INSPECTION_ERROR ? message + "…" : message
         };
       });
     }

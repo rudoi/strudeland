@@ -629,6 +629,14 @@ function selection(code: string, expression: string) {
   return { from, to: from + expression.length };
 }
 
+test('inspect: error clipping preserves valid Unicode in the status slot', async () => {
+  const code = "new Pattern(() => { throw new Error('a' + '🎹'.repeat(350)); })";
+  const result = await inspection(host(), code, {});
+  expect(result).toMatchObject({ ok: false, kind: 'plan' });
+  expect(result.error).toStartWith('a🎹');
+  expect(/[\uD800-\uDFFF]/u.test(result.error)).toBe(false);
+});
+
 test('inspect: capture a reused transformed expression once with exact source contributors', async () => {
   const expression = 'motif.transpose(12).s("sine")';
   const code = `// 🎹
