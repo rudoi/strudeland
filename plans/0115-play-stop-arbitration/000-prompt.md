@@ -1,7 +1,7 @@
 # 0115 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0115-play-stop-arbitration`.
-- **Proposal:** [../0115-play-stop-arbitration.md](../0115-play-stop-arbitration.md). It is the
+- **Proposal:** [proposal.md](proposal.md). It is the
   contract.
 - **Evidence:** [reverify.md](reverify.md).
 

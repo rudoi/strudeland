@@ -20,7 +20,7 @@ Everything else is unchanged, including the control wire protocol and CLI output
 
 ## Background
 
-The [re-verification](0115-play-stop-arbitration/reverify.md) has the evidence.
+The [re-verification](reverify.md) has the evidence.
 
 ### Current behaviour
 
