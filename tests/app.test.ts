@@ -13,7 +13,7 @@ const { pianoRollEditHighlight, pianoRollEditLocation } = await import('../src/l
 const { planEventEdit, preparePhraseEvents } = await import('../src/lib/piano-roll/event-source');
 const { resolvePostEditTarget } = await import('../src/lib/piano-roll/feedback');
 const { resolveRollTarget } = await import('../src/lib/piano-roll/source');
-const { get } = await import('svelte/store');
+const { get, writable } = await import('svelte/store');
 const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
 const { vimAdapter } = await import('../src/lib/editor/vim-mode');
@@ -27,6 +27,7 @@ import { entry, fakeRecordingApi } from './helpers/fake-recording-api';
 
 const MAIN = 'songs/main.js';
 const A = `const meta = { title: 'Alpha' };\n$: s("a")\n`;
+const SECTIONED = `const meta = { sections: [{ name: 'intro', bars: 2 }, { name: 'verse', bars: 2 }] };\n$: s("a")\n`;
 
 async function setup(opts: { last?: string | null; tauri?: boolean } = {}) {
   const { api, fake } = fakeProjectApi({
@@ -261,6 +262,49 @@ describe('createApp', () => {
     await tick();
     expect(saves()).toHaveLength(2);
     expect(evaluated[1]).toBe('// y\n// x\n$: s("a")\n');
+  });
+});
+
+/** The app with the song playback swapped for one that logs, playing or not. */
+function logged(app: Awaited<ReturnType<typeof setup>>['app'], started: boolean, arms = true) {
+  const calls: string[] = [];
+  (app.session as any).playback = {
+    store: writable({ started }),
+    arm: (choice: unknown) => (calls.push(`arm ${JSON.stringify(choice)}`), arms),
+  };
+  app.session.saveAndEvaluate = async () => void calls.push('evaluate');
+  return calls;
+}
+
+describe('playFrom', () => {
+  test('while stopped it arms, then evaluates in the same call', async () => {
+    const { app } = await setup();
+    const calls = logged(app, false);
+    app.playFrom({ start: 'verse' });
+    expect(calls).toEqual(['arm {"start":"verse"}', 'evaluate']);
+  });
+
+  test('while stopped a choice that does not resolve evaluates nothing', async () => {
+    const { app } = await setup();
+    const calls = logged(app, false, false);
+    app.playFrom({ loop: 'nope' });
+    expect(calls).toEqual(['arm {"loop":"nope"}']);
+  });
+
+  test('while playing it arms only', async () => {
+    const { app } = await setup();
+    const calls = logged(app, true);
+    app.playFrom({ loop: 'verse', through: 'chorus' });
+    expect(calls).toEqual(['arm {"loop":"verse","through":"chorus"}']);
+  });
+
+  test('the real song playback arms the header section, then the evaluate runs', async () => {
+    const { app, evaluated } = await setup();
+    app.session.externalEdit(MAIN, SECTIONED);
+    app.playFrom({ start: 'verse' });
+    expect(get(app.session.playback.store).transport.armed).toBe('verse');
+    await tick();
+    expect(evaluated).toEqual([SECTIONED]);
   });
 });
 
@@ -608,6 +652,30 @@ describe('recording and memos', () => {
     await flush();
     app.hooks.onEvaluate!();
     expect(calls).toEqual(['stopPlayback', 'saveAndEvaluate']);
+  });
+
+  test('a take with song backing saves the section armed through the song playback', async () => {
+    const { app, rec } = await withRecording();
+    app.runtime.resumeAudio = async () => true;
+    app.session.externalEdit(MAIN, SECTIONED);
+    app.session.playback.arm({ loop: 'verse' });
+    await app.recording!.record({ song: true, metronome: false, countIn: false });
+    expect((rec.fake.argsOf('start')[0]![0] as any).fields.backing).toMatchObject({
+      startSection: null,
+      loopSection: 'verse',
+    });
+    await app.recording!.stop();
+  });
+
+  test('during a take playFrom arms only', async () => {
+    const { app } = await withRecording();
+    await app.recording!.record({ song: false, metronome: false, countIn: false });
+    await flush();
+    expect(get(app.recording!.store).phase).toBe('recording');
+    const calls = logged(app, false);
+    app.playFrom({ start: 'verse' });
+    expect(calls).toEqual(['arm {"start":"verse"}']);
+    await app.recording!.stop();
   });
 
   test('destroy unlistens the recording events and disarms', async () => {

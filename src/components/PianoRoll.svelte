@@ -263,7 +263,7 @@
   $effect(() => rollInspection.request(request));
   $effect(() => {
     playhead = undefined;
-    if (mode !== 'song' || !matchesLive || !$transport.started) return;
+    if (mode !== 'song' || !matchesLive || !$playback.started) return;
     const arranged = Boolean($transport.structure?.sections.length);
     // The recorder's unsectioned backing can start one cycle after the transport.
     if (!arranged && takeRunning($recorder?.phase ?? null)) return;

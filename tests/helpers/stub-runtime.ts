@@ -20,7 +20,6 @@ import {
   prune,
   type Located,
   type Segment,
-  type TransportState,
 } from '../../src/lib/strudel/transport';
 
 /** What `query` answers: fixed haps (null: nothing evaluated) or a function that may throw. */
@@ -52,8 +51,6 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
   let result = true;
   let hold: Promise<void> | undefined;
   let stops = 0;
-  /** `startFrom`/`loopSection` calls as `startFrom <i>` / `loopSection <i>`, and `reset`. */
-  const transportCalls: string[] = [];
   let answer: QueryAnswer = null;
   const queries: [from: number, to: number][] = [];
   let pos: { cycle: number; located: Located | null } = { cycle: 0, located: null };
@@ -75,9 +72,6 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     },
     now: () => pos.cycle,
   });
-  /** The model's state, until `setTransport` overrides it (up to the model's next change). */
-  const transportStore = writable<TransportState>(get(model.store));
-  model.store.subscribe((s) => transportStore.set(s));
   const runtime: Runtime = {
     scheduler: {},
     drawingScheduler: {},
@@ -121,26 +115,7 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
       cycleTimes.push(cycle);
       return cycleTimeOf(cycle);
     },
-    transport: {
-      store: { subscribe: transportStore.subscribe },
-      startFrom(i, structure) {
-        transportCalls.push(`startFrom ${i}`);
-        model.startFrom(i, structure);
-      },
-      loopSection(i, structure) {
-        transportCalls.push(`loopSection ${i}`);
-        model.loopSection(i, structure);
-      },
-      loopRange(first, last, structure) {
-        transportCalls.push(`loopRange ${first} ${last}`);
-        model.loopRange(first, last, structure);
-      },
-      playEnding: () => model.playEnding(),
-      reset() {
-        transportCalls.push('reset');
-        model.reset();
-      },
-    },
+    transport: model,
     position: () => pos,
     query(from, to) {
       queries.push([from, to]);
@@ -167,8 +142,6 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     setLevels: (l: LevelHoldSnapshot | null) => void (levelSnap = l),
     /** Every `setLimiter(on)` call, in order. */
     limiterCalls: () => limiterCalls,
-    /** Every `startFrom`, `loopSection` and `reset` call, in order. */
-    transportCalls: () => transportCalls,
     setStarted: (started: boolean) => store.update((s) => ({ ...s, started })),
     /** Change runtime store fields (evalError, audio, …). */
     patch: (p: Partial<RuntimeState>) => store.update((s) => ({ ...s, ...p })),
@@ -190,7 +163,5 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     cycleTimes: () => cycleTimes,
     /** What `cycleTime` answers from now on (null by default). */
     setCycleTime: (fn: (cycle: number) => number | null) => void (cycleTimeOf = fn),
-    /** What `transport.store` holds until the transport model next changes it. */
-    setTransport: (t: TransportState) => transportStore.set(t),
   };
 }

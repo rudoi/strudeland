@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { get, writable } from 'svelte/store';
 import type { MetronomeGrid } from '../src/lib/audio/metronome';
 import { createOutputClock } from '../src/lib/audio/output-clock';
+import { createSongPlayback } from '../src/lib/project/song-playback';
 import { LEAD_S, type BackingStarter, type PrepareOutcome } from '../src/lib/recording/backing';
 import {
   COUNT_IN_TICK_MS,
@@ -83,6 +84,16 @@ function setup(
     active: opts.active === undefined ? 'songs/a.js' : opts.active,
     structure: opts.structure === undefined ? STRUCTURE : opts.structure,
   });
+  // Arms against the session's header, as the timeline does.
+  const playback = createSongPlayback({
+    runtime: rt.runtime,
+    getHeader: () => {
+      const { active, structure } = get(sessionStore);
+      return { active, structure: active === null ? null : structure, metaError: null };
+    },
+    currentGen: () => 0,
+    titleFrom: (path) => path,
+  });
   const g = fakeAudioGraph({
     currentTime: 5,
     outputTimestamp: STAMP,
@@ -132,6 +143,7 @@ function setup(
   const c = createRecordingController({
     api,
     runtime: rt.runtime,
+    playback,
     session: { store: { subscribe: sessionStore.subscribe } },
     backing: starter,
     outputClock,
@@ -154,6 +166,7 @@ function setup(
     fake,
     log,
     rt,
+    playback,
     g,
     backing,
     timers,
@@ -588,8 +601,9 @@ describe('record', () => {
 
   test('record while playing stops the song first and drops the armed section', async () => {
     const h = await armed();
-    h.rt.setStarted(true);
-    h.rt.setTransport({ view: { kind: 'loop', section: 1 }, pendingStart: true, armedSection: 1 });
+    h.rt.patch({ started: true, structure: STRUCTURE });
+    h.playback.arm({ loop: 'verse' });
+    expect(get(h.playback.store).transport.loop?.section).toBe('verse');
     await h.c.record({ song: true, metronome: false, countIn: false });
     expect(h.log.slice(0, 3)).toEqual(['resumeAudio', 'runtime.stop', 'prepareSong']);
     expect((h.fake.argsOf('start')[0]![0] as any).fields.backing).toMatchObject({
@@ -600,14 +614,14 @@ describe('record', () => {
 
   test('a section armed while stopped is saved: start here, or loop this section', async () => {
     const h = await armed();
-    h.rt.setTransport({ view: { kind: 'song' }, pendingStart: true, armedSection: 1 });
+    h.playback.arm({ start: 'verse' });
     await h.c.record({ song: true, metronome: false, countIn: false });
     expect((h.fake.argsOf('start')[0]![0] as any).fields.backing).toMatchObject({
       startSection: 'verse',
       loopSection: null,
     });
     await h.c.stop();
-    h.rt.setTransport({ view: { kind: 'loop', section: 1 }, pendingStart: true, armedSection: 1 });
+    h.playback.arm({ loop: 'verse' });
     await h.c.record({ song: true, metronome: false, countIn: false });
     expect((h.fake.argsOf('start')[1]![0] as any).fields.backing).toMatchObject({
       startSection: null,
@@ -624,11 +638,8 @@ describe('record', () => {
 
   test('an armed multi-section loop cannot be stored as one backing section', async () => {
     const h = await armed();
-    h.rt.setTransport({
-      view: { kind: 'loop', section: 0, through: 1 },
-      pendingStart: true,
-      armedSection: 0,
-    });
+    h.playback.arm({ loop: 'intro', through: 'verse' });
+    expect(get(h.playback.store).transport.armed).toBe('intro');
     await h.c.record(SONG_ON);
     expect(h.fake.argsOf('start')).toEqual([]);
     expect(h.st().error?.message).toContain('temporary section range');

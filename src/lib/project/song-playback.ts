@@ -12,7 +12,7 @@
  */
 import { derived, get, writable, type Readable } from 'svelte/store';
 import type { InstrumentSnapshot } from '../strudel/instruments';
-import type { EvaluateOptions, Runtime } from '../strudel/runtime';
+import type { EngineId, EvaluateOptions, Runtime } from '../strudel/runtime';
 import type { SongStructure } from '../strudel/structure';
 import type { View } from '../strudel/transport';
 
@@ -56,6 +56,19 @@ export interface PlaybackState {
  */
 export type ArmChoice = { start: string } | { loop: string; through?: string } | 'stopLooping';
 
+/** A section of the evaluated song to start from (or loop) when `start` starts playback. */
+export interface StartSection {
+  name: string;
+  loop: boolean;
+}
+
+/**
+ * Where `start` started the song (`T`, the context time of bar 1's downbeat, and `cps`);
+ * `missingSection` when the section is not in the evaluated song (nothing is left playing); null
+ * when it could not start.
+ */
+export type PlaybackStartResult = { T: number; cps: number } | { missingSection: string } | null;
+
 /** The active song's header as the session reads it. */
 export interface PlaybackHeader {
   active: string | null;
@@ -72,7 +85,7 @@ export interface PlaybackEvaluate {
 }
 
 export interface SongPlaybackDeps {
-  runtime: Pick<Runtime, 'store' | 'transport' | 'evaluate' | 'stop'>;
+  runtime: Pick<Runtime, 'store' | 'transport' | 'evaluate' | 'stop' | 'start' | 'cycleTime'>;
   getHeader(): PlaybackHeader;
   /** The session's project generation; an evaluate that resolves in another one is not recorded. */
   currentGen(): number;
@@ -111,11 +124,22 @@ export interface SongPlayback {
    * Arm a section by name, against the evaluated structure while playing and the active header's
    * while stopped. Nothing while the header has an error or the names do not resolve.
    * `stopLooping` while stopped drops anything armed; while playing it leaves the loop at the next
-   * bar.
+   * bar. True iff the names resolved and the runtime was asked to arm.
    */
-  arm(choice: ArmChoice): void;
+  arm(choice: ArmChoice): boolean;
   /** Leave the loop and play the ending (see `Transport.playEnding`). */
   playEnding(): void;
+  /**
+   * Start the evaluated song from cycle 0 (a playing runtime is stopped first), with `section`
+   * of the evaluated structure armed first. Synchronous up to `runtime.start`, so its resume stays
+   * inside the user gesture. A failed start disarms, unless the runtime started meanwhile.
+   * `T` is global cycle 1 with a count-in, else cycle 0.
+   */
+  start(opts: {
+    section?: StartSection | null;
+    countIn: boolean;
+    backend?: EngineId;
+  }): Promise<PlaybackStartResult>;
 }
 
 /** A choice resolved to indices in `structure`, with the names it publishes while stopped. */
@@ -256,6 +280,21 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
     return { kind: 'loop', structure, first, last, loop };
   }
 
+  /** Ask the runtime to arm `r`, and keep its names while the start is pending. */
+  function apply(r: Resolved): void {
+    const { transport } = runtime;
+    if (r.kind === 'stopLooping') transport.loopSection(null, r.structure);
+    else if (r.kind === 'start') transport.startFrom(r.index, r.structure);
+    else if (r.first === r.last) transport.loopSection(r.first, r.structure);
+    else transport.loopRange(r.first, r.last, r.structure);
+    // Names are kept only for a start the runtime now holds pending (never while playing).
+    if (r.kind !== 'stopLooping' && get(runtime.transport.store).pendingStart) {
+      armed =
+        r.kind === 'start' ? { name: r.name, loop: null } : { name: r.loop.section, loop: r.loop };
+    }
+    publish();
+  }
+
   // Recomputed when the runtime or the store moves; the header is read at call time.
   const canArm = derived(
     [runtime.store, state],
@@ -318,24 +357,46 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
 
     arm(choice) {
       const r = resolve(choice);
-      if (!r) return;
-      const { transport } = runtime;
-      if (r.kind === 'stopLooping') transport.loopSection(null, r.structure);
-      else if (r.kind === 'start') transport.startFrom(r.index, r.structure);
-      else if (r.first === r.last) transport.loopSection(r.first, r.structure);
-      else transport.loopRange(r.first, r.last, r.structure);
-      // Names are kept only for a start the runtime now holds pending (never while playing).
-      if (r.kind !== 'stopLooping' && get(runtime.transport.store).pendingStart) {
-        armed =
-          r.kind === 'start'
-            ? { name: r.name, loop: null }
-            : { name: r.loop.section, loop: r.loop };
-      }
-      publish();
+      if (!r) return false;
+      apply(r);
+      return true;
     },
 
     playEnding() {
       runtime.transport.playEnding();
+    },
+
+    async start({ section = null, countIn, backend }) {
+      // No await before `runtime.start`: its synchronous resume stays inside the user gesture.
+      if (get(runtime.store).started) runtime.stop();
+      if (section !== null) {
+        // After the stop (a stop rewinds the transport), against the evaluated structure.
+        const structure = get(runtime.store).structure;
+        const index = structure?.sections.findIndex((s) => s.name === section.name) ?? -1;
+        if (!structure || index < 0) return { missingSection: section.name };
+        const { name } = section;
+        apply(
+          section.loop
+            ? {
+                kind: 'loop',
+                structure,
+                first: index,
+                last: index,
+                loop: { section: name, names: [name] },
+              }
+            : { kind: 'start', structure, index, name },
+        );
+      }
+      if (!(await runtime.start({ countIn, backend }))) {
+        if (section !== null && !get(runtime.store).started) runtime.transport.reset();
+        return null;
+      }
+      const T = runtime.cycleTime(countIn ? 1 : 0);
+      if (T === null) {
+        runtime.stop();
+        return null;
+      }
+      return { T, cps: get(runtime.store).cps };
     },
   };
 }

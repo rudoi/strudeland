@@ -6,7 +6,6 @@ import {
   fieldValue,
   hasEnding,
   litBars,
-  matchingSectionRange,
   minorTicks,
   mixedMeterRuler,
   parseInput,
@@ -37,18 +36,6 @@ test('mixed meter places denominator-note beats and labels at written bar positi
       { bar: 2, meter: { num: 7, den: 8 } },
     ],
   });
-});
-
-test('range selection resolves against what is playing after an editor reorder', () => {
-  const layout = (...names: string[]) =>
-    buildStructure({ sections: names.map((name) => ({ name, bars: 1 })) });
-  const playable = layout('a', 'b', 'c');
-  expect(matchingSectionRange(layout('b', 'c', 'a'), playable, 0, 1)).toEqual({
-    first: 1,
-    last: 2,
-  });
-  expect(matchingSectionRange(layout('b', 'a', 'c'), playable, 0, 2)).toBeNull();
-  expect(matchingSectionRange(layout('b', 'new', 'c'), playable, 0, 2)).toBeNull();
 });
 
 const song = buildStructure({

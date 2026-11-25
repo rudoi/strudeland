@@ -28,13 +28,12 @@
   const store = session.store;
   const projectActions = createProjectActions(session);
   const newProjectFolder = projectActions.folder;
-  const rt = app.runtime.store;
   const prefs = app.prefs.store;
   const rollOpen = $derived($prefs.pianoRollOpen && $store.active !== null);
   const shortcutModifier = primaryModifier(navigator.platform);
   // The song whose audio is playing: only while the runtime runs.
   const pb = session.playback.store;
-  const playingPath = $derived($rt.started ? ($pb.evaluated?.path ?? null) : null);
+  const playingPath = $derived($pb.playing?.path ?? null);
 
   let newSongOpen = $state(false);
   let instruments = $state.raw<{

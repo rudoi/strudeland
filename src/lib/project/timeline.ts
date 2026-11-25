@@ -14,26 +14,6 @@ import {
 import type { Located } from '../strudel/transport';
 import type { MetaPath } from './meta-write';
 
-/** Resolve a visible selection against the currently playable section order. */
-export function matchingSectionRange(
-  visible: SongStructure,
-  playable: SongStructure,
-  first: number,
-  last: number,
-): { first: number; last: number } | null {
-  if (first < 0 || last >= visible.sections.length) return null;
-  const selection = visible.sections.slice(first, last + 1);
-  if (!selection.length) return null;
-  const start = playable.sections.findIndex((section) => section.name === selection[0]!.name);
-  if (
-    start < 0 ||
-    selection.some((section, i) => playable.sections[start + i]?.name !== section.name)
-  ) {
-    return null;
-  }
-  return { first: start, last: start + selection.length - 1 };
-}
-
 /** The ruler of a song with no sections. */
 export const FALLBACK_BARS = 16;
 /** The most labels the ruler shows. */

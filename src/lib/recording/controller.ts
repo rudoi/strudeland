@@ -9,6 +9,7 @@
 import { get, writable, type Readable } from 'svelte/store';
 import type { OutputClock } from '../audio/output-clock';
 import { fileStem } from '../project/session';
+import type { SongPlayback } from '../project/song-playback';
 import type { Runtime, RuntimeState } from '../strudel/runtime';
 import {
   beatsPerBar,
@@ -59,7 +60,9 @@ export interface RecordingController {
 
 export interface RecordingControllerDeps {
   api: RecordingApi;
-  runtime: Pick<Runtime, 'store' | 'stop' | 'resumeAudio' | 'transport'>;
+  runtime: Pick<Runtime, 'store' | 'stop' | 'resumeAudio'>;
+  /** The song playback: what is armed when a take starts. */
+  playback: Pick<SongPlayback, 'store'>;
   session: {
     readonly store: Readable<{
       project: { root: string } | null;
@@ -151,7 +154,7 @@ const restingPhase = (error: RecordingUiError | null): RecordingPhase =>
   error?.kind === 'deviceLost' || error?.kind === 'permissionDenied' ? 'idle' : 'armed';
 
 export function createRecordingController(deps: RecordingControllerDeps): RecordingController {
-  const { api, runtime, session, backing, outputClock, nowMs } = deps;
+  const { api, runtime, playback, session, backing, outputClock, nowMs } = deps;
   const setTimer = deps.setInterval ?? ((fn, ms) => globalThis.setInterval(fn, ms));
   const clearTimer =
     deps.clearInterval ??
@@ -343,7 +346,7 @@ export function createRecordingController(deps: RecordingControllerDeps): Record
     const countIn = choice.countIn && (song || metronome);
     const allOff = !song && !metronome;
     // 3. Read before the rewind of 2.
-    const ts = get(runtime.transport.store);
+    const { armed, loop } = get(playback.store).transport;
     const wasPlaying = get(runtime.store).started;
     const start: TakeStart = { root: ss.project.root, stem: null, abort: false, failure: null };
     take = start;
@@ -362,16 +365,15 @@ export function createRecordingController(deps: RecordingControllerDeps): Record
 
     let startSection: string | null = null;
     let loopSection: string | null = null;
-    if (song && !wasPlaying && ts.pendingStart && ts.armedSection !== null) {
-      if (ts.view.kind === 'loop' && ts.view.through !== undefined) {
+    if (song && !wasPlaying && armed !== null) {
+      if (loop?.through !== undefined) {
         return settle(start, {
           kind: 'meta',
           message: 'clear the temporary section range before recording with song backing',
         });
       }
-      const name = ss.structure?.sections[ts.armedSection]?.name ?? null;
-      if (ts.view.kind === 'loop') loopSection = name;
-      else startSection = name;
+      if (loop) loopSection = armed;
+      else startSection = armed;
     }
     const backingFields: SidecarBacking = {
       song,

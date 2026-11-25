@@ -29,8 +29,11 @@ const opts = (metaTitle?: unknown, instruments?: InstrumentSnapshot) => ({
 });
 
 /** The module alone over the stub runtime, with a header the test sets. */
-function setup(structure: SongStructure | null = layout('intro', 'verse', 'chorus')) {
-  const rt = stubRuntime();
+function setup(
+  structure: SongStructure | null = layout('intro', 'verse', 'chorus'),
+  runtimeOpts: Parameters<typeof stubRuntime>[0] = {},
+) {
+  const rt = stubRuntime(runtimeOpts);
   let header: PlaybackHeader = { active: PA, structure, metaError: null };
   let gen = 1;
   const pb = createSongPlayback({
@@ -358,6 +361,94 @@ describe('the armed section is the one the header shows', () => {
     h.pb.arm({ start: 'verse' });
     expect(await h.pb.evaluate(PA, 'broken', opts(), 1)).toBe(false);
     expect(h.tp().armed).toBe('verse');
+  });
+});
+
+describe('start', () => {
+  /** Stopped, with `a` evaluated as intro/verse/chorus and a header that differs from it. */
+  async function evaluated() {
+    const h = setup(layout('bridge'), { live: true, audio: 'running' });
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    h.rt.runtime.stop();
+    h.rt.patch({ structure: layout('intro', 'verse', 'chorus') });
+    h.rt.setCycleTime((cycle) => 10 + cycle);
+    return h;
+  }
+
+  test('arms the section of the evaluated song, then starts it in the same tick', async () => {
+    const h = await evaluated();
+    let seen: unknown = null;
+    h.rt.setStart(() => {
+      seen = { ...h.tp() };
+      return true;
+    });
+    const pending = h.pb.start({
+      section: { name: 'verse', loop: false },
+      countIn: true,
+      backend: 'superdough',
+    });
+    // No await before `runtime.start`: the resume stays inside the gesture.
+    expect(h.rt.starts()).toEqual([{ countIn: true, backend: 'superdough' }]);
+    expect(seen).toEqual({ view: { kind: 'song' }, loop: null, armed: 'verse' });
+    expect(await pending).toEqual({ T: 11, cps: 0.5 });
+    expect(h.st()).toMatchObject({ started: true, playing: { path: PA } });
+    expect(h.tp().armed).toBeNull();
+  });
+
+  test('a looped section plays as a loop, named from the evaluated song', async () => {
+    const h = await evaluated();
+    expect(await h.pb.start({ section: { name: 'chorus', loop: true }, countIn: false })).toEqual({
+      T: 10,
+      cps: 0.5,
+    });
+    expect(h.tp()).toEqual({
+      view: { kind: 'loop', section: 2 },
+      loop: { section: 'chorus', names: ['chorus'] },
+      armed: null,
+    });
+  });
+
+  test('a playing song stops first; without a section it starts from the top', async () => {
+    const h = await evaluated();
+    h.rt.setStarted(true);
+    expect(await h.pb.start({ countIn: false })).toEqual({ T: 10, cps: 0.5 });
+    expect(h.rt.stops()).toBe(2);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('a section the evaluated song lacks starts nothing', async () => {
+    const h = await evaluated();
+    expect(await h.pb.start({ section: { name: 'bridge', loop: false }, countIn: false })).toEqual({
+      missingSection: 'bridge',
+    });
+    h.rt.patch({ structure: null });
+    expect(await h.pb.start({ section: { name: 'verse', loop: true }, countIn: false })).toEqual({
+      missingSection: 'verse',
+    });
+    expect(h.rt.starts()).toEqual([]);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('a failed start disarms, unless the runtime started meanwhile', async () => {
+    const h = await evaluated();
+    h.rt.setStart(() => false);
+    expect(await h.pb.start({ section: { name: 'verse', loop: true }, countIn: false })).toBeNull();
+    expect(h.tp()).toEqual(NOT_ARMED);
+    expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+    h.rt.setStart(() => {
+      h.rt.setStarted(true); // another start won the race
+      return false;
+    });
+    expect(await h.pb.start({ section: { name: 'verse', loop: true }, countIn: false })).toBeNull();
+    expect(h.tp().view).toEqual({ kind: 'loop', section: 1 });
+  });
+
+  test('a start without a bar 1 time stops again and gives null', async () => {
+    const h = await evaluated();
+    h.rt.setCycleTime(() => null);
+    expect(await h.pb.start({ countIn: true })).toBeNull();
+    expect(h.rt.cycleTimes()).toEqual([1]);
+    expect(h.st().started).toBe(false);
   });
 });
 

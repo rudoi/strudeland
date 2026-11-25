@@ -1071,28 +1071,94 @@ describe('state: playhead, transport and outputError', () => {
     });
   });
 
-  test('transport: song, loop and armed by name, release, out-of-range indexes', async () => {
+  /** The active song's header names `sections` (single-bar each; `body` is the loop). */
+  const sectioned = (...names: string[]) =>
+    `const meta = { title: 'Alpha', bpm: 120, sections: [${names
+      .map((n) => `{ name: '${n}', bars: 2${n === 'body' ? ', loop: true' : ''} }`)
+      .join(', ')}] };\n$: s("a")\n`;
+  const SECTIONED = sectioned('intro', 'body', 'tail');
+
+  /** Set the active song's text without evaluating it. */
+  const write = (h: Awaited<ReturnType<typeof setup>>, code: string) =>
+    h.handle('code.set', { code, eval: 'never' });
+
+  test('transport: song, loop and armed by name, release', async () => {
     const h = await setup();
-    h.rt.patch({ structure: SONG_STRUCTURE });
+    const pb = h.session.playback;
     const t = async () => ((await h.handle('state', {})) as any).transport;
+    await write(h, SECTIONED);
     expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: null });
-    h.rt.setTransport({
-      view: { kind: 'loop', section: 1 },
-      pendingStart: false,
-      armedSection: null,
-    });
-    expect(await t()).toEqual({ view: 'loop', loopSection: 'body', armedSection: null });
-    h.rt.setTransport({ view: { kind: 'loop', section: 0 }, pendingStart: true, armedSection: 0 });
-    expect(await t()).toEqual({ view: 'loop', loopSection: 'intro', armedSection: 'intro' });
-    h.rt.setTransport({ view: { kind: 'song' }, pendingStart: true, armedSection: 2 });
+    pb.arm({ start: 'tail' });
     expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: 'tail' });
-    h.rt.setTransport({ view: { kind: 'release' }, pendingStart: false, armedSection: null });
+    pb.arm({ loop: 'intro' });
+    expect(await t()).toEqual({ view: 'loop', loopSection: 'intro', armedSection: 'intro' });
+    pb.arm('stopLooping');
+    expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: null });
+    // Playing: the loop is named from the evaluated song.
+    await h.handle('eval', {});
+    h.rt.patch({ structure: SONG_STRUCTURE });
+    pb.arm({ loop: 'body' });
+    expect(await t()).toEqual({ view: 'loop', loopSection: 'body', armedSection: null });
+    h.rt.setPosition({ cycle: 3, located: null });
+    h.rt.setHorizon(3);
+    pb.arm('stopLooping');
+    expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: null });
+    pb.playEnding();
     expect(await t()).toEqual({ view: 'release', loopSection: null, armedSection: null });
-    h.rt.setTransport({ view: { kind: 'loop', section: 7 }, pendingStart: true, armedSection: 9 });
-    expect(await t()).toEqual({ view: 'loop', loopSection: null, armedSection: null });
-    h.rt.patch({ structure: null });
-    h.rt.setTransport({ view: { kind: 'loop', section: 0 }, pendingStart: true, armedSection: 0 });
-    expect(await t()).toEqual({ view: 'loop', loopSection: null, armedSection: null });
+    // A stop rewinds the transport.
+    await h.handle('stop', {});
+    expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: null });
+  });
+
+  describe('the armed section is the one the timeline shows', () => {
+    const t = async (h: Awaited<ReturnType<typeof setup>>) =>
+      ((await h.handle('state', {})) as any).transport;
+
+    test('with nothing evaluated yet', async () => {
+      const h = await setup();
+      await write(h, SECTIONED);
+      h.session.playback.arm({ loop: 'body' });
+      expect(get(h.rt.runtime.store).structure).toBeNull();
+      expect(await t(h)).toEqual({ view: 'loop', loopSection: 'body', armedSection: 'body' });
+    });
+
+    test('with the header edited after the last evaluate', async () => {
+      const h = await setup();
+      await write(h, SECTIONED);
+      await h.handle('eval', {});
+      h.rt.patch({ structure: SONG_STRUCTURE });
+      await h.handle('stop', {});
+      await write(h, sectioned('intro', 'bridge', 'body', 'tail'));
+      h.session.playback.arm({ start: 'bridge' });
+      // Index 1 is `body` in the evaluated song; the header armed `bridge`.
+      expect(get(h.rt.runtime.transport.store).armedSection).toBe(1);
+      expect(await t(h)).toEqual({ view: 'song', loopSection: null, armedSection: 'bridge' });
+    });
+
+    test('after a failed evaluate', async () => {
+      const h = await setup();
+      await write(h, SECTIONED);
+      await h.handle('eval', {});
+      h.rt.patch({ structure: SONG_STRUCTURE });
+      await h.handle('stop', {});
+      await write(h, sectioned('bridge', 'intro', 'body', 'tail'));
+      h.session.playback.arm({ start: 'tail' });
+      h.rt.setResult(false);
+      expect(((await h.handle('eval', {})) as any).ok).toBe(false);
+      expect(await t(h)).toEqual({ view: 'song', loopSection: null, armedSection: 'tail' });
+    });
+
+    test('the same names whenever the header and the evaluated song agree', async () => {
+      const h = await setup();
+      await write(h, SECTIONED);
+      await h.handle('eval', {});
+      h.rt.patch({ structure: SONG_STRUCTURE });
+      await h.handle('stop', {});
+      h.session.playback.arm({ start: 'body' });
+      const ts = get(h.rt.runtime.transport.store);
+      expect(SONG_STRUCTURE.sections[ts.armedSection!]!.name).toBe('body');
+      expect(await t(h)).toEqual({ view: 'song', loopSection: null, armedSection: 'body' });
+    });
   });
 
   test('state reports the active meter and both endpoints of an audition range', async () => {
@@ -1104,13 +1170,13 @@ describe('state: playhead, transport and outputError', () => {
       ],
       meterChanges: [{ bar: 3, meter: '3/8' }],
     });
+    await write(
+      h,
+      `const meta = { title: 'Alpha', bpm: 120, sections: [{ name: 'intro', bars: 2 }, { name: 'body', bars: 4 }], meterChanges: [{ bar: 3, meter: '3/8' }] };\n$: s("a")\n`,
+    );
     h.rt.patch({ structure });
     h.rt.setPosition({ cycle: 3, located: { section: 1, localCycle: 1, songBar: 3 } });
-    h.rt.setTransport({
-      view: { kind: 'loop', section: 0, through: 1 },
-      pendingStart: false,
-      armedSection: null,
-    });
+    h.session.playback.arm({ loop: 'intro', through: 'body' });
     expect(await h.handle('state', {})).toMatchObject({
       meter: '3/8',
       cps: 4 / 3,

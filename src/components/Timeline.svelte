@@ -8,7 +8,6 @@
     fieldValue,
     hasEnding,
     litBars,
-    matchingSectionRange,
     minorTicks,
     mixedMeterRuler,
     playheadPct,
@@ -31,9 +30,10 @@
   // svelte-ignore state_referenced_locally
   const { runtime, session } = app;
   const rt = runtime.store;
-  const tp = runtime.transport.store;
   const ss = session.store;
-  const pb = session.playback.store;
+  const playback = session.playback;
+  const pb = playback.store;
+  const canArm = playback.canArm;
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
   const structure = $derived(editableStructure($ss));
@@ -48,9 +48,9 @@
   const savedLoop = $derived(structure && authoredLoop(structure));
   const hasLoop = $derived(savedLoop !== null);
 
-  // The evaluated song is the active one; otherwise there is no playhead or menu.
-  const playingActive = $derived($rt.started && $pb.evaluated?.path === $ss.active);
-  const playingOther = $derived($rt.started && $pb.evaluated !== null && !playingActive);
+  // The playing song is the active one; otherwise there is no playhead or menu.
+  const playingActive = $derived($pb.playing !== null && $pb.playing.path === $ss.active);
+  const playingOther = $derived($pb.playing !== null && !playingActive);
   const playable = $derived($rt.started ? $rt.structure : structure);
   const ending = $derived(hasEnding(playable));
 
@@ -83,51 +83,32 @@
     const section = sections.findIndex((item) => item.name === name);
     return blockPlayhead(structure, { ...located, section });
   });
-  const audition = $derived($tp.view.kind === 'loop' ? $tp.view : null);
-  const auditionNames = $derived(
-    audition
-      ? (playable?.sections
-          .slice(audition.section, (audition.through ?? audition.section) + 1)
-          .map((item) => item.name) ?? [])
-      : [],
-  );
+  const auditionNames = $derived($pb.transport.loop?.names ?? []);
   const endingEnabled = $derived(
-    canPlayEnding($rt.started, $rt.structure, $tp.view, position.located) && playingActive,
+    canPlayEnding($rt.started, $rt.structure, $pb.transport.view, position.located) &&
+      playingActive,
   );
 
   // ---- section menu ----
   let menuFor = $state<number | null>(null);
   let choosingEnd = $state(false);
   let track = $state<HTMLDivElement>();
-  const armedName = $derived(
-    $tp.armedSection === null ? null : (structure?.sections[$tp.armedSection]?.name ?? null),
-  );
-  const resolveRange = (first: number, last = first) =>
-    structure && playable && matchingSectionRange(structure, playable, first, last);
+  // Shown with the blocks only (none while the header has a meta error).
+  const armedName = $derived(structure ? $pb.transport.armed : null);
 
   function openMenu(e: MouseEvent, index: number) {
     e.stopPropagation();
     menuFor = menuFor === index ? null : index;
     choosingEnd = false;
   }
-  /** Start here or loop this section; while stopped, also evaluate so it starts. */
-  function arm(i: number, act: 'startFrom' | 'loopSection') {
-    const target = resolveRange(i);
+  /** Start here or loop (through a later section); while stopped, also evaluate so it starts. */
+  function playFrom(choice: Parameters<App['playFrom']>[0]) {
     menuFor = null;
-    if (!target || !playable) return;
-    runtime.transport[act](target.first, playable);
-    if (!$rt.started) app.evaluateDoc();
+    app.playFrom(choice);
   }
   function stopLooping() {
     menuFor = null;
-    if (playable) runtime.transport.loopSection(null, playable);
-  }
-  function armRange(first: number, last: number) {
-    const target = resolveRange(first, last);
-    menuFor = null;
-    if (!target || !playable) return;
-    runtime.transport.loopRange(target.first, target.last, playable);
-    if (!$rt.started) app.evaluateDoc();
+    playback.arm('stopLooping');
   }
   async function showRangeOptions(show: boolean) {
     choosingEnd = show;
@@ -172,14 +153,14 @@
   <div class="status">
     {#if playingOther}
       <span>playing: {$pb.evaluated?.title}</span>
-    {:else if $tp.pendingStart && armedName}
+    {:else if armedName}
       <span>will start at {armedName}</span>
     {/if}
     {#if ending}
       <Button
         size="sm"
         class="ending"
-        onclick={() => runtime.transport.playEnding()}
+        onclick={() => playback.playEnding()}
         disabled={!endingEnabled}
       >
         play ending
@@ -209,20 +190,26 @@
                   <Menu open={menuFor === i} onclose={() => (menuFor = null)} class="section-menu">
                     {#if choosingEnd}
                       <MenuItem onclick={() => showRangeOptions(false)}>back</MenuItem>
-                      {#each sections.slice(i + 1) as end, offset (end.name)}
+                      {#each sections.slice(i + 1) as end (end.name)}
                         <MenuItem
                           data-range-focus=""
-                          disabled={!resolveRange(i, i + offset + 1)}
-                          onclick={() => armRange(i, i + offset + 1)}
+                          disabled={!$canArm({ loop: sec.name, through: end.name })}
+                          onclick={() => playFrom({ loop: sec.name, through: end.name })}
                         >
                           through {end.name}
                         </MenuItem>
                       {/each}
                     {:else}
-                      <MenuItem disabled={!resolveRange(i)} onclick={() => arm(i, 'startFrom')}>
+                      <MenuItem
+                        disabled={!$canArm({ start: sec.name })}
+                        onclick={() => playFrom({ start: sec.name })}
+                      >
                         start here
                       </MenuItem>
-                      <MenuItem disabled={!resolveRange(i)} onclick={() => arm(i, 'loopSection')}>
+                      <MenuItem
+                        disabled={!$canArm({ loop: sec.name })}
+                        onclick={() => playFrom({ loop: sec.name })}
+                      >
                         loop this section
                       </MenuItem>
                       {#if i < sections.length - 1}
@@ -230,7 +217,7 @@
                           >loop through…</MenuItem
                         >
                       {/if}
-                      <MenuItem onclick={stopLooping} disabled={$tp.view.kind !== 'loop'}>
+                      <MenuItem onclick={stopLooping} disabled={$pb.transport.view.kind !== 'loop'}>
                         stop looping
                       </MenuItem>
                     {/if}
