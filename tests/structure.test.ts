@@ -16,6 +16,7 @@ import {
   parseMeter,
   sectionsProblem,
   StructureError,
+  type StructureField,
   withLoops,
 } from '../src/lib/strudel/structure';
 
@@ -322,22 +323,54 @@ describe('buildStructure', () => {
     expect(s.clipSeconds).toBeCloseTo(24, 9);
   });
 
-  test('throws StructureError with the first problem', () => {
-    const cases: [Record<string, unknown>, string][] = [
-      [{ bpm: 10 }, BPM_MSG],
-      [{ bpm: null }, BPM_MSG],
-      [{ meter: '4/3' }, METER_MSG],
-      [{ sections: [] }, 'meta.sections must be a non-empty array of sections'],
+  test('throws StructureError with the first problem and its field', () => {
+    const cases: [Record<string, unknown>, string, StructureField][] = [
+      [{ bpm: 10 }, BPM_MSG, 'bpm'],
+      [{ bpm: null }, BPM_MSG, 'bpm'],
+      [{ meter: '4/3' }, METER_MSG, 'meter'],
+      [{ sections: [] }, 'meta.sections must be a non-empty array of sections', 'sections'],
       [
         { sections: [{ name: 'a', bars: 0 }] },
         'meta.sections[0].bars must be an integer from 1 to 10000',
+        'sections',
       ],
-      [{ loops: 2 }, NO_LOOP_MSG],
-      [{ sections: [{ name: 'a', bars: 1 }], loops: 2 }, NO_LOOP_MSG],
-      [{ sections: [{ name: 'a', bars: 1, loop: true }], loops: 0 }, LOOPS_MSG],
-      [{ bpm: 1, meter: 'x' }, BPM_MSG],
+      [{ loops: 2 }, NO_LOOP_MSG, 'loops'],
+      [{ sections: [{ name: 'a', bars: 1 }], loops: 2 }, NO_LOOP_MSG, 'loops'],
+      [{ sections: [{ name: 'a', bars: 1, loop: true }], loops: 0 }, LOOPS_MSG, 'loops'],
+      [{ bpm: 1, meter: 'x' }, BPM_MSG, 'bpm'],
+      [{ loop: { from: 'a', through: 'a' } }, 'meta.loop needs meta.sections', 'loop'],
+      [
+        { sections: [{ name: 'a', bars: 1 }], loop: { from: 'x', through: 'a' } },
+        "meta.loop.from names an unknown section 'x'",
+        'loop',
+      ],
+      [
+        { sections: [{ name: 'a', bars: 1, loop: true }], loop: { from: 'a', through: 'a' } },
+        'meta.loop cannot be used with section loop: true',
+        'loop',
+      ],
+      [
+        { meterChanges: [{ bar: 2, meter: '3/4' }] },
+        'meta.meterChanges needs meta.sections',
+        'meterChanges',
+      ],
+      [
+        { sections: [{ name: 'a', bars: 1 }], meterChanges: [{ bar: 2, meter: '3/4' }] },
+        'meta.meterChanges[0].bar must be a whole bar number greater than 1 and at most 1',
+        'meterChanges',
+      ],
+      [
+        { loops: 0, meterChanges: [], loop: { from: 'a', through: 'a' } },
+        'meta.loop needs meta.sections',
+        'loop',
+      ],
+      [
+        { loops: 0, meterChanges: [{ bar: 2, meter: '3/4' }] },
+        'meta.meterChanges needs meta.sections',
+        'meterChanges',
+      ],
     ];
-    for (const [meta, msg] of cases) {
+    for (const [meta, msg, field] of cases) {
       let err: unknown;
       try {
         buildStructure(meta);
@@ -346,7 +379,8 @@ describe('buildStructure', () => {
       }
       expect(err).toBeInstanceOf(StructureError);
       expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toBe(msg);
+      expect((err as StructureError).message).toBe(msg);
+      expect((err as StructureError).field).toBe(field);
     }
   });
 });
@@ -383,10 +417,20 @@ describe('withLoops', () => {
   test('throws the meta.loops problem', () => {
     const s = buildStructure(meta);
     for (const loops of [0, 1001, 1.5, NaN]) {
-      expect(() => withLoops(s, loops)).toThrow(new StructureError(LOOPS_MSG));
+      expect(() => withLoops(s, loops)).toThrow(new StructureError(LOOPS_MSG, 'loops'));
     }
     const noLoop = buildStructure({ sections: [{ name: 'a', bars: 2 }] });
-    expect(() => withLoops(noLoop, 2)).toThrow(new StructureError(NO_LOOP_MSG));
-    expect(() => withLoops(buildStructure({}), 2)).toThrow(new StructureError(NO_LOOP_MSG));
+    expect(() => withLoops(noLoop, 2)).toThrow(new StructureError(NO_LOOP_MSG, 'loops'));
+    expect(() => withLoops(buildStructure({}), 2)).toThrow(
+      new StructureError(NO_LOOP_MSG, 'loops'),
+    );
+    // toThrow compares messages only.
+    let err: unknown;
+    try {
+      withLoops(s, 0);
+    } catch (e) {
+      err = e;
+    }
+    expect((err as StructureError).field).toBe('loops');
   });
 });

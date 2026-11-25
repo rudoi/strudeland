@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { headerRanges, MetaError, parseMeta } from '../src/lib/project/meta';
+import { buildStructure, StructureError } from '../src/lib/strudel/structure';
 
 // The Rust crate's templates. MAIN_SONG is read from the crate source so the two can't drift;
 // NEW_SONG is `new_song("verse")` (a format! string, so it is copied).
@@ -612,4 +613,140 @@ describe('meter changes and loop ranges', () => {
     errAt(`const meta = { ${layout}, loop: { from: "F", through: 'E' } }`, '"F"');
     errAt(`const meta = { ${layout}, meterChanges: [{ bar: 2, meter: "3/4" }] }`, '"3/4"');
   });
+});
+
+describe('the first error of a header with several faults', () => {
+  const one = "sections: [{ name: 'a', bars: 1 }]";
+  const two = "sections: [{ name: 'a', bars: 1 }, { name: 'b', bars: 1 }]";
+  const looped = "sections: [{ name: 'a', bars: 1, loop: true }]";
+  const four = "sections: [{ name: 'a', bars: 4 }]";
+  const RANGE = 'meta.loops must be an integer from 1 to 1000';
+  const NO_LOOP = 'meta.loops needs a section with loop: true or a meta.loop range';
+  // [header body, message, needle, which occurrence of the needle (0-based)]; null message = ok.
+  const rows: [string, string | null, string?, number?][] = [
+    [
+      `${one}, loop: { from: 'x', through: 'a' }, loops: 0, loops: 2`,
+      "meta.loop.from names an unknown section 'x'",
+      '{ from',
+    ],
+    ['loops: 0, loops: 2', RANGE, '0'],
+    [`${looped}, loops: 0, loops: 2`, RANGE, '0,'],
+    ['loops: 2, loops: 3', NO_LOOP, '3'],
+    ['loops: 2, loops: 0', RANGE, '0'],
+    [`${one}, loop: { from: 'a', through: 'a' }, loops: 1001, loops: 0`, RANGE, '1001'],
+    [
+      `loops: 0, ${one}, loop: { from: 'x', through: 'a' }`,
+      "meta.loop.from names an unknown section 'x'",
+      '{ from',
+    ],
+    [
+      `loops: 0, ${one}, meterChanges: [{ bar: 2, meter: '3/4' }]`,
+      'meta.meterChanges[0].bar must be a whole bar number greater than 1 and at most 1',
+      '[{ bar',
+    ],
+    [
+      `${looped}, meterChanges: [{ bar: 5, meter: '3/4' }], loop: { from: 'a', through: 'a' }`,
+      'meta.loop cannot be used with section loop: true',
+      '{ from',
+    ],
+    [
+      `meterChanges: [{ bar: 2, meter: '3/4' }], loops: 2`,
+      'meta.meterChanges needs meta.sections',
+      '[{ bar',
+    ],
+    [
+      `loop: { from: 'a', through: 'a' }, meterChanges: [{ bar: 2, meter: '3/4' }]`,
+      'meta.loop needs meta.sections',
+      '{ from',
+    ],
+    [`${two}, loop: { from: 'x', through: 'a' }, loop: { from: 'a', through: 'b' }`, null],
+    [
+      `${two}, loop: { from: 'a', through: 'b' }, loop: { from: 'b', through: 'a' }`,
+      'meta.loop.through must be at or after meta.loop.from',
+      '{ from',
+      1,
+    ],
+    [`${looped}, loop: { from: 'a', through: 'a' }, ${one}`, null],
+    [
+      `${looped}, loop: { from: 'a', through: 'a' }, ${looped}`,
+      'meta.loop cannot be used with section loop: true',
+      '{ from',
+    ],
+    [
+      `${four}, meterChanges: [{ bar: 9, meter: '3/4' }], meterChanges: [{ bar: 2, meter: '3/4' }]`,
+      null,
+    ],
+    [
+      `${four}, meterChanges: [{ bar: 2, meter: '3/4' }], meterChanges: [{ bar: 9, meter: '3/4' }]`,
+      'meta.meterChanges[0].bar must be a whole bar number greater than 1 and at most 4',
+      '[{ bar',
+      1,
+    ],
+    [
+      `loop: { from: 'x', through: 'a' }, bpm: 10`,
+      'meta.bpm must be a number from 20 to 400',
+      '10',
+    ],
+    [`${one}, loop: { from: 'a', through: 'a' }, loops: 0, loops: 3`, RANGE, '0'],
+  ];
+
+  for (const [body, message, needle, nth = 0] of rows) {
+    test(`{ ${body} }`, () => {
+      const code = `const meta = { ${body} }`;
+      const r = parseMeta(code);
+      if (message === null) {
+        expect(r.error).toBeNull();
+        return;
+      }
+      let pos = -1;
+      for (let i = 0; i <= nth; i++) pos = code.indexOf(needle!, pos + 1);
+      expect(pos).toBeGreaterThan(0);
+      expect(r.meta).toEqual({});
+      expect(r.error).toBeInstanceOf(MetaError);
+      const { line, column } = r.error!;
+      expect({ message: r.error!.message, pos: r.error!.pos, line, column }).toEqual({
+        message,
+        pos,
+        line: 1,
+        column: pos,
+      });
+    });
+  }
+});
+
+describe('the header text and the evaluated object agree on the cross-field rules', () => {
+  const a = { name: 'a', bars: 1 };
+  const b = { name: 'b', bars: 1 };
+  const cases: [string, Record<string, unknown>][] = [
+    ['loop needs sections', { loop: { from: 'a', through: 'a' } }],
+    ['loop.from unknown', { sections: [a], loop: { from: 'x', through: 'a' } }],
+    ['loop.through unknown', { sections: [a], loop: { from: 'a', through: 'x' } }],
+    ['loop backwards', { sections: [a, b], loop: { from: 'b', through: 'a' } }],
+    [
+      'loop with a loop section',
+      { sections: [{ ...a, loop: true }], loop: { from: 'a', through: 'a' } },
+    ],
+    ['meterChanges needs sections', { meterChanges: [{ bar: 2, meter: '3/4' }] }],
+    ['meterChanges past the end', { sections: [a, b], meterChanges: [{ bar: 3, meter: '3/4' }] }],
+    ['loops needs a loop', { sections: [a], loops: 2 }],
+    ['loops needs a loop, no sections', { loops: 2 }],
+  ];
+  /** A header with single-quoted strings, as songs write them. */
+  const header = (meta: Record<string, unknown>) =>
+    `const meta = ${JSON.stringify(meta).replaceAll('"', "'")};`;
+
+  for (const [name, meta] of cases) {
+    test(name, () => {
+      let evaluated: unknown;
+      try {
+        buildStructure(meta);
+      } catch (e) {
+        evaluated = e;
+      }
+      expect(evaluated).toBeInstanceOf(StructureError);
+      const parsed = parseMeta(header(meta)).error;
+      expect(parsed).toBeInstanceOf(MetaError);
+      expect(parsed!.message).toBe((evaluated as StructureError).message);
+    });
+  }
 });
