@@ -677,7 +677,13 @@ export function createSession(deps: SessionDeps): Session {
 
   function publish(next: SessionState): void {
     if (sameState(current, next)) return;
+    const header =
+      next.active !== current.active ||
+      next.structure !== current.structure ||
+      next.metaError !== current.metaError;
     current = next;
+    // Before subscribers run, so they see the armed section already following the header.
+    if (header) playback.headerChanged();
     state.set(next);
   }
 

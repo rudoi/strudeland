@@ -111,6 +111,12 @@ export interface SongPlayback {
   refused(): void;
   /** The active song changed: while stopped the transport is the active song's, so disarm. */
   activeChanged(): void;
+  /**
+   * The active song's header may have changed (the session calls it on every publish). While
+   * stopped, a pending arm follows its names: re-armed where they now resolve in the header,
+   * disarmed when they no longer do (or the header has an error). Nothing while playing.
+   */
+  headerChanged(): void;
   /** The project changed: stop, reset the transport and forget the evaluated song. */
   projectChanged(): void;
   /** `from` was renamed to `to`: the evaluated song follows, retitled. */
@@ -201,8 +207,20 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
     metaTitle: unknown;
     instruments: InstrumentSnapshot | undefined;
   } | null = null;
-  /** What `arm` armed while stopped; dropped once the runtime reports no pending start. */
-  let armed: { name: string; loop: PlaybackLoop | null } | null = null;
+  /**
+   * What `arm` armed while stopped: its names, the choice that re-resolves them, and the indices
+   * and song bar the runtime holds. Dropped once the runtime reports no pending start.
+   */
+  let armed: {
+    name: string;
+    loop: PlaybackLoop | null;
+    choice: ArmChoice;
+    first: number;
+    last: number;
+    bar: number;
+  } | null = null;
+  /** While `start` awaits `runtime.start`: its arm is against the evaluated song, not the header. */
+  let starting = 0;
 
   function snapshot(): PlaybackState {
     const rs = get(runtime.store);
@@ -290,9 +308,55 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
     // Names are kept only for a start the runtime now holds pending (never while playing).
     if (r.kind !== 'stopLooping' && get(runtime.transport.store).pendingStart) {
       armed =
-        r.kind === 'start' ? { name: r.name, loop: null } : { name: r.loop.section, loop: r.loop };
+        r.kind === 'start'
+          ? {
+              name: r.name,
+              loop: null,
+              choice: { start: r.name },
+              first: r.index,
+              last: r.index,
+              bar: r.structure.sections[r.index]!.start,
+            }
+          : {
+              name: r.loop.section,
+              loop: r.loop,
+              choice:
+                r.loop.through === undefined
+                  ? { loop: r.loop.section }
+                  : { loop: r.loop.section, through: r.loop.through },
+              first: r.first,
+              last: r.last,
+              bar: r.structure.sections[r.first]!.start,
+            };
     }
     publish();
+  }
+
+  /**
+   * While stopped, the armed names against the header now in force: an unchanged place keeps the
+   * arm, a moved one (another index, or the same index at another bar) re-arms it, and names that
+   * no longer resolve (or a range whose run changed) disarm. The runtime's notifications only
+   * publish, so this never re-enters.
+   */
+  function headerChanged(): void {
+    if (!armed || starting > 0 || get(runtime.store).started) return;
+    if (!get(runtime.transport.store).pendingStart) {
+      publish(); // drops the stale names
+      return;
+    }
+    const r = resolve(armed.choice);
+    if (!r || r.kind === 'stopLooping') {
+      runtime.transport.reset();
+      return;
+    }
+    if (r.kind === 'loop' && !sameLoop(r.loop, armed.loop)) {
+      runtime.transport.reset(); // the header's run from `loop` through `through` changed
+      return;
+    }
+    const [first, last] = r.kind === 'start' ? [r.index, r.index] : [r.first, r.last];
+    const bar = r.structure.sections[first]!.start;
+    if (first === armed.first && last === armed.last && bar === armed.bar) return;
+    apply(r);
   }
 
   // Recomputed when the runtime or the store moves; the header is read at call time.
@@ -329,6 +393,7 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
 
     refused: disarmIfStopped,
     activeChanged: disarmIfStopped,
+    headerChanged,
 
     projectChanged() {
       runtime.stop(); // playback always stops when the project changes
@@ -387,7 +452,14 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
             : { kind: 'start', structure, index, name },
         );
       }
-      if (!(await runtime.start({ countIn, backend }))) {
+      starting++;
+      let ok: boolean;
+      try {
+        ok = await runtime.start({ countIn, backend });
+      } finally {
+        starting--;
+      }
+      if (!ok) {
         if (section !== null && !get(runtime.store).started) runtime.transport.reset();
         return null;
       }

@@ -364,6 +364,105 @@ describe('the armed section is the one the header shows', () => {
   });
 });
 
+describe('a stopped arm follows its names when the header changes', () => {
+  const rts = (h: ReturnType<typeof setup>) => get(h.rt.runtime.transport.store);
+
+  test('a reorder re-arms the same name at its new index', () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    h.pb.arm({ start: 'chorus' });
+    h.setHeader({ structure: layout('intro', 'chorus', 'verse') });
+    h.pb.headerChanged();
+    expect(rts(h)).toMatchObject({ pendingStart: true, armedSection: 1 });
+    expect(h.rt.segments().at(-1)).toEqual({ at: 0, songBar: 2, view: { kind: 'song' } });
+    expect(h.tp().armed).toBe('chorus');
+  });
+
+  test('the same index at another bar re-arms it there', () => {
+    const h = setup(layout('intro', 'verse'));
+    h.pb.arm({ start: 'verse' });
+    h.setHeader({
+      structure: buildStructure({
+        sections: [
+          { name: 'intro', bars: 4 },
+          { name: 'verse', bars: 2 },
+        ],
+      }),
+    });
+    h.pb.headerChanged();
+    expect(h.rt.segments().at(-1)).toEqual({ at: 0, songBar: 4, view: { kind: 'song' } });
+    expect(h.tp().armed).toBe('verse');
+  });
+
+  test('a rename removing the armed section disarms', () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    h.pb.arm({ loop: 'chorus' });
+    h.setHeader({ structure: layout('intro', 'verse', 'hook') });
+    h.pb.headerChanged();
+    expect(rts(h).pendingStart).toBe(false);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('an edit that leaves the armed section in place leaves the arm untouched', () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    h.pb.arm({ loop: 'verse' });
+    const before = h.rt.segments();
+    h.setHeader({ structure: layout('intro', 'verse', 'bridge') });
+    h.pb.headerChanged();
+    expect(h.rt.segments()).toBe(before);
+    expect(h.tp()).toEqual({
+      view: { kind: 'loop', section: 1 },
+      loop: { section: 'verse', names: ['verse'] },
+      armed: 'verse',
+    });
+  });
+
+  test('a range re-arms where its run moved, and disarms once the run breaks', () => {
+    const h = setup(layout('intro', 'verse', 'chorus', 'outro'));
+    h.pb.arm({ loop: 'verse', through: 'chorus' });
+    h.setHeader({ structure: layout('verse', 'chorus', 'intro', 'outro') });
+    h.pb.headerChanged();
+    expect(h.tp()).toEqual({
+      view: { kind: 'loop', section: 0, through: 1 },
+      loop: { section: 'verse', through: 'chorus', names: ['verse', 'chorus'] },
+      armed: 'verse',
+    });
+    h.setHeader({ structure: layout('verse', 'bridge', 'chorus', 'outro') });
+    h.pb.headerChanged();
+    expect(rts(h).pendingStart).toBe(false);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('a range whose ends swap order disarms', () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    h.pb.arm({ loop: 'verse', through: 'chorus' });
+    h.setHeader({ structure: layout('intro', 'chorus', 'verse') });
+    h.pb.headerChanged();
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('a header that gains a meta error disarms', () => {
+    const h = setup(layout('intro', 'verse'));
+    h.pb.arm({ start: 'verse' });
+    h.setHeader({ metaError: 'meta: bad (1:1)' });
+    h.pb.headerChanged();
+    expect(rts(h).pendingStart).toBe(false);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('while playing the header is not consulted', async () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    const before = h.rt.segments();
+    h.setHeader({ structure: layout('verse', 'intro', 'chorus') });
+    h.pb.headerChanged();
+    h.setHeader({ metaError: 'meta: bad (1:1)' });
+    h.pb.headerChanged();
+    expect(h.rt.segments()).toBe(before);
+    expect(h.tp().view).toEqual({ kind: 'loop', section: 1 });
+  });
+});
+
 describe('start', () => {
   /** Stopped, with `a` evaluated as intro/verse/chorus and a header that differs from it. */
   async function evaluated() {
@@ -571,6 +670,28 @@ describe('the session', () => {
     await h.session.saveAndEvaluate();
     expect(h.rt.evaluated).toEqual([]);
     expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('editing the header while stopped keeps the armed start on its name', async () => {
+    const h = await opened();
+    h.pb.arm({ start: 'verse' });
+    const edit = (from: string, to: string) => {
+      const text = h.view.state.doc.toString();
+      h.view.dispatch({ changes: { from: 0, to: text.length, insert: text.replace(from, to) } });
+    };
+    edit("name: 'verse'", "name: 'tmp'");
+    expect(h.tp()).toEqual(NOT_ARMED); // renamed away: disarmed as the header changes
+    edit("name: 'tmp'", "name: 'verse'");
+    h.pb.arm({ start: 'verse' });
+    edit(
+      "{ name: 'verse', bars: 2 }, { name: 'chorus', bars: 2 }",
+      "{ name: 'chorus', bars: 2 }, { name: 'verse', bars: 2 }",
+    );
+    expect(get(h.rt.runtime.transport.store)).toMatchObject({
+      pendingStart: true,
+      armedSection: 2,
+    });
+    expect(h.tp().armed).toBe('verse');
   });
 
   test('deleting the active song while stopped disarms for the next one', async () => {

@@ -1148,6 +1148,18 @@ describe('state: playhead, transport and outputError', () => {
       expect(await t(h)).toEqual({ view: 'song', loopSection: null, armedSection: 'tail' });
     });
 
+    test('after a header edit while armed: it follows the name, or disarms', async () => {
+      const h = await setup();
+      await write(h, SECTIONED);
+      h.session.playback.arm({ start: 'body' });
+      await write(h, sectioned('intro', 'tail', 'body'));
+      expect(get(h.rt.runtime.transport.store).armedSection).toBe(2);
+      expect(await t(h)).toEqual({ view: 'song', loopSection: null, armedSection: 'body' });
+      await write(h, sectioned('intro', 'tail', 'chorus'));
+      expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+      expect(await t(h)).toEqual({ view: 'song', loopSection: null, armedSection: null });
+    });
+
     test('the same names whenever the header and the evaluated song agree', async () => {
       const h = await setup();
       await write(h, SECTIONED);
