@@ -4,11 +4,6 @@ import { EditorView } from '@codemirror/view';
 import { get, writable, type Readable } from 'svelte/store';
 import type { EvalOutcome } from '../control/protocol';
 
-/** Why a failed evaluate failed: the song header, the instrument pins, or the evaluate itself. */
-export type EvalErrorKind = 'meta' | 'instruments' | 'eval';
-
-/** The wire outcome plus its failure kind (null exactly when `ok`); never sent over the socket. */
-export type SessionEvalOutcome = EvalOutcome & { errorKind: EvalErrorKind | null };
 import { instrumentApplication } from '../editor/apply-instrument';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
@@ -17,7 +12,7 @@ import type { RollPatch, SourceSpan } from '../piano-roll/types';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
-import { readSongHeader } from './song-header';
+import { readSongHeader, type MetaError } from './song-header';
 import { setMetaValue, type MetaPath } from './meta-write';
 import { stripSongExt } from './ui';
 import {
@@ -30,6 +25,12 @@ import {
   type UnsavedChoice,
 } from './api';
 import { errorMessage } from '../errors';
+
+/** Why a failed evaluate failed: the song header, the instrument pins, or the evaluate itself. */
+export type EvalErrorKind = 'meta' | 'instruments' | 'eval';
+
+/** The wire outcome plus its failure kind (null exactly when `ok`); never sent over the socket. */
+export type SessionEvalOutcome = EvalOutcome & { errorKind: EvalErrorKind | null };
 
 export interface SongItem {
   /** "songs/x.js" */
@@ -256,7 +257,8 @@ interface Derived {
   doc: Text | null;
   title: string;
   dirty: boolean;
-  metaError: string | null;
+  /** The header's error, or null when it reads cleanly. */
+  headerError: MetaError | null;
   /** From the header; `buildStructure({})` when it has a MetaError. */
   structure: SongStructure;
 }
@@ -630,12 +632,12 @@ export function createSession(deps: SessionDeps): Session {
     // No text reads as an empty file: the file name, no error and the default structure.
     const header = readSongHeader(text ?? '');
     const title = titleFrom(path, header.ok ? header.title : undefined);
-    const metaError = header.ok ? null : header.error.located;
+    const headerError = header.ok ? null : header.error;
     let structure = header.structure;
     // Keep the previous object while the structure is unchanged, so typing does not republish it.
     const prev = song.derived?.structure;
     if (prev && sameStructure(prev, structure)) structure = prev;
-    song.derived = { doc, title, dirty, metaError, structure };
+    song.derived = { doc, title, dirty, headerError, structure };
     return song.derived;
   }
 
@@ -663,7 +665,7 @@ export function createSession(deps: SessionDeps): Session {
       songs: order.map(itemOf),
       active,
       error,
-      metaError: active ? derive(active).metaError : null,
+      metaError: active ? (derive(active).headerError?.located ?? null) : null,
       structure: active ? derive(active).structure : null,
       evaluated: evaluated?.song ?? null,
       notice: noticeOf(active),
@@ -1536,7 +1538,8 @@ export function createSession(deps: SessionDeps): Session {
       const i = current.songs.findIndex((s) => s.path === active);
       if (i < 0) return emit();
       const item = itemOf(active);
-      const { metaError, structure } = derive(active);
+      const { headerError, structure } = derive(active);
+      const metaError = headerError?.located ?? null;
       const notice = noticeOf(active);
       if (
         sameItem(current.songs[i], item) &&
@@ -1671,8 +1674,8 @@ export function createSession(deps: SessionDeps): Session {
       let error: string | null = null;
       let errorKind: EvalErrorKind | null = null;
       if (!ok) {
-        if (d?.metaError) {
-          error = `meta: ${d.metaError}`;
+        if (d?.headerError) {
+          error = d.headerError.reported;
           errorKind = 'meta';
         } else if (pinsError) {
           error = pinsError;

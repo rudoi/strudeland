@@ -7,7 +7,7 @@ import {
   DEFAULT_METER,
   StructureError,
 } from '../src/lib/strudel/structure';
-import { headerError } from './helpers/song-header';
+import { headerError, okHeader } from './helpers/song-header';
 
 // The Rust crate's templates. MAIN_SONG is read from the crate source so the two can't drift;
 // NEW_SONG is `new_song("verse")` (a format! string, so it is copied).
@@ -33,8 +33,7 @@ const DEFAULT_STRUCTURE = buildStructure({});
  * Returns `meta`.
  */
 const ok = (code: string) => {
-  const r = readSongHeader(code);
-  if (!r.ok) throw r.error;
+  const r = okHeader(code);
   const structure = buildStructure(r.meta);
   expect(r).toEqual({
     ok: true,

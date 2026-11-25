@@ -24,8 +24,7 @@ import {
 } from '../strudel/structure';
 
 /** A value allowed in a song's `meta` header: JSON-like literals only. */
-export type MetaValue =
-  string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
+type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
 export interface Meta {
   title?: string;

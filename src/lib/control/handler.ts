@@ -502,15 +502,9 @@ export function createControlHandler({
       target,
       playback.taking() ? { autostart: false } : undefined,
     );
-    // Field by field: the session's errorKind stays off the wire.
-    return {
-      ok: r.ok,
-      song: r.song,
-      title: r.title,
-      started: r.started,
-      audio: r.audio,
-      error: r.error,
-    };
+    // The session's errorKind stays off the wire.
+    const { errorKind: _errorKind, ...outcome } = r;
+    return outcome;
   }
 
   async function evaluate(params: unknown): Promise<EvalOutcome> {

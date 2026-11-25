@@ -1,6 +1,6 @@
 /**
  * A song's structure and tempo, from its `meta` header: sections, an optional loop range, bpm and
- * time signatures. Pure: no Strudel, Tauri, DOM or `project/` imports, so the static path (`meta.ts`), the
+ * time signatures. Pure: no Strudel, Tauri, DOM or `project/` imports, so the static path (`song-header.ts`), the
  * evaluated path (`song()`), the headless host and the renderer all share it.
  */
 
