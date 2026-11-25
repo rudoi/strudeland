@@ -30,13 +30,14 @@ import { asciiJson } from '../lib/render/page-job';
 import { classifyError, eventSources, selectHaps } from '../lib/render/plan';
 import { eventsFromValues } from '../lib/render/schedule';
 import type { InstrumentSnapshot } from '../lib/strudel/instruments';
+import { withSongPlacement } from '../lib/strudel/song';
 import { createRuntime } from '../lib/strudel/runtime';
 import { createHostBackend } from './backend';
 import {
+  expressionQuery,
   inspectExpression,
   inspectHaps,
   inspectionWindow,
-  queryExpression,
   type InspectionWindow,
 } from './inspection';
 import { hostPrebake } from './prebake';
@@ -248,22 +249,30 @@ async function runInspection(code: string, requestJson: string): Promise<string>
     instruments?: InstrumentSnapshot;
   };
   if (!inspectionWindow(request)) throw new PlanJobError('plan', 'Invalid piano roll window.');
-  const rt = hostAdapter(hostRuntime(), request.instruments);
+  const runtime = hostRuntime();
+  const rt = hostAdapter(runtime, request.instruments);
+  const otherSeeds = (seed = 0) => [seed + 1, seed + 2, seed + 3];
   if (request.view === 'song') {
-    const { segments } = await evaluateSong(rt, code, 'linear');
-    return JSON.stringify(
-      inspectHaps(querySong(rt, segments)(request.from, request.to), code, request),
+    const { segments, seed } = await evaluateSong(rt, code, 'linear');
+    const songQuery = querySong(rt, segments);
+    const query = (from: number, to: number) => withSongPlacement(() => songQuery(from, to));
+    const alternate = otherSeeds(seed).map(
+      (sample) => (from: number, to: number) =>
+        withSongPlacement(() => runtime.query(from, to, segments, sample) ?? []),
     );
+    return JSON.stringify(inspectHaps(code, request, query, alternate));
   }
   if (!request.expression) throw new PlanJobError('plan', 'Select a pattern expression.');
   return JSON.stringify(
     await inspectExpression(code, request.expression, async (selected) => {
       const { structure, cps } = await evaluateSong(rt, code, 'linear');
-      return inspectHaps(
-        queryExpression(selected(), structure, cps, rt.state().seed, request),
-        code,
-        request,
+      const pattern = selected();
+      const seed = rt.state().seed;
+      const query = expressionQuery(pattern, structure, cps, seed, request.anchorBar);
+      const alternate = otherSeeds(seed).map((sample) =>
+        expressionQuery(pattern, structure, cps, sample, request.anchorBar),
       );
+      return inspectHaps(code, request, query, alternate);
     }),
   );
 }

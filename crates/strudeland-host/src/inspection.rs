@@ -78,8 +78,40 @@ impl InspectionRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum EventPlacement {
+    Song,
+    Absolute,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventEditIdentity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placement: Option<EventPlacement>,
+    pub from: [String; 2],
+    pub pitch: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuous: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InspectedNote {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<EventEditIdentity>,
     pub pitch: f64,
     pub start: String,
     pub end: String,
@@ -95,6 +127,8 @@ pub struct InspectedNote {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InspectionResult {
+    #[serde(rename = "staleEdits", default, skip_serializing_if = "Vec::is_empty")]
+    pub stale_edits: Vec<String>,
     pub notes: Vec<InspectedNote>,
     pub truncated: bool,
 }

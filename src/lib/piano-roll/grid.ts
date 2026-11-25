@@ -37,27 +37,40 @@ export function barAtOffset(bars: readonly GridBar[], offset: number): GridBar |
   return bars.find((bar) => offset < bar.offset + bar.width) ?? bars.at(-1);
 }
 
-/** One grid step is a denominator beat subdivision. A bar end is an exact admissible edge. */
-export function gridPoint(bar: GridBar, step: number, subdivision: number): string {
-  return Fraction(bar.cycle)
-    .add(Fraction(step).div(bar.numerator * subdivision))
-    .toFraction();
+/** Return an exact edge on a bar's beat subdivisions or authored slots. */
+export function gridPoint(bar: GridBar, step: number, steps: number): string {
+  return Fraction(bar.cycle).add(Fraction(step).div(steps)).toFraction();
 }
 
-export function snapGrid(bar: GridBar, offset: number, subdivision: number, upper = 1): string {
-  const steps = bar.numerator * subdivision;
+export function snapGrid(bar: GridBar, offset: number, steps: number, upper = 1): string {
   const local = (offset - bar.offset) / bar.width;
   const last = Math.max(0, Math.floor(upper * steps + Number.EPSILON * steps));
-  return gridPoint(bar, Math.max(0, Math.min(last, Math.round(local * steps))), subdivision);
+  return gridPoint(bar, Math.max(0, Math.min(last, Math.round(local * steps))), steps);
 }
 
-export function adjacentStep(bar: GridBar, cycle: number, subdivision: number, delta: number) {
-  const actual = (cycle - bar.cycle) * bar.numerator * subdivision;
-  const epsilon = Number.EPSILON * Math.max(1, Math.abs(cycle)) * bar.numerator * subdivision;
+export function adjacentStep(bar: GridBar, cycle: number, steps: number, delta: number) {
+  const actual = (cycle - bar.cycle) * steps;
+  const epsilon = Number.EPSILON * Math.max(1, Math.abs(cycle)) * steps;
   return delta > 0 ? Math.floor(actual + epsilon) + 1 : Math.ceil(actual - epsilon) - 1;
 }
 
 export const keyPitch = (pitch: number): number => Math.max(0, Math.min(127, pitch));
+
+export function shiftRollEdge(edge: string, anchor: string, destination: string): string {
+  return Fraction(edge).add(Fraction(destination).sub(anchor)).toFraction();
+}
+
+/** Identify the marker across inspections that regenerate IDs. A single event may have gaps. */
+export function noteMarkerKey(note: RollNote, track: number): string {
+  return [
+    note.pitch,
+    note.start,
+    note.end,
+    note.visibleStart ?? note.start,
+    note.visibleEnd ?? note.end,
+    track,
+  ].join(':');
+}
 
 /** Split overlapping visible notes within a pitch lane. Touching intervals can reuse a track. */
 export function layoutNoteTracks(notes: readonly RollNote[], from: number, to: number) {

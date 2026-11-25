@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { planRollEdit, resolveRollTarget } from '../src/lib/piano-roll/source';
+import { planRollEdit, resolveRollTarget, targetsDefinition } from '../src/lib/piano-roll/source';
 import type { RollEdit, RollPhrase, SourceSpan } from '../src/lib/piano-roll/types';
 
 function span(source: string, selection: string, from = source.indexOf(selection)): SourceSpan {
@@ -52,10 +52,99 @@ describe('piano roll source projection', () => {
     expect(resolveRollTarget(source, span(source, '"saw"'))).toBeNull();
   });
 
-  test('trims selected trivia around a pattern while requiring a nonempty selection', () => {
+  test('trims selected trivia around a pattern and ignores a caret in comments', () => {
     const source = '/* lead */  note("c4")  /* tail */';
     expect(editable(source).target.expression).toEqual(span(source, 'note("c4")'));
-    expect(resolveRollTarget(source, { from: 13, to: 13 })).toBeNull();
+    expect(resolveRollTarget(source, { from: 4, to: 4 })).toBeNull();
+  });
+
+  test('opens an authored phrase at a caret inside notes, whitespace, and its closing delimiter', () => {
+    const source = 'const melody = note("c4 ~ e4 ~");';
+    const note = span(source, 'note("c4 ~ e4 ~")');
+    for (const position of [note.from, source.indexOf('c4') + 1, source.indexOf(' ~'), note.to]) {
+      expect(resolveRollTarget(source, { from: position, to: position })?.expression).toEqual(note);
+    }
+    expect(resolveRollTarget(source, { from: -1, to: -1 })).toBeNull();
+  });
+
+  test('resolves a transformed pattern and aliases while avoiding effect arguments', () => {
+    const source = [
+      'const melody = note("c4");',
+      'const fast = melody.fast(2).gain(rand.range(0.05, 0.1));',
+      'song(meta, { intro: fast })',
+    ].join('\n');
+    function at(fragment: string, last = false) {
+      const from = (last ? source.lastIndexOf(fragment) : source.indexOf(fragment)) + 1;
+      return resolveRollTarget(source, { from, to: from });
+    }
+    expect(at('melody')?.phrase?.notes[0].pitch).toBe(60);
+    expect(at('fast', true)?.definition?.name).toBe('melody');
+    expect(at('0.05')).toBeNull();
+    expect(at('range')).toBeNull();
+    expect(at('intro')).toBeNull();
+  });
+
+  test('keeps a saved event edit as the target when the caret is in its original expression', () => {
+    const source = '(note("c4"))._pianoEdits({ entries: [] })';
+    for (const fragment of ['c4', 'entries']) {
+      const from = source.indexOf(fragment) + 1;
+      expect(resolveRollTarget(source, { from, to: from })?.expression).toEqual(
+        span(source, source),
+      );
+    }
+  });
+
+  test('opens a carried note from the second grid row and edits where the pitch originated', () => {
+    const source = [
+      "const rows = ['c4 _ ~ g4:0.20', '_ ~ ~ ~'];",
+      'const melody = noteGrid(rows);',
+      'song(meta, { intro: melody });',
+    ].join('\n');
+    const rowTwo = source.indexOf('_ ~ ~ ~');
+    const target = resolveRollTarget(source, { from: rowTwo, to: rowTwo });
+    expect(target).toMatchObject({
+      expression: span(source, 'noteGrid(rows)'),
+      label: 'rows',
+      gridRow: 1,
+      gridBars: 2,
+      sections: ['intro'],
+      definition: { name: 'melody' },
+    });
+    const carry = target?.phrase?.notes.find(({ pitch }) => pitch === 67);
+    expect(carry).toMatchObject({ start: '3/4', end: '5/4' });
+    const result = edit(source, { kind: 'pitch', id: carry!.id, pitch: 69 }, target?.expression);
+    expect(result).toBe(source.replace('g4:0.20', 'a4:0.20'));
+
+    const use = span(source, 'melody', source.lastIndexOf('melody'));
+    expect(resolveRollTarget(source, use)).toMatchObject({
+      gridBars: 2,
+      definition: { expression: target?.expression, uses: [{ span: use, sections: ['intro'] }] },
+    });
+  });
+
+  test('derives the written grid meter anchor through a voice helper and flags uncertain uses', () => {
+    const source = [
+      "const rows = ['c4 _ ~ g4'];",
+      'const melody = noteGrid(rows);',
+      'const intro = stack(myVoice(melody));',
+      'song(meta, { intro });',
+    ].join('\n');
+    const from = source.indexOf('g4');
+    const target = resolveRollTarget(source, { from, to: from });
+    expect(target?.sections).toEqual(['intro']);
+    expect(target?.definition?.incomplete).toBe(true);
+  });
+
+  test('queries the producer when a recorded event edit wraps a grid', () => {
+    const source =
+      "const rows = ['c4 _ ~ g4']; const melody = (noteGrid(rows))._pianoEdits({ entries: [] });";
+    const from = source.indexOf('g4');
+    const target = resolveRollTarget(source, { from, to: from });
+    expect(target?.gridBars).toBe(1);
+    expect(target?.phrase).toBeUndefined();
+    expect(source.slice(target?.expression.from, target?.expression.to)).toBe(
+      '(noteGrid(rows))._pianoEdits({ entries: [] })',
+    );
   });
 
   test('recognizes an authored repeated pitch without attributing Euclidean operands', () => {
@@ -98,6 +187,27 @@ describe('piano roll source projection', () => {
       ['hook'],
     ]);
     expect(highUse?.definition?.incomplete).toBe(false);
+  });
+
+  test('a caret inside a shared receiver edits its authored definition', () => {
+    const source = 'const melody = note("c4 ~ e4 ~").s("triangle");\n$: melody';
+    const from = source.indexOf('e4') + 1;
+    const authored = resolveRollTarget(source, { from, to: from })!;
+    expect(authored.expression).toEqual(span(source, 'note("c4 ~ e4 ~")'));
+    expect(authored.definition?.expression).toEqual(
+      span(source, 'note("c4 ~ e4 ~").s("triangle")'),
+    );
+    expect(targetsDefinition(authored)).toBe(true);
+    expect(
+      edit(
+        source,
+        { kind: 'pitch', id: authored.phrase!.notes[1]!.id, pitch: 65 },
+        authored.expression,
+      ),
+    ).toBe(source.replace('e4', 'f4'));
+
+    const use = resolveRollTarget(source, span(source, 'melody', source.lastIndexOf('melody')))!;
+    expect(targetsDefinition(use)).toBe(false);
   });
 
   test('ignores shadowed aliases and exposes a potentially escaping reference', () => {
@@ -290,6 +400,12 @@ describe('piano roll exact phrase edits', () => {
       [60, '0', '1/2'],
       [64, '0', '1/2'],
     ]);
+  });
+
+  test('a flat accidental spelling keeps the B root for a natural retune', () => {
+    const source = 'note("df4")';
+    const note = editable(source).phrase.notes[0];
+    expect(edit(source, { kind: 'pitch', id: note.id, pitch: 71 })).toBe('note("b4")');
   });
 
   test('retains direct MIDI and pitch spelling styles', () => {

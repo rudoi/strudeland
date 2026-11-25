@@ -24,6 +24,8 @@ import { meteredPlayback, meteredSchedule, MIXED_CPS_ERROR, queryMetered } from 
 import { createInstrumentTranspiler, type InstrumentSnapshot } from './instruments';
 import { layoutClock, type LayoutClock } from './timing';
 import { applySeed } from './seed';
+import { editPatternEvents, type EventEditSpec } from './event-edits';
+import { songEditComment } from './event-document';
 import { beginEvaluate, registeredStructure, setSegmentSource } from './song';
 import {
   buildStructure,
@@ -200,7 +202,12 @@ export interface Runtime {
    * or null before the first successful evaluate. Pattern errors throw. `segments` defaults to
    * the linear layout; pass `clipSegments(structure)` for the clip layout.
    */
-  query(fromCycle: number, toCycle: number, segments?: readonly Segment[]): any[] | null;
+  query(
+    fromCycle: number,
+    toCycle: number,
+    segments?: readonly Segment[],
+    seedOverride?: number,
+  ): any[] | null;
   /** Fills `buf` with the latest master output samples; false when the backend has none. */
   readScope(buf: Float32Array): boolean;
   /**
@@ -449,12 +456,14 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
 
   /** The last successfully evaluated pattern (a failed evaluate leaves it); never exposed. */
   let evaluatedPattern: any = null;
+  let unseededPattern: any = null;
 
   // editPattern runs before autostart's first synchronous tick, so install both
   // sides of the new pattern there. afterEval publishes the logical one.
   let playbackPattern: any = null;
   let playError: string | null = null;
   let undoInstall: (() => void) | undefined;
+  let eventSpec: EventEditSpec | undefined;
   const r = repl({
     onSchedule: output,
     onScheduleTap:
@@ -464,8 +473,10 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         hooks.onSchedule!(mapped?.hap ?? hap, t, mapped?.cps ?? cps, route);
       }),
     getTime: () => active().getTime(),
-    transpiler: (code: string, options: object) =>
-      instrumentTranspiler.transpile(code, options, pending.instruments),
+    transpiler: (code: string, options: object) => {
+      eventSpec = songEditComment(code)?.spec;
+      return instrumentTranspiler.transpile(code, options, pending.instruments);
+    },
     // Runs only after the code evaluated, right before the scheduler gets the pattern: starting
     // from stopped schedules the first haps synchronously, before afterEval, so the audio seed is
     // set here. Every successful evaluate sets it; a song without one gets 0.
@@ -485,7 +496,16 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
           throw new Error('song() must use the arrangement in the meta header');
       }
       if (structure?.meterChanges?.length && codeSetCps) throw new Error(MIXED_CPS_ERROR);
-      const seeded = applySeed(pattern, pending.seed);
+      const edited = eventSpec
+        ? editPatternEvents(
+            pattern,
+            eventSpec,
+            structure
+              ? { structure, segments: () => segments, cps: () => r.scheduler.cps }
+              : undefined,
+          )
+        : pattern;
+      const seeded = applySeed(edited, pending.seed);
       // repl installs the candidate before it awaits the first scheduler start.
       // A failed start must leave the previous pattern and clock available.
       const previous = {
@@ -494,6 +514,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         phaseOffsetSec,
         audibleHistory,
         evaluatedPattern,
+        unseededPattern,
         playbackPattern,
         playError,
         schedulerPattern: r.scheduler.pattern,
@@ -505,6 +526,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
           phaseOffsetSec,
           audibleHistory,
           evaluatedPattern,
+          unseededPattern,
           playbackPattern,
           playError,
         } = previous);
@@ -541,6 +563,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         queryMetered(seeded, imminent, structure, clock, pending.cps);
       }
       evaluatedPattern = seeded;
+      unseededPattern = edited;
       playError = null;
       playbackPattern =
         clock && liveStructure
@@ -872,8 +895,11 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     fromCycle: number,
     toCycle: number,
     segments: readonly Segment[] = LINEAR_SEGMENTS,
+    seedOverride?: number,
   ): any[] | null {
     if (evaluatedPattern === null) return null;
+    const pattern =
+      seedOverride === undefined ? evaluatedPattern : applySeed(unseededPattern, seedOverride);
     // `song()` reads its layout from the controls, which every nested query state inherits.
     const controls = { _cps: r.scheduler.cps, cyclist: 'cyclist', _segments: segments };
     const span = new State(new TimeSpan(fromCycle, toCycle), controls);
@@ -881,14 +907,14 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const structure = state.structure;
     if (structure?.meterChanges?.length) {
       return queryMetered(
-        evaluatedPattern,
+        pattern,
         span,
         structure,
         layoutClock(structure, segments),
         r.scheduler.cps,
       );
     }
-    return evaluatedPattern.query(span);
+    return pattern.query(span);
   }
 
   // Auto-stop: once the song has played past its end. One interval for the window's lifetime.

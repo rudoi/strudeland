@@ -9,6 +9,12 @@ import {
   type AuthoredPhrase,
   type PhraseInput,
 } from './phrase';
+import {
+  findAuthoredGrids,
+  matchGridSelection,
+  planGridEdit,
+  type AuthoredGrid,
+} from './authored-grid';
 import type { RollDefinition, RollEdit, RollPatch, RollTarget, RollUse, SourceSpan } from './types';
 
 type Scope = {
@@ -410,18 +416,19 @@ function sectionAtProperty(property: Visit, script: Script): string | undefined 
 }
 
 /** Trace a proven data-flow path from a pattern value to a section, alias or final expression. */
-function destination(visit: Visit, script: Script) {
+function destination(visit: Visit, script: Script, traceUses = false) {
+  let incomplete = false;
   for (let at: Visit = visit; at.parent; at = at.parent) {
     const { node } = at.parent;
     if (node.type === 'Property' && at.key === 'value') {
       const section = sectionAtProperty(at.parent, script);
-      return section === undefined ? { incomplete: true } : { section };
+      return section === undefined ? { incomplete: true } : { section, incomplete };
     }
     if (node.type === 'VariableDeclarator' && at.key === 'init') {
       const alias = script.definitions.get(ungroup(at.node));
-      return alias ? { alias } : { incomplete: true };
+      return alias ? { alias, incomplete } : { incomplete: true };
     }
-    if (node.type === 'ExpressionStatement') return {};
+    if (node.type === 'ExpressionStatement') return { incomplete };
     if (node.type === 'ParenthesizedExpression' || node.type === 'ChainExpression') continue;
     if (node.type === 'CallExpression') {
       const name = callName(node, script);
@@ -429,27 +436,50 @@ function destination(visit: Visit, script: Script) {
         continue;
       const transform = method(node);
       if (at.key === 'callee' && transform && knownTransforms.has(transform.name)) continue;
+      // Keep the written caller's meter as a preview for wrappers we cannot prove transparent.
+      if (traceUses && at.key === 'arguments') {
+        incomplete = true;
+        continue;
+      }
     }
     if (node.type === 'MemberExpression' && at.key === 'object') continue;
     return { incomplete: true };
   }
-  return {};
+  return { incomplete };
 }
 
-/** Collect written references through immutable aliases without treating same-spelled names as uses. */
-function definitionUses(
-  root: Binding,
-  script: Script,
-): Pick<RollDefinition, 'uses' | 'incomplete'> {
-  const visitsByBinding = new Map<Binding, Visit[]>();
+type DefinitionUseSummary = Pick<RollDefinition, 'uses' | 'incomplete'>;
+type BindingReferences = Map<Binding, Visit[]>;
+const usageIndexes = new WeakMap<
+  Script,
+  {
+    references: BindingReferences;
+    summaries: Map<Binding, DefinitionUseSummary>;
+  }
+>();
+
+function usageIndex(script: Script) {
+  const cached = usageIndexes.get(script);
+  if (cached) return cached;
+  const references: BindingReferences = new Map();
   for (const visit of script.visits.values()) {
     if (!isReference(visit, script) || visit.node.type !== 'Identifier') continue;
     const binding = lookup(visit, visit.node.name);
     if (!binding) continue;
-    const list = visitsByBinding.get(binding);
+    const list = references.get(binding);
     if (list) list.push(visit);
-    else visitsByBinding.set(binding, [visit]);
+    else references.set(binding, [visit]);
   }
+  const index = { references, summaries: new Map<Binding, DefinitionUseSummary>() };
+  usageIndexes.set(script, index);
+  return index;
+}
+
+/** Collect written references through immutable aliases without treating same-spelled names as uses. */
+function definitionUses(root: Binding, script: Script): DefinitionUseSummary {
+  const { references, summaries } = usageIndex(script);
+  const cached = summaries.get(root);
+  if (cached) return cached;
   const known = new Map<Binding, string[]>();
   const uses: RollUse[] = [];
   let incomplete = !script.staticSafe;
@@ -458,8 +488,8 @@ function definitionUses(
     if (existing) return existing;
     const sections: string[] = [];
     known.set(binding, sections);
-    for (const ref of visitsByBinding.get(binding) ?? []) {
-      const next = destination(ref, script);
+    for (const ref of references.get(binding) ?? []) {
+      const next = destination(ref, script, true);
       if (next.incomplete) incomplete = true;
       const local =
         next.section !== undefined ? [next.section] : next.alias ? collect(next.alias) : [];
@@ -469,7 +499,9 @@ function definitionUses(
     return sections;
   }
   collect(root);
-  return { uses: uses.sort((a, b) => a.span.from - b.span.from), incomplete };
+  const result = { uses: uses.sort((a, b) => a.span.from - b.span.from), incomplete };
+  summaries.set(root, result);
+  return result;
 }
 
 function trimSelection(source: string, selection: SourceSpan, comments: Comment[]): SourceSpan {
@@ -560,18 +592,159 @@ function selectedNode(source: string, selection: SourceSpan, script: Script): An
   }
 }
 
-function locateTarget(source: string, selection: SourceSpan) {
+function caretNode(source: string, caret: number, script: Script): AnyNode | undefined {
+  // At the end of a closing delimiter, the editor caret is still attached to the expression.
+  const closing = /[)\]'`"]/.test(source[caret - 1] ?? '');
+  let visit: Visit | undefined;
+  for (const current of script.visits.values()) {
+    const { start, end } = current.node;
+    if (start <= caret && (caret < end || (closing && caret === end))) {
+      if (!visit || end - start <= visit.node.end - visit.node.start) visit = current;
+    }
+  }
+  if (!visit) return;
+
+  // An existing event edit owns the rendered value and should remain the target when its
+  // original expression or edit data is under the caret.
+  for (let at: Visit | undefined = visit; at; at = at.parent) {
+    if (method(at.node)?.name === '_pianoEdits') return at.node;
+    if (at.key === 'arguments' && at.parent?.node.type === 'CallExpression') {
+      const chain = method(at.parent.node);
+      if (chain && !['note', 'freq', '_pianoEdits'].includes(chain.name)) return;
+    }
+  }
+
+  for (let at: Visit | undefined = visit; at; at = at.parent) {
+    const { node, parent, key } = at;
+    const enclosing = parent?.node;
+    if (!enclosing) return;
+    if (node.type === 'Literal' || node.type === 'TemplateLiteral') {
+      const pitched = liftLiteral(script, node, source);
+      if (pitched) return pitched;
+      if (
+        enclosing.type === 'CallExpression' &&
+        key === 'arguments' &&
+        (callName(enclosing, script) === 'freq' || method(enclosing)?.name === 'freq')
+      ) {
+        return enclosing;
+      }
+      if (enclosing.type !== 'ExpressionStatement') return;
+    }
+    if (key === 'key' && enclosing.type === 'Property') return;
+    if (node.type === 'Identifier' && script.declarations.has(node)) {
+      const declaration = [...script.definitions.values()].find(
+        (binding) => binding.declaration === node,
+      );
+      const init = declaration?.initializer;
+      return init && inspectedExpressions.has(init.type) ? init : undefined;
+    }
+    if (node.type === 'Identifier' && expressionIsValue(at, script)) {
+      const binding = lookup(at, node.name);
+      if (binding?.initializer && inspectedExpressions.has(binding.initializer.type)) return node;
+      if (!binding && destination(at, script).section !== undefined) return node;
+    }
+    if (
+      inspectedExpressions.has(node.type) &&
+      node.type !== 'Identifier' &&
+      expressionIsValue(at, script)
+    ) {
+      if (node.type === 'CallExpression') {
+        const chain = method(node);
+        if (
+          chain &&
+          chain.name !== 'note' &&
+          chain.name !== 'freq' &&
+          caret < node.end - 1 &&
+          source.slice(node.callee.end, caret).includes('(')
+        )
+          return;
+      }
+      return pitchProducer(node, script)?.owner ?? node;
+    }
+    if (node.type === 'ExpressionStatement' || node.type === 'VariableDeclaration') return;
+  }
+}
+
+let cachedSource: { code: string; script: Script | undefined } | undefined;
+
+function scriptFor(code: string): Script | undefined {
+  if (cachedSource?.code === code) return cachedSource.script;
+  try {
+    cachedSource = { code, script: readScript(code) };
+  } catch {
+    cachedSource = { code, script: undefined };
+  }
+  return cachedSource.script;
+}
+
+export function rollSourceHasSyntax(code: string): boolean {
+  return scriptFor(code) !== undefined;
+}
+
+const gridIndexes = new WeakMap<Script, readonly AuthoredGrid[]>();
+
+function gridsFor(source: string, script: Script): readonly AuthoredGrid[] {
+  const cached = gridIndexes.get(script);
+  if (cached) return cached;
+  const grids = findAuthoredGrids(
+    source,
+    script.ast,
+    (node) => {
+      const visit = script.visits.get(node);
+      return visit && node.type === 'Identifier'
+        ? lookup(visit, node.name)?.declaration
+        : undefined;
+    },
+    script.staticSafe,
+  );
+  gridIndexes.set(script, grids);
+  return grids;
+}
+
+type LocatedTarget = {
+  node: AnyNode;
+  script: Script;
+  grid?: AuthoredGrid;
+  row?: number;
+};
+
+function gridTarget(
+  source: string,
+  selection: SourceSpan,
+  script: Script,
+): LocatedTarget | undefined {
+  for (const grid of gridsFor(source, script)) {
+    const match = matchGridSelection(grid, selection);
+    if (!match) continue;
+    for (const node of script.visits.keys()) {
+      if (exact(node, grid.expression)) return { node, script, grid, row: match.row };
+    }
+  }
+}
+
+function locateTarget(source: string, selection: SourceSpan): LocatedTarget | undefined {
   if (
     !Number.isInteger(selection.from) ||
     !Number.isInteger(selection.to) ||
     selection.from < 0 ||
-    selection.from >= selection.to ||
+    selection.from > selection.to ||
     selection.to > source.length
   )
     return;
-  const script = readScript(source);
+  const script = scriptFor(source);
+  if (!script) return;
+  if (selection.from === selection.to) {
+    const caret = selection.from;
+    if (script.comments.some(({ start, end }) => start <= caret && caret < end)) return;
+    const grid = gridTarget(source, selection, script);
+    if (grid) return grid;
+    const node = caretNode(source, caret, script);
+    return node ? { node, script } : undefined;
+  }
   const trimmed = trimSelection(source, selection, script.comments);
   if (trimmed.from >= trimmed.to) return;
+  const grid = gridTarget(source, trimmed, script);
+  if (grid) return grid;
   const node = selectedNode(source, trimmed, script);
   if (node) return { node, script };
 }
@@ -580,17 +753,31 @@ export function resolveRollTarget(source: string, selection: SourceSpan): RollTa
   try {
     const selected = locateTarget(source, selection);
     if (!selected) return null;
-    const { node, script } = selected;
+    const { node, script, grid, row } = selected;
     const expression = spanOf(node);
     const direct = destination(script.visits.get(node)!, script);
-    const authored = phraseAt(node, script, source);
+    const authored = grid
+      ? grid.hasEventEdits
+        ? undefined
+        : grid.phrase
+      : phraseAt(node, script, source);
     const resolved = resolveAlias(
       script.definitions.get(node) ?? receiverBinding(node, script) ?? (authored && direct.alias),
       script,
     );
     const binding = resolved?.binding;
     const init = binding?.initializer;
-    const fullyAuthored = init && (init === node ? authored : phraseAt(init, script, source));
+    const bindingGrid =
+      init && gridsFor(source, script).find((item) => exact(init, item.expression));
+    const fullyAuthored =
+      init &&
+      (init === node
+        ? authored
+        : bindingGrid
+          ? bindingGrid.hasEventEdits
+            ? undefined
+            : bindingGrid.phrase
+          : phraseAt(init, script, source));
     const authoredDefinition = fullyAuthored
       ? init
       : authored && direct.alias === binding
@@ -623,10 +810,29 @@ export function resolveRollTarget(source: string, selection: SourceSpan): RollTa
       .slice(expression.from, expression.to)
       .trim()
       .split(/\s*\r?\n\s*/u, 1)[0];
-    return { expression, label, phrase, sections, definition };
+    const authoredGrid = grid ?? bindingGrid;
+    return {
+      expression,
+      label: grid?.rowsName ?? label,
+      phrase,
+      sections,
+      definition,
+      ...(authoredGrid
+        ? { gridRow: row, gridBars: authoredGrid.phrase.bars, gridSteps: authoredGrid.score.width }
+        : {}),
+    };
   } catch {
     return null;
   }
+}
+
+/** A writable receiver can sit inside a shared definition's outer method chain. */
+export function targetsDefinition({ expression, definition }: RollTarget): boolean {
+  return (
+    definition !== undefined &&
+    expression.from >= definition.expression.from &&
+    expression.to <= definition.expression.to
+  );
 }
 
 export function planRollEdit(
@@ -637,7 +843,8 @@ export function planRollEdit(
   try {
     const selected = locateTarget(source, target);
     if (!selected || !exact(selected.node, target)) return null;
-    const { node, script } = selected;
+    const { node, script, grid } = selected;
+    if (grid) return grid.hasEventEdits ? null : planGridEdit(source, grid, edit);
     const phrase = phraseAt(node, script, source);
     if (!phrase) return null;
     const patch = planPhraseEdit(source, phrase, edit);

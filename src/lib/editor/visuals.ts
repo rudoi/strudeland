@@ -10,6 +10,7 @@ import {
 import { cleanupDraw, Drawer, getDrawContext } from '@strudel/draw';
 import type { RuntimeHooks } from '../strudel/runtime';
 import type { Hap } from '../strudel/types';
+import type { SourceSpan } from '../piano-roll/types';
 import { exitInsert } from './vim-mode';
 
 interface Widget {
@@ -40,6 +41,29 @@ export interface VisualsOptions {
 export const PAINTER_DRAW_TIME: DrawTime = [-2, 2];
 
 const auditionLocation = StateEffect.define<{ from: number; to: number } | null>();
+export const pianoRollEditLocation = StateEffect.define<readonly SourceSpan[]>();
+const editedSource = Decoration.mark({ class: 'cm-piano-roll-edit' });
+const editedLine = Decoration.line({ class: 'cm-piano-roll-edit-line' });
+
+export const pianoRollEditHighlight = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (!effect.is(pianoRollEditLocation)) continue;
+      return Decoration.set(
+        effect.value.map(({ from, to }) =>
+          from === to
+            ? editedLine.range(transaction.newDoc.lineAt(from).from)
+            : editedSource.range(from, to),
+        ),
+        true,
+      );
+    }
+    return transaction.docChanged ? Decoration.none : value;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 const soundingNote = Decoration.mark({
   class: 'cm-audition-note',
   attributes: { style: 'outline: solid 2px var(--foreground)' },
@@ -101,6 +125,9 @@ export function attachState(view: EditorView, state: EditorState): void {
   exitInsert(view);
   view.setState(state);
   clearHighlights(view);
+  if (view.state.field(pianoRollEditHighlight, false)?.size) {
+    view.dispatch({ effects: pianoRollEditLocation.of([]) });
+  }
 }
 
 /** Runtime hooks that drive highlighting, painters, sliders and widgets in the editor. */

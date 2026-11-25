@@ -6469,19 +6469,19 @@
     var _tonaljs_pcset = require_dist11();
     var _tonaljs_pitch_note = require_dist4();
     var namedSet = (notes) => {
-      const pcToName = notes.reduce((record, n2) => {
+      const pcToName = notes.reduce((record2, n2) => {
         const chroma = (0, _tonaljs_pitch_note.note)(n2).chroma;
         if (chroma !== undefined)
-          record[chroma] = record[chroma] || (0, _tonaljs_pitch_note.note)(n2).name;
-        return record;
+          record2[chroma] = record2[chroma] || (0, _tonaljs_pitch_note.note)(n2).name;
+        return record2;
       }, {});
       return (chroma) => pcToName[chroma];
     };
-    function detect2(source2, options = {}) {
+    function detect2(source2, options2 = {}) {
       const notes = source2.map((n2) => (0, _tonaljs_pitch_note.note)(n2).pc).filter((x2) => x2);
       if (_tonaljs_pitch_note.note.length === 0)
         return [];
-      return findMatches(notes, 1, options).filter((chord2) => chord2.weight).sort((a, b) => b.weight - a.weight).map((chord2) => chord2.name);
+      return findMatches(notes, 1, options2).filter((chord2) => chord2.weight).sort((a, b) => b.weight - a.weight).map((chord2) => chord2.name);
     }
     var BITMASK = {
       anyThirds: 384,
@@ -6502,16 +6502,16 @@
       const chromaNumber = parseInt(chroma, 2);
       return hasNonPerfectFifth(chromaNumber) ? chroma : (chromaNumber | 16).toString(2);
     }
-    function findMatches(notes, weight, options) {
+    function findMatches(notes, weight, options2) {
       const tonic = notes[0];
       const tonicChroma = (0, _tonaljs_pitch_note.note)(tonic).chroma;
       const noteName = namedSet(notes);
       const allModes = (0, _tonaljs_pcset.modes)(notes, false);
       const found = [];
       allModes.forEach((mode2, index) => {
-        const modeWithPerfectFifth = options.assumePerfectFifth && withPerfectFifth(mode2);
+        const modeWithPerfectFifth = options2.assumePerfectFifth && withPerfectFifth(mode2);
         (0, _tonaljs_chord_type.all)().filter((chordType) => {
-          if (options.assumePerfectFifth && hasAnyThirdAndPerfectFifthAndAnySeventh(chordType))
+          if (options2.assumePerfectFifth && hasAnyThirdAndPerfectFifthAndAnySeventh(chordType))
             return chordType.chroma === modeWithPerfectFifth;
           return chordType.chroma === mode2;
         }).forEach((chordType) => {
@@ -6964,7 +6964,7 @@
       symbols: () => symbols
     });
     module.exports = __toCommonJS2(chord_type_exports);
-    var import_core11 = require_dist18();
+    var import_core12 = require_dist18();
     var import_pcset = require_dist11();
     var CHORDS = [
       ["1P 3M 5P", "major", "M ^  maj"],
@@ -7103,7 +7103,7 @@
     function get(type) {
       return index[type] || NoChordType;
     }
-    var chordType = (0, import_core11.deprecate)("ChordType.chordType", "ChordType.get", get);
+    var chordType = (0, import_core12.deprecate)("ChordType.chordType", "ChordType.get", get);
     function names() {
       return dictionary2.map((chord2) => chord2.name).filter((x2) => x2);
     }
@@ -7116,7 +7116,7 @@
     function all() {
       return dictionary2.slice();
     }
-    var entries = (0, import_core11.deprecate)("ChordType.entries", "ChordType.all", all);
+    var entries = (0, import_core12.deprecate)("ChordType.entries", "ChordType.all", all);
     function removeAll() {
       dictionary2 = [];
       index = {};
@@ -7478,7 +7478,7 @@
     module.exports = __toCommonJS2(chord_exports);
     var import_chord_detect = require_dist13();
     var import_chord_type = require_dist19();
-    var import_core11 = require_dist18();
+    var import_core12 = require_dist18();
     var import_core22 = require_dist18();
     var import_pcset = require_dist11();
     var import_scale_type = require_dist20();
@@ -7582,12 +7582,12 @@
     }
     function degrees(chordName) {
       const { intervals, tonic } = get(chordName);
-      const transpose2 = (0, import_core11.tonicIntervalsTransposer)(intervals, tonic);
+      const transpose2 = (0, import_core12.tonicIntervalsTransposer)(intervals, tonic);
       return (degree2) => degree2 ? transpose2(degree2 > 0 ? degree2 - 1 : degree2) : "";
     }
     function steps2(chordName) {
       const { intervals, tonic } = get(chordName);
-      return (0, import_core11.tonicIntervalsTransposer)(intervals, tonic);
+      return (0, import_core12.tonicIntervalsTransposer)(intervals, tonic);
     }
     var chord_default = {
       getChord,
@@ -7708,24 +7708,24 @@
       const base2 = VALUES.find((dur2) => dur2.shorthand === simple || dur2.names.includes(simple));
       if (!base2)
         return NoDuration;
-      const fraction3 = calcDots(base2.fraction, dots.length);
-      const value2 = fraction3[0] / fraction3[1];
+      const fraction4 = calcDots(base2.fraction, dots.length);
+      const value2 = fraction4[0] / fraction4[1];
       return {
         ...base2,
         name,
         dots,
         value: value2,
-        fraction: fraction3
+        fraction: fraction4
       };
     }
     var value = (name) => get(name).value;
-    var fraction2 = (name) => get(name).fraction;
+    var fraction3 = (name) => get(name).fraction;
     var duration_value_default = {
       names,
       shorthands,
       get,
       value,
-      fraction: fraction2
+      fraction: fraction3
     };
     function add2(denominator, shorthand, names2) {
       VALUES.push({
@@ -7738,10 +7738,10 @@
         names: names2
       });
     }
-    function calcDots(fraction3, dots) {
+    function calcDots(fraction4, dots) {
       const pow2 = Math.pow(2, dots);
-      let numerator = fraction3[0] * pow2;
-      let denominator = fraction3[1] * pow2;
+      let numerator = fraction4[0] * pow2;
+      let denominator = fraction4[1] * pow2;
       const base2 = numerator;
       for (let i3 = 0;i3 < dots; i3++)
         numerator += base2 / Math.pow(2, i3 + 1);
@@ -7752,7 +7752,7 @@
       return [numerator, denominator];
     }
     exports.default = duration_value_default;
-    exports.fraction = fraction2;
+    exports.fraction = fraction3;
     exports.get = get;
     exports.names = names;
     exports.shorthands = shorthands;
@@ -7895,12 +7895,12 @@
     }
     var SHARPS = "C C# D D# E F F# G G# A A# B".split(" ");
     var FLATS = "C Db D Eb E F Gb G Ab A Bb B".split(" ");
-    function midiToNoteName(midi, options = {}) {
+    function midiToNoteName(midi, options2 = {}) {
       if (isNaN(midi) || midi === -Infinity || midi === Infinity)
         return "";
       midi = Math.round(midi);
-      const pc = (options.sharps === true ? SHARPS : FLATS)[midi % 12];
-      if (options.pitchClass)
+      const pc = (options2.sharps === true ? SHARPS : FLATS)[midi % 12];
+      if (options2.pitchClass)
         return pc;
       return pc + (Math.floor(midi / 12) - 1);
     }
@@ -10284,8 +10284,8 @@
         return result.concat((0, _tonaljs_collection.range)(last, note2).slice(1));
       }, [midi[0]]);
     }
-    function chromatic(notes, options) {
-      return numeric(notes).map((midi) => (0, _tonaljs_midi.midiToNoteName)(midi, options));
+    function chromatic(notes, options2) {
+      return numeric(notes).map((midi) => (0, _tonaljs_midi.midiToNoteName)(midi, options2));
     }
     var range_default = {
       numeric,
@@ -10975,9 +10975,9 @@
       };
     }
     var scale2 = get;
-    function detect2(notes, options = {}) {
+    function detect2(notes, options2 = {}) {
       const notesChroma = (0, _tonaljs_pcset.chroma)(notes);
-      const tonic = (0, _tonaljs_pitch_note.note)(options.tonic ?? notes[0] ?? "");
+      const tonic = (0, _tonaljs_pitch_note.note)(options2.tonic ?? notes[0] ?? "");
       const tonicChroma = tonic.chroma;
       if (tonicChroma === undefined)
         return [];
@@ -10988,7 +10988,7 @@
       const results = [];
       if (match)
         results.push(tonic.name + " " + match.name);
-      if (options.match === "exact")
+      if (options2.match === "exact")
         return results;
       extended(scaleChroma).forEach((scaleName) => {
         results.push(tonic.name + " " + scaleName);
@@ -25290,6 +25290,115 @@ Please check with "npm ls @strudel/core".`);
   }
   globalThis._strudelLoaded = true;
 
+  // src/lib/strudel/song.ts
+  var segmentSource = () => INITIAL_SEGMENTS;
+  var registered = null;
+  var songPlacement = Symbol("written song placement");
+  var observingPlacement = false;
+  function withSongPlacement(query) {
+    const previous = observingPlacement;
+    observingPlacement = true;
+    try {
+      return query();
+    } finally {
+      observingPlacement = previous;
+    }
+  }
+  function setSegmentSource(get) {
+    segmentSource = get;
+  }
+  function beginEvaluate() {
+    registered = null;
+  }
+  function registeredStructure() {
+    return registered;
+  }
+  function structureOf(meta) {
+    if (!isPlainObject(meta))
+      throw new Error("song: the first argument must be the meta object");
+    let structure;
+    try {
+      structure = buildStructure(meta);
+    } catch (e) {
+      if (e instanceof StructureError)
+        throw new Error(`song: ${e.message}`);
+      throw e;
+    }
+    if (structure.sections.length === 0) {
+      throw new Error("song: meta.sections is required, e.g. [{ name: 'intro', bars: 4 }]");
+    }
+    return structure;
+  }
+  function partsOf(structure, parts) {
+    if (!isPlainObject(parts)) {
+      throw new Error("song: the second argument must be an object of parts, e.g. { intro: pat }");
+    }
+    const names = new Set(structure.sections.map((s2) => s2.name));
+    for (const key of Object.keys(parts)) {
+      if (!names.has(key))
+        throw new Error(`song: part '${key}' is not a section in meta.sections`);
+    }
+    return structure.sections.map((s2) => {
+      const part = Object.prototype.hasOwnProperty.call(parts, s2.name) ? parts[s2.name] : undefined;
+      if (part === undefined)
+        throw new Error(`song: no part for section '${s2.name}'`);
+      return reify(part);
+    });
+  }
+  function register2(structure) {
+    if (registered && !sameStructure(registered, structure)) {
+      throw new Error("song: one structure per song");
+    }
+    registered ??= structure;
+  }
+  function song(meta, parts) {
+    const structure = structureOf(meta);
+    const pats = partsOf(structure, parts);
+    register2(structure);
+    return new Pattern((state2) => {
+      const segments = state2.controls?._segments ?? segmentSource();
+      const end2 = state2.span.end;
+      if (end2.lt(0) || end2.eq(0) && state2.span.begin.lt(0))
+        return [];
+      let g = state2.span.begin.lt(0) ? fraction_default(0) : state2.span.begin;
+      const haps = [];
+      do {
+        const cycle = g.floor().valueOf();
+        const located = locate(cycle, structure, segments);
+        const boundary = pieceEnd(cycle, structure, segments, located);
+        const to = boundary === Infinity ? end2 : end2.min(fraction_default(boundary));
+        if (to.lte(g) && g.lt(end2))
+          throw new Error("song: transport segments must start at whole cycles");
+        if (located === null) {
+          if (boundary === Infinity)
+            break;
+        } else {
+          const offset3 = cycle - located.localCycle;
+          const bars = structure.sections[located.section].bars;
+          const occurrence = new TimeSpan(offset3, offset3 + bars);
+          const piece = new TimeSpan(g, to);
+          const local = state2.setSpan(new TimeSpan(g.sub(offset3), to.sub(offset3)));
+          for (const hap2 of pats[located.section].query(local)) {
+            const shifted = hap2.withSpan((span) => span.withTime((t) => t.add(offset3)));
+            const part = shifted.part.intersection(piece);
+            if (!part)
+              continue;
+            let whole;
+            if (shifted.whole) {
+              whole = shifted.whole.intersection(occurrence);
+              if (!whole)
+                continue;
+            }
+            const context = observingPlacement ? { ...hap2.context, [songPlacement]: whole ?? part } : hap2.context;
+            haps.push(new Hap(whole, part, hap2.value, context, hap2.stateful));
+          }
+        }
+        g = to;
+      } while (g.lt(end2));
+      return haps;
+    });
+  }
+
   // src/lib/levels/levels.ts
   function mergeFrames(a, b) {
     return {
@@ -25337,7 +25446,7 @@ Please check with "npm ls @strudel/core".`);
     const haps = [];
     const mixedMeter = !!structure.meterChanges?.length;
     const painters = state2.controls.painters;
-    const registered = mixedMeter && painters ? new Map : undefined;
+    const registered2 = mixedMeter && painters ? new Map : undefined;
     do {
       const to = Math.min(end2, clock.nextMeterBoundary(from));
       const localCps = cpsAtMeter(referenceCps, structure.meter, clock.meterAt(from));
@@ -25346,17 +25455,17 @@ Please check with "npm ls @strudel/core".`);
         _cps: localCps,
         _mixedMeter: mixedMeter
       });
-      if (registered)
+      if (registered2)
         piece.controls.painters = [];
       const result = pattern3.query(piece);
-      if (registered) {
+      if (registered2) {
         const occurrences = new Map;
         for (const painter of piece.controls.painters) {
           const count = (occurrences.get(painter) ?? 0) + 1;
           occurrences.set(painter, count);
-          if (count > (registered.get(painter) ?? 0)) {
+          if (count > (registered2.get(painter) ?? 0)) {
             painters.push(painter);
-            registered.set(painter, count);
+            registered2.set(painter, count);
           }
         }
       }
@@ -28992,101 +29101,458 @@ Please check with "npm ls @strudel/core".`);
   // src/lib/strudel/seed.ts
   var applySeed = (pattern3, seed2) => seed2 === undefined ? pattern3 : pattern3.seed(seed2);
 
-  // src/lib/strudel/song.ts
-  var segmentSource = () => INITIAL_SEGMENTS;
-  var registered = null;
-  function setSegmentSource(get) {
-    segmentSource = get;
+  // src/lib/strudel/note-name.ts
+  var SHARP = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"];
+  var FLAT = ["c", "db", "d", "eb", "e", "f", "gb", "g", "ab", "a", "bb", "b"];
+  function spellNote(pitch, old = "") {
+    const octave2 = Math.floor(pitch / 12) - 1;
+    const style = /^[a-g][bf]/i.test(old) ? FLAT : SHARP;
+    let name = style[(pitch % 12 + 12) % 12];
+    if (old[1] === "s")
+      name = name.replace("#", "s");
+    if (old[1]?.toLowerCase() === "f" && name.length > 1)
+      name = name[0] + "f";
+    if (/^[A-G]/.test(old))
+      name = name[0].toUpperCase() + name.slice(1);
+    return name + octave2;
   }
-  function beginEvaluate() {
-    registered = null;
-  }
-  function registeredStructure() {
-    return registered;
-  }
-  function structureOf(meta) {
-    if (!isPlainObject(meta))
-      throw new Error("song: the first argument must be the meta object");
-    let structure;
+
+  // src/lib/strudel/event-edits.ts
+  var reporting;
+  function withReports(sink, query) {
+    const previous = reporting;
+    reporting = sink;
     try {
-      structure = buildStructure(meta);
-    } catch (e) {
-      if (e instanceof StructureError)
-        throw new Error(`song: ${e.message}`);
-      throw e;
+      return query();
+    } finally {
+      reporting = previous;
     }
-    if (structure.sections.length === 0) {
-      throw new Error("song: meta.sections is required, e.g. [{ name: 'intro', bars: 4 }]");
-    }
-    return structure;
   }
-  function partsOf(structure, parts) {
-    if (!isPlainObject(parts)) {
-      throw new Error("song: the second argument must be an object of parts, e.g. { intro: pat }");
+  function inspectEventEdits(query) {
+    const sink = new Set;
+    return { value: withReports(sink, query), staleEdits: [...sink] };
+  }
+  var marker = Symbol("piano edit");
+  var EDGE = /^-?\d{1,24}(?:\/[1-9]\d{0,23})?$/;
+  var fraction2 = (v2) => typeof v2 === "string" && EDGE.test(v2) && Math.abs(Number(fraction_default(v2))) <= 1000128;
+  var finite = (n2) => typeof n2 === "number" && Number.isFinite(n2);
+  var record = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+  var fields = new Set([
+    "id",
+    "from",
+    "pitch",
+    "voice",
+    "index",
+    "count",
+    "continuous",
+    "period",
+    "placement",
+    "capture",
+    "to",
+    "key",
+    "until",
+    "remove"
+  ]);
+  function validateEventSpec(spec) {
+    if (!record(spec) || Object.keys(spec).length !== 1 || !Array.isArray(spec.entries) || spec.entries.length > 2048)
+      throw new Error("piano edits: expected a bounded entries list");
+    const ids = new Set;
+    for (const e of spec.entries) {
+      if (!record(e) || Object.keys(e).some((k) => !fields.has(k)) || typeof e.id !== "string" || !/^[a-zA-Z0-9_-]{1,40}$/.test(e.id) || ids.has(e.id) || !Array.isArray(e.from) || e.from.length !== 2 || !e.from.every(fraction2) || !fraction_default(e.from[0]).lt(fraction_default(e.from[1])) || !finite(e.pitch) || e.placement !== undefined && e.placement !== "song" && e.placement !== "absolute" || e.voice !== undefined && (typeof e.voice !== "string" || e.voice.length > 2048) || e.count !== undefined && (!Number.isSafeInteger(e.count) || Number(e.count) < 1 || Number(e.count) > 16384) || e.index !== undefined && (!Number.isSafeInteger(e.index) || Number(e.index) < 0 || Number(e.index) >= Number(e.count ?? 1)) || e.to !== undefined && !fraction2(e.to) || e.until !== undefined && (!fraction2(e.until) || !fraction_default(e.until).gt(fraction_default(e.to ?? e.from[0]))) || e.period !== undefined && (!Number.isSafeInteger(e.period) || Number(e.period) < 1 || Number(e.period) > 1024 || e.until !== undefined && Number(fraction_default(e.until).sub(fraction_default(e.to ?? e.from[0]))) > Number(e.period) * 128) || e.key !== undefined && !finite(e.key) || e.remove !== undefined && typeof e.remove !== "boolean" || e.continuous !== undefined && typeof e.continuous !== "boolean" || e.capture !== undefined && boundedData(e.capture) === undefined)
+        throw new Error("piano edits: invalid or repeated event entry");
+      ids.add(e.id);
     }
-    const names = new Set(structure.sections.map((s2) => s2.name));
-    for (const key of Object.keys(parts)) {
-      if (!names.has(key))
-        throw new Error(`song: part '${key}' is not a section in meta.sections`);
+  }
+  function boundedData(value) {
+    let remaining = 256;
+    const visit = (x, depth) => {
+      if (--remaining < 0 || depth > 6)
+        return false;
+      if (x === null || typeof x === "boolean" || finite(x))
+        return true;
+      if (typeof x === "string")
+        return x.length <= 512;
+      if (!x || typeof x !== "object")
+        return false;
+      if (Array.isArray(x))
+        return x.length <= 128 && x.every((item) => visit(item, depth + 1));
+      if (Object.getPrototypeOf(x) !== null && Object.getPrototypeOf(x) !== Object.prototype)
+        return false;
+      const keys = Object.keys(x);
+      return keys.length <= 64 && keys.every((key) => key.length <= 64 && key !== "__proto__" && Object.hasOwn(Object.getOwnPropertyDescriptor(x, key), "value") && visit(x[key], depth + 1));
+    };
+    if (!visit(value, 0) || JSON.stringify(value).length > 2048)
+      return;
+    return value;
+  }
+  function frequency(value) {
+    if (typeof value !== "number" && typeof value !== "string")
+      return;
+    const hz = Number(value);
+    return finite(hz) && hz > 0 ? hz : undefined;
+  }
+  function scalarPitch(value) {
+    if (finite(value))
+      return value;
+    if (typeof value !== "string" || !isNote(value))
+      return;
+    const midi = noteToMidi(value);
+    return finite(midi) ? midi : undefined;
+  }
+  function octaveOffset(value) {
+    return typeof value === "number" || typeof value === "string" ? 12 * Number(value) : 0;
+  }
+  function eventPitch(value, primitive) {
+    if (!record(value))
+      return primitive ? scalarPitch(value) : undefined;
+    const hz = frequency(value.freq);
+    const base2 = hz === undefined ? scalarPitch(value.note) : freqToMidi(hz);
+    if (base2 === undefined)
+      return;
+    const midi = base2 + octaveOffset(value.octave);
+    return finite(midi) ? midi : undefined;
+  }
+  function retune(value, pitch) {
+    if (pitch === undefined)
+      return value;
+    if (!record(value))
+      return typeof value === "string" && Number.isInteger(pitch) ? spellNote(pitch, value) : pitch;
+    const base2 = pitch - octaveOffset(value.octave);
+    if (frequency(value.freq) !== undefined)
+      return { ...value, freq: midiToFreq2(base2) };
+    if (typeof value.note === "string" && Number.isInteger(base2))
+      return { ...value, note: spellNote(base2, value.note) };
+    return { ...value, note: base2 === 0 ? "c-1" : base2 };
+  }
+  function voiceOf(value, detailed = false) {
+    if (!record(value))
+      return typeof value;
+    const kind = frequency(value.freq) !== undefined ? "freq" : "note";
+    if (!detailed) {
+      return JSON.stringify([kind, value.s ?? null, value.orbit ?? null, value.label ?? null]);
     }
-    return structure.sections.map((s2) => {
-      const part = Object.prototype.hasOwnProperty.call(parts, s2.name) ? parts[s2.name] : undefined;
-      if (part === undefined)
-        throw new Error(`song: no part for section '${s2.name}'`);
-      return reify(part);
+    const keys = Object.keys(value).filter((k) => k !== "note" && k !== "freq").sort();
+    const controls2 = keys.map((k) => [k, boundedData(value[k]) ?? null]);
+    return "=" + JSON.stringify([kind, controls2]);
+  }
+  function locations(hap2) {
+    return (hap2.context?.locations ?? []).map((loc) => loc.start + ":" + loc.end).join("/");
+  }
+  function inSourceOrder(haps) {
+    return haps.sort((a, b) => {
+      const x = a.context?.locations ?? [], y = b.context?.locations ?? [];
+      for (let i3 = 0;i3 < Math.min(x.length, y.length); i3++) {
+        const diff = x[i3].start - y[i3].start || x[i3].end - y[i3].end;
+        if (diff)
+          return diff;
+      }
+      return x.length - y.length;
     });
   }
-  function register2(structure) {
-    if (registered && !sameStructure(registered, structure)) {
-      throw new Error("song: one structure per song");
+  var spanOf = (hap2) => hap2.whole ?? hap2.part;
+  var placementOf = (hap2) => hap2.context?.[songPlacement]?.equals(spanOf(hap2)) ? "song" : "absolute";
+  function identifyEvent(hap2, siblings, primitive, stochastic) {
+    const pitch = eventPitch(hap2.value, primitive);
+    if (pitch === undefined || hap2.stateful)
+      return;
+    const arc = spanOf(hap2);
+    const from = [arc.begin.toFraction(), arc.end.toFraction()];
+    if (!from.every(fraction2) || !arc.begin.lt(arc.end))
+      return;
+    const placement = primitive ? undefined : placementOf(hap2);
+    let voice2 = voiceOf(hap2.value);
+    const simultaneous = siblings.filter((h2) => (placement === undefined || placementOf(h2) === placement) && !!h2.whole === !!hap2.whole && spanOf(h2).equals(arc) && soundingAt(h2, hap2.part.begin));
+    let lane = simultaneous.filter((h2) => voiceOf(h2.value) === voice2);
+    if (lane.length > 1) {
+      voice2 = voiceOf(hap2.value, true);
+      lane = lane.filter((h2) => voiceOf(h2.value, true) === voice2);
     }
-    registered ??= structure;
+    if (voice2.length > 2048)
+      return;
+    const same = inSourceOrder(lane.filter((h2) => eventPitch(h2.value, primitive) === pitch));
+    const opaqueTie = same.some((h2) => h2 !== hap2 && locations(h2) === locations(hap2) && (h2.context?.onSchedule !== hap2.context?.onSchedule || h2.context?.onTrigger !== hap2.context?.onTrigger));
+    if (opaqueTie)
+      return;
+    const index = same.indexOf(hap2);
+    if (index < 0)
+      return;
+    const capture = (!hap2.whole || stochastic) && lane.length === 1 ? boundedData(hap2.value) : undefined;
+    if (!hap2.whole && capture === undefined)
+      return;
+    return {
+      from,
+      pitch,
+      voice: voice2,
+      ...placement ? { placement } : {},
+      ...same.length > 1 ? { index, count: same.length } : {},
+      ...!hap2.whole ? { continuous: true } : {},
+      ...capture !== undefined ? { capture } : {},
+      ...typeof hap2.context?.[marker] === "string" ? { entry: hap2.context[marker] } : {}
+    };
   }
-  function song(meta, parts) {
-    const structure = structureOf(meta);
-    const pats = partsOf(structure, parts);
-    register2(structure);
-    return new Pattern((state2) => {
-      const segments = state2.controls?._segments ?? segmentSource();
-      const end2 = state2.span.end;
-      if (end2.lt(0) || end2.eq(0) && state2.span.begin.lt(0))
-        return [];
-      let g = state2.span.begin.lt(0) ? fraction_default(0) : state2.span.begin;
-      const haps = [];
+  function candidates(haps, e, whole, continuous = false) {
+    return haps.filter((h2) => (e.placement === undefined || placementOf(h2) === e.placement) && (continuous ? !h2.whole : h2.whole && h2.whole.equals(whole)) && (e.voice === undefined || voiceOf(h2.value, e.voice.startsWith("=")) === e.voice));
+  }
+  function pick3(group, e, canonical) {
+    if (canonical) {
+      const refs = locations(canonical);
+      if (refs) {
+        const local = group.filter((h2) => locations(h2) === refs);
+        if (local.length === 1 && (eventPitch(local[0].value, true) === e.pitch || e.capture !== undefined))
+          return local[0];
+      }
+    }
+    const same = inSourceOrder(group.filter((h2) => eventPitch(h2.value, true) === e.pitch));
+    if (same.length === (e.count ?? 1))
+      return same[e.index ?? 0];
+    if (e.capture !== undefined && group.length === 1)
+      return group[0];
+  }
+  function soundingAt(hap2, time3) {
+    return hap2.part.begin.eq(time3) || hap2.part.begin.lt(time3) && hap2.part.end.gt(time3);
+  }
+  function selectedParts(group, entry, canonical) {
+    if (group.length <= 1) {
+      const matched = pick3(group, entry, canonical);
+      return matched ? [matched] : [];
+    }
+    const ordered = [...group].sort((a, b) => a.part.begin.compare(b.part.begin));
+    const selected = new Set;
+    let active = [];
+    for (let i3 = 0;i3 < ordered.length; ) {
+      const at2 = ordered[i3].part.begin;
+      active = active.filter((h2) => soundingAt(h2, at2));
       do {
-        const cycle = g.floor().valueOf();
-        const located = locate(cycle, structure, segments);
-        const boundary = pieceEnd(cycle, structure, segments, located);
-        const to = boundary === Infinity ? end2 : end2.min(fraction_default(boundary));
-        if (to.lte(g) && g.lt(end2))
-          throw new Error("song: transport segments must start at whole cycles");
-        if (located === null) {
-          if (boundary === Infinity)
-            break;
-        } else {
-          const offset3 = cycle - located.localCycle;
-          const bars = structure.sections[located.section].bars;
-          const occurrence = new TimeSpan(offset3, offset3 + bars);
-          const piece = new TimeSpan(g, to);
-          const local = state2.setSpan(new TimeSpan(g.sub(offset3), to.sub(offset3)));
-          for (const hap2 of pats[located.section].query(local)) {
-            const shifted = hap2.withSpan((span) => span.withTime((t) => t.add(offset3)));
-            const part = shifted.part.intersection(piece);
-            if (!part)
-              continue;
-            let whole;
-            if (shifted.whole) {
-              whole = shifted.whole.intersection(occurrence);
-              if (!whole)
-                continue;
+        active.push(ordered[i3++]);
+      } while (i3 < ordered.length && ordered[i3].part.begin.eq(at2));
+      const matched = pick3(active, entry, canonical);
+      if (matched && matched.part.begin.eq(at2))
+        selected.add(matched);
+    }
+    return group.filter((h2) => selected.has(h2));
+  }
+  function replacementHap(entry, h2, whole, part, destScale) {
+    const old = h2?.value;
+    const pinned = entry.capture !== undefined && (!h2 || entry.continuous || eventPitch(old, true) !== entry.pitch);
+    let value = retune(pinned ? entry.capture : old, entry.key);
+    if (entry.until && record(value) && typeof value.duration === "number")
+      value = { ...value, duration: value.duration * Number(destScale) };
+    const context = { ...h2?.context, [marker]: entry.id };
+    if (entry.placement)
+      context[songPlacement] = entry.placement === "song" ? whole : undefined;
+    return new Hap(whole, part, value, context, h2?.stateful);
+  }
+  function verifyEventOrigin(observation, identity, haps, requireOrigin = false) {
+    const entry = { ...identity, id: "" };
+    const arc = spanOf(observation);
+    const group = candidates(haps, entry, arc).filter((h2) => soundingAt(h2, arc.begin));
+    const origin = pick3(group, entry, observation);
+    if (!origin)
+      return !requireOrigin && identity.capture !== undefined && group.length === 0 ? identity : undefined;
+    const same = inSourceOrder(group.filter((h2) => eventPitch(h2.value, true) === identity.pitch));
+    const index = same.indexOf(origin);
+    if (index < 0)
+      return identity.capture === undefined ? undefined : identity;
+    if (same.length > 1 && locations(observation) !== locations(origin))
+      return;
+    const { index: _, count: __, ...base2 } = identity;
+    return same.length > 1 ? { ...base2, index, count: same.length } : base2;
+  }
+  function periodicPieces(arc, source2, dest, period) {
+    const offsets = new Set;
+    for (const span of [source2, dest]) {
+      const first = Number(arc.begin.sub(span.end).div(period).floor()) + 1;
+      const last = Number(arc.end.sub(span.begin).div(period).floor());
+      for (let i3 = first;i3 <= last; i3++)
+        offsets.add(i3 * period);
+    }
+    return [...offsets].map((offset3) => ({ arc, offset: offset3 }));
+  }
+  function outsideCuts(hap2, cuts) {
+    const remaining = [];
+    let begin2 = hap2.part.begin;
+    for (const cut2 of cuts.sort((a, b) => a.begin.compare(b.begin))) {
+      if (begin2.lt(cut2.begin))
+        remaining.push(new Hap(undefined, new TimeSpan(begin2, cut2.begin), hap2.value, hap2.context, hap2.stateful));
+      begin2 = begin2.max(cut2.end);
+    }
+    if (begin2.lt(hap2.part.end))
+      remaining.push(new Hap(undefined, new TimeSpan(begin2, hap2.part.end), hap2.value, hap2.context, hap2.stateful));
+    return remaining;
+  }
+  function editPatternEvents(pattern3, spec, layout) {
+    validateEventSpec(spec);
+    if (!spec.entries.length)
+      return pattern3;
+    const entries = spec.entries.map((entry) => {
+      const source2 = new TimeSpan(...entry.from);
+      const a = fraction_default(entry.to ?? entry.from[0]);
+      const dest = new TimeSpan(a, entry.until ?? a.add(source2.duration));
+      const sourceScale = source2.duration.div(dest.duration);
+      const destScale = dest.duration.div(source2.duration);
+      return { entry, source: source2, dest, sourceScale, destScale };
+    });
+    const queryInput = (state2) => layout ? withSongPlacement(() => pattern3.query(state2)) : pattern3.query(state2);
+    return new Pattern((state2) => {
+      const haps = queryInput(state2);
+      const suppressed = new Set;
+      const cuts = new Map;
+      const activeByArc = new Map;
+      const additions = [];
+      const atOriginal = new Map;
+      const probes = new Map;
+      const pieces = [];
+      let g = state2.span.begin;
+      do {
+        const cycle = Number(g.floor());
+        const seg2 = state2.controls._segments ?? layout?.segments();
+        const pos = layout && locate(cycle, layout.structure, seg2);
+        const end2 = layout ? Math.min(pieceEnd(cycle, layout.structure, seg2, pos), Number(state2.span.end)) : Number(state2.span.end);
+        const to = end2 === Number(state2.span.end) ? state2.span.end : fraction_default(end2);
+        if (!layout || pos && cycle >= 0) {
+          const offset3 = pos ? cycle - pos.songBar : 0;
+          pieces.push({ arc: new TimeSpan(g, to), offset: offset3 });
+        }
+        if (to.gte(state2.span.end) || to.lte(g))
+          break;
+        g = to;
+      } while (true);
+      const absolutePiece = [{ arc: state2.span, offset: 0 }];
+      function probe(query, absolute) {
+        const key = (absolute ? "a" : "w") + query.begin.toFraction() + ":" + query.end.toFraction();
+        const hit = probes.get(key);
+        if (hit)
+          return hit;
+        let controls2 = { ...state2.controls, painters: [] };
+        if (layout) {
+          const segments = absolute ? state2.controls._segments ?? layout.segments() : LINEAR_SEGMENTS;
+          const cycle = Number(query.begin.floor());
+          const writtenBar = absolute ? locate(cycle, layout.structure, segments)?.songBar : cycle;
+          controls2 = {
+            ...controls2,
+            _segments: segments,
+            _cps: cpsAtMeter(layout.cps(), layout.structure.meter, writtenBar === undefined ? layout.structure.meter : meterAtBar(layout.structure, writtenBar))
+          };
+        }
+        const probeState = new State(query, controls2);
+        const result = reporting ? withReports(undefined, () => queryInput(probeState)) : queryInput(probeState);
+        probes.set(key, result);
+        return result;
+      }
+      for (const { entry, source: source2, dest, sourceScale, destScale } of entries) {
+        const periodic = entry.period !== undefined && !layout;
+        const absolute = entry.placement === "absolute";
+        const occurrences = periodic ? periodicPieces(state2.span, source2, dest, entry.period) : absolute ? absolutePiece : pieces;
+        for (const { arc, offset: offset3 } of occurrences) {
+          const shift = (span) => span.withTime((t) => t.add(offset3));
+          const origin = shift(source2), target = shift(dest);
+          const sourcePart = origin.intersection(arc);
+          const part = target.intersection(arc);
+          if (!sourcePart && !part)
+            continue;
+          const readSource = periodic ? origin : source2;
+          const onset = entry.continuous ? readSource : new TimeSpan(readSource.begin, readSource.begin);
+          const originGroup = candidates(probe(onset, absolute), entry, readSource, entry.continuous);
+          const canonical = pick3(originGroup, entry);
+          const missingCapture = entry.capture !== undefined && !canonical && originGroup.length === 0;
+          if (!canonical && !missingCapture) {
+            if (entry.capture === undefined)
+              reporting?.add(entry.id);
+            continue;
+          }
+          const inPlace = source2.equals(dest) && !entry.continuous;
+          let replacedInPlace = false;
+          if (sourcePart) {
+            let active = activeByArc.get(arc);
+            if (!active) {
+              active = haps.filter((h2) => h2.part.intersection(arc));
+              activeByArc.set(arc, active);
             }
-            haps.push(new Hap(whole, part, hap2.value, hap2.context, hap2.stateful));
+            if (entry.continuous) {
+              const h2 = pick3(candidates(active, entry, origin, true), entry, canonical);
+              const cut2 = h2?.part.intersection(sourcePart);
+              if (cut2) {
+                const previous = cuts.get(h2);
+                if (previous)
+                  previous.push(cut2);
+                else
+                  cuts.set(h2, [cut2]);
+              }
+            } else {
+              const selected2 = selectedParts(candidates(active, entry, origin), entry, canonical);
+              for (const h2 of selected2) {
+                suppressed.add(h2);
+                if (inPlace && !entry.remove) {
+                  const originalPart = h2.part.intersection(sourcePart);
+                  if (!originalPart)
+                    continue;
+                  const replacement = replacementHap(entry, h2, h2.whole, originalPart, destScale);
+                  replacedInPlace = true;
+                  const previous = atOriginal.get(h2);
+                  if (previous)
+                    previous.push(replacement);
+                  else
+                    atOriginal.set(h2, [replacement]);
+                }
+              }
+            }
+          }
+          if (!part || entry.remove || inPlace && (!missingCapture || replacedInPlace))
+            continue;
+          const inverse = (t) => readSource.begin.add(t.sub(target.begin).mul(sourceScale));
+          const query = entry.continuous ? readSource : part.withTime(inverse);
+          const sourceGroup = candidates(probe(query, absolute), entry, readSource, entry.continuous);
+          const selected = selectedParts(sourceGroup, entry, canonical);
+          if (!selected.length && entry.capture !== undefined && !canonical && !sourceGroup.length)
+            additions.push(replacementHap(entry, undefined, target, part, destScale));
+          for (const h2 of selected) {
+            const clipped = entry.continuous ? part : h2.part.withTime((t) => target.begin.add(t.sub(readSource.begin).mul(destScale))).intersection(part);
+            if (clipped)
+              additions.push(replacementHap(entry, h2, target, clipped, destScale));
           }
         }
-        g = to;
-      } while (g.lt(end2));
-      return haps;
-    });
+      }
+      return [
+        ...haps.flatMap((h2) => {
+          const removed = cuts.get(h2);
+          return removed ? outsideCuts(h2, removed) : atOriginal.get(h2) ?? (suppressed.has(h2) ? [] : [h2]);
+        }),
+        ...additions
+      ];
+    }, pattern3._steps);
+  }
+  var installed = false;
+  function registerEventEdits() {
+    if (installed)
+      return;
+    if ("_pianoEdits" in Pattern.prototype || "pianoEdits" in Pattern.prototype)
+      throw new Error("piano edits: operation already registered");
+    register("pianoEdits", (spec, pattern3) => editPatternEvents(pattern3, spec), true, true);
+    for (const key of ["pianoEdits", "_pianoEdits"])
+      Object.defineProperty(Pattern.prototype, key, { writable: false });
+    installed = true;
+  }
+
+  // src/lib/strudel/event-document.ts
+  var options = { ecmaVersion: 2022, allowAwaitOutsideFunction: true };
+  var EDIT_COMMENT = "@piano-edits";
+  function songEditComment(code) {
+    if (!code.includes(EDIT_COMMENT))
+      return;
+    const comments = [];
+    const tree = parse3(code, { ...options, onComment: comments });
+    const directives = comments.filter((c) => c.type === "Block" && c.value.trimStart().startsWith(EDIT_COMMENT) && !tree.body.some((node2) => node2.start <= c.start && node2.end >= c.end));
+    if (!directives.length)
+      return;
+    const comment = directives[0];
+    if (directives.length > 1 || code.slice(comment.end).trim())
+      throw new Error("piano edits: place one event declaration at the end of the song");
+    const start = code.indexOf(EDIT_COMMENT, comment.start) + EDIT_COMMENT.length;
+    const end2 = comment.end - 2;
+    const spec = JSON.parse(code.slice(start, end2));
+    validateEventSpec(spec);
+    const node = parseExpressionAt2(code.slice(0, end2), start, options);
+    return { spec, node, start, end: end2 };
   }
 
   // src/lib/strudel/runtime.ts
@@ -29255,9 +29721,11 @@ Please check with "npm ls @strudel/core".`);
       transportSubscribers.forEach((fn) => fn(transportState));
     }
     let evaluatedPattern = null;
+    let unseededPattern = null;
     let playbackPattern = null;
     let playError = null;
     let undoInstall;
+    let eventSpec;
     const r = repl({
       onSchedule: output,
       onScheduleTap: hooks?.onSchedule && ((hap2, t, cps2, route) => {
@@ -29265,7 +29733,10 @@ Please check with "npm ls @strudel/core".`);
         hooks.onSchedule(mapped?.hap ?? hap2, t, mapped?.cps ?? cps2, route);
       }),
       getTime: () => active().getTime(),
-      transpiler: (code, options) => instrumentTranspiler.transpile(code, options, pending.instruments),
+      transpiler: (code, options2) => {
+        eventSpec = songEditComment(code)?.spec;
+        return instrumentTranspiler.transpile(code, options2, pending.instruments);
+      },
       editPattern: (pattern3) => {
         const structure = registeredStructure();
         const expected = pending.expectedArrangement;
@@ -29277,13 +29748,15 @@ Please check with "npm ls @strudel/core".`);
         }
         if (structure?.meterChanges?.length && codeSetCps)
           throw new Error(MIXED_CPS_ERROR);
-        const seeded = applySeed(pattern3, pending.seed);
+        const edited = eventSpec ? editPatternEvents(pattern3, eventSpec, structure ? { structure, segments: () => segments, cps: () => r.scheduler.cps } : undefined) : pattern3;
+        const seeded = applySeed(edited, pending.seed);
         const previous = {
           liveStructure,
           clock,
           phaseOffsetSec,
           audibleHistory,
           evaluatedPattern,
+          unseededPattern,
           playbackPattern,
           playError,
           schedulerPattern: r.scheduler.pattern
@@ -29295,6 +29768,7 @@ Please check with "npm ls @strudel/core".`);
             phaseOffsetSec,
             audibleHistory,
             evaluatedPattern,
+            unseededPattern,
             playbackPattern,
             playError
           } = previous);
@@ -29325,6 +29799,7 @@ Please check with "npm ls @strudel/core".`);
           queryMetered(seeded, imminent, structure, clock, pending.cps);
         }
         evaluatedPattern = seeded;
+        unseededPattern = edited;
         playError = null;
         playbackPattern = clock && liveStructure ? meteredPlayback(seeded, liveStructure, () => clock, () => phaseOffsetSec, (error) => {
           playError = errorMessage(error);
@@ -29582,16 +30057,17 @@ Please check with "npm ls @strudel/core".`);
         setSegments(INITIAL_SEGMENTS);
       }
     };
-    function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS) {
+    function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS, seedOverride) {
       if (evaluatedPattern === null)
         return null;
+      const pattern3 = seedOverride === undefined ? evaluatedPattern : applySeed(unseededPattern, seedOverride);
       const controls2 = { _cps: r.scheduler.cps, cyclist: "cyclist", _segments: segments2 };
       const span = new State(new TimeSpan(fromCycle, toCycle2), controls2);
       const structure = state2.structure;
       if (structure?.meterChanges?.length) {
-        return queryMetered(evaluatedPattern, span, structure, layoutClock(structure, segments2), r.scheduler.cps);
+        return queryMetered(pattern3, span, structure, layoutClock(structure, segments2), r.scheduler.cps);
       }
-      return evaluatedPattern.query(span);
+      return pattern3.query(span);
     }
     (opts.setInterval ?? globalThis.setInterval)(() => {
       const a = active();
@@ -29856,7 +30332,7 @@ Please check with "npm ls @strudel/core".`);
   var MAX_NOTES = 1024;
   var MAX_CONTRIBUTORS = 8;
   var MAX_HAPS_TO_SCAN = 16384;
-  var EDGE = /^-?\d{1,24}(?:\/[1-9]\d{0,23})?$/;
+  var EDGE2 = /^-?\d{1,24}(?:\/[1-9]\d{0,23})?$/;
   function inspectionWindow(request) {
     const { view, from, to, anchorBar } = request;
     const bar = (n2) => Number.isSafeInteger(n2) && n2 >= 0 && n2 <= MAX_BAR;
@@ -29869,9 +30345,14 @@ Please check with "npm ls @strudel/core".`);
       if (!capture || capture.code !== input)
         return;
       return {
-        leave(node) {
+        leave(node, parent, key) {
           if (node.type !== capture.type || node.start !== capture.span.from || node.end !== capture.span.to)
             return;
+          if (parent?.type === "Property" && parent.shorthand) {
+            if (key !== "value")
+              return;
+            parent.shorthand = false;
+          }
           capture.rewritten = true;
           return this.replace({
             type: "CallExpression",
@@ -29906,7 +30387,7 @@ Please check with "npm ls @strudel/core".`);
       case "SequenceExpression":
         return true;
       case "Property":
-        return key === "value" && parent.kind === "init" && !parent.shorthand && !parent.method;
+        return key === "value" && parent.kind === "init" && !parent.method;
       default:
         return false;
     }
@@ -29984,44 +30465,29 @@ Please check with "npm ls @strudel/core".`);
       Reflect.deleteProperty(globalThis, name);
     }
   }
-  function queryExpression(pattern3, structure, cps2, seed2, request) {
-    const { from, to, anchorBar } = request;
-    const state2 = new State(new TimeSpan(from, to), {
-      _cps: cps2,
-      cyclist: "cyclist",
-      _segments: LINEAR_SEGMENTS
-    });
+  function expressionQuery(pattern3, structure, cps2, seed2, anchorBar) {
     const seeded = applySeed(pattern3, seed2);
-    if (!structure.meterChanges?.length)
-      return seeded.query(state2);
-    const written = layoutClock(structure, LINEAR_SEGMENTS);
-    const local = {
+    const written = structure.meterChanges?.length ? layoutClock(structure, LINEAR_SEGMENTS) : undefined;
+    const local = written && {
       ...written,
       meterAt: (cycle) => anchorBar === undefined ? structure.meter : written.meterAt(anchorBar + cycle),
       nextMeterBoundary: (cycle) => anchorBar === undefined ? Infinity : written.nextMeterBoundary(anchorBar + cycle) - anchorBar
     };
-    return queryMetered(seeded, state2, structure, local, cps2);
+    return (from, to) => {
+      const state2 = new State(new TimeSpan(from, to), {
+        _cps: cps2,
+        cyclist: "cyclist",
+        _segments: LINEAR_SEGMENTS
+      });
+      return local ? queryMetered(seeded, state2, structure, local, cps2) : seeded.query(state2);
+    };
   }
   function pitchOf(value, allowPrimitive) {
-    if (allowPrimitive && typeof value === "string" && isNote(value)) {
-      const pitch2 = noteToMidi(value);
-      return Number.isFinite(pitch2) ? { pitch: pitch2 } : null;
-    }
-    if (value === null || typeof value !== "object")
+    const pitch = eventPitch(value, allowPrimitive);
+    if (pitch === undefined)
       return null;
-    const { note: note2, freq: freq2, octave: octave2, s: s2 } = value;
-    let pitch;
-    if ((typeof freq2 === "number" || typeof freq2 === "string") && freq2)
-      pitch = freqToMidi(Number(freq2));
-    else if (typeof note2 === "number")
-      pitch = note2;
-    else if (typeof note2 === "string" && isNote(note2))
-      pitch = noteToMidi(note2);
-    else
-      return null;
-    if (typeof octave2 === "number" || typeof octave2 === "string")
-      pitch += 12 * Number(octave2);
-    return Number.isFinite(pitch) ? { pitch, ...typeof s2 === "string" && s2.length <= 64 ? { sound: s2 } : {} } : null;
+    const s2 = value?.s;
+    return { pitch, ...typeof s2 === "string" && s2.length <= 64 ? { sound: s2 } : {} };
   }
   function uncertainSpans(code) {
     if (!/[\\\r]/.test(code))
@@ -30051,10 +30517,10 @@ Please check with "npm ls @strudel/core".`);
   }
   function contributors(hap2, code, uncertain) {
     const output = [];
-    const locations = hap2.context?.locations;
-    if (!Array.isArray(locations))
+    const locations2 = hap2.context?.locations;
+    if (!Array.isArray(locations2))
       return output;
-    for (const location of locations.slice(0, MAX_CONTRIBUTORS)) {
+    for (const location of locations2.slice(0, MAX_CONTRIBUTORS)) {
       const { start, end: end2 } = location ?? {};
       if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end2) || start < 0 || start >= end2 || end2 > code.length || intersectsUncertain(uncertain, start, end2)) {
         continue;
@@ -30080,12 +30546,69 @@ Please check with "npm ls @strudel/core".`);
       return expression2;
     }
   }
-  function inspectHaps(haps, code, request) {
+  function inspectHaps(code, request, query, alternateQueries = []) {
+    const { value: haps, staleEdits } = inspectEventEdits(() => query(request.from, request.to));
     const uncertain = uncertainSpans(code);
     const fallbackOrigin = directOrigin(code, request);
     const notes = [];
+    const stochastic = /\b(?:rand|irand|perlin|choose|chooseCycles|wchoose|degrade|degradeBy|sometimes|random|slider|cF)\b/.test(code);
+    const groupKey = (h2) => {
+      const arc = h2.whole ?? h2.part;
+      return (h2.whole ? "w" : "p") + arc.begin.toFraction() + ":" + arc.end.toFraction();
+    };
+    const groups = new Map;
+    const scanCount = Math.min(haps.length, MAX_HAPS_TO_SCAN);
+    for (let i3 = 0;i3 < scanCount; i3++) {
+      const h2 = haps[i3];
+      const key = groupKey(h2), group = groups.get(key);
+      if (group)
+        group.push(h2);
+      else
+        groups.set(key, [h2]);
+    }
+    let bytes = 0;
+    const probes = new Map;
+    const samples = new Map;
+    let probeBudget = MAX_HAPS_TO_SCAN;
+    const queries = [query, ...alternateQueries];
+    const probe = (from, to, run2) => {
+      if (probeBudget <= 0)
+        return null;
+      const result = run2(from, to);
+      probeBudget -= result.length + 1;
+      return probeBudget >= 0 ? result : null;
+    };
+    function atOnset(begin2, start, index = 0) {
+      const run2 = queries[index];
+      const key = `${index}:${start}`;
+      const cycle = Number(begin2);
+      if (fraction_default(cycle).toFraction() === start) {
+        if (!probes.has(key))
+          probes.set(key, probe(cycle, cycle, run2));
+        return probes.get(key);
+      }
+      const bar = Number(begin2.floor());
+      const sampleKey = `${index}:${bar}`;
+      if (!samples.has(sampleKey)) {
+        const haps2 = probe(bar, bar + 1, run2);
+        const byStart = haps2 && new Map;
+        if (haps2 && byStart) {
+          for (const h2 of haps2) {
+            const edge = h2.part.begin.toFraction();
+            const group = byStart.get(edge);
+            if (group)
+              group.push(h2);
+            else
+              byStart.set(edge, [h2]);
+          }
+        }
+        samples.set(sampleKey, byStart);
+      }
+      const sample = samples.get(sampleKey);
+      return sample && (sample.get(start) ?? []);
+    }
     let truncated = haps.length > MAX_HAPS_TO_SCAN;
-    for (let i3 = 0;i3 < Math.min(haps.length, MAX_HAPS_TO_SCAN); i3++) {
+    for (let i3 = 0;i3 < scanCount; i3++) {
       const hap2 = haps[i3];
       const data2 = pitchOf(hap2.value, request.view === "expression");
       if (!data2)
@@ -30095,7 +30618,7 @@ Please check with "npm ls @strudel/core".`);
       const finish = end2.toFraction();
       const visibleStart = hap2.part.begin.toFraction();
       const visibleEnd = hap2.part.end.toFraction();
-      if (![start, finish, visibleStart, visibleEnd].every((edge) => EDGE.test(edge))) {
+      if (![start, finish, visibleStart, visibleEnd].every((edge) => EDGE2.test(edge))) {
         truncated = true;
         continue;
       }
@@ -30103,24 +30626,63 @@ Please check with "npm ls @strudel/core".`);
         truncated = true;
         break;
       }
-      const locations = contributors(hap2, code, uncertain);
-      const origin = locations.length === 1 ? locations[0] : locations.length === 0 ? fallbackOrigin : undefined;
+      const locations2 = contributors(hap2, code, uncertain);
+      const origin = locations2.length === 1 ? locations2[0] : locations2.length === 0 ? fallbackOrigin : undefined;
+      const siblings = groups.get(groupKey(hap2));
+      const primitive = request.view === "expression";
+      let event = identifyEvent(hap2, siblings, primitive, false);
+      if (event && hap2.whole && (stochastic || event.count || visibleStart !== start)) {
+        const at2 = atOnset(begin2, start);
+        if (at2 === null)
+          truncated = true;
+        event = at2 === null ? undefined : verifyEventOrigin(hap2, event, at2);
+        if (stochastic && at2 !== null) {
+          const captured = identifyEvent(hap2, siblings, primitive, true);
+          if (captured?.capture !== undefined) {
+            if (!event) {
+              event = verifyEventOrigin(hap2, captured, at2, true);
+            } else {
+              for (let index = 1;index < queries.length; index++) {
+                const alternate = atOnset(begin2, start, index);
+                if (alternate === null) {
+                  truncated = true;
+                  break;
+                }
+                if (!verifyEventOrigin(hap2, event, alternate) && verifyEventOrigin(hap2, captured, alternate)) {
+                  event = { ...event, capture: captured.capture };
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+      bytes += 384 + (event ? JSON.stringify(event).length * 4 : 0) + locations2.length * 52;
+      if (bytes > 980000) {
+        truncated = true;
+        break;
+      }
       notes.push({
         order: Number(hap2.part.begin),
         note: {
           id: String(i3),
+          ...event ? { event } : {},
           start,
           end: finish,
           ...data2,
           visibleStart,
           visibleEnd,
-          ...locations.length ? { contributors: locations } : {},
+          ...locations2.length ? { contributors: locations2 } : {},
           ...origin ? { origin } : {}
         }
       });
     }
     notes.sort((a, b) => a.order - b.order);
-    return { notes: notes.map(({ note: note2 }) => note2), truncated };
+    return {
+      notes: notes.map(({ note: note2 }) => note2),
+      truncated,
+      ...staleEdits.length ? { staleEdits } : {}
+    };
   }
 
   // vendor/strudel/packages/draw/index.mjs
@@ -30156,8 +30718,8 @@ Please check with "npm ls @strudel/core".`);
   });
 
   // vendor/strudel/packages/draw/draw.mjs
-  var getDrawContext = (id2 = "test-canvas", options) => {
-    let { contextType = "2d", pixelated = false, pixelRatio = window.devicePixelRatio } = options || {};
+  var getDrawContext = (id2 = "test-canvas", options2) => {
+    let { contextType = "2d", pixelated = false, pixelRatio = window.devicePixelRatio } = options2 || {};
     let canvas = document.querySelector("#" + id2);
     if (!canvas) {
       canvas = document.createElement("canvas");
@@ -30189,11 +30751,11 @@ Please check with "npm ls @strudel/core".`);
     Object.keys(animationFrames).forEach((id2) => (!replID || id2.startsWith(replID)) && stopAnimationFrame(id2));
   }
   var memory = {};
-  Pattern.prototype.draw = function(fn, options) {
+  Pattern.prototype.draw = function(fn, options2) {
     if (typeof window === "undefined") {
       return this;
     }
-    let { id: id2 = 1, lookbehind = 0, lookahead: lookahead2 = 0 } = options;
+    let { id: id2 = 1, lookbehind = 0, lookahead: lookahead2 = 0 } = options2;
     let __t = Math.max(getTime(), 0);
     stopAnimationFrame(id2);
     lookbehind = Math.abs(lookbehind);
@@ -30586,14 +31148,14 @@ Please check with "npm ls @strudel/core".`);
     }
     return value;
   };
-  Pattern.prototype.pianoroll = function(options = {}) {
-    let { cycles = 4, playhead = 0.5, overscan = 0, hideNegative = false, ctx = getDrawContext(), id: id2 = 1 } = options;
+  Pattern.prototype.pianoroll = function(options2 = {}) {
+    let { cycles = 4, playhead = 0.5, overscan = 0, hideNegative = false, ctx = getDrawContext(), id: id2 = 1 } = options2;
     let from = -cycles * playhead;
     let to = cycles * (1 - playhead);
     const inFrame = (hap2, t) => (!hideNegative || hap2.whole.begin >= 0) && hap2.isWithinTime(t + from, t + to);
     this.draw((haps, time3) => {
       __pianoroll({
-        ...options,
+        ...options2,
         time: time3,
         ctx,
         haps: haps.filter((hap2) => inFrame(hap2, time3))
@@ -30755,22 +31317,22 @@ Please check with "npm ls @strudel/core".`);
     ctx.stroke();
     return this;
   }
-  function getDrawOptions(drawTime, options = {}) {
+  function getDrawOptions(drawTime, options2 = {}) {
     let [lookbehind, lookahead2] = drawTime;
     lookbehind = Math.abs(lookbehind);
     const cycles = lookahead2 + lookbehind;
     const playhead = cycles !== 0 ? lookbehind / cycles : 0;
-    return { fold: 1, ...options, cycles, playhead };
+    return { fold: 1, ...options2, cycles, playhead };
   }
-  var getPunchcardPainter = (options = {}) => (ctx, time3, haps, drawTime) => __pianoroll({ ctx, time: time3, haps, ...getDrawOptions(drawTime, options) });
-  Pattern.prototype.punchcard = function(options) {
-    return this.onPaint(getPunchcardPainter(options));
+  var getPunchcardPainter = (options2 = {}) => (ctx, time3, haps, drawTime) => __pianoroll({ ctx, time: time3, haps, ...getDrawOptions(drawTime, options2) });
+  Pattern.prototype.punchcard = function(options2) {
+    return this.onPaint(getPunchcardPainter(options2));
   };
-  Pattern.prototype.wordfall = function(options) {
-    return this.punchcard({ vertical: 1, labels: 1, stroke: 0, fillActive: 1, active: "white", ...options });
+  Pattern.prototype.wordfall = function(options2) {
+    return this.punchcard({ vertical: 1, labels: 1, stroke: 0, fillActive: 1, active: "white", ...options2 });
   };
-  function drawPianoroll(options) {
-    const { drawTime, ...rest } = options;
+  function drawPianoroll(options2) {
+    const { drawTime, ...rest } = options2;
     __pianoroll({ ...getDrawOptions(drawTime), ...rest });
   }
   // vendor/strudel/packages/draw/spiral.mjs
@@ -30779,7 +31341,7 @@ Please check with "npm ls @strudel/core".`);
     return [cx + Math.cos(radians) * radius, cy + Math.sin(radians) * radius];
   }
   var xyOnSpiral = (angle2, margin, cx, cy, rotate2 = 0) => fromPolar((angle2 + rotate2) * 360, margin * angle2, cx, cy);
-  function spiralSegment(options) {
+  function spiralSegment(options2) {
     let {
       ctx,
       from = 0,
@@ -30794,7 +31356,7 @@ Please check with "npm ls @strudel/core".`);
       stretch: stretch2 = 1,
       fromOpacity = 1,
       toOpacity = 1
-    } = options;
+    } = options2;
     from *= stretch2;
     to *= stretch2;
     rotate2 *= stretch2;
@@ -30815,7 +31377,7 @@ Please check with "npm ls @strudel/core".`);
     }
     ctx.stroke();
   }
-  function drawSpiral(options) {
+  function drawSpiral(options2) {
     let {
       stretch: stretch2 = 1,
       size: size2 = 80,
@@ -30836,7 +31398,7 @@ Please check with "npm ls @strudel/core".`);
       haps,
       drawTime,
       id: id2
-    } = options;
+    } = options2;
     if (id2) {
       haps = haps.filter((hap2) => hap2.hasTag(id2));
     }
@@ -30884,8 +31446,8 @@ Please check with "npm ls @strudel/core".`);
       rotate: rotate2
     });
   }
-  Pattern.prototype.spiral = function(options = {}) {
-    return this.onPaint((ctx, time3, haps, drawTime) => drawSpiral({ ctx, time: time3, haps, drawTime, ...options }));
+  Pattern.prototype.spiral = function(options2 = {}) {
+    return this.onPaint((ctx, time3, haps, drawTime) => drawSpiral({ ctx, time: time3, haps, drawTime, ...options2 }));
   };
   // vendor/strudel/packages/draw/pitchwheel.mjs
   var c = midiToFreq2(36);
@@ -31016,10 +31578,10 @@ Please check with "npm ls @strudel/core".`);
     }
     return;
   }
-  Pattern.prototype.pitchwheel = function(options = {}) {
-    let { ctx = getDrawContext(), id: id2 = 1 } = options;
+  Pattern.prototype.pitchwheel = function(options2 = {}) {
+    let { ctx = getDrawContext(), id: id2 = 1 } = options2;
     return this.tag(id2).onPaint((_, time3, haps) => pitchwheel({
-      ...options,
+      ...options2,
       time: time3,
       ctx,
       haps: haps.filter((hap2) => hap2.isActive(time3)),
@@ -31203,9 +31765,9 @@ Please check with "npm ls @strudel/core".`);
     let { intervals, tonic } = getScale(scale2);
     tonic = tonic || "C";
     const { pc, oct: oct2 = 3 } = import_tonal2.Note.get(tonic);
-    const octaveOffset = Math.floor(step / intervals.length);
+    const octaveOffset2 = Math.floor(step / intervals.length);
     const scaleStep3 = _mod(step, intervals.length);
-    const interval = import_tonal2.Interval.add(intervals[scaleStep3], octavesInterval(octaveOffset));
+    const interval = import_tonal2.Interval.add(intervals[scaleStep3], octavesInterval(octaveOffset2));
     return import_tonal2.Note.transpose(pc + oct2, interval);
   }
   function scaleOffset(scale2, offset3, note2) {
@@ -31955,8 +32517,8 @@ Please check with "npm ls @strudel/core".`);
   var addVoicings = (name, dictionary2, range3 = ["F3", "A4"]) => {
     Object.assign(voicingRegistry, { [name]: { dictionary: dictionary2, range: range3 } });
   };
-  var registerVoicings = (name, dictionary2, options = {}) => {
-    Object.assign(voicingRegistry, { [name]: { dictionary: dictionary2, ...options } });
+  var registerVoicings = (name, dictionary2, options2 = {}) => {
+    Object.assign(voicingRegistry, { [name]: { dictionary: dictionary2, ...options2 } });
   };
   var getVoicing = (chord2, dictionaryName, lastVoicing) => {
     const { dictionary: dictionary2, range: range3 } = voicingRegistry[dictionaryName];
@@ -32027,6 +32589,59 @@ Please check with "npm ls @strudel/core".`);
   // vendor/strudel/packages/tonal/index.mjs
   var packageName = "@strudel/tonal";
 
+  // src/lib/strudel/note-grid.ts
+  function decodeNoteGrid(rows) {
+    if (!Array.isArray(rows) || !rows.length)
+      throw new Error("noteGrid needs at least one row");
+    const cells = [];
+    let width = 0;
+    for (const [index, row] of rows.entries()) {
+      if (typeof row !== "string")
+        throw new Error(`noteGrid row ${index + 1} must be a string`);
+      const slots = Array.from(row.matchAll(/\S+/gu), (match) => ({
+        text: match[0],
+        offset: match.index
+      }));
+      if (!slots.length)
+        throw new Error(`noteGrid row ${index + 1} is empty`);
+      if (!index)
+        width = slots.length;
+      if (slots.length !== width)
+        throw new Error(`noteGrid row ${index + 1} needs ${width} slots`);
+      cells.push(...slots);
+    }
+    const runs = [];
+    let previous;
+    for (let start = 0;start < cells.length; ) {
+      let end2 = start + 1;
+      while (end2 < cells.length && cells[end2].text === "_")
+        end2++;
+      const token = cells[start].text;
+      const run2 = { start, end: end2 };
+      if (token !== "_" && token !== "~") {
+        const match = /^([a-gA-G][#bsf]*-?\d+)(?::(\d+(?:\.\d+)?|\.\d+))?$/.exec(token);
+        const midi = match ? noteToMidi(match[1]) : NaN;
+        const attack2 = match?.[2] === undefined ? 0.09 : Number(match[2]);
+        if (!match || !Number.isInteger(midi) || midi < 0 || midi > 127 || !Number.isFinite(attack2)) {
+          throw new Error(`Invalid noteGrid cell at row ${Math.floor(start / width) + 1}, slot ${start % width + 1}: ${token}`);
+        }
+        const bend = match[2] !== undefined && previous !== undefined ? midi - previous : 0.55;
+        run2.tone = { spelling: match[1], midi, bend, attack: attack2 };
+        previous = midi;
+      }
+      runs.push(run2);
+      start = end2;
+    }
+    return { bars: rows.length, width, cells, runs };
+  }
+  function noteGrid(rows) {
+    const score = decodeNoteGrid(rows);
+    return stepcat(...score.runs.map(({ start, end: end2, tone }) => [
+      end2 - start,
+      tone ? note(tone.spelling).penv(tone.bend).pattack(tone.attack) : silence
+    ])).slow(score.bars);
+  }
+
   // src/host/shims.ts
   var WIDGET_TYPES = [
     "_pianoroll",
@@ -32068,8 +32683,8 @@ Please check with "npm ls @strudel/core".`);
     pianoroll: function() {
       return this;
     },
-    pitchwheel: function(options = {}) {
-      return this.tag(options.id ?? 1);
+    pitchwheel: function(options2 = {}) {
+      return this.tag(options2.id ?? 1);
     }
   });
   function installShims() {
@@ -32216,8 +32831,9 @@ Please check with "npm ls @strudel/core".`);
     return stubs;
   }
   async function hostPrebake() {
-    await evalScope(exports_core, exports_mini, exports_tonal, exports_draw, { song }, shims, superdoughStubs());
+    await evalScope(exports_core, exports_mini, exports_tonal, exports_draw, { song, noteGrid }, shims, superdoughStubs());
     registerInstrumentOperation();
+    registerEventEdits();
   }
 
   // src/host/main.ts
@@ -32357,16 +32973,25 @@ Please check with "npm ls @strudel/core".`);
     const request = parseRequest(requestJson);
     if (!inspectionWindow(request))
       throw new PlanJobError("plan", "Invalid piano roll window.");
-    const rt = hostAdapter(hostRuntime(), request.instruments);
+    const runtime = hostRuntime();
+    const rt = hostAdapter(runtime, request.instruments);
+    const otherSeeds = (seed2 = 0) => [seed2 + 1, seed2 + 2, seed2 + 3];
     if (request.view === "song") {
-      const { segments } = await evaluateSong(rt, code, "linear");
-      return JSON.stringify(inspectHaps(querySong(rt, segments)(request.from, request.to), code, request));
+      const { segments, seed: seed2 } = await evaluateSong(rt, code, "linear");
+      const songQuery = querySong(rt, segments);
+      const query = (from, to) => withSongPlacement(() => songQuery(from, to));
+      const alternate = otherSeeds(seed2).map((sample) => (from, to) => withSongPlacement(() => runtime.query(from, to, segments, sample) ?? []));
+      return JSON.stringify(inspectHaps(code, request, query, alternate));
     }
     if (!request.expression)
       throw new PlanJobError("plan", "Select a pattern expression.");
     return JSON.stringify(await inspectExpression(code, request.expression, async (selected) => {
       const { structure, cps: cps2 } = await evaluateSong(rt, code, "linear");
-      return inspectHaps(queryExpression(selected(), structure, cps2, rt.state().seed, request), code, request);
+      const pattern3 = selected();
+      const seed2 = rt.state().seed;
+      const query = expressionQuery(pattern3, structure, cps2, seed2, request.anchorBar);
+      const alternate = otherSeeds(seed2).map((sample) => expressionQuery(pattern3, structure, cps2, sample, request.anchorBar));
+      return inspectHaps(code, request, query, alternate);
     }));
   }
   var strudelandHost = {

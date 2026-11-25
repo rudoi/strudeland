@@ -170,11 +170,13 @@
 
   /* Motion */
   --dur-fast: 120ms;
+  --dur-edit-feedback: 650ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dur-fast: 0ms;
+    --dur-edit-feedback: 0ms;
   }
 }

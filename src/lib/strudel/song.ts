@@ -19,6 +19,21 @@ import type { StrudelPattern } from './types';
 let segmentSource: () => readonly Segment[] = () => INITIAL_SEGMENTS;
 let registered: SongStructure | null = null;
 
+/** Survives normal context spreads and stays out of JSON song data. */
+export const songPlacement = Symbol('written song placement');
+let observingPlacement = false;
+
+/** Only inspection and final event edits need arrangement provenance through outer transforms. */
+export function withSongPlacement<T>(query: () => T): T {
+  const previous = observingPlacement;
+  observingPlacement = true;
+  try {
+    return query();
+  } finally {
+    observingPlacement = previous;
+  }
+}
+
 /** Called once by the runtime; the getter is read at every query. */
 export function setSegmentSource(get: () => readonly Segment[]): void {
   segmentSource = get;
@@ -120,7 +135,10 @@ export function song(
             whole = shifted.whole.intersection(occurrence);
             if (!whole) continue;
           }
-          haps.push(new Hap(whole, part, hap.value, hap.context, hap.stateful));
+          const context = observingPlacement
+            ? { ...hap.context, [songPlacement]: whole ?? part }
+            : hap.context;
+          haps.push(new Hap(whole, part, hap.value, context, hap.stateful));
         }
       }
       g = to;

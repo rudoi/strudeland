@@ -9,6 +9,8 @@ import * as draw from '@strudel/draw';
 import * as mini from '@strudel/mini';
 import * as tonal from '@strudel/tonal';
 import { registerInstrumentOperation } from '../lib/strudel/instruments';
+import { registerEventEdits } from '../lib/strudel/event-edits';
+import { noteGrid } from '../lib/strudel/note-grid';
 import { song } from '../lib/strudel/song';
 import { shims } from './shims';
 import { SUPERDOUGH_FUNCTIONS } from './superdough-names';
@@ -39,6 +41,7 @@ export function superdoughStubs(): Record<string, () => unknown> {
 /** Runs once per runtime, before the first evaluate. `shims` and the stubs come last, so they
  *  win over any same-named export of the real modules. */
 export async function hostPrebake(): Promise<void> {
-  await core.evalScope(core, mini, tonal, draw, { song }, shims, superdoughStubs());
+  await core.evalScope(core, mini, tonal, draw, { song, noteGrid }, shims, superdoughStubs());
   registerInstrumentOperation();
+  registerEventEdits();
 }
