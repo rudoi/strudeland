@@ -115,3 +115,17 @@ redo update both views through their normal document listener.
   and encode it using the destination bar's fractions. A quarter note moved from 4/4 to 7/8
   spans two eighth-note beats in either bar, so its duration changes from `1/4` to `2/7` of a
   cycle. Release scope depends on proving the exact rewrite and preservation of other notes.
+
+## Interface and verification
+
+Use a pure TypeScript module under `src/lib/piano-roll/`. The input is the current source and
+one selected UTF-16 span. Return the eligible expression, any authored target, and known
+shared-definition uses with arrangement section names when statically proven. An authored
+target carries note intervals and source operations. The edit planner takes a note or bar
+operation and returns precise replacement ranges for the original snapshot or an unavailable
+result. The session owns revision checks and dispatch. This division keeps UI and process
+state outside the grammar.
+
+Cover direct literals, aliases and shadowing, exact token locations, chord-leaf pitch changes,
+weighted monophonic rewrites, unchanged adjacent events, and rest-only phrases. The source path
+reuses parsers and performs no whole-song evaluation.

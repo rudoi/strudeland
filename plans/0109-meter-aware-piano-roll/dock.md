@@ -39,3 +39,15 @@ replaced that registry entry. Frequency and fractional pitches remain visible in
 Cancel or invalidate pending and audible previews on collapse, song change, playback request,
 memo playback or recording. Recheck eligibility after async preparation and guard highlight
 cleanup against superseding previews. **Preview expression** remains silent.
+
+## Interface and verification
+
+The dock consumes an active editor snapshot, selection and transaction callbacks through the
+app/session. A single controller owns inspection epochs and audition eligibility. The visual
+surface receives the projected notes and emits user intents. The app owns the preview graph
+and preference writes. Explicit audition stays usable with automatic previews disabled.
+
+Exercise collapsed startup and persistence, min-size layout, keyboard operation, the
+Expression to In song transition, explicit draft previews, shared edit navigation, voice
+fallback and stale result suppression. Confirm by desktop smoke test when the environment
+can run the app.

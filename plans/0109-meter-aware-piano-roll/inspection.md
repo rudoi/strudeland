@@ -114,3 +114,17 @@ authored phrases immediately. If inspection requires executing the draft, offer 
 expression** and run the current revision in the headless host on activation.
 Check platform coverage for the app's jitless host, and keep static editing available when a
 headless capability fails.
+
+## Interface and verification
+
+The native request carries the current project identity, song source, query mode, optional
+expression span, integer cycle window and optional written meter anchor. Resolve project
+instruments once per request through the project library. Return bounded note observations
+with pitches, exact logical edges as rational strings, source contributors and attributable
+use evidence where available. Distinguish failure from an empty window.
+
+The frontend projects source and host notes onto a common grid. Geometry uses the written
+meter and the roll's separate cycle origin. Implement the host adapter with an explicit
+deadline. Probe raw query behavior and compare ordinary song output with capture enabled.
+Unknown occurrence provenance remains viewable in the In song projection. Cross-meter
+dragging needs its own proof and does not block the established within-bar operations.
