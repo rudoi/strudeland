@@ -7,3 +7,7 @@ The new Settings gear is a true circle with one equal inline and block dimension
 Extend the existing native menu bridge in [project_menu.rs](../../src-tauri/src/project_menu.rs) and [project API](../../src/lib/project/api.ts). Use the app menu and Command-comma on macOS. Use File on Windows and Linux. Gear and menu requests share an opener in App. Prevent overlapping modals, use a single native shortcut path, and restore focus on closure. Keep the existing project menu shortcuts, app quit behavior and editor gestures.
 
 Verify the circular button geometry and icon offsets, legal and version information, persisted preference, menu routing, help in each modal, and workspace and footer sizes at normal and minimum layouts. Verify both keyboard and pointer use.
+
+## Integration points
+
+Use `App.svelte` as the composition root for the modal guard and native activation. Use `StatusBar.svelte` for the gear and persistent status content. The existing `onProjectMenu` callback type already covers export alongside project actions and can carry Settings. Nest the shared `Help` component inside each actual open dialog and use `compact` only in workspace chrome. Keep the master meter mounted while the Help text changes.

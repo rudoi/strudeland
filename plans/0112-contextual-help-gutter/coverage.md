@@ -7,3 +7,7 @@ Piano roll coverage includes both definition actions, usage links, paging, meter
 The CodeMirror content, selected suggestion and authored slider use editor-owned registration. Preserve Strudel function documentation, slider value and source updates, and completion controls. Verify keyboard selection, name and description. Native menu highlighting, system dialogs and OS select popups require distinct platform work. The Settings menu command itself belongs to [workspace integration](workspace-settings.md).
 
 Use DOM and keyboard tests for shared controls, decision logic and fragile behavior. Include pointer and focus arbitration, disabled boundaries, native select labels, state updates and cleanup. Screen-reader speech and desktop layouts require actual desktop validation in addition to browser checks.
+
+## Review entry points
+
+Inspect state guards in `Toolbar.svelte`, `Timeline.svelte`, `ExportAudio.svelte`, `RecordControls.svelte` and `InstrumentBrowser.svelte` before writing disabled copy. CodeMirror uses `createExtensions` in `src/lib/editor/setup.ts`, `EditorView.contentAttributes`, completion-state APIs and the vendored slider class. Preserve autocomplete's documented behavior and treat the slider's parent accessibility attributes as part of the widget integration.
