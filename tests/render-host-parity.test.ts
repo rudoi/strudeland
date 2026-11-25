@@ -153,14 +153,12 @@ describe('--batch', () => {
     expect(parseParityArgs(['sine-basic', '--batch'])).toMatchObject({ batch: true });
   });
 
-  test('the request is the window kind, the mix, 44100, in the host spelling', () => {
+  test('the request is the window kind, in the host spelling', () => {
     expect(batchRequestJson({ fromBar: 40, toBar: 60, layout: 'linear' })).toBe(
-      '{"length":{"kind":"window","fromBar":40,"toBar":60,"layout":"linear"},"mode":"mix","sampleRate":44100}',
+      '{"length":{"kind":"window","fromBar":40,"toBar":60,"layout":"linear"}}',
     );
     expect(JSON.parse(batchRequestJson({ fromBar: 0, toBar: 12, layout: 'clip' }))).toEqual({
       length: { kind: 'window', fromBar: 0, toBar: 12, layout: 'clip' },
-      mode: 'mix',
-      sampleRate: 44100,
     });
   });
 

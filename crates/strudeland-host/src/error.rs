@@ -35,6 +35,9 @@ fn millis_as_secs(millis: u64) -> f64 {
     millis as f64 / 1000.0
 }
 
+/// The start of the bundle's plan error for a malformed render request.
+pub const BAD_REQUEST_PREFIX: &str = "bad request:";
+
 impl HostError {
     /// The lowercase kind, as `Display` and the binary print it.
     pub fn kind(&self) -> &'static str {
@@ -46,6 +49,11 @@ impl HostError {
             HostError::Runtime(_) => "runtime",
             HostError::Timeout { .. } => "timeout",
         }
+    }
+
+    /// Whether this is the bundle's `bad request: …` plan error (a malformed render request).
+    pub fn is_bad_request(&self) -> bool {
+        matches!(self, HostError::Plan(m) if m.starts_with(BAD_REQUEST_PREFIX))
     }
 }
 
@@ -83,5 +91,17 @@ mod tests {
         }
         assert_eq!(HostError::Unsettled.kind(), "unsettled");
         assert!(HostError::Unsettled.to_string().starts_with("unsettled: "));
+    }
+
+    #[test]
+    fn only_a_bad_request_plan_error_is_a_bad_request() {
+        assert!(HostError::Plan("bad request: --loops must be an integer".into()).is_bad_request());
+        assert!(!HostError::Plan("query before a successful evaluate".into()).is_bad_request());
+        assert!(!HostError::Meta("bad request: x".into()).is_bad_request());
+        let flagged = HostError::MetaFlag {
+            flag: "--loops".into(),
+            message: "bad request: x".into(),
+        };
+        assert!(!flagged.is_bad_request());
     }
 }

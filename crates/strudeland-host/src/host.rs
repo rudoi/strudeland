@@ -142,9 +142,10 @@ impl Host {
     /// length request against the song's `meta`, evaluates the song once and plans each chunk's
     /// engine job. Standard jobs match [`Host::plan_job`] byte for byte. Loop exports can also
     /// plan an isolated repeat from the same selected body events. `request.timeout_sec` bounds
-    /// the whole call ([`HostError::Timeout`]). An invalid request is [`HostError::Plan`]
-    /// `invalid request: …`; a length request the song cannot
-    /// satisfy is [`HostError::MetaFlag`] naming the CLI flag.
+    /// the whole call ([`HostError::Timeout`]). An invalid instrument snapshot or timeout is
+    /// [`HostError::Plan`] `invalid request: …`; a bad length request is the bundle's
+    /// [`HostError::Plan`] `bad request: …`; a length request the song cannot satisfy is
+    /// [`HostError::MetaFlag`] naming the CLI flag.
     pub fn plan_render(
         &self,
         code: &str,

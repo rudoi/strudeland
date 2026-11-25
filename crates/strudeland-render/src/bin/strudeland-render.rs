@@ -16,7 +16,8 @@
 //! WAV, a 120 s planning timeout. `--info`
 //! writes `{ window, cps, structure, lookbackSec, errors, events, chunks, summary }` (camelCase).
 //! Exit codes: 0 ok; 1 the render failed (stderr `strudeland-render: <message>`, nothing
-//! written); 2 bad input (an unknown flag, an inconsistent length form, a bad option).
+//! written); 2 bad input (an unknown flag, an inconsistent length form or a bad length value, a
+//! bad option).
 //!
 //! `bench` renders each song over its `--lengths` bars (else `--bars`, default 16) at `--jobs`
 //! workers (default 4) with the default loudness, finishes it as Ogg (the headline numbers) and
@@ -196,7 +197,12 @@ enum Failure {
 }
 
 impl From<RenderError> for Failure {
+    /// The shared exit class, except that the bundle's `bad request: …` plan error (a bad
+    /// length flag) is bad input here too.
     fn from(e: RenderError) -> Self {
+        if matches!(&e, RenderError::Plan(h) if h.is_bad_request()) {
+            return Failure::BadInput(e.to_string());
+        }
         match e.exit_class() {
             ExitClass::Usage => Failure::BadInput(e.to_string()),
             ExitClass::Failed => Failure::Failed(e.to_string()),

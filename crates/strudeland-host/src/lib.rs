@@ -32,6 +32,6 @@ pub use planned::{
     PlannedRender, PlannedRepeat, PlannedWindow, Section, Structure,
 };
 pub use request::{
-    ExportPreset, Layout, LengthRequest, LookbackSec, MAX_BARS, MAX_LOOPS, MAX_TIMEOUT_SEC, Mode,
+    ExportPreset, Layout, LengthRequest, LookbackSec, MAX_BARS, MAX_TIMEOUT_SEC, Mode,
     RenderPlanRequest, RenderRequest, SAMPLE_RATE, timeout_from_secs,
 };

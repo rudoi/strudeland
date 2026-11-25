@@ -286,6 +286,38 @@ fn bad_input_exits_2() {
             Some("strudeland-render: unknown section 'drop' (sections: intro, body, tail)\n"),
         ),
         (
+            "loops 0",
+            vec![
+                "render",
+                "--song",
+                &song_linear,
+                "--loops",
+                "0",
+                "--out",
+                &wav,
+            ],
+            Some(
+                "strudeland-render: plan: bad request: --loops must be an integer from 1 to 1000\n",
+            ),
+        ),
+        (
+            "an empty window",
+            vec![
+                "render", "--song", &sine, "--from", "4", "--to", "4", "--layout", "linear",
+                "--out", &wav,
+            ],
+            Some(
+                "strudeland-render: plan: bad request: length window must be integers with 0 <= fromBar < toBar <= 100000\n",
+            ),
+        ),
+        (
+            "zero bars",
+            vec!["render", "--song", &sine, "--length", "0", "--out", &wav],
+            Some(
+                "strudeland-render: plan: bad request: length.bars must be an integer from 1 to 100000\n",
+            ),
+        ),
+        (
             "missing song",
             vec!["render", "--song", &missing, "--length", "1", "--out", &wav],
             None,

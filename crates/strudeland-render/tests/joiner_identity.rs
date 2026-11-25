@@ -37,8 +37,6 @@ fn batch_and_per_chunk_renders_join_bit_identically() {
                 instruments: Default::default(),
                 preset: None,
                 length,
-                mode: Mode::Mix,
-                sample_rate: SAMPLE_RATE,
                 include_events: None,
                 timeout_sec: None,
             },

@@ -184,8 +184,7 @@ test('planJob: a request without the window fields fails in the plan step', asyn
   expect(r.kind).toBe('plan');
 });
 
-const renderRequest = (length: object, o: object = {}) =>
-  JSON.stringify({ length, mode: 'mix', sampleRate: 44100, ...o });
+const renderRequest = (length: object, o: object = {}) => JSON.stringify({ length, ...o });
 
 test('planRender: a project snapshot contributes labeled kit voices to the engine job', async () => {
   const h = host();
@@ -282,8 +281,6 @@ test('planRender: a length error arrives as kind meta with its flag', async () =
     renderRequest({ kind: 'section', name: 'a' }),
   );
   expect([section.kind, section.flag]).toEqual(['meta', '--section']);
-  const loops = await host().call('planRender', SONG, renderRequest({ kind: 'clip', loops: 0 }));
-  expect([loops.kind, loops.flag]).toEqual(['meta', '--loops']);
 });
 
 test('planRender: other failures carry no flag', async () => {
@@ -308,11 +305,10 @@ test('planRender: a bad request is kind plan', async () => {
     expect(r.error).toStartWith('bad request: ');
   }
   const cases: [string, string][] = [
-    [renderRequest({ kind: 'length', bars: 2 }, { mode: 'stems' }), 'mode: stems'],
-    [renderRequest({ kind: 'length', bars: 2 }, { sampleRate: 48000 }), 'sampleRate'],
+    [renderRequest({ kind: 'clip', loops: 0 }), '--loops must be an integer from 1 to 1000'],
     [renderRequest({ kind: 'length', bars: 0 }), 'length.bars'],
     [renderRequest({ kind: 'nope' }), 'unknown length kind nope'],
-    ['{}', 'mode'],
+    ['{}', 'length'],
   ];
   for (const [bad, needle] of cases) {
     const r = await host().call('planRender', SONG, bad);

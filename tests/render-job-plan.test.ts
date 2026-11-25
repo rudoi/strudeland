@@ -492,8 +492,6 @@ const renderReq = (
   o: Partial<RenderPlanRequest> = {},
 ): RenderPlanRequest => ({
   length,
-  mode: 'mix',
-  sampleRate: 44100,
   ...o,
 });
 
@@ -673,44 +671,14 @@ describe('planRender length errors', () => {
       '--loops',
       '--loops needs meta.loop or a section with loop: true in meta.sections',
     ],
-    [
-      'loops 0',
-      SECTIONS_CODE,
-      { kind: 'clip', loops: 0 },
-      '--loops',
-      '--loops must be an integer from 1 to 1000',
-    ],
-    [
-      'loops 1001',
-      SECTIONS_CODE,
-      { kind: 'clip', loops: 1001 },
-      '--loops',
-      '--loops must be an integer from 1 to 1000',
-    ],
-    [
-      'fractional loops',
-      SECTIONS_CODE,
-      { kind: 'clip', loops: 1.5 },
-      '--loops',
-      '--loops must be an integer from 1 to 1000',
-    ],
-    [
-      'NaN loops',
-      SECTIONS_CODE,
-      { kind: 'clip', loops: NaN },
-      '--loops',
-      '--loops must be an integer from 1 to 1000',
-    ],
   ] as const)('%s', async (_name, code, length, flag, message) => {
     const f = fakeRuntime();
     const e = await planError(planRender(f.rt, code, renderReq(length as LengthRequest), []));
     expect(e.kind).toBe('meta');
     expect(e.flag).toBe(flag);
     expect(e.message).toBe(message);
-    // Length errors come before anything is queried; a loop count out of range before the song
-    // is evaluated.
+    // Length errors come before anything is queried.
     expect(f.calls.filter((c) => c.startsWith('query'))).toEqual([]);
-    if (message.startsWith('--loops must')) expect(f.calls).toEqual([]);
   });
 
   test('a header error is the plain meta error, without a flag', async () => {
@@ -754,14 +722,6 @@ describe('planRender request validation', () => {
     ['not an object', null, 'bad request: not a JSON object'],
     ['an array', [], 'bad request: not a JSON object'],
     [
-      'stems',
-      { ...ok, mode: 'stems' },
-      'bad request: mode: stems is not supported yet; v1 renders the mix',
-    ],
-    ['an unknown mode', { ...ok, mode: 'surround' }, 'bad request: unknown mode surround'],
-    ['no mode', { ...ok, mode: undefined }, 'bad request: unknown mode undefined'],
-    ['another sample rate', { ...ok, sampleRate: 48000 }, 'bad request: sampleRate must be 44100'],
-    [
       'a non-boolean includeEvents',
       { ...ok, includeEvents: 'yes' },
       'bad request: includeEvents must be true or false',
@@ -771,6 +731,26 @@ describe('planRender request validation', () => {
       'an unknown kind',
       { ...ok, length: { kind: 'bars' } },
       'bad request: unknown length kind bars',
+    ],
+    [
+      'loops 0',
+      { ...ok, length: { kind: 'clip', loops: 0 } },
+      'bad request: --loops must be an integer from 1 to 1000',
+    ],
+    [
+      'loops 1001',
+      { ...ok, length: { kind: 'clip', loops: 1001 } },
+      'bad request: --loops must be an integer from 1 to 1000',
+    ],
+    [
+      'fractional loops',
+      { ...ok, length: { kind: 'clip', loops: 1.5 } },
+      'bad request: --loops must be an integer from 1 to 1000',
+    ],
+    [
+      'NaN loops',
+      { ...ok, length: { kind: 'clip', loops: NaN } },
+      'bad request: --loops must be an integer from 1 to 1000',
     ],
     [
       'zero bars',

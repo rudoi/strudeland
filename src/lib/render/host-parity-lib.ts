@@ -4,7 +4,7 @@
  * Tauri, Playwright or cargo.
  */
 
-import { SAMPLE_RATE, type SegmentLayout } from './contract';
+import type { SegmentLayout } from './contract';
 
 /** One step into a JSON value: an object key or an array index. */
 export type JsonStep = string | number;
@@ -140,7 +140,7 @@ export function failureText(o: PlanOutcome): string {
   return o.ok ? o.errors.join('; ') : o.message;
 }
 
-/** The `plan-render` request of a fixture's window: the explicit window kind, the mix. */
+/** The `plan-render` request of a fixture's window: the explicit window kind. */
 export function batchRequestJson(window: {
   fromBar: number;
   toBar: number;
@@ -153,8 +153,6 @@ export function batchRequestJson(window: {
       toBar: window.toBar,
       layout: window.layout,
     },
-    mode: 'mix',
-    sampleRate: SAMPLE_RATE,
   });
 }
 

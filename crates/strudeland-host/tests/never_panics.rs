@@ -4,7 +4,7 @@ mod common;
 
 use common::{SONG, request};
 use strudeland_host::{
-    Host, HostError, Layout, LengthRequest, LookbackSec, Mode, RenderPlanRequest, RenderRequest,
+    Host, HostError, Layout, LengthRequest, LookbackSec, RenderPlanRequest, RenderRequest,
 };
 
 fn render_request(length: LengthRequest) -> RenderPlanRequest {
@@ -12,8 +12,6 @@ fn render_request(length: LengthRequest) -> RenderPlanRequest {
         length,
         instruments: Default::default(),
         preset: None,
-        mode: Mode::Mix,
-        sample_rate: 44_100,
         include_events: Some(true),
         timeout_sec: None,
     }
@@ -168,14 +166,14 @@ fn odd_request_numbers_are_errors() {
             to_bar: u32::MAX,
             layout: Layout::Clip,
         }),
-        RenderPlanRequest {
-            sample_rate: 0,
-            ..render_request(LengthRequest::Length { bars: 2 })
-        },
     ];
     for req in bad_renders {
         assert!(
-            matches!(host.plan_render(SONG, &req), Err(HostError::Plan(_))),
+            matches!(
+                host.plan_render(SONG, &req),
+                Err(HostError::Plan(ref m))
+                    if m.starts_with("bad request:") || m.starts_with("invalid request:")
+            ),
             "{req:?}"
         );
     }

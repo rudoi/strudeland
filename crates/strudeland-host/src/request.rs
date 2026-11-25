@@ -2,7 +2,7 @@
 //! in `src/lib/render/contract.ts` without `code` (passed separately), `samples` and `mutation`
 //! (the planner does not read them; an unknown field is an error). [`RenderPlanRequest`] (every
 //! chunk of a render) mirrors `RenderPlanInput` in `src/lib/render/contract.ts`, plus the
-//! host-only `timeoutSec`.
+//! host-only `timeoutSec`; the bundle validates its length request.
 
 use std::{fmt, time::Duration};
 
@@ -144,9 +144,6 @@ impl RenderRequest {
     }
 }
 
-/// The largest `loops` a clip request may ask for (`MAX_LOOPS` in `structure.ts`).
-pub const MAX_LOOPS: u32 = 1000;
-
 /// The longest planning timeout a request may set, in seconds (one day).
 pub const MAX_TIMEOUT_SEC: f64 = 86_400.0;
 
@@ -202,10 +199,6 @@ pub struct RenderPlanRequest {
     pub length: LengthRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<ExportPreset>,
-    /// Only [`Mode::Mix`] validates.
-    pub mode: Mode,
-    /// Only [`SAMPLE_RATE`] validates.
-    pub sample_rate: u32,
     /// Also return the schedule's events (the dev binary's `--info`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_events: Option<bool>,
@@ -240,38 +233,11 @@ fn instrument_snapshot<'de, D: Deserializer<'de>>(
 }
 
 impl RenderPlanRequest {
-    /// Checks what the types do not: the mode, the sample rate, `loops` 1 to [`MAX_LOOPS`],
-    /// `bars` 1 to [`MAX_BARS`], a window `from_bar < to_bar <= MAX_BARS`, and a finite timeout
-    /// in `(0, MAX_TIMEOUT_SEC]`.
+    /// Checks what the types do not: the instrument snapshot and a finite timeout in
+    /// `(0, MAX_TIMEOUT_SEC]`. The length request is the bundle's to check (`validateRenderRequest`
+    /// in `job-plan.ts`).
     pub fn validate(&self) -> Result<(), String> {
         validate_instrument_snapshot(&self.instruments).map_err(|e| e.to_string())?;
-        if self.mode != Mode::Mix {
-            return Err("mode: stems is not supported yet; v1 renders the mix".into());
-        }
-        if self.sample_rate != SAMPLE_RATE {
-            return Err(format!(
-                "sampleRate ({}) must be {SAMPLE_RATE}",
-                self.sample_rate
-            ));
-        }
-        match &self.length {
-            LengthRequest::Clip { loops: Some(n) } if !(1..=MAX_LOOPS).contains(n) => {
-                return Err(format!("--loops must be an integer from 1 to {MAX_LOOPS}"));
-            }
-            LengthRequest::Length { bars } if *bars == 0 || u64::from(*bars) > MAX_BARS => {
-                return Err(format!(
-                    "length.bars ({bars}) must be an integer from 1 to {MAX_BARS}"
-                ));
-            }
-            LengthRequest::Window {
-                from_bar, to_bar, ..
-            } if from_bar >= to_bar || u64::from(*to_bar) > MAX_BARS => {
-                return Err(format!(
-                    "length window [{from_bar}, {to_bar}) must have fromBar < toBar <= {MAX_BARS}"
-                ));
-            }
-            _ => {}
-        }
         if let Some(t) = self.timeout_sec
             && timeout_from_secs(t).is_none()
         {
@@ -478,8 +444,6 @@ mod tests {
             length,
             instruments: Default::default(),
             preset: None,
-            mode: Mode::Mix,
-            sample_rate: 44_100,
             include_events: None,
             timeout_sec: None,
         }
@@ -488,7 +452,7 @@ mod tests {
     #[test]
     fn a_valid_render_plan_request_parses_and_validates() {
         let r: RenderPlanRequest = serde_json::from_str(
-            r#"{"length":{"kind":"clip","loops":2},"mode":"mix","sampleRate":44100,"includeEvents":true,"timeoutSec":120}"#,
+            r#"{"length":{"kind":"clip","loops":2},"includeEvents":true,"timeoutSec":120}"#,
         )
         .unwrap();
         assert_eq!(
@@ -539,7 +503,7 @@ mod tests {
         };
         assert_eq!(
             r.to_json().unwrap(),
-            r#"{"length":{"kind":"length","bars":4},"mode":"mix","sampleRate":44100}"#
+            r#"{"length":{"kind":"length","bars":4}}"#
         );
         let r = RenderPlanRequest {
             include_events: Some(false),
@@ -547,7 +511,7 @@ mod tests {
         };
         assert_eq!(
             r.to_json().unwrap(),
-            r#"{"length":{"kind":"clip","loops":3},"mode":"mix","sampleRate":44100,"includeEvents":false}"#
+            r#"{"length":{"kind":"clip","loops":3},"includeEvents":false}"#
         );
     }
 
@@ -578,65 +542,6 @@ mod tests {
 
     #[test]
     fn every_render_plan_validation_error() {
-        let cases: Vec<(RenderPlanRequest, &str)> = vec![
-            (
-                RenderPlanRequest {
-                    mode: Mode::Stems,
-                    ..plan_req(LengthRequest::Clip { loops: None })
-                },
-                "mode: stems is not supported yet; v1 renders the mix",
-            ),
-            (
-                RenderPlanRequest {
-                    sample_rate: 48_000,
-                    ..plan_req(LengthRequest::Clip { loops: None })
-                },
-                "sampleRate (48000) must be 44100",
-            ),
-            (
-                plan_req(LengthRequest::Clip { loops: Some(0) }),
-                "--loops must be an integer from 1 to 1000",
-            ),
-            (
-                plan_req(LengthRequest::Clip { loops: Some(1001) }),
-                "--loops must be an integer from 1 to 1000",
-            ),
-            (
-                plan_req(LengthRequest::Length { bars: 0 }),
-                "length.bars (0) must be an integer from 1 to 100000",
-            ),
-            (
-                plan_req(LengthRequest::Length { bars: 100_001 }),
-                "length.bars (100001) must be an integer from 1 to 100000",
-            ),
-            (
-                plan_req(LengthRequest::Window {
-                    from_bar: 4,
-                    to_bar: 4,
-                    layout: Layout::Linear,
-                }),
-                "length window [4, 4) must have fromBar < toBar <= 100000",
-            ),
-            (
-                plan_req(LengthRequest::Window {
-                    from_bar: 5,
-                    to_bar: 4,
-                    layout: Layout::Linear,
-                }),
-                "length window [5, 4) must have fromBar < toBar <= 100000",
-            ),
-            (
-                plan_req(LengthRequest::Window {
-                    from_bar: 0,
-                    to_bar: 100_001,
-                    layout: Layout::Clip,
-                }),
-                "length window [0, 100001) must have fromBar < toBar <= 100000",
-            ),
-        ];
-        for (r, message) in cases {
-            assert_eq!(r.validate(), Err(message.to_string()), "{r:?}");
-        }
         for t in [
             0.0,
             -0.0,
@@ -654,16 +559,16 @@ mod tests {
             assert!(e.starts_with("timeoutSec ("), "{t}: {e}");
             assert_eq!(r.timeout(), None, "{t}");
         }
-        // The edges that are valid.
+        // The length request is the bundle's to check: any value passes here.
         for (length, timeout) in [
-            (LengthRequest::Clip { loops: Some(1) }, Some(86_400.0)),
-            (LengthRequest::Clip { loops: Some(1000) }, Some(0.001)),
-            (LengthRequest::Length { bars: 1 }, None),
-            (LengthRequest::Length { bars: 100_000 }, None),
+            (LengthRequest::Clip { loops: Some(0) }, Some(86_400.0)),
+            (LengthRequest::Clip { loops: Some(1001) }, Some(0.001)),
+            (LengthRequest::Length { bars: 0 }, None),
+            (LengthRequest::Length { bars: 100_001 }, None),
             (
                 LengthRequest::Window {
-                    from_bar: 99_999,
-                    to_bar: 100_000,
+                    from_bar: 5,
+                    to_bar: 4,
                     layout: Layout::Linear,
                 },
                 None,
@@ -684,6 +589,20 @@ mod tests {
     }
 
     #[test]
+    fn a_render_plan_request_with_mode_or_sample_rate_is_rejected() {
+        for text in [
+            r#"{"length":{"kind":"clip"},"mode":"mix"}"#,
+            r#"{"length":{"kind":"clip"},"sampleRate":44100}"#,
+            r#"{"length":{"kind":"clip"},"mode":"mix","sampleRate":44100}"#,
+        ] {
+            let e = serde_json::from_str::<RenderPlanRequest>(text)
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("unknown field"), "{text}: {e}");
+        }
+    }
+
+    #[test]
     fn the_timeout_converts_exactly() {
         assert_eq!(timeout_from_secs(0.5), Some(Duration::from_millis(500)));
         assert_eq!(
@@ -700,30 +619,28 @@ mod tests {
     fn malformed_render_plan_json_is_rejected() {
         let bad = [
             // unknown fields, on the request and inside `length`
-            r#"{"length":{"kind":"clip"},"mode":"mix","sampleRate":44100,"code":"x"}"#,
-            r#"{"length":{"kind":"clip","bars":4},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"length","bars":4,"loops":2},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"section","name":"a","loops":2},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"clip","overlapBars":0},"mode":"mix","sampleRate":44100}"#,
+            r#"{"length":{"kind":"clip"},"code":"x"}"#,
+            r#"{"length":{"kind":"clip","bars":4}}"#,
+            r#"{"length":{"kind":"length","bars":4,"loops":2}}"#,
+            r#"{"length":{"kind":"section","name":"a","loops":2}}"#,
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"clip","overlapBars":0}}"#,
             // snake_case is not the wire spelling
-            r#"{"length":{"kind":"window","from_bar":0,"to_bar":4,"layout":"clip"},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"clip"},"mode":"mix","sample_rate":44100}"#,
+            r#"{"length":{"kind":"window","from_bar":0,"to_bar":4,"layout":"clip"}}"#,
+            r#"{"length":{"kind":"clip"},"timeout_sec":5}"#,
             // unknown or missing kind, missing fields
-            r#"{"length":{"kind":"song"},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"bars":4},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"length"},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"section"},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"clip"},"sampleRate":44100}"#,
-            r#"{"mode":"mix","sampleRate":44100}"#,
+            r#"{"length":{"kind":"song"}}"#,
+            r#"{"length":{"bars":4}}"#,
+            r#"{"length":{"kind":"length"}}"#,
+            r#"{"length":{"kind":"section"}}"#,
+            r#"{}"#,
             // wrong types and ranges
-            r#"{"length":{"kind":"length","bars":-1},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"length","bars":2.5},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"clip","loops":"2"},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"song"},"mode":"mix","sampleRate":44100}"#,
-            r#"{"length":{"kind":"clip"},"mode":"mono","sampleRate":44100}"#,
-            r#"{"length":{"kind":"clip"},"mode":"mix","sampleRate":44100,"includeEvents":1}"#,
-            r#"{"length":{"kind":"clip"},"mode":"mix","sampleRate":44100,"timeoutSec":"5"}"#,
-            r#"{"length":"clip","mode":"mix","sampleRate":44100}"#,
+            r#"{"length":{"kind":"length","bars":-1}}"#,
+            r#"{"length":{"kind":"length","bars":2.5}}"#,
+            r#"{"length":{"kind":"clip","loops":"2"}}"#,
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"song"}}"#,
+            r#"{"length":{"kind":"clip"},"includeEvents":1}"#,
+            r#"{"length":{"kind":"clip"},"timeoutSec":"5"}"#,
+            r#"{"length":"clip"}"#,
             "[]",
             "",
         ];

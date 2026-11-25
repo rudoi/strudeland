@@ -18,8 +18,6 @@ fn plan_request(length: LengthRequest) -> RenderPlanRequest {
         length,
         instruments: Default::default(),
         preset: None,
-        mode: Mode::Mix,
-        sample_rate: 44_100,
         include_events: None,
         timeout_sec: None,
     }
@@ -322,19 +320,16 @@ fn length_errors_are_meta_with_their_flag() {
 #[test]
 fn an_invalid_request_is_plan() {
     let host = Host::new().unwrap();
+    let mut bad_pin = window(0, 4, Layout::Linear);
+    let definition = serde_json::json!({"schema":1,"parameters":{},"voices":[
+        {"name":"tone","chain":[{"control":"s","value":"sine"}]}
+    ]});
+    bad_pin.instruments.insert(
+        "../lead".into(),
+        serde_json::from_value(definition).unwrap(),
+    );
     let cases = [
-        RenderPlanRequest {
-            mode: Mode::Stems,
-            ..window(0, 4, Layout::Linear)
-        },
-        RenderPlanRequest {
-            sample_rate: 48_000,
-            ..window(0, 4, Layout::Linear)
-        },
-        window(4, 4, Layout::Linear),
-        window(0, 100_001, Layout::Linear),
-        plan_request(LengthRequest::Length { bars: 0 }),
-        plan_request(LengthRequest::Clip { loops: Some(0) }),
+        bad_pin,
         RenderPlanRequest {
             timeout_sec: Some(0.0),
             ..window(0, 4, Layout::Linear)
@@ -350,19 +345,31 @@ fn an_invalid_request_is_plan() {
             other => panic!("{req:?}: {other:?}"),
         }
     }
-    match host.plan_render(
-        SONG,
-        &RenderPlanRequest {
-            mode: Mode::Stems,
-            ..window(0, 4, Layout::Linear)
-        },
-    ) {
-        Err(HostError::Plan(m)) => assert_eq!(
-            m,
-            "invalid request: mode: stems is not supported yet; v1 renders the mix"
-        ),
-        other => panic!("{other:?}"),
+}
+
+#[test]
+fn a_bad_length_request_is_the_bundles_bad_request() {
+    let host = Host::new().unwrap();
+    let cases = [
+        window(4, 4, Layout::Linear),
+        window(0, 100_001, Layout::Linear),
+        plan_request(LengthRequest::Length { bars: 0 }),
+        plan_request(LengthRequest::Length { bars: 100_001 }),
+        plan_request(LengthRequest::Clip { loops: Some(0) }),
+        plan_request(LengthRequest::Clip { loops: Some(1001) }),
+    ];
+    for req in cases {
+        match host.plan_render(SONG, &req) {
+            Err(HostError::Plan(m)) => assert!(m.starts_with("bad request: "), "{req:?}: {m}"),
+            other => panic!("{req:?}: {other:?}"),
+        }
     }
+    assert_eq!(
+        host.plan_render(SONG, &plan_request(LengthRequest::Clip { loops: Some(0) })),
+        Err(HostError::Plan(
+            "bad request: --loops must be an integer from 1 to 1000".into()
+        ))
+    );
 }
 
 #[test]

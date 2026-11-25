@@ -245,9 +245,6 @@ export type ExportPreset = 'tagged-loop' | 'intro-loop' | 'folded-loop' | 'one-s
 export interface RenderPlanRequest {
   preset?: ExportPreset;
   length: LengthRequest;
-  /** 'stems' is rejected: a render is the mix. */
-  mode: 'mix';
-  sampleRate: 44100;
   /** Also return the schedule's events. Default false. */
   includeEvents?: boolean;
 }
@@ -300,21 +297,16 @@ export const BATCH_REUSE_SCHEDULE = true;
 const badRequest = (message: string): PlanJobError =>
   new PlanJobError('plan', `bad request: ${message}`);
 
-const LOOPS_MESSAGE = `--loops must be an integer from 1 to ${MAX_LOOPS}`;
-
 const isIntIn = (v: unknown, min: number, max: number): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Checks the request's shape (the host's request type checked the same rules first). */
+/** Checks the request's shape and its length: the one length validator. */
 function validateRenderRequest(request: unknown): asserts request is RenderPlanRequest {
   if (!isObject(request)) throw badRequest('not a JSON object');
-  const { mode, sampleRate, includeEvents, length } = request;
-  if (mode === 'stems') throw badRequest('mode: stems is not supported yet; v1 renders the mix');
-  if (mode !== 'mix') throw badRequest(`unknown mode ${String(mode)}`);
-  if (sampleRate !== SAMPLE_RATE) throw badRequest(`sampleRate must be ${SAMPLE_RATE}`);
+  const { includeEvents, length } = request;
   if (includeEvents !== undefined && typeof includeEvents !== 'boolean') {
     throw badRequest('includeEvents must be true or false');
   }
@@ -339,7 +331,7 @@ function validateRenderRequest(request: unknown): asserts request is RenderPlanR
   switch (length.kind) {
     case 'clip':
       if (length.loops !== undefined && !isIntIn(length.loops, 1, MAX_LOOPS)) {
-        throw new PlanJobError('meta', LOOPS_MESSAGE, '--loops');
+        throw badRequest(`--loops must be an integer from 1 to ${MAX_LOOPS}`);
       }
       return;
     case 'section':

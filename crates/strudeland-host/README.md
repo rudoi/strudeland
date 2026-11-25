@@ -54,8 +54,8 @@ snapshots.
 
 `plan_render` (`plan-render`) plans a whole render in one call, for `strudeland render`, instead of
 one request (and one evaluation of the song) per chunk. The request is a `RenderPlanRequest`:
-`{"length":{"kind":"clip"|"section"|"length"|"window",...},"mode":"mix","sampleRate":44100,
-"preset"?,"includeEvents"?,"timeoutSec"?,"instruments"?}`. The optional `instruments` object maps
+`{"length":{"kind":"clip"|"section"|"length"|"window",...},"preset"?,"includeEvents"?,
+"timeoutSec"?,"instruments"?}`. The optional `instruments` object maps
 project pin IDs to validated instrument definitions. Requests without pins omit this field.
 The bundle's `planRender` (`src/lib/render/job-plan.ts`):
 
