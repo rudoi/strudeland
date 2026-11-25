@@ -474,10 +474,10 @@
     <div class="viewport" bind:this={viewport}>
       <div
         class="sheet"
-        style:--row={ROW + 'px'}
-        style:--key-width={KEY_WIDTH + 'px'}
-        style:--ruler-height={RULER_HEIGHT + 'px'}
-        style:--minimum-width={Math.max(240, Math.ceil(geometry.width * 25)) + 'px'}
+        style:--roll-row={ROW + 'px'}
+        style:--roll-key-width={KEY_WIDTH + 'px'}
+        style:--roll-ruler-height={RULER_HEIGHT + 'px'}
+        style:--roll-min-width={Math.max(240, Math.ceil(geometry.width * 25)) + 'px'}
       >
         <div class="corner" aria-hidden="true">Pitch</div>
         <div class="ruler">
@@ -530,8 +530,8 @@
               class="beat-grid"
               style:left={percent(bar.offset) + '%'}
               style:width={percent(bar.width) + '%'}
-              style:--beat={100 / bar.numerator + '%'}
-              style:--subbeat={100 / (bar.numerator * (editable ? subdivision : 1)) + '%'}
+              style:--roll-beat={100 / bar.numerator + '%'}
+              style:--roll-subbeat={100 / (bar.numerator * (editable ? subdivision : 1)) + '%'}
               class:compound={bar.numerator > 3 && bar.numerator % 3 === 0 && bar.denominator >= 8}
               aria-hidden="true"
             ></div>
@@ -670,8 +670,8 @@
 
   .sheet {
     display: grid;
-    grid-template-columns: var(--key-width) minmax(var(--minimum-width), 1fr);
-    grid-template-rows: var(--ruler-height) auto;
+    grid-template-columns: var(--roll-key-width) minmax(var(--roll-min-width), 1fr);
+    grid-template-rows: var(--roll-ruler-height) auto;
     min-inline-size: max-content;
   }
 
@@ -679,14 +679,14 @@
   .ruler {
     position: sticky;
     top: 0;
-    z-index: 4;
+    z-index: var(--z-playhead);
     border-block-end: 1px solid var(--border-strong);
     background: var(--surface);
   }
 
   .corner {
     left: 0;
-    z-index: 5;
+    z-index: var(--z-pop);
     display: grid;
     place-items: center;
     border-inline-end: 1px solid var(--border-strong);
@@ -724,7 +724,7 @@
   .piano {
     position: sticky;
     left: 0;
-    z-index: 3;
+    z-index: var(--z-app);
     border-inline-end: 1px solid var(--border-strong);
     background: var(--surface-2);
   }
@@ -733,7 +733,7 @@
     display: block;
     box-sizing: border-box;
     inline-size: 100%;
-    block-size: var(--row);
+    block-size: var(--roll-row);
     border: 0;
     border-block-end: 1px solid var(--border);
     padding: 0 var(--space-2) 0 0;
@@ -761,6 +761,7 @@
 
   .surface {
     position: relative;
+    isolation: isolate;
     overflow: hidden;
   }
 
@@ -776,7 +777,7 @@
 
   .lane {
     inline-size: 100%;
-    block-size: var(--row);
+    block-size: var(--roll-row);
     box-sizing: border-box;
     border-block-end: 1px solid var(--border);
     background: var(--bg);
@@ -794,8 +795,12 @@
     inset-block: 0;
     background-image:
       linear-gradient(to right, var(--border-strong), var(--border-strong)),
-      repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px var(--beat)),
-      repeating-linear-gradient(to right, var(--grid-dot) 0 1px, transparent 1px var(--subbeat));
+      repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px var(--roll-beat)),
+      repeating-linear-gradient(
+        to right,
+        var(--grid-dot) 0 1px,
+        transparent 1px var(--roll-subbeat)
+      );
     background-size:
       1px 100%,
       auto,
@@ -810,10 +815,14 @@
       repeating-linear-gradient(
         to right,
         var(--border-strong) 0 1px,
-        transparent 1px calc(3 * var(--beat))
+        transparent 1px calc(3 * var(--roll-beat))
       ),
-      repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px var(--beat)),
-      repeating-linear-gradient(to right, var(--grid-dot) 0 1px, transparent 1px var(--subbeat));
+      repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px var(--roll-beat)),
+      repeating-linear-gradient(
+        to right,
+        var(--grid-dot) 0 1px,
+        transparent 1px var(--roll-subbeat)
+      );
     background-size:
       1px 100%,
       auto,
@@ -834,9 +843,9 @@
 
   .placement-cursor {
     display: none;
-    z-index: 1;
+    z-index: var(--z-app);
     box-sizing: border-box;
-    height: var(--row);
+    height: var(--roll-row);
     border: 1px dashed var(--focus);
     pointer-events: none;
   }
@@ -847,7 +856,7 @@
 
   .note,
   .ghost {
-    z-index: 2;
+    z-index: var(--z-app);
     display: flex;
     align-items: center;
     box-sizing: border-box;
@@ -882,7 +891,7 @@
 
   .note.linked,
   .note:focus-visible {
-    z-index: 3;
+    z-index: var(--z-playhead);
     outline-offset: 0;
     border-color: var(--focus);
   }

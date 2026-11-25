@@ -23,6 +23,7 @@
   const inspected = rollInspection.store;
   const windowBars = 4;
   const emptyNotes: readonly RollNote[] = [];
+  const activePath = $derived($song.active);
 
   let mode = $state<'expression' | 'song'>('expression');
   let page = $state.raw<{ selection: number; index: number; mode: typeof mode } | null>(null);
@@ -35,7 +36,7 @@
 
   const snapshot = $derived.by(() => {
     const revision = $revisions;
-    const path = $song.active;
+    const path = activePath;
     if (!path) return null;
     const current = session.pianoRollSnapshot();
     return current?.revision === revision && current.path === path ? current : null;

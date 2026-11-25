@@ -154,6 +154,14 @@
   --meter-w: 72px;
   --master-meter-w: 96px;
 
+  /* Piano roll geometry. The grid supplies the measured window and its meter. */
+  --roll-row: 17px;
+  --roll-key-width: 54px;
+  --roll-ruler-height: 25px;
+  --roll-min-width: 240px;
+  --roll-beat: 25%;
+  --roll-subbeat: 12.5%;
+
   /* z-index */
   --z-canvas: 0;
   --z-app: 1;
