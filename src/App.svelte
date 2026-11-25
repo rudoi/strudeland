@@ -4,6 +4,7 @@
   import { createProjectActions } from './lib/project/actions';
   import { onProjectMenu, type ProjectAction, type ProjectMenuAction } from './lib/project/api';
   import { matchShortcut, primaryModifier } from './lib/project/ui';
+  import { resetHelp, startHelp } from './lib/help/targets';
   import { exportApi, setExportMenuAvailable } from './lib/export/api';
   import { captureExportSong, createExportDialog, type ExportSong } from './lib/export/controller';
   import ConflictBar from './components/ConflictBar.svelte';
@@ -13,6 +14,7 @@
   import NewProject from './components/NewProject.svelte';
   import NewSong from './components/NewSong.svelte';
   import PianoRoll from './components/PianoRoll.svelte';
+  import Settings from './components/Settings.svelte';
   import SongList from './components/SongList.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Timeline from './components/Timeline.svelte';
@@ -31,6 +33,13 @@
   const rt = app.runtime.store;
   const prefs = app.prefs.store;
   const rollOpen = $derived($prefs.pianoRollOpen && $store.active !== null);
+  const projectRoot = $derived($store.project?.root);
+  const activeSong = $derived($store.active);
+  $effect(() => {
+    // Retained controls can have a different meaning after switching the workspace view.
+    void [projectRoot, activeSong, rollOpen];
+    resetHelp();
+  });
   const shortcutModifier = primaryModifier(navigator.platform);
   // The song whose audio is playing: only while the runtime runs.
   const playingPath = $derived($rt.started ? ($store.evaluated?.path ?? null) : null);
@@ -56,6 +65,7 @@
   let projectsReady = $state(false);
   let nativeMenuReady = $state(false);
   let quitting = false;
+  let settings = $state.raw<{ opener: HTMLElement | null } | null>(null);
   let exportDialog = $state.raw<{
     song: ExportSong;
     controller: ReturnType<typeof createExportDialog>;
@@ -70,17 +80,32 @@
   });
 
   function runProjectAction(action: ProjectAction) {
-    if (projectsReady && !quitting && !exportDialog && !instruments)
+    if (projectsReady && !quitting && !exportDialog && !instruments && !settings)
       void projectActions.run(action);
   }
 
+  function openSettings(opener = document.activeElement) {
+    if (settings || quitting || instruments || exportDialog || projectActions.isBusy()) return;
+    settings = { opener: opener instanceof HTMLElement ? opener : null };
+  }
+
+  async function closeSettings() {
+    const opener = settings?.opener;
+    settings = null;
+    await tick();
+    if (opener?.isConnected) opener.focus();
+  }
+
   function onMenuAction(action: ProjectMenuAction) {
-    if (action !== 'exportAudio') {
+    if (action === 'settings') {
+      openSettings();
+    } else if (action !== 'exportAudio') {
       runProjectAction(action);
     } else if (
       exportAvailable &&
       !quitting &&
       !instruments &&
+      !settings &&
       !exportDialog &&
       !projectActions.isBusy()
     ) {
@@ -113,6 +138,7 @@
 
   // Reopen the last project before allowing the menu or shortcut to switch it.
   onMount(() => {
+    const stopHelp = startHelp(document);
     let destroyed = false;
     let unlisten: (() => void) | undefined;
     let unlistenQuit: (() => void) | undefined;
@@ -137,6 +163,7 @@
       .catch(console.error);
     return () => {
       destroyed = true;
+      stopHelp();
       projectActions.destroy();
       unlisten?.();
       unlistenQuit?.();
@@ -153,7 +180,7 @@
     if (
       event.target instanceof Element &&
       event.target.closest(
-        '[data-note-audition-toggle], [data-instrument-browser], [data-piano-roll]',
+        '[data-settings], [data-note-audition-toggle], [data-instrument-browser], [data-piano-roll]',
       )
     )
       return;
@@ -168,7 +195,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (quitting || exportDialog || instruments) return;
+    if (quitting || exportDialog || instruments || settings) return;
     if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }
@@ -176,56 +203,63 @@
 
 <svelte:window onpointerdowncapture={onGesture} onkeydowncapture={onKeydown} />
 
-<main>
-  {#if $store.project}
-    <SongList
-      oninstruments={openInstruments}
-      {session}
-      state={$store}
-      {playingPath}
-      bind:newSongOpen
-      memos={app.memos}
-      recording={app.recording}
-    />
-  {/if}
-  <div class="col">
-    <Toolbar {app} />
-    {#if conflict}<ConflictBar {session} {conflict} />{/if}
-    {#if !$store.project}
-      <Welcome
+<div class="shell">
+  <main>
+    {#if $store.project}
+      <SongList
+        oninstruments={openInstruments}
         {session}
-        ready={projectsReady}
-        onnew={() => runProjectAction('newProject')}
-        onopen={() => runProjectAction('openProject')}
-        onrecent={(path) => void projectActions.openRecent(path)}
+        state={$store}
+        {playingPath}
+        bind:newSongOpen
+        memos={app.memos}
+        recording={app.recording}
       />
-    {:else if $store.active === null}
-      <section class="empty">
-        <p>no songs yet</p>
-        <NewSong {session} bind:open={newSongOpen} />
-      </section>
     {/if}
-    <div class="editing" hidden={$store.active === null} class:roll-open={rollOpen}>
-      <Editor {app} hidden={$store.active === null} />
-      <div id="piano-roll-dock" hidden={!rollOpen}>
-        {#if rollOpen}
-          {#key $store.active}<PianoRoll {app} />{/key}
-        {/if}
+    <div class="col">
+      <Toolbar {app} />
+      {#if conflict}<ConflictBar {session} {conflict} />{/if}
+      {#if !$store.project}
+        <Welcome
+          {session}
+          ready={projectsReady}
+          onnew={() => runProjectAction('newProject')}
+          onopen={() => runProjectAction('openProject')}
+          onrecent={(path) => void projectActions.openRecent(path)}
+        />
+      {:else if $store.active === null}
+        <section class="empty">
+          <p>no songs yet</p>
+          <NewSong {session} bind:open={newSongOpen} />
+        </section>
+      {/if}
+      <div class="editing" hidden={$store.active === null} class:roll-open={rollOpen}>
+        <Editor {app} hidden={$store.active === null} />
+        <div id="piano-roll-dock" hidden={!rollOpen}>
+          {#if rollOpen}
+            {#key $store.active}<PianoRoll {app} />{/key}
+          {/if}
+        </div>
       </div>
+      {#if $store.active !== null}<Timeline {app} />{/if}
     </div>
-    {#if $store.active !== null}<Timeline {app} />{/if}
-    <StatusBar
-      runtime={app.runtime}
-      {session}
-      control={app.control}
-      prefs={app.prefs}
-      toggleVim={app.toggleVim}
-      vimMode={app.vimMode}
-      recording={app.recording}
-      memos={app.memos}
-    />
-  </div>
-</main>
+  </main>
+  <StatusBar
+    runtime={app.runtime}
+    {session}
+    control={app.control}
+    prefs={app.prefs}
+    toggleVim={app.toggleVim}
+    vimMode={app.vimMode}
+    recording={app.recording}
+    memos={app.memos}
+    onsettings={openSettings}
+  />
+</div>
+
+{#if settings}
+  <Settings prefs={app.prefs} onclose={closeSettings} />
+{/if}
 
 {#if $newProjectFolder !== null}
   <NewProject
@@ -253,10 +287,15 @@
 {/if}
 
 <style>
+  .shell {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
   main {
     display: flex;
-    flex-direction: row;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
   }
   .col {
     flex: 1;
