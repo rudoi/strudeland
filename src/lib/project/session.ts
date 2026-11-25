@@ -11,8 +11,7 @@ import type { RollPatch, SourceSpan } from '../piano-roll/types';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
-import { EMPTY_STRUCTURE, evaluateOptions, staticStructure } from './evaluate-options';
-import { parseMeta } from './meta';
+import { readSongHeader } from './song-header';
 import { setMetaValue, type MetaPath } from './meta-write';
 import { stripSongExt } from './ui';
 import {
@@ -312,7 +311,8 @@ function settle(song: Song, text: string): void {
 
 /** meta.title, else the file name without ".js". */
 export function songTitle(path: string, code: string | null): string {
-  return titleFrom(path, code === null ? undefined : parseMeta(code).meta.title);
+  const header = code === null ? null : readSongHeader(code);
+  return titleFrom(path, header?.ok ? header.title : undefined);
 }
 
 /** The window title for a session state. */
@@ -621,15 +621,11 @@ export function createSession(deps: SessionDeps): Session {
     }
     // A clean doc reads as the disk text, so it needs no toString.
     const text = doc && dirty ? doc.toString() : song.diskText;
-    let title = fileStem(path);
-    let metaError: string | null = null;
-    let structure = EMPTY_STRUCTURE;
-    if (text !== null) {
-      const { meta, error: err } = parseMeta(text);
-      title = titleFrom(path, meta.title);
-      if (err) metaError = `${err.message} (${err.line}:${err.column + 1})`;
-      else structure = staticStructure(meta);
-    }
+    // No text reads as an empty file: the file name, no error and the default structure.
+    const header = readSongHeader(text ?? '');
+    const title = titleFrom(path, header.ok ? header.title : undefined);
+    const metaError = header.ok ? null : header.error.located;
+    let structure = header.structure;
     // Keep the previous object while the structure is unchanged, so typing does not republish it.
     const prev = song.derived?.structure;
     if (prev && sameStructure(prev, structure)) structure = prev;
@@ -1067,9 +1063,9 @@ export function createSession(deps: SessionDeps): Session {
    * the status bar) is not evaluated. True iff the runtime evaluated it.
    */
   async function evaluateSong(path: string, text: string, autostart = true): Promise<boolean> {
-    const { meta, error: err } = parseMeta(text);
+    const header = readSongHeader(text);
     const started = get(runtime.store).started;
-    if (err) {
+    if (!header.ok) {
       // Nothing will start, so a start armed while stopped must not linger as "will start at".
       if (!started) runtime.transport.reset();
       return false;
@@ -1085,13 +1081,13 @@ export function createSession(deps: SessionDeps): Session {
     // before Play is kept.
     if (started && evaluated?.song.path !== path) runtime.transport.reset();
     const gen = generation;
-    const opts = evaluateOptions(meta);
+    const opts = header.options;
     if (instruments !== undefined) opts.instruments = instruments;
     const ok = await runtime.evaluate(text, autostart ? opts : { ...opts, autostart: false });
     if (ok && gen === generation) {
       evaluated = {
-        song: { path, title: titleFrom(path, meta.title) },
-        metaTitle: meta.title,
+        song: { path, title: titleFrom(path, header.title) },
+        metaTitle: header.title,
         instruments: opts.instruments,
       };
       emit();

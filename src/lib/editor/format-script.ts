@@ -7,7 +7,7 @@ import {
   type ObjectExpression,
   type Token,
 } from 'acorn';
-import { headerRanges } from '../project/meta';
+import { headerRanges } from '../project/song-header';
 import type { FormatEdit } from './format-song';
 
 export const scriptOptions = {

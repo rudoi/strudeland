@@ -10,8 +10,7 @@ import {
   type Corpus,
   type CorpusIo,
 } from '../src/lib/render/corpus';
-import { parseMeta } from '../src/lib/project/meta';
-import { buildStructure } from '../src/lib/strudel/structure';
+import { okHeader } from './helpers/song-header';
 import { hat, kick, makeSamples, SAMPLE_RATE, tone } from '../scripts/render/make-samples';
 
 const DIR = fileURLToPath(new URL('./render/corpus/', import.meta.url));
@@ -164,10 +163,9 @@ describe('the committed corpus', () => {
     ['asymmetric-delay', '11/8', 330 / 145],
     ['filtered-opening', '4/4', 12],
   ])('%s plans its synthetic meter at the expected bar duration', (name, meter, barSeconds) => {
-    const { meta, error } = parseMeta(readFileSync(`${DIR}${name}.js`, 'utf8'));
-    expect(error).toBeNull();
+    const { meta, structure } = okHeader(readFileSync(`${DIR}${name}.js`, 'utf8'));
     expect(meta.meter).toBe(meter);
-    expect(1 / buildStructure(meta).cps).toBeCloseTo(barSeconds, 8);
+    expect(1 / structure.cps).toBeCloseTo(barSeconds, 8);
   });
 
   test('late-feedback keeps a nonzero-start multi-chunk window through bar 160', () => {
@@ -188,7 +186,7 @@ describe('the committed corpus', () => {
 
   test('song-linear and song-clip windows cover the whole song', () => {
     const corpus = realCorpus();
-    const s = buildStructure(parseMeta(readFileSync(`${DIR}song-linear.js`, 'utf8')).meta);
+    const s = okHeader(readFileSync(`${DIR}song-linear.js`, 'utf8')).structure;
     const linear = corpus.fixtures.find((f) => f.name === 'song-linear')!;
     const clip = corpus.fixtures.find((f) => f.name === 'song-clip')!;
     expect(linear.layout).toBe('linear');
@@ -200,12 +198,12 @@ describe('the committed corpus', () => {
   });
 
   test('odd-meter is 7/8 at cps 0.6524', () => {
-    const s = buildStructure(parseMeta(readFileSync(`${DIR}odd-meter.js`, 'utf8')).meta);
+    const s = okHeader(readFileSync(`${DIR}odd-meter.js`, 'utf8')).structure;
     expect(s.cps).toBeCloseTo(0.6524, 4);
   });
 
   test('noise-seed sets meta.seed 7', () => {
-    expect(parseMeta(readFileSync(`${DIR}noise-seed.js`, 'utf8')).meta.seed).toBe(7);
+    expect(okHeader(readFileSync(`${DIR}noise-seed.js`, 'utf8')).meta.seed).toBe(7);
   });
 
   test('the synth and effect fixtures are short, deterministic twin+mix fixtures', () => {
@@ -231,8 +229,8 @@ describe('the committed corpus', () => {
     }
     // voice-noise draws its noise from a non-default seed; fx-delay's delaysync runs at a
     // non-default cps
-    expect(parseMeta(readFileSync(`${DIR}voice-noise.js`, 'utf8')).meta.seed).toBe(11);
-    const delay = buildStructure(parseMeta(readFileSync(`${DIR}fx-delay.js`, 'utf8')).meta);
+    expect(okHeader(readFileSync(`${DIR}voice-noise.js`, 'utf8')).meta.seed).toBe(11);
+    const delay = okHeader(readFileSync(`${DIR}fx-delay.js`, 'utf8')).structure;
     expect(delay.cps).toBeCloseTo(100 / 240, 12);
   });
 
@@ -283,12 +281,11 @@ describe('the committed corpus', () => {
       expect(f.usesSamples, name).toBe(false);
       expect(f.rust, name).toBe('supported');
       expect(f.expect, name).toEqual({ unverifiable: [], clip: false });
-      const { meta, error } = parseMeta(readFileSync(DIR + f.file, 'utf8'));
-      expect(error, name).toBeNull();
+      const { meta, structure } = okHeader(readFileSync(DIR + f.file, 'utf8'));
       expect(Object.keys(meta).sort(), name).toEqual(['bpm', 'meter', 'title']);
       expect(meta.title, name).toBe(name);
       expect(meta.meter, name).toBe('4/4');
-      expect(buildStructure(meta).cps, name).toBeCloseTo(w.cps, 12);
+      expect(structure.cps, name).toBeCloseTo(w.cps, 12);
     }
   });
 

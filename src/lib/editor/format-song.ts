@@ -2,8 +2,7 @@ import { parse, type AnyNode, type Comment } from 'acorn';
 import { ChangeSet } from '@codemirror/state';
 import { mini2ast } from '@strudel/mini';
 import { getLanguages } from '@strudel/transpiler';
-import { staticStructure } from '../project/evaluate-options';
-import { parseMeta } from '../project/meta';
+import { readSongHeader } from '../project/song-header';
 import { formatScript, scriptOptions } from './format-script';
 
 export interface FormatEdit {
@@ -337,9 +336,9 @@ function formatMini(source: string): FormatEdit[] {
         previousEnd = token.end;
       },
     });
-    const { meta, error } = parseMeta(source);
-    const { meter } = staticStructure(meta);
-    if (error || meter.num !== 4 || meter.den !== 4) return [];
+    const header = readSongHeader(source);
+    const { meter } = header.structure;
+    if (!header.ok || meter.num !== 4 || meter.den !== 4) return [];
     const literals = songLiterals(source, script, comments, tagBoundaries);
     const afterAsi = new Set(tagBoundaries.values());
     const all = candidates(source, literals, afterAsi);

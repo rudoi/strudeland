@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { parseMeta } from '../src/lib/project/meta';
+import { okHeader } from './helpers/song-header';
 import {
   printValue,
   setMetaValue,
@@ -30,8 +30,7 @@ function set(code: string, path: MetaPath, value: number | string): string {
   const edit = setMetaValue(code, path, value);
   expect(edit).not.toBeNull();
   const next = applyEdit(code, edit!);
-  const { meta, error } = parseMeta(next);
-  expect(error).toBeNull();
+  const { meta } = okHeader(next);
   const m = /^sections\[(\d+)\]\.bars$/.exec(path);
   if (m) expect((meta.sections as any[])[Number(m[1])].bars).toBe(value);
   else expect(meta[path]).toBe(value);
@@ -162,7 +161,7 @@ describe('the templates', () => {
     ] as const) {
       set(MAIN_SONG, path, value);
     }
-    const meta = parseMeta(MAIN_SONG).meta;
+    const meta = okHeader(MAIN_SONG).meta;
     if (Array.isArray(meta.sections)) {
       meta.sections.forEach((_, i) => set(MAIN_SONG, `sections[${i}].bars`, 3));
       if (meta.sections.some((s: any) => s.loop)) set(MAIN_SONG, 'loops', 5);
@@ -224,7 +223,7 @@ describe('printing', () => {
   test('an escaped string round-trips through the header', () => {
     // meter is the only string path and its values need no escaping; check any string here.
     for (const s of [`it's`, `back\\slash`, `two\nlines`, `"dq"`]) {
-      expect(parseMeta(`const meta = { title: ${printValue(s)} };\n`).meta.title).toBe(s);
+      expect(okHeader(`const meta = { title: ${printValue(s)} };\n`).title).toBe(s);
     }
   });
 });

@@ -4,8 +4,8 @@
  * and `render:check` on the real directory. Pure: no fs, Strudel, DOM or Playwright imports.
  */
 
-import { MetaError, parseMeta } from '../project/meta';
-import { buildStructure, type SongStructure } from '../strudel/structure';
+import { readSongHeader } from '../project/song-header';
+import type { SongStructure } from '../strudel/structure';
 import type { SegmentLayout } from './contract';
 import { GATE_NAMES, type GateName } from './gates/types';
 
@@ -178,16 +178,9 @@ export function validateCorpus(
       if (song === null) {
         err(`${path}.file`, `song file '${fx.file}' not found`);
       } else {
-        const { meta, error } = parseMeta(song);
-        if (error instanceof MetaError) {
-          err(`${path}.file`, `meta: ${error.message}`);
-        } else {
-          try {
-            structure = buildStructure(meta);
-          } catch (e) {
-            err(`${path}.file`, `meta: ${(e as Error).message}`);
-          }
-        }
+        const header = readSongHeader(song);
+        if (header.ok) structure = header.structure;
+        else err(`${path}.file`, `meta: ${header.error.message}`);
       }
     }
 

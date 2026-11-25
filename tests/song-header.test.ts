@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { headerRanges, MetaError, parseMeta } from '../src/lib/project/meta';
-import { buildStructure, StructureError } from '../src/lib/strudel/structure';
+import { headerRanges, MetaError, readSongHeader } from '../src/lib/project/song-header';
+import {
+  buildStructure,
+  cpsFor,
+  DEFAULT_METER,
+  StructureError,
+} from '../src/lib/strudel/structure';
+import { headerError } from './helpers/song-header';
 
 // The Rust crate's templates. MAIN_SONG is read from the crate source so the two can't drift;
 // NEW_SONG is `new_song("verse")` (a format! string, so it is copied).
@@ -19,28 +25,213 @@ const NEW_SONG = `const meta = {
 $: s("sine*4").note("c2")
 `;
 
+const DEFAULT_STRUCTURE = buildStructure({});
+
+/**
+ * Read `code`, expect it to read cleanly, and check the whole result: the title is `meta.title`,
+ * the structure is the one `buildStructure` makes of `meta`, and the options follow from both.
+ * Returns `meta`.
+ */
 const ok = (code: string) => {
-  const r = parseMeta(code);
-  expect(r.error).toBeNull();
+  const r = readSongHeader(code);
+  if (!r.ok) throw r.error;
+  const structure = buildStructure(r.meta);
+  expect(r).toEqual({
+    ok: true,
+    meta: r.meta,
+    title: typeof r.meta.title === 'string' ? r.meta.title : undefined,
+    structure,
+    options: {
+      cps: structure.cps,
+      meter: structure.meter,
+      seed: r.meta.seed,
+      engine: r.meta.engine === 'rust' ? 'rust' : 'superdough',
+      expectedStructure: structure,
+    },
+  });
+  expect(r.options.expectedStructure).toBe(r.structure);
   return r.meta;
 };
 
-/** Parse `code`, expect a MetaError, and check it points at `needle`'s first occurrence. */
+/**
+ * Read `code`, expect a MetaError with the default structure and nothing else, and check it
+ * points at `needle`'s first occurrence in all three of its forms.
+ */
 function errAt(code: string, needle: string) {
-  const r = parseMeta(code);
-  expect(r.meta).toEqual({});
-  expect(r.error).toBeInstanceOf(MetaError);
-  const err = r.error!;
+  const r = readSongHeader(code);
+  expect(r.ok).toBe(false);
+  if (r.ok) throw new Error('unreachable');
+  expect(Object.keys(r).sort()).toEqual(['error', 'ok', 'structure']);
+  expect(r.structure).toEqual(DEFAULT_STRUCTURE);
+  const err = r.error;
+  expect(err).toBeInstanceOf(MetaError);
   const pos = code.indexOf(needle);
   expect(pos).toBeGreaterThanOrEqual(0);
   const before = code.slice(0, pos).split('\n');
-  expect({ pos: err.pos, line: err.line, column: err.column }).toEqual({
-    pos,
-    line: before.length,
-    column: before[before.length - 1].length,
-  });
+  const line = before.length;
+  const column = before[before.length - 1].length;
+  expect({ pos: err.pos, line: err.line, column: err.column }).toEqual({ pos, line, column });
+  expect(err.located).toBe(`${err.message} (${line}:${column + 1})`);
+  expect(err.reported).toBe(`meta: ${err.message} (${line}:${column + 1})`);
   return err;
 }
+
+const MAIN_STRUCTURE = buildStructure({
+  meter: '4/4',
+  bpm: 120,
+  sections: [
+    { name: 'intro', bars: 2 },
+    { name: 'body', bars: 4, loop: true },
+    { name: 'tail', bars: 2 },
+  ],
+});
+
+describe('readSongHeader', () => {
+  const SIX_EIGHT = buildStructure({ bpm: 90, meter: '6/8' });
+  // [name, code, the whole result]
+  const rows: [string, string, unknown][] = [
+    [
+      'no header: defaults, no title, superdough',
+      "$: s('bd')",
+      {
+        ok: true,
+        meta: {},
+        title: undefined,
+        structure: DEFAULT_STRUCTURE,
+        options: {
+          cps: 0.5,
+          meter: DEFAULT_METER,
+          seed: undefined,
+          engine: 'superdough',
+          expectedStructure: DEFAULT_STRUCTURE,
+        },
+      },
+    ],
+    [
+      'a header that does not parse reads as no header',
+      "const meta = { title: 'x' ",
+      {
+        ok: true,
+        meta: {},
+        title: undefined,
+        structure: DEFAULT_STRUCTURE,
+        options: {
+          cps: 0.5,
+          meter: DEFAULT_METER,
+          seed: undefined,
+          engine: 'superdough',
+          expectedStructure: DEFAULT_STRUCTURE,
+        },
+      },
+    ],
+    [
+      'bpm, meter, seed, engine and title come from the header',
+      "const meta = { title: 'jig', bpm: 90, meter: '6/8', seed: 7, engine: 'rust' };",
+      {
+        ok: true,
+        meta: { title: 'jig', bpm: 90, meter: '6/8', seed: 7, engine: 'rust' },
+        title: 'jig',
+        structure: SIX_EIGHT,
+        options: {
+          cps: cpsFor(90, { num: 6, den: 8 }),
+          meter: { num: 6, den: 8 },
+          seed: 7,
+          engine: 'rust',
+          expectedStructure: SIX_EIGHT,
+        },
+      },
+    ],
+    [
+      'the main song template',
+      MAIN_SONG,
+      {
+        ok: true,
+        meta: {
+          title: 'main',
+          bpm: 120,
+          meter: '4/4',
+          sections: [
+            { name: 'intro', bars: 2 },
+            { name: 'body', bars: 4, loop: true },
+            { name: 'tail', bars: 2 },
+          ],
+        },
+        title: 'main',
+        structure: MAIN_STRUCTURE,
+        options: {
+          cps: MAIN_STRUCTURE.cps,
+          meter: MAIN_STRUCTURE.meter,
+          seed: undefined,
+          engine: 'superdough',
+          expectedStructure: MAIN_STRUCTURE,
+        },
+      },
+    ],
+    [
+      'a rule broken: the error in all three forms, the default structure, no options',
+      "const meta = {\n  title: 'a',\n  bpm: tempo,\n};",
+      {
+        ok: false,
+        error: {
+          message: 'meta.bpm must be a literal value, not an identifier',
+          pos: 36,
+          line: 3,
+          column: 7,
+          located: 'meta.bpm must be a literal value, not an identifier (3:8)',
+          reported: 'meta: meta.bpm must be a literal value, not an identifier (3:8)',
+        },
+        structure: DEFAULT_STRUCTURE,
+      },
+    ],
+    [
+      'a cross-field rule broken',
+      'const meta = { loops: 2 }',
+      {
+        ok: false,
+        error: {
+          message: 'meta.loops needs a section with loop: true or a meta.loop range',
+          pos: 22,
+          line: 1,
+          column: 22,
+          located: 'meta.loops needs a section with loop: true or a meta.loop range (1:23)',
+          reported: 'meta: meta.loops needs a section with loop: true or a meta.loop range (1:23)',
+        },
+        structure: DEFAULT_STRUCTURE,
+      },
+    ],
+  ];
+
+  for (const [name, code, want] of rows) {
+    test(name, () => {
+      const r = readSongHeader(code);
+      const got = r.ok
+        ? r
+        : {
+            ...r,
+            error: {
+              message: r.error.message,
+              pos: r.error.pos,
+              line: r.error.line,
+              column: r.error.column,
+              located: r.error.located,
+              reported: r.error.reported,
+            },
+          };
+      expect(got).toEqual(want as never);
+    });
+  }
+
+  test('a title that is only whitespace is still the title', () => {
+    expect(readSongHeader("const meta = { title: ' ' }")).toMatchObject({ ok: true, title: ' ' });
+  });
+
+  test('each read gets its own options', () => {
+    const a = readSongHeader('');
+    const b = readSongHeader('');
+    if (!a.ok || !b.ok) throw new Error('unreachable');
+    expect(a.options).not.toBe(b.options);
+  });
+});
 
 describe('no header', () => {
   test('empty, comment-only and headerless files give {}', () => {
@@ -70,11 +261,11 @@ describe('no header', () => {
   });
 
   test('a non-header is not checked, even when it would be a MetaError', () => {
-    expect(parseMeta('let meta = { title: f() }')).toEqual({ meta: {}, error: null });
+    expect(ok('let meta = { title: f() }')).toEqual({});
   });
 
   test('export const meta is a syntax error in script mode, so no header and no error', () => {
-    expect(parseMeta("export const meta = { title: 'x' }")).toEqual({ meta: {}, error: null });
+    expect(ok("export const meta = { title: 'x' }")).toEqual({});
   });
 });
 
@@ -88,17 +279,17 @@ describe('engine', () => {
   test('another value is a MetaError pointing at the value', () => {
     errAt("const meta = { engine: 'x' };", "'x'");
     errAt('const meta = { engine: 3 };', '3');
-    expect(parseMeta("const meta = { engine: 'x' };").error!.message).toBe(
+    expect(headerError("const meta = { engine: 'x' };").message).toBe(
       "meta.engine must be 'superdough' or 'rust'",
     );
-    expect(parseMeta('const meta = { engine: 3 };').error!.message).toBe(
+    expect(headerError('const meta = { engine: 3 };').message).toBe(
       "meta.engine must be 'superdough' or 'rust'",
     );
   });
 
   test('a double-quoted engine is mini-notation, so a header error', () => {
     errAt('const meta = { engine: "rust" };', '"rust"');
-    expect(parseMeta('const meta = { engine: "rust" };').error!.message).toBe(
+    expect(headerError('const meta = { engine: "rust" };').message).toBe(
       'meta.engine must use single quotes: double-quoted strings are mini-notation',
     );
   });
@@ -120,7 +311,7 @@ describe('seed', () => {
     errAt("const meta = { seed: 'a' };", "'a'");
     errAt("const meta = { seed: '7' };", "'7'");
     errAt('const meta = { seed: foo };', 'foo');
-    expect(parseMeta("const meta = { seed: 'a' };").error!.message).toBe(
+    expect(headerError("const meta = { seed: 'a' };").message).toBe(
       'meta.seed must be an integer between -2147483648 and 2147483647',
     );
   });
@@ -321,32 +512,17 @@ describe('MetaError', () => {
 
 describe('syntax errors and garbage', () => {
   test('a syntax error in the header gives {} and no error', () => {
-    expect(parseMeta("const meta = { title: 'x' ")).toEqual({ meta: {}, error: null });
-    expect(parseMeta("const meta = { title: 'x', }}")).toEqual({ meta: {}, error: null });
-    expect(parseMeta("const meta = { title: 'x' } junk")).toEqual({ meta: {}, error: null });
-    expect(parseMeta("const meta = { title: 'x' } /* unterminated")).toEqual({
-      meta: {},
-      error: null,
-    });
+    expect(ok("const meta = { title: 'x' ")).toEqual({});
+    expect(ok("const meta = { title: 'x', }}")).toEqual({});
+    expect(ok("const meta = { title: 'x' } junk")).toEqual({});
+    expect(ok("const meta = { title: 'x' } /* unterminated")).toEqual({});
   });
 
   test('a syntax error after the header still reads the header', () => {
-    expect(parseMeta("const meta = { title: 'x' };\n$: s(")).toEqual({
-      meta: { title: 'x' },
-      error: null,
-    });
-    expect(parseMeta("const meta = { title: 'x' }\n)(")).toEqual({
-      meta: { title: 'x' },
-      error: null,
-    });
-    expect(parseMeta("const meta = { title: 'x' } // note\nlet = ;")).toEqual({
-      meta: { title: 'x' },
-      error: null,
-    });
-    expect(parseMeta("const meta = { title: 'x' } /* a\nb */ }")).toEqual({
-      meta: { title: 'x' },
-      error: null,
-    });
+    expect(ok("const meta = { title: 'x' };\n$: s(")).toEqual({ title: 'x' });
+    expect(ok("const meta = { title: 'x' }\n)(")).toEqual({ title: 'x' });
+    expect(ok("const meta = { title: 'x' } // note\nlet = ;")).toEqual({ title: 'x' });
+    expect(ok("const meta = { title: 'x' } /* a\nb */ }")).toEqual({ title: 'x' });
     errAt('const meta = { x: foo };\n)(', 'foo');
   });
 
@@ -374,7 +550,7 @@ describe('syntax errors and garbage', () => {
       Array.from({ length: 200 }, (_, i) => String.fromCharCode((i * 7919) % 0x2fff)).join(''),
     ];
     for (const input of inputs) {
-      expect(() => parseMeta(input)).not.toThrow();
+      expect(() => readSongHeader(input)).not.toThrow();
     }
   });
 });
@@ -693,22 +869,31 @@ describe('the first error of a header with several faults', () => {
   for (const [body, message, needle, nth = 0] of rows) {
     test(`{ ${body} }`, () => {
       const code = `const meta = { ${body} }`;
-      const r = parseMeta(code);
       if (message === null) {
-        expect(r.error).toBeNull();
+        ok(code);
         return;
       }
       let pos = -1;
       for (let i = 0; i <= nth; i++) pos = code.indexOf(needle!, pos + 1);
       expect(pos).toBeGreaterThan(0);
-      expect(r.meta).toEqual({});
-      expect(r.error).toBeInstanceOf(MetaError);
-      const { line, column } = r.error!;
-      expect({ message: r.error!.message, pos: r.error!.pos, line, column }).toEqual({
+      const r = readSongHeader(code);
+      if (r.ok) throw new Error('expected a meta error');
+      expect(r.structure).toEqual(DEFAULT_STRUCTURE);
+      const { line, column, located, reported } = r.error;
+      expect({
+        message: r.error.message,
+        pos: r.error.pos,
+        line,
+        column,
+        located,
+        reported,
+      }).toEqual({
         message,
         pos,
         line: 1,
         column: pos,
+        located: `${message} (1:${pos + 1})`,
+        reported: `meta: ${message} (1:${pos + 1})`,
       });
     });
   }
@@ -744,9 +929,9 @@ describe('the header text and the evaluated object agree on the cross-field rule
         evaluated = e;
       }
       expect(evaluated).toBeInstanceOf(StructureError);
-      const parsed = parseMeta(header(meta)).error;
+      const parsed = headerError(header(meta));
       expect(parsed).toBeInstanceOf(MetaError);
-      expect(parsed!.message).toBe((evaluated as StructureError).message);
+      expect(parsed.message).toBe((evaluated as StructureError).message);
     });
   }
 });

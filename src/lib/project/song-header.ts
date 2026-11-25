@@ -8,6 +8,7 @@ import {
   type Node,
   type ObjectExpression,
 } from 'acorn';
+import type { EvaluateOptions } from '../strudel/runtime';
 import {
   bpmProblem,
   buildStructure,
@@ -56,7 +57,35 @@ export class MetaError extends Error {
     this.line = line;
     this.column = column;
   }
+
+  /** The message with its 1-based line and column: `msg (line:column)`. */
+  get located(): string {
+    return `${this.message} (${this.line}:${this.column + 1})`;
+  }
+
+  /** As a failed evaluate reports it: `meta: msg (line:column)`. */
+  get reported(): string {
+    return `meta: ${this.located}`;
+  }
 }
+
+/**
+ * A song's header as read from its text. On success, `options` is what `runtime.evaluate` takes
+ * and `title` is `meta.title` when it is a string. On error there are no options, so a song with
+ * a broken header cannot be evaluated, and `structure` is the default one.
+ */
+export type SongHeader =
+  | {
+      ok: true;
+      meta: Meta;
+      title: string | undefined;
+      structure: SongStructure;
+      options: EvaluateOptions;
+    }
+  | { ok: false; error: MetaError; structure: SongStructure };
+
+/** The structure of a song without a usable header. */
+const DEFAULT_STRUCTURE = buildStructure({});
 
 /** The transpiler's grammar, so anything that evaluates also parses. */
 const PARSE_OPTIONS = {
@@ -289,17 +318,32 @@ function rangeCheckEarlierLoops(loops: readonly { value: MetaValue; node: Node }
 
 /**
  * Read the optional `const meta = {…}` header of a song without evaluating it. Never throws.
- * On error, `meta` is `{}`. A syntax error in the header is not a `MetaError`: evaluating reports
- * it, so the result is `{ meta: {}, error: null }`. A syntax error after the header does not
- * matter: the header is still read, so the title stays put while the body is mid-edit.
+ * A syntax error in the header is not a `MetaError`: evaluating reports it, so the result is ok
+ * with an empty `meta`. A syntax error after the header does not matter: the header is still
+ * read, so the title stays put while the body is mid-edit.
  */
-export function parseMeta(code: string): { meta: Meta; error: MetaError | null } {
+export function readSongHeader(code: string): SongHeader {
+  let read: ReturnType<typeof readHeader> = null;
   try {
-    return { meta: readHeader(code)?.meta ?? {}, error: null };
+    read = readHeader(code);
   } catch (e) {
-    if (e instanceof MetaError) return { meta: {}, error: e };
-    return { meta: {}, error: null };
+    if (e instanceof MetaError) return { ok: false, error: e, structure: DEFAULT_STRUCTURE };
   }
+  const meta: Meta = read?.meta ?? {};
+  const structure = read?.structure ?? DEFAULT_STRUCTURE;
+  return {
+    ok: true,
+    meta,
+    title: typeof meta.title === 'string' ? meta.title : undefined,
+    structure,
+    options: {
+      cps: structure.cps,
+      meter: structure.meter,
+      seed: meta.seed,
+      engine: meta.engine === 'rust' ? 'rust' : 'superdough',
+      expectedStructure: structure,
+    },
+  };
 }
 
 /**

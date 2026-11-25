@@ -12221,26 +12221,6 @@
     return args.length === 2 && typeof first === "string" && first.startsWith("%c") && typeof style === "string" ? first.slice(2) : null;
   }
 
-  // src/lib/project/evaluate-options.ts
-  var EMPTY_STRUCTURE = buildStructure({});
-  function staticStructure(meta) {
-    try {
-      return buildStructure(meta);
-    } catch {
-      return EMPTY_STRUCTURE;
-    }
-  }
-  function evaluateOptions(meta) {
-    const s = staticStructure(meta);
-    return {
-      cps: s.cps,
-      meter: s.meter,
-      seed: meta.seed,
-      engine: meta.engine === "rust" ? "rust" : "superdough",
-      expectedStructure: s
-    };
-  }
-
   // node_modules/acorn/dist/acorn.mjs
   var astralIdentifierCodes = [509, 0, 227, 0, 150, 4, 294, 9, 1368, 2, 2, 1, 6, 3, 41, 2, 5, 0, 166, 1, 574, 3, 9, 9, 7, 9, 32, 4, 318, 1, 31, 4, 33, 15, 71, 10, 50, 3, 123, 2, 54, 14, 32, 10, 3, 1, 11, 3, 46, 10, 8, 0, 46, 9, 7, 2, 37, 13, 2, 9, 6, 1, 45, 0, 13, 2, 49, 13, 9, 3, 2, 11, 83, 11, 7, 0, 3, 0, 158, 11, 6, 9, 7, 3, 56, 1, 2, 6, 3, 1, 3, 2, 10, 0, 11, 1, 3, 6, 4, 4, 68, 8, 2, 0, 3, 0, 2, 3, 2, 4, 2, 0, 15, 1, 83, 17, 10, 9, 5, 0, 82, 19, 13, 9, 214, 6, 3, 8, 28, 1, 83, 16, 16, 9, 82, 12, 9, 9, 7, 19, 58, 14, 5, 9, 243, 14, 166, 9, 71, 5, 2, 1, 3, 3, 2, 0, 2, 1, 13, 9, 120, 6, 3, 6, 4, 0, 29, 9, 41, 6, 2, 3, 9, 0, 10, 10, 47, 15, 199, 7, 137, 9, 54, 7, 2, 7, 17, 9, 57, 21, 2, 13, 123, 5, 4, 0, 2, 1, 2, 6, 2, 0, 9, 9, 49, 4, 2, 1, 2, 4, 9, 9, 55, 9, 7, 0, 259, 3, 10, 1, 2, 0, 49, 6, 4, 4, 14, 10, 5350, 0, 7, 14, 11465, 27, 2343, 9, 87, 9, 39, 4, 60, 6, 26, 9, 535, 9, 470, 0, 2, 54, 8, 3, 82, 0, 12, 1, 19628, 1, 4178, 9, 519, 45, 3, 22, 481, 1, 61, 4, 4, 5, 9, 7, 3, 6, 31, 3, 149, 2, 12, 2, 9, 1, 3, 0, 33, 1, 1357, 49, 513, 54, 5, 49, 9, 0, 15, 0, 23, 4, 2, 14, 1361, 6, 2, 16, 3, 6, 2, 1, 2, 4, 101, 0, 161, 6, 10, 9, 357, 0, 62, 13, 499, 13, 245, 1, 2, 9, 233, 0, 3, 0, 8, 1, 6, 0, 475, 6, 110, 6, 6, 9, 4759, 9, 787719, 239];
   var astralIdentifierStartCodes = [0, 11, 2, 25, 2, 18, 2, 1, 2, 14, 3, 13, 35, 122, 70, 52, 268, 28, 4, 48, 48, 31, 14, 29, 6, 37, 11, 29, 3, 35, 5, 7, 2, 4, 43, 157, 19, 35, 5, 35, 5, 39, 9, 51, 13, 10, 2, 14, 2, 6, 2, 1, 2, 10, 2, 14, 2, 6, 2, 1, 4, 51, 13, 310, 10, 21, 11, 7, 25, 5, 2, 41, 2, 13, 65, 5, 3, 0, 2, 43, 2, 1, 4, 0, 3, 22, 11, 22, 10, 30, 66, 18, 2, 1, 11, 21, 11, 25, 7, 25, 39, 55, 7, 1, 65, 0, 16, 3, 2, 2, 2, 28, 43, 28, 4, 28, 36, 7, 2, 27, 28, 53, 11, 21, 11, 18, 14, 17, 111, 72, 56, 50, 14, 50, 14, 35, 39, 27, 10, 22, 251, 41, 7, 1, 17, 5, 18, 21, 18, 28, 11, 0, 9, 21, 43, 17, 47, 20, 28, 22, 13, 52, 58, 1, 3, 0, 14, 44, 33, 24, 27, 35, 30, 0, 3, 0, 9, 34, 4, 0, 13, 47, 15, 3, 22, 0, 2, 0, 36, 17, 2, 24, 20, 1, 64, 6, 2, 0, 2, 3, 2, 14, 2, 9, 8, 46, 39, 7, 3, 1, 3, 21, 2, 6, 2, 1, 2, 4, 4, 0, 19, 0, 13, 4, 31, 9, 2, 0, 3, 0, 2, 37, 2, 0, 26, 0, 2, 0, 45, 52, 19, 3, 21, 2, 31, 47, 21, 1, 2, 0, 185, 46, 42, 3, 37, 47, 21, 0, 60, 42, 14, 0, 72, 26, 38, 6, 186, 43, 117, 63, 32, 7, 3, 0, 3, 7, 2, 1, 2, 23, 16, 0, 2, 0, 95, 7, 3, 38, 17, 0, 2, 0, 29, 0, 11, 39, 8, 0, 22, 0, 12, 45, 20, 0, 19, 72, 18, 0, 182, 32, 32, 8, 2, 36, 18, 0, 50, 29, 113, 6, 2, 1, 2, 37, 22, 0, 26, 5, 2, 1, 2, 31, 15, 0, 24, 43, 22, 0, 239, 18, 16, 0, 2, 12, 2, 33, 125, 0, 80, 921, 103, 111, 6, 206, 13, 310, 2314, 96, 16, 1071, 18, 5, 26, 3994, 6, 582, 6842, 29, 1763, 568, 8, 30, 18, 78, 18, 29, 19, 47, 17, 3, 32, 20, 6, 18, 433, 44, 212, 63, 33, 24, 3, 24, 45, 74, 6, 0, 67, 12, 65, 1, 2, 0, 15, 4, 10, 7386, 37, 33, 96, 114, 14, 913, 15, 50, 7710, 3, 2, 6, 2, 1, 2, 296, 10, 0, 30, 2, 3, 0, 15, 4, 8, 395, 2309, 106, 6, 12, 4, 8, 8, 9, 5991, 84, 2, 70, 2, 1, 3, 0, 3, 1, 3, 3, 2, 11, 2, 0, 2, 6, 2, 64, 2, 3, 3, 7, 2, 6, 2, 27, 2, 3, 2, 4, 2, 0, 4, 6, 2, 340, 2, 24, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 7, 1845, 129, 15, 6, 55, 50, 49, 61, 147, 44, 11, 6, 17, 0, 322, 29, 19, 43, 485, 27, 229, 29, 3, 0, 208, 30, 2, 2, 2, 1, 2, 6, 3, 4, 10, 1, 225, 6, 2, 3, 2, 1, 2, 14, 2, 196, 60, 67, 8, 0, 1205, 3, 2, 26, 2, 1, 2, 0, 3, 0, 2, 9, 2, 3, 2, 0, 2, 0, 7, 0, 5, 0, 2, 0, 2, 0, 2, 2, 2, 1, 2, 0, 3, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 1, 2, 0, 3, 3, 2, 6, 2, 3, 2, 3, 2, 0, 2, 9, 2, 16, 6, 2, 2, 4, 2, 16, 4421, 42719, 33, 4382, 2, 5773, 3, 7472, 16, 621, 2467, 541, 1507, 4938, 6, 8489, 39815, 11327];
@@ -17634,7 +17614,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     return Parser.tokenizer(input, options);
   }
 
-  // src/lib/project/meta.ts
+  // src/lib/project/song-header.ts
   class MetaError extends Error {
     pos;
     line;
@@ -17646,7 +17626,14 @@ Defaulting to 2020, but this will stop working in the future.`);
       this.line = line;
       this.column = column;
     }
+    get located() {
+      return `${this.message} (${this.line}:${this.column + 1})`;
+    }
+    get reported() {
+      return `meta: ${this.located}`;
+    }
   }
+  var DEFAULT_STRUCTURE = buildStructure({});
   var PARSE_OPTIONS = {
     ecmaVersion: 2022,
     sourceType: "script",
@@ -17830,14 +17817,29 @@ Defaulting to 2020, but this will stop working in the future.`);
         throw errorAt(node, problem);
     }
   }
-  function parseMeta(code) {
+  function readSongHeader(code) {
+    let read = null;
     try {
-      return { meta: readHeader(code)?.meta ?? {}, error: null };
+      read = readHeader(code);
     } catch (e) {
       if (e instanceof MetaError)
-        return { meta: {}, error: e };
-      return { meta: {}, error: null };
+        return { ok: false, error: e, structure: DEFAULT_STRUCTURE };
     }
+    const meta = read?.meta ?? {};
+    const structure = read?.structure ?? DEFAULT_STRUCTURE;
+    return {
+      ok: true,
+      meta,
+      title: typeof meta.title === "string" ? meta.title : undefined,
+      structure,
+      options: {
+        cps: structure.cps,
+        meter: structure.meter,
+        seed: meta.seed,
+        engine: meta.engine === "rust" ? "rust" : "superdough",
+        expectedStructure: structure
+      }
+    };
   }
 
   // src/lib/render/lookback.ts
@@ -18498,24 +18500,23 @@ Defaulting to 2020, but this will stop working in the future.`);
       throw new PlanJobError("plan", errorMessage(e));
     }
   }
-  function parsedMeta(code) {
-    const { meta, error: metaError } = parseMeta(code);
-    if (metaError) {
-      throw new PlanJobError("meta", `meta: ${metaError.message} (${metaError.line}:${metaError.column + 1})`);
-    }
-    return meta;
+  function headerOrThrow(code) {
+    const header = readSongHeader(code);
+    if (!header.ok)
+      throw new PlanJobError("meta", header.error.reported);
+    return header;
   }
   async function evaluateState(rt, code, onPhase) {
     onPhase?.("evaluating");
-    const meta = parsedMeta(code);
-    if (!await rt.evaluate(code, evaluateOptions(meta))) {
+    const header = headerOrThrow(code);
+    if (!await rt.evaluate(code, header.options)) {
       throw new PlanJobError("eval", rt.evalError() ?? "evaluate failed");
     }
     onPhase?.("querying");
     return asPlanError(() => {
       const state = rt.state();
-      const structure = state.structure ?? staticStructure(meta);
-      return { meta, structure, cps: state.cps, seed: state.seed ?? 0 };
+      const structure = state.structure ?? header.structure;
+      return { meta: header.meta, structure, cps: state.cps, seed: state.seed ?? 0 };
     });
   }
   async function evaluateSong(rt, code, layout, onPhase) {

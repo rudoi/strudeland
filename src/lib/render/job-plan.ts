@@ -6,8 +6,7 @@
  */
 
 import { errorMessage } from '../errors';
-import { evaluateOptions, staticStructure } from '../project/evaluate-options';
-import { parseMeta, type Meta } from '../project/meta';
+import { readSongHeader, type Meta, type SongHeader } from '../project/song-header';
 import type { EvaluateOptions } from '../strudel/runtime';
 import {
   authoredLoop,
@@ -84,16 +83,11 @@ function asPlanError<T>(body: () => T): T {
   }
 }
 
-/** `parseMeta`, a header error as the planner's `meta` error. */
-function parsedMeta(code: string): Meta {
-  const { meta, error: metaError } = parseMeta(code);
-  if (metaError) {
-    throw new PlanJobError(
-      'meta',
-      `meta: ${metaError.message} (${metaError.line}:${metaError.column + 1})`,
-    );
-  }
-  return meta;
+/** The song header, a header error as the planner's `meta` error. */
+function headerOrThrow(code: string): Extract<SongHeader, { ok: true }> {
+  const header = readSongHeader(code);
+  if (!header.ok) throw new PlanJobError('meta', header.error.reported);
+  return header;
 }
 
 /** `evaluateSong` before the segments: parse, evaluate, read the state. */
@@ -103,15 +97,15 @@ async function evaluateState(
   onPhase?: (p: PlanJobPhase) => void,
 ): Promise<Omit<EvaluatedSong, 'segments' | 'timing'>> {
   onPhase?.('evaluating');
-  const meta = parsedMeta(code);
-  if (!(await rt.evaluate(code, evaluateOptions(meta)))) {
+  const header = headerOrThrow(code);
+  if (!(await rt.evaluate(code, header.options))) {
     throw new PlanJobError('eval', rt.evalError() ?? 'evaluate failed');
   }
   onPhase?.('querying');
   return asPlanError(() => {
     const state = rt.state();
-    const structure = state.structure ?? staticStructure(meta);
-    return { meta, structure, cps: state.cps, seed: state.seed ?? 0 };
+    const structure = state.structure ?? header.structure;
+    return { meta: header.meta, structure, cps: state.cps, seed: state.seed ?? 0 };
   });
 }
 

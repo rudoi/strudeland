@@ -12,8 +12,7 @@ import {
 import { song } from '../src/lib/strudel/song';
 import { layoutClock } from '../src/lib/strudel/timing';
 import { INITIAL_SEGMENTS } from '../src/lib/strudel/transport';
-import { parseMeta } from '../src/lib/project/meta';
-import { evaluateOptions } from '../src/lib/project/evaluate-options';
+import { okHeader } from './helpers/song-header';
 import { fakeRuntime as fake } from './helpers/fake-runtime';
 
 await core.evalScope(core, mini, { song });
@@ -625,7 +624,7 @@ test('a drawing window preserves painter order and repetitions across meter boun
 test('a fixed static header allows a dynamic legacy song but rejects dynamic mixed meter', async () => {
   const { rt } = fake();
   const header = "const meta = { sections: [{ name: 'part', bars: 3 }] };";
-  const options = { ...evaluateOptions(parseMeta(header).meta), autostart: false };
+  const options = { ...okHeader(header).options, autostart: false };
   expect(
     await rt.evaluate(`${header}\nsong({...meta, meter: '3/8'}, {part: s('click')})`, options),
   ).toBe(true);

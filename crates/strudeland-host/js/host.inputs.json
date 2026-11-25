@@ -83,15 +83,14 @@
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
     "src/lib/errors.ts": "e9f80c51df62e192fe8d0ca2a463bf2c2208c08dc7e8f7d80531d7243ff8de5a",
     "src/lib/levels/levels.ts": "0bea7f385e6be6a3c3b5bd7f05183b59cd944aceb4d6b0afa407cad65aee89ae",
-    "src/lib/project/evaluate-options.ts": "099b17d99c60e6a8123cfaef5cbcfbca6fe092e4c7ef793b9a455a1aa26d22bf",
-    "src/lib/project/meta.ts": "56e2300e1a738ffa24fde11b465afaa4ce710c150a6ada0dde05b5a1958b51a2",
+    "src/lib/project/song-header.ts": "e7011c8a8f6eedee12b0dc7ff71b054a5cffd44f12c670554aa23b680e56f49f",
     "src/lib/render/chunks.ts": "abf5d3ecc4a68458832948c2fe051a524d8a730f82e5c379d12481d197e7cf6a",
     "src/lib/render/contract.ts": "e822bf42d1806f80c011ed87c4212f724ba002519b7b4851484b08c6c4648a20",
     "src/lib/render/dsp.ts": "9d14ea2c303e21d79699fb658588af9309465e1502cbb2dda4277725d7518d2b",
     "src/lib/render/engine-job.ts": "74f51e997b2df27e7084d7f18f2b3d87f5d2ac03c52842de2bbe0827197e600e",
     "src/lib/render/gates/stems.ts": "764c7fa27262d21ca39788c5079ce25fe46f5e4d248ef0a41f73c0625467b2f8",
     "src/lib/render/gates/types.ts": "8d76bb081146020dd471738cf7e7eac5c47b416ea81f21912c469102d851744e",
-    "src/lib/render/job-plan.ts": "5c39052df25e4d525ef6d001734fe36163a1871c76305e5c7ffdba91c4492e5e",
+    "src/lib/render/job-plan.ts": "407569927ae3e3f491e34ff331da162c87041efd100b697d5449aa4c6dbc2204",
     "src/lib/render/logged-errors.ts": "4af126d11de1554b847eabbe2c49c735da7b1caca547458b16e5d605bab352f4",
     "src/lib/render/lookback.ts": "48bd60331a9740b81e84eb079e3b8d666eea6bf72adbb150d27484a010d6c9ea",
     "src/lib/render/page-job.ts": "1266180090585333e5db6ac2d031b39c4e96d8372edf530f45cbb3f6b1e40216",
@@ -156,5 +155,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "df88c79cdf15c0835a777f0b7c71235e261afd588b7c8fd8ae60d5ecd0e82ad0"
+  "combined": "8dbb0abc2f6d722f92c3fbfd20ca0c62453f84db0193a1be1ceecba6265b5566"
 }

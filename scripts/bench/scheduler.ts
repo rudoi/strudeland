@@ -6,8 +6,7 @@
 import { createRuntime } from '../../src/lib/strudel/runtime';
 import type { AudioBackend } from '../../src/lib/audio/backend';
 import { hostPrebake } from '../../src/host/prebake';
-import { parseMeta } from '../../src/lib/project/meta';
-import { evaluateOptions, staticStructure } from '../../src/lib/project/evaluate-options';
+import { readSongHeader } from '../../src/lib/project/song-header';
 import { median, nearestRank, sortedAsc } from '../../src/lib/render/dsp';
 
 export interface Options {
@@ -116,8 +115,9 @@ export function formatTable(r: Report): string {
 }
 
 async function oneRun(code: string, o: Options): Promise<RunResult> {
-  const { meta } = parseMeta(code);
-  const structure = staticStructure(meta);
+  const header = readSongHeader(code);
+  if (!header.ok) throw new Error(header.error.reported);
+  const { structure } = header;
   const index = structure.sections.findIndex((s) => s.name === o.section);
   if (index < 0) throw new UsageError(`the song has no section named '${o.section}'`);
   let now = 0;
@@ -142,7 +142,7 @@ async function oneRun(code: string, o: Options): Promise<RunResult> {
     clearInterval: (id) => void timers.delete(id as number),
   });
   const fire = () => [...timers.values()].forEach((f) => f());
-  const ok = await rt.evaluate(code, { ...evaluateOptions(meta), autostart: false });
+  const ok = await rt.evaluate(code, { ...header.options, autostart: false });
   if (!ok) throw new Error('the song failed to evaluate');
   rt.transport.startFrom(index, structure);
   if (!(await rt.start())) throw new Error('the runtime did not start');
