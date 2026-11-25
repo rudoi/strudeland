@@ -822,6 +822,22 @@ describe('the verbs', () => {
       started: false,
     });
   });
+
+  test('after destroy the verbs are inert, except evaluate', async () => {
+    const w = world('song');
+    w.arbiter.destroy();
+    expect(w.arbiter.play()).toBe(false);
+    expect(w.arbiter.playFrom(VERSE)).toBe(false);
+    const { done, ...r } = w.arbiter.stop();
+    expect(r).toEqual({ stopped: null, wasPlaying: false });
+    await done;
+    await w.arbiter.record(SONG);
+    expect(w.arbiter.auditionsAvailable()).toBe(false);
+    expect(w.log).toEqual([]);
+    expect(w.started()).toBe(true);
+    expect(await w.arbiter.evaluate(MAIN)).toMatchObject({ song: MAIN });
+    expect(w.log).toEqual(['memos.stopPlayback', `evaluateBuffer ${MAIN} undefined`]);
+  });
 });
 
 // ---------------------------------------------------------------- the real controller

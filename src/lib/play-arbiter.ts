@@ -78,7 +78,10 @@ export interface PlayArbiter {
   evaluate(path: string): Promise<SessionEvalOutcome>;
   /** Start a take: stop a memo first. Call from the click: `resumeAudio` runs inside it. */
   record(choice: BackingChoice): Promise<void>;
-  /** Release the subscriptions. Idempotent. */
+  /**
+   * Release the subscriptions and make the verbs inert: play and playFrom return false, stop and
+   * record call nothing, auditions are unavailable. Evaluate still delegates. Idempotent.
+   */
   destroy(): void;
 }
 
@@ -117,6 +120,7 @@ function derive(
 export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
   const { session, runtime, recording, memos } = deps;
   let playRequests = 0;
+  let destroyed = false;
   let state = derive(null, false, false);
   const store = writable(state);
   /** Publish only a real change (`runtime.store` fires on every stats tick). */
@@ -151,7 +155,7 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
   }
 
   function play(): boolean {
-    if (state.taking) return false;
+    if (destroyed || state.taking) return false;
     deps.stopAuditions();
     playRequests++;
     memos?.stopPlayback();
@@ -162,16 +166,21 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
   return {
     store: { subscribe: store.subscribe },
     auditionsAvailable: () =>
-      playRequests === 0 && runtime.canAudition() && !state.taking && !state.memoAudible,
+      !destroyed &&
+      playRequests === 0 &&
+      runtime.canAudition() &&
+      !state.taking &&
+      !state.memoAudible,
     play,
     playFrom(choice) {
-      if (!state.canPlayFrom) return false;
+      if (destroyed || !state.canPlayFrom) return false;
       const wasStarted = state.started;
       const armed = session.playback.arm(choice);
       if (armed && !wasStarted) play();
       return armed;
     },
     stop() {
+      if (destroyed) return { stopped: null, wasPlaying: false, done: Promise.resolve() };
       const { stopTarget: stopped, started: wasPlaying, takePhase } = state;
       if (stopped === 'take' && recording) {
         // Starting or stopping, the take's stop ends nothing (stopping, it returns the save).
@@ -196,10 +205,12 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
       return pending.finally(() => playRequests--);
     },
     record(choice) {
+      if (destroyed) return Promise.resolve();
       memos?.stopPlayback();
       return recording?.record(choice) ?? Promise.resolve();
     },
     destroy() {
+      destroyed = true;
       offs.splice(0).forEach((off) => off());
     },
   };
