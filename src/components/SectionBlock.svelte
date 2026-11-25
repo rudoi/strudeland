@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { HTMLButtonAttributes } from 'svelte/elements';
+  import { helpTarget } from '../lib/help/targets';
   import type { Cat } from '../lib/theme/tones';
   import Chip from './ui/Chip.svelte';
   import Dot from './ui/Dot.svelte';
@@ -48,14 +49,16 @@
   class={['block', 'pressable', { loop, current }, className]}
   data-cat={cat}
   {onclick}
+  use:helpTarget={'Choose where playback starts or which sections repeat.'}
 >
   <span class="head">
     <Dot shape="square" />
     <span class="name">{name}</span>
     <span class="bars mono">{bars}</span>
     <!-- The loop chip takes the section colour (data-cat); looping is always the accent. -->
-    {#if loop}<Chip title="loop section">loop</Chip>{/if}
-    {#if looping}<Chip tone="accent" lit title="looping">looping</Chip>{/if}
+    {#if loop}<Chip title="part of the song’s defined loop">loop</Chip>{/if}
+    {#if looping}<Chip tone="accent" lit title="part of the temporary playback loop">looping</Chip
+      >{/if}
   </span>
   {#if pads > 0}
     <span class="pads" aria-hidden="true">

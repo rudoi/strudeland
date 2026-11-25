@@ -129,15 +129,22 @@ export interface ProjectApi extends InstrumentBrowserApi {
 export const PROJECT_CHANGED_EVENT = 'project://changed';
 export const PROJECT_MENU_EVENT = 'project://menu';
 export type ProjectAction = 'newProject' | 'openProject';
-export type ProjectMenuAction = ProjectAction | 'exportAudio';
+export type ProjectMenuAction = ProjectAction | 'exportAudio' | 'settings';
+
+export function isProjectMenuAction(payload: unknown): payload is ProjectMenuAction {
+  return (
+    payload === 'newProject' ||
+    payload === 'openProject' ||
+    payload === 'exportAudio' ||
+    payload === 'settings'
+  );
+}
 
 export function onProjectMenu(handler: (action: ProjectMenuAction) => void): Promise<() => void> {
   return listen<unknown>(
     PROJECT_MENU_EVENT,
     ({ payload }) => {
-      if (payload === 'newProject' || payload === 'openProject' || payload === 'exportAudio') {
-        handler(payload);
-      }
+      if (isProjectMenuAction(payload)) handler(payload);
     },
     { target: 'main' },
   );

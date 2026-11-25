@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { helpTarget } from '../../lib/help/targets';
   import type { HTMLInputAttributes } from 'svelte/elements';
 
   type Props = Omit<HTMLInputAttributes, 'value' | 'size' | 'width'> & {
+    help?: string;
     label?: string;
     /** One-way: the input shows it, and typing does not write it back (use `oninput`). */
     value: string | number;
@@ -13,6 +15,7 @@
   };
 
   let {
+    help,
     label,
     value,
     size = 'md',
@@ -27,7 +30,13 @@
 <label class={['field', layout, { fill: width === 'fill' }]}>
   {#if label}<span class="label">{label}</span>{/if}
   <!-- svelte-ignore a11y_autofocus -->
-  <input bind:this={el} {value} {...rest} class={['input', 'control', size, width, className]} />
+  <input
+    use:helpTarget={help}
+    bind:this={el}
+    {value}
+    {...rest}
+    class={['input', 'control', size, width, className]}
+  />
 </label>
 
 <style>

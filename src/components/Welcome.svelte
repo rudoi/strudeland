@@ -33,15 +33,25 @@
   {:else}
     {#if $store.error}<Notice tone="danger">{$store.error}</Notice>{/if}
     <div class="row">
-      <Button onclick={onnew} disabled={!ready}>new project</Button>
-      <Button onclick={onopen} disabled={!ready}>open project</Button>
+      <Button
+        onclick={onnew}
+        disabled={!ready}
+        help={ready ? 'Choose a folder for a new project.' : 'Recent projects are still loading.'}
+        >new project</Button
+      >
+      <Button
+        onclick={onopen}
+        disabled={!ready}
+        help={ready ? 'Choose an existing project folder.' : 'Recent projects are still loading.'}
+        >open project</Button
+      >
     </div>
     {#if ready && $store.recents.length}
       <h2 class="label">recent</h2>
       <ul>
         {#each $store.recents as r (r.path)}
           <li>
-            <ListRow onclick={() => onrecent(r.path)}>
+            <ListRow onclick={() => onrecent(r.path)} help="Reopen this project and its songs.">
               <span class="recent">
                 <span class="name">{r.name}</span>
                 <span class="hint path">{r.path}</span>

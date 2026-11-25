@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { readable } from 'svelte/store';
+  import { helpTarget, resetHelp } from '../lib/help/targets';
   import type { App } from '../lib/app';
   import type { PianoRollSnapshot } from '../lib/project/session';
   import { takeRunning } from '../lib/recording/memo-ui';
@@ -313,6 +314,20 @@
     if (snapshot) page = { context: contextKey, gridRow: target?.gridRow, index, mode };
   }
 
+  async function setMode(next: typeof mode) {
+    if (mode === next) return;
+    mode = next;
+    await tick();
+    resetHelp();
+  }
+
+  async function switchDefinition() {
+    if (definitionMode) shared = null;
+    else openDefinition();
+    await tick();
+    resetHelp();
+  }
+
   function openDefinition() {
     if (!snapshot || !definition) return;
     mode = 'expression';
@@ -415,10 +430,18 @@
 <section class="dock" aria-label="Piano roll" data-piano-roll>
   <div class="roll-toolbar">
     <div class="views" role="group" aria-label="Piano roll view">
-      <Button size="sm" pressed={mode === 'expression'} onclick={() => (mode = 'expression')}
-        >Expression</Button
+      <Button
+        size="sm"
+        pressed={mode === 'expression'}
+        help="Show the pattern at the editor caret or selection."
+        onclick={() => void setMode('expression')}>Expression</Button
       >
-      <Button size="sm" pressed={mode === 'song'} onclick={() => (mode = 'song')}>In song</Button>
+      <Button
+        size="sm"
+        pressed={mode === 'song'}
+        help="Show notes where they occur in the song."
+        onclick={() => void setMode('song')}>In song</Button
+      >
     </div>
     {#if target}
       <span class="target" title={target.label}
@@ -429,6 +452,7 @@
           <span>Meter at</span>
           <select
             class="control"
+            use:helpTarget={'Use the meter at this section to lay out the pattern.'}
             value={anchor?.name}
             onchange={(event) =>
               changeAnchor(
@@ -448,14 +472,18 @@
       <div class="pages" role="group" aria-label="Visible bars">
         <Button
           size="sm"
-          title="Previous bars"
+          help={focusedPage === 0
+            ? 'You’re already viewing the first bars of this pattern.'
+            : 'Show the preceding bars in the piano roll.'}
           aria-label="Previous bars"
           disabled={focusedPage === 0}
           onclick={() => goToPage(focusedPage - 1)}>‹</Button
         >
         <Button
           size="sm"
-          title="Next bars"
+          help={to >= maxCycle
+            ? 'You’re already viewing the last bars of this pattern.'
+            : 'Show the following bars in the piano roll.'}
           aria-label="Next bars"
           disabled={to >= maxCycle}
           onclick={() => goToPage(focusedPage + 1)}>›</Button
@@ -465,10 +493,15 @@
   </div>
   {#if mode === 'expression' && definition && (definition.uses.length || definition.incomplete) && snapshot}
     <div class="shared">
-      {#if !definitionMode && !inDefinition}
-        <Button size="sm" onclick={openDefinition}>Edit shared definition</Button>
-      {:else if definitionMode}
-        <Button size="sm" onclick={() => (shared = null)}>Back to selection</Button>
+      {#if definitionMode || !inDefinition}
+        <Button
+          size="sm"
+          help={definitionMode
+            ? 'Return to the pattern or occurrence you were viewing.'
+            : 'Show the original pattern. Edits can affect every use of it.'}
+          onclick={switchDefinition}
+          >{definitionMode ? 'Back to selection' : 'Edit shared definition'}</Button
+        >
       {/if}
       <span
         >{definition.uses.length} known {definition.uses.length === 1
@@ -477,7 +510,12 @@
       >
       {#each definition.uses as use (use.span.from)}
         {@const context = snapshot}
-        <Button size="sm" variant="quiet" onclick={() => reveal(context, use.span)}>
+        <Button
+          size="sm"
+          variant="quiet"
+          help="Jump to this use of the pattern in the editor."
+          onclick={() => reveal(context, use.span)}
+        >
           {use.sections.join(', ') ||
             `Line ${context.code.slice(0, use.span.from).split('\n').length}`}
         </Button>
@@ -496,7 +534,11 @@
     </p>
   {:else if needsInspection && !request && !showingOptimistic}
     <div class="preview">
-      <Button size="sm" onclick={approveDraft}>Preview expression</Button>
+      <Button
+        size="sm"
+        help="Inspect the current draft without playing the song."
+        onclick={approveDraft}>Preview expression</Button
+      >
       <span>Inspect the current draft without starting playback.</span>
     </div>
   {:else if response?.phase === 'error' && !showingOptimistic}
@@ -506,7 +548,11 @@
   {:else}
     {#if showingOptimistic && !request && rollInspection.available}
       <div class="preview">
-        <Button size="sm" onclick={approveDraft}>Preview expression</Button>
+        <Button
+          size="sm"
+          help="Inspect the current draft without playing the song."
+          onclick={approveDraft}>Preview expression</Button
+        >
         <span>Inspect the current draft without starting playback.</span>
       </div>
     {/if}
@@ -537,6 +583,7 @@
           <Button
             size="sm"
             variant="quiet"
+            help="Jump to the code that contributes to this note."
             onclick={() => reveal(context, span, contributors?.section)}
             >{context.code.slice(span.from, span.to)}</Button
           >

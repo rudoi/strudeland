@@ -1,4 +1,5 @@
 import { claudeMark } from './claude-mark';
+import { editorHelp } from './help';
 import { inspectNoteAudition, type NoteAuditionEdit } from './note-audition';
 import { registerStrudelandSettings, STRUDELAND_THEME } from './theme';
 import { exitInsert } from './vim-mode';
@@ -122,6 +123,7 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     }),
     sliderPlugin,
     widgetPlugin,
+    editorHelp,
     drawSelection({ cursorBlinkRate: 0 }),
     strudelKeymap(runtime, hooks),
     auditionHighlight,

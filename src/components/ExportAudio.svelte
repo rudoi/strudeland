@@ -8,9 +8,11 @@
     type createExportDialog,
     type ExportSong,
   } from '../lib/export/controller';
+  import { helpTarget } from '../lib/help/targets';
   import { authoredLoop } from '../lib/strudel/structure';
   import Button from './ui/Button.svelte';
   import Field from './ui/Field.svelte';
+  import Help from './ui/Help.svelte';
   import Notice from './ui/Notice.svelte';
 
   let {
@@ -29,6 +31,23 @@
   const activity = $derived($store.activity);
   const quit = $derived($store.quit);
   const locked = $derived(activity.kind !== 'idle' || quit !== null);
+  const lockedHelp = $derived(
+    quit
+      ? 'Finish the quit decision first.'
+      : activity.kind === 'picking'
+        ? 'Finish choosing the destination folder first.'
+        : activity.kind === 'confirming'
+          ? 'Answer the file replacement prompt first.'
+          : 'Wait for the current export to finish.',
+  );
+  const modeHelp = {
+    standard: 'Choose the file format for a single stereo mixdown.',
+    stems: 'Choose how the audio is split into separate WAV files.',
+    'intro-loop': 'Effects from the opening carry into the first pass of the marked loop.',
+    'tagged-loop': 'Uses the marked loop in the song. Your player needs to read the loop marker.',
+    'folded-loop': 'Starts at the first bar of the marked loop with fresh effects.',
+    'one-shot': 'Choose a clip, a section, or a length for the main body of the sound.',
+  } satisfies Record<(typeof MODES)[number]['id'], string>;
   const sections = source.structure?.sections ?? [];
   const loop = source.structure && authoredLoop(source.structure);
   const markedLoop =
@@ -42,6 +61,22 @@
     result && 'files' in result ? result.files : Array.isArray(target) ? target : null,
   );
   const canExport = $derived(!locked && $store.preview.kind === 'ready' && !$store.result);
+  const rangeRequired = $derived(
+    options.range === 'section'
+      ? 'Choose a section to preview the destination.'
+      : 'Enter a positive whole number of bars to preview the destination.',
+  );
+  const exportHelp = $derived(
+    locked
+      ? lockedHelp
+      : $store.preview.kind === 'loading'
+        ? 'Wait for the destination check to finish.'
+        : $store.preview.kind === 'error'
+          ? 'Resolve the output preview error before exporting.'
+          : $store.preview.kind === 'idle'
+            ? rangeRequired
+            : 'Render the captured editor source to the listed destination.',
+  );
   let dialog: HTMLDialogElement;
 
   onMount(() => {
@@ -100,6 +135,7 @@
               checked={options.mode === mode.id}
               aria-labelledby={'mode-' + mode.id}
               aria-describedby={'detail-' + mode.id}
+              use:helpTarget={locked ? lockedHelp : modeHelp[mode.id]}
               autofocus={mode.id === 'standard'}
               onchange={() => controller.select({ mode: mode.id })}
             />
@@ -117,6 +153,9 @@
               <select
                 class="control"
                 disabled={locked}
+                use:helpTarget={locked
+                  ? lockedHelp
+                  : 'Split stems by mixer orbit, pattern voice label, or instrument sound.'}
                 value={options.grouping}
                 onchange={(event) =>
                   controller.select({
@@ -134,6 +173,9 @@
               <select
                 class="control"
                 disabled={locked}
+                use:helpTarget={locked
+                  ? lockedHelp
+                  : 'Use WAV for lossless audio and sample-exact loops, or choose a compressed format.'}
                 value={options.format}
                 onchange={(event) =>
                   controller.select({ format: event.currentTarget.value as typeof options.format })}
@@ -151,6 +193,9 @@
               <select
                 class="control"
                 disabled={locked}
+                use:helpTarget={locked
+                  ? lockedHelp
+                  : 'Render the arranged clip, one named section, or a number of bars from the start.'}
                 value={options.range}
                 onchange={(event) =>
                   controller.select({ range: event.currentTarget.value as typeof options.range })}
@@ -172,6 +217,7 @@
               <select
                 class="control"
                 disabled={locked}
+                use:helpTarget={locked ? lockedHelp : 'Use this section’s position and length.'}
                 value={options.section}
                 onchange={(event) => controller.select({ section: event.currentTarget.value })}
               >
@@ -187,6 +233,11 @@
                 layout="stacked"
                 width="fill"
                 disabled={locked}
+                help={locked
+                  ? lockedHelp
+                  : $store.preview.kind === 'idle'
+                    ? rangeRequired
+                    : 'Set how many bars to render from the start of the song.'}
                 value={options.bars}
                 inputmode="numeric"
                 oninput={(event) => controller.select({ bars: event.currentTarget.value })}
@@ -228,7 +279,13 @@
           <h3 class="label" id="export-destination">destination folder</h3>
           <div class="destination-row">
             <span class="path mono">{options.folder ?? 'project renders/'}</span>
-            <Button size="sm" disabled={locked} onclick={controller.pickFolder}>choose…</Button>
+            <Button
+              size="sm"
+              disabled={locked}
+              onclick={controller.pickFolder}
+              help={locked ? lockedHelp : 'Choose another folder for the rendered files.'}
+              >choose…</Button
+            >
           </div>
           {#if options.folder !== null}
             <Button
@@ -236,6 +293,7 @@
               variant="quiet"
               disabled={locked}
               onclick={() => controller.select({ folder: null })}
+              help={locked ? lockedHelp : 'Write the output under this project’s renders/ folder.'}
             >
               use project folder
             </Button>
@@ -272,12 +330,16 @@
             </ul>
           {:else if $store.preview.kind === 'error'}
             <Notice tone="danger">{$store.preview.message}</Notice>
-            <Button size="sm" disabled={locked} onclick={controller.refresh}>refresh preview</Button
+            <Button
+              size="sm"
+              disabled={locked}
+              onclick={controller.refresh}
+              help={locked ? lockedHelp : 'Check the output paths again.'}>refresh preview</Button
             >
           {:else if $store.preview.kind === 'loading'}
             <p class="hint" role="status">checking destination…</p>
           {:else}
-            <p class="hint">enter a positive whole number of bars to preview the destination</p>
+            <p class="hint">{rangeRequired}</p>
           {/if}
         </section>
 
@@ -320,27 +382,51 @@
       </div>
       <div class="actions">
         {#if quit === 'ask'}
-          <Button onclick={() => controller.answerQuit('cancel')}>cancel quit</Button>
-          <Button variant="primary" onclick={() => controller.answerQuit('wait')}>
+          <Button
+            onclick={() => controller.answerQuit('cancel')}
+            help="Keep the app open and let the export finish.">cancel quit</Button
+          >
+          <Button
+            variant="primary"
+            onclick={() => controller.answerQuit('wait')}
+            help="See the export result before deciding whether to quit."
+          >
             wait for export
           </Button>
         {:else if quit === 'waiting'}
-          <Button onclick={() => controller.answerQuit('cancel')}>cancel quit</Button>
+          <Button
+            onclick={() => controller.answerQuit('cancel')}
+            help="Keep the app open and let the export finish.">cancel quit</Button
+          >
         {:else if quit === 'result'}
-          <Button onclick={() => controller.answerQuit('cancel')}>keep app open</Button>
-          <Button variant="primary" onclick={() => controller.answerQuit('continue')}>
+          <Button
+            onclick={() => controller.answerQuit('cancel')}
+            help="Acknowledge the export result and cancel quitting.">keep app open</Button
+          >
+          <Button
+            variant="primary"
+            onclick={() => controller.answerQuit('continue')}
+            help="Acknowledge the export result and continue to the unsaved changes check."
+          >
             continue quitting
           </Button>
         {:else if quit === 'settling'}
-          <Button disabled>please wait</Button>
+          <Button disabled help="The app is finishing your quit decision.">please wait</Button>
         {:else if $store.result}
-          <Button variant="primary" onclick={dismiss}>done</Button>
+          <Button variant="primary" onclick={dismiss} help="Close the export results.">done</Button>
         {:else}
-          <Button disabled={locked} onclick={dismiss}>close</Button>
-          <Button variant="primary" type="submit" disabled={!canExport}>export audio</Button>
+          <Button
+            disabled={locked}
+            onclick={dismiss}
+            help={locked ? lockedHelp : 'Return to the editor.'}>close</Button
+          >
+          <Button variant="primary" type="submit" disabled={!canExport} help={exportHelp}
+            >export audio</Button
+          >
         {/if}
       </div>
     </footer>
+    <Help />
   </form>
 </dialog>
 
@@ -381,6 +467,7 @@
   .title,
   footer {
     display: flex;
+    flex: none;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;

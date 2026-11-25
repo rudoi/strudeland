@@ -53,6 +53,7 @@
     <Field
       value={name}
       width="fill"
+      help="Name the file in songs/. Enter creates and opens it. Escape cancels."
       bind:el={input}
       oninput={(e) => {
         name = e.currentTarget.value;
@@ -67,7 +68,9 @@
   </div>
 {:else}
   <div class="add">
-    <Button variant="quiet" onclick={() => (open = true)}>+ new song</Button>
+    <Button variant="quiet" onclick={() => (open = true)} help="Show the song file name field."
+      >+ new song</Button
+    >
   </div>
 {/if}
 

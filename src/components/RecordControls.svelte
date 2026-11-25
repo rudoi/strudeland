@@ -84,7 +84,7 @@
     variant={btn.variant}
     tone={btn.tone}
     disabled={btn.disabled}
-    title={btn.title}
+    help={btn.help}
     aria-label={btn.ariaLabel}
     onclick={click}
   >
@@ -101,7 +101,7 @@
       size="sm"
       pressed={t.pressed}
       disabled={t.disabled}
-      title={t.title}
+      help={t.help}
       onclick={() => flip(t.key)}
     >
       {t.label}

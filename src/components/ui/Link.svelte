@@ -1,12 +1,13 @@
 <script lang="ts">
+  import { helpTarget } from '../../lib/help/targets';
   import type { Snippet } from 'svelte';
   import type { HTMLAnchorAttributes } from 'svelte/elements';
   import { openExternal } from '../../lib/info';
   import { followExternal } from './link';
 
-  type Props = HTMLAnchorAttributes & { href: string; children: Snippet };
+  type Props = HTMLAnchorAttributes & { help?: string; href: string; children: Snippet };
 
-  let { href, children, onclick, class: className, ...rest }: Props = $props();
+  let { help, href, children, onclick, class: className, ...rest }: Props = $props();
 
   function click(e: MouseEvent & { currentTarget: EventTarget & HTMLAnchorElement }) {
     onclick?.(e);
@@ -14,7 +15,9 @@
   }
 </script>
 
-<a {...rest} {href} class={['link', className]} onclick={click}>{@render children()}</a>
+<a use:helpTarget={help} {...rest} {href} class={['link', className]} onclick={click}
+  >{@render children()}</a
+>
 
 <style>
   .link {

@@ -83,12 +83,17 @@ bar at the declared quarter-note BPM. Playback and export both follow these mete
 Song-backed recording and playing a memo against the song require a fixed time signature.
 Mixed-meter songs use the header BPM for timing. Pattern-level `.cpm()` requires fixed meter.
 
-Enable **Audition notes** in the status bar to hear a short preview when you finish typing
+Hover over a control or move keyboard focus to it to see what it does in the status bar.
+Dialogs show their help at the bottom of the open dialog.
+
+Open **Settings** from the status bar gear, the Strudeland menu on macOS (Command+,), or
+File on Windows and Linux. Enable **Audition notes** to hear a short preview when you finish typing
 a pitch such as `g3` in a note pattern while the song is stopped. The preview uses the pattern's
 fixed built-in synth, for example `note("g3").s("supersaw")`, and works on unsaved edits. The
 note gets the playback outline while the preview sounds.
 A brief pause or a delimiter completes the note. The checkbox starts off and remembers your
-choice. Typed-note previews support fixed built-in synths.
+choice. Typed-note previews support fixed built-in synths. **About & licenses** in Settings shows
+the app version, Strudel revision and credits, and the offline license and notices.
 
 ### Piano roll
 
