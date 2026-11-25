@@ -1,0 +1,510 @@
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { afterAll, describe, expect, test } from 'bun:test';
+
+GlobalRegistrator.register();
+afterAll(() => GlobalRegistrator.unregister());
+
+const { get } = await import('svelte/store');
+const { buildStructure } = await import('../src/lib/strudel/structure');
+const { createSongPlayback } = await import('../src/lib/project/song-playback');
+const { createSession, titleFrom } = await import('../src/lib/project/session');
+const { createEditorState } = await import('../src/lib/editor/setup');
+const { EditorView } = await import('@codemirror/view');
+import type { PlaybackHeader, PlaybackTransport } from '../src/lib/project/song-playback';
+import type { Session } from '../src/lib/project/session';
+import type { InstrumentSnapshot } from '../src/lib/strudel/instruments';
+import type { SongStructure } from '../src/lib/strudel/structure';
+import { deferred, fakeProjectApi, flush } from './helpers/fake-project-api';
+import { stubRuntime } from './helpers/stub-runtime';
+
+const PA = 'songs/a.js';
+const PB = 'songs/b.js';
+
+const layout = (...names: string[]): SongStructure =>
+  buildStructure({ sections: names.map((name) => ({ name, bars: 2 })) });
+
+const opts = (metaTitle?: unknown, instruments?: InstrumentSnapshot) => ({
+  options: instruments === undefined ? {} : { instruments },
+  metaTitle,
+});
+
+/** The module alone over the stub runtime, with a header the test sets. */
+function setup(structure: SongStructure | null = layout('intro', 'verse', 'chorus')) {
+  const rt = stubRuntime();
+  let header: PlaybackHeader = { active: PA, structure, metaError: null };
+  let gen = 1;
+  const pb = createSongPlayback({
+    runtime: rt.runtime,
+    getHeader: () => header,
+    currentGen: () => gen,
+    titleFrom,
+  });
+  return {
+    rt,
+    pb,
+    st: () => get(pb.store),
+    tp: () => get(pb.store).transport,
+    canArm: (choice: Parameters<typeof pb.arm>[0]) => get(pb.canArm)(choice),
+    setHeader: (h: Partial<PlaybackHeader>) => void (header = { ...header, ...h }),
+    setGen: (g: number) => void (gen = g),
+    /** Evaluated and playing `structure`. */
+    async play(path = PA, s: SongStructure | null = header.structure) {
+      expect(await pb.evaluate(path, path, opts(), gen)).toBe(true);
+      rt.patch({ started: true, structure: s });
+    },
+  };
+}
+
+const NOT_ARMED: PlaybackTransport = { view: { kind: 'song' }, loop: null, armed: null };
+
+describe('evaluate', () => {
+  test('records the evaluated song with its title; playing only while started', async () => {
+    const h = setup();
+    expect(h.st().evaluated).toBeNull();
+    expect(await h.pb.evaluate(PA, 'code', opts('Alpha', {}), 1)).toBe(true);
+    expect(h.rt.evaluated).toEqual(['code']);
+    expect(h.st()).toMatchObject({
+      evaluated: { path: PA, title: 'Alpha' },
+      playing: null,
+      started: false,
+    });
+    expect(h.pb.metaTitle()).toBe('Alpha');
+    expect(h.pb.instruments()).toEqual({});
+    h.rt.setStarted(true);
+    expect(h.st()).toMatchObject({ playing: { path: PA, title: 'Alpha' }, started: true });
+    h.rt.setStarted(false);
+    expect(h.st()).toMatchObject({ evaluated: { path: PA, title: 'Alpha' }, playing: null });
+  });
+
+  test('the file name without a title; a failed evaluate keeps the previous song', async () => {
+    const h = setup();
+    await h.pb.evaluate(PA, 'a', opts('Alpha'), 1);
+    h.rt.setResult(false);
+    expect(await h.pb.evaluate(PB, 'b', opts(), 1)).toBe(false);
+    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    h.rt.setResult(true);
+    await h.pb.evaluate(PB, 'b', opts('  '), 1);
+    expect(h.st().evaluated).toEqual({ path: PB, title: 'b' });
+  });
+
+  test('an evaluate that resolves in another generation is not recorded', async () => {
+    const h = setup();
+    const gate = deferred();
+    h.rt.hold(gate.promise);
+    const pending = h.pb.evaluate(PA, 'a', opts('Alpha'), 1);
+    h.setGen(2);
+    gate.resolve();
+    expect(await pending).toBe(true);
+    expect(h.st().evaluated).toBeNull();
+  });
+
+  test('a song taking over playback finds the transport reset in the same tick', async () => {
+    const h = setup();
+    await h.play(PA);
+    h.pb.arm({ loop: 'verse' });
+    expect(h.tp().view).toEqual({ kind: 'loop', section: 1 });
+    let seen: unknown = null;
+    h.rt.runtime.evaluate = async () => {
+      seen = get(h.rt.runtime.transport.store).view;
+      return true;
+    };
+    const pending = h.pb.evaluate(PB, 'b', opts(), 1);
+    expect(seen).toEqual({ kind: 'song' }); // called before any await
+    await pending;
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('re-evaluating the playing song keeps its transport', async () => {
+    const h = setup();
+    await h.play(PA);
+    h.pb.arm({ loop: 'verse' });
+    await h.pb.evaluate(PA, 'a2', opts(), 1);
+    expect(h.tp().loop).toEqual({ section: 'verse', names: ['verse'] });
+  });
+
+  test('evaluating another song while stopped keeps the armed start', async () => {
+    const h = setup();
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    h.pb.arm({ start: 'chorus' });
+    await h.pb.evaluate(PB, 'b', opts(), 1);
+    expect(h.tp().armed).toBe('chorus');
+  });
+});
+
+describe('disarming', () => {
+  test('refused and activeChanged disarm while stopped', () => {
+    for (const verb of ['refused', 'activeChanged'] as const) {
+      const h = setup();
+      h.pb.arm({ start: 'verse' });
+      expect(h.tp()).toEqual({ view: { kind: 'song' }, loop: null, armed: 'verse' });
+      h.pb[verb]();
+      expect(h.tp()).toEqual(NOT_ARMED);
+      expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+    }
+  });
+
+  test('refused and activeChanged leave a playing song its loop', async () => {
+    for (const verb of ['refused', 'activeChanged'] as const) {
+      const h = setup();
+      await h.play();
+      h.pb.arm({ loop: 'chorus' });
+      h.pb[verb]();
+      expect(h.tp().loop).toEqual({ section: 'chorus', names: ['chorus'] });
+    }
+  });
+
+  test('every runtime stop and reset drops the armed names', async () => {
+    const h = setup();
+    h.pb.arm({ loop: 'verse', through: 'chorus' });
+    expect(h.tp()).toEqual({
+      view: { kind: 'loop', section: 1, through: 2 },
+      loop: { section: 'verse', through: 'chorus', names: ['verse', 'chorus'] },
+      armed: 'verse',
+    });
+    // Starting consumes the armed start: the loop is now the view's, named from the evaluated song.
+    h.rt.patch({ started: true, structure: layout('intro', 'verse', 'chorus') });
+    expect(h.tp()).toEqual({
+      view: { kind: 'loop', section: 1, through: 2 },
+      loop: { section: 'verse', through: 'chorus', names: ['verse', 'chorus'] },
+      armed: null,
+    });
+    // The scheduler stopping by itself rewinds the transport.
+    h.rt.setStarted(false);
+    expect(h.tp()).toEqual(NOT_ARMED);
+    // A reset from outside the module.
+    h.pb.arm({ start: 'chorus' });
+    h.rt.runtime.transport.reset();
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+});
+
+describe('song lifecycle', () => {
+  test('projectChanged stops, resets and forgets the evaluated song', async () => {
+    const h = setup();
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    const stops = h.rt.stops();
+    h.pb.projectChanged();
+    expect(h.rt.stops()).toBe(stops + 1);
+    expect(h.st().evaluated).toBeNull();
+    expect(get(h.rt.runtime.transport.store).view).toEqual({ kind: 'song' });
+  });
+
+  test('renamed retitles from the kept meta.title, else the new file name', async () => {
+    const h = setup();
+    await h.pb.evaluate(PA, 'a', opts('Alpha'), 1);
+    h.pb.renamed(PB, 'songs/x.js'); // not the evaluated song
+    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    h.pb.renamed(PA, 'songs/x.js');
+    expect(h.st().evaluated).toEqual({ path: 'songs/x.js', title: 'Alpha' });
+    await h.pb.evaluate(PB, 'b', opts(), 1);
+    h.pb.renamed(PB, 'songs/n.js');
+    expect(h.st().evaluated).toEqual({ path: 'songs/n.js', title: 'n' });
+  });
+
+  test('removed stops and forgets only the evaluated song; stopped says whether it played', async () => {
+    const h = setup();
+    await h.play(PA);
+    expect(h.pb.removed(PB)).toEqual({ stopped: false });
+    expect(h.rt.stops()).toBe(0);
+    expect(h.pb.removed(PA)).toEqual({ stopped: true });
+    expect(h.rt.stops()).toBe(1);
+    expect(h.st().evaluated).toBeNull();
+
+    await h.pb.evaluate(PB, 'b', opts(), 1);
+    h.rt.setStarted(false);
+    expect(h.pb.removed(PB)).toEqual({ stopped: false });
+    expect(h.st().evaluated).toBeNull();
+  });
+});
+
+describe('arm', () => {
+  test('while stopped, names resolve against the active header', async () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    // Evaluated with other sections: they do not matter while stopped.
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    h.rt.patch({ structure: layout('verse') });
+    h.pb.arm({ start: 'chorus' });
+    expect(get(h.rt.runtime.transport.store)).toMatchObject({
+      pendingStart: true,
+      armedSection: 2,
+    });
+    expect(h.tp()).toEqual({ view: { kind: 'song' }, loop: null, armed: 'chorus' });
+    expect(h.canArm({ start: 'nope' })).toBe(false);
+    h.pb.arm({ start: 'nope' });
+    expect(h.tp().armed).toBe('chorus');
+  });
+
+  test('starting from the first section arms nothing: there is nothing pending', () => {
+    const h = setup();
+    h.pb.arm({ start: 'intro' });
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('while playing, names resolve against the evaluated structure', async () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    await h.play(PA, layout('verse', 'chorus'));
+    expect(h.canArm({ loop: 'intro' })).toBe(false); // in the header, not in the song playing
+    h.pb.arm({ loop: 'chorus' });
+    expect(h.tp()).toEqual({
+      view: { kind: 'loop', section: 1 },
+      loop: { section: 'chorus', names: ['chorus'] },
+      armed: null,
+    });
+  });
+
+  test('a playing loop renames itself when a hot reload changes the sections', async () => {
+    const h = setup(layout('intro', 'verse', 'chorus'));
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    h.rt.patch({ structure: layout('intro', 'bridge', 'chorus') });
+    expect(h.tp().loop).toEqual({ section: 'bridge', names: ['bridge'] });
+  });
+
+  test('a range must appear contiguously and in order in the structure in force', async () => {
+    const playing = layout('a', 'b', 'c');
+    const h = setup(layout('b', 'c', 'a'));
+    await h.play(PA, playing);
+    expect(h.canArm({ loop: 'b', through: 'c' })).toBe(true);
+    h.pb.arm({ loop: 'b', through: 'c' });
+    expect(h.tp().view).toEqual({ kind: 'loop', section: 1, through: 2 });
+    expect(h.tp().loop).toEqual({ section: 'b', through: 'c', names: ['b', 'c'] });
+    h.setHeader({ structure: layout('b', 'a', 'c') });
+    expect(h.canArm({ loop: 'b', through: 'c' })).toBe(false);
+    h.setHeader({ structure: layout('b', 'new', 'c') });
+    expect(h.canArm({ loop: 'b', through: 'c' })).toBe(false);
+    expect(h.canArm({ loop: 'c', through: 'b' })).toBe(false); // through before loop
+  });
+
+  test('nothing is armable under a meta error; while playing stopLooping still is', async () => {
+    const h = setup();
+    h.setHeader({ metaError: 'meta: bad (1:1)' });
+    for (const choice of [{ start: 'verse' }, { loop: 'verse' }, 'stopLooping'] as const) {
+      expect(h.canArm(choice)).toBe(false);
+      h.pb.arm(choice);
+      expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+    }
+    await h.play(PA, layout('intro', 'verse', 'chorus'));
+    expect(h.canArm({ loop: 'verse' })).toBe(false);
+    expect(h.canArm('stopLooping')).toBe(true);
+  });
+
+  test('nothing is armable while stopped without an active song', () => {
+    const h = setup(null);
+    expect(h.canArm({ start: 'verse' })).toBe(false);
+    expect(h.canArm('stopLooping')).toBe(false);
+  });
+
+  test('stopLooping while stopped drops anything armed, a start included', () => {
+    const h = setup();
+    h.pb.arm({ start: 'chorus' });
+    h.pb.arm('stopLooping');
+    expect(h.tp()).toEqual(NOT_ARMED);
+    h.pb.arm({ loop: 'verse' });
+    h.pb.arm('stopLooping');
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('stopLooping while playing leaves the loop at the next bar', async () => {
+    const h = setup();
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    h.rt.setPosition({ cycle: 3, located: null });
+    h.rt.setHorizon(3);
+    h.pb.arm('stopLooping');
+    expect(h.tp()).toEqual({ view: { kind: 'song' }, loop: null, armed: null });
+    expect(h.rt.segments().at(-1)).toEqual({ at: 3, songBar: 3, view: { kind: 'song' } });
+  });
+
+  test('playEnding releases the authored loop at the next loop pass', async () => {
+    const s = buildStructure({
+      sections: [
+        { name: 'intro', bars: 2 },
+        { name: 'body', bars: 4, loop: true },
+        { name: 'tail', bars: 2 },
+      ],
+    });
+    const h = setup(s);
+    await h.play(PA, s);
+    h.rt.setPosition({ cycle: 2, located: null });
+    h.rt.setHorizon(2);
+    h.pb.playEnding();
+    expect(h.tp().view).toEqual({ kind: 'release' });
+  });
+});
+
+describe('the armed section is the one the header shows', () => {
+  test('with nothing evaluated yet', () => {
+    const h = setup(layout('intro', 'verse'));
+    h.pb.arm({ start: 'verse' });
+    expect(h.tp().armed).toBe('verse');
+  });
+
+  test('with the header edited after the last evaluate', async () => {
+    const h = setup(layout('intro', 'verse'));
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    h.rt.patch({ structure: layout('intro', 'verse') });
+    h.setHeader({ structure: layout('intro', 'bridge', 'verse') });
+    h.pb.arm({ start: 'bridge' });
+    expect(get(h.rt.runtime.transport.store).armedSection).toBe(1);
+    expect(h.tp().armed).toBe('bridge');
+  });
+
+  test('after a failed evaluate', async () => {
+    const h = setup(layout('intro', 'verse'));
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    h.rt.patch({ structure: layout('x', 'y', 'z') });
+    h.rt.setResult(false);
+    h.pb.arm({ start: 'verse' });
+    expect(await h.pb.evaluate(PA, 'broken', opts(), 1)).toBe(false);
+    expect(h.tp().armed).toBe('verse');
+  });
+});
+
+// ---------------------------------------------------------------- through the session
+
+const sectioned = (title: string, ...names: string[]) =>
+  `const meta = {
+  title: '${title}',
+  sections: [${names.map((n) => `{ name: '${n}', bars: 2 }`).join(', ')}],
+};
+$: s("x")
+`;
+const SA = sectioned('Alpha', 'intro', 'verse', 'chorus');
+const SB = sectioned('Beta', 'a', 'b');
+
+async function opened() {
+  const { api, fake } = fakeProjectApi({
+    '/p': { name: 'Proj', files: { [PA]: SA, [PB]: SB } },
+    '/q': { name: 'Other', files: { 'songs/q.js': SB } },
+  });
+  fake.last = '/p';
+  const rt = stubRuntime();
+  const view = new EditorView({ parent: document.body });
+  let session!: Session;
+  session = createSession({
+    api,
+    runtime: rt.runtime,
+    createState: (doc: string) =>
+      createEditorState(doc, rt.runtime, { onDocChange: () => session.docChanged() }),
+    isTauri: () => true,
+  });
+  session.attachView(view);
+  await session.init();
+  await flush();
+  const pb = session.playback;
+  return {
+    rt,
+    session,
+    view,
+    pb,
+    tp: () => get(pb.store).transport,
+    /** Evaluate the active song and play it with its own sections. */
+    async play() {
+      await session.saveAndEvaluate();
+      rt.patch({ started: true, structure: get(session.store).structure });
+    },
+  };
+}
+
+describe('the session', () => {
+  test('switching songs while stopped disarms', async () => {
+    const h = await opened();
+    h.pb.arm({ start: 'verse' });
+    expect(h.tp().armed).toBe('verse');
+    await h.session.switchSong(PB);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('switching songs while playing leaves the playing song its transport', async () => {
+    const h = await opened();
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    await h.session.switchSong(PB);
+    expect(h.tp().loop).toEqual({ section: 'verse', names: ['verse'] });
+  });
+
+  test('a project change stops, disarms and forgets the evaluated song', async () => {
+    const h = await opened();
+    await h.session.saveAndEvaluate();
+    h.pb.arm({ start: 'verse' });
+    const stops = h.rt.stops();
+    await h.session.openRecent('/q');
+    expect(h.rt.stops()).toBe(stops + 1);
+    expect(get(h.pb.store)).toMatchObject({ evaluated: null, transport: NOT_ARMED });
+  });
+
+  test('a different song taking over playback evaluates on a reset transport', async () => {
+    const h = await opened();
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    await h.session.switchSong(PB);
+    let seen: unknown = null;
+    const evaluate = h.rt.runtime.evaluate;
+    h.rt.runtime.evaluate = (code, o) => {
+      seen = get(h.rt.runtime.transport.store).view;
+      return evaluate(code, o);
+    };
+    await h.session.saveAndEvaluate();
+    expect(seen).toEqual({ kind: 'song' });
+    expect(get(h.pb.store).playing).toEqual({ path: PB, title: 'Beta' });
+  });
+
+  test('re-evaluating the playing song keeps its loop', async () => {
+    const h = await opened();
+    await h.play();
+    h.pb.arm({ loop: 'chorus' });
+    await h.session.saveAndEvaluate();
+    expect(h.tp().loop).toEqual({ section: 'chorus', names: ['chorus'] });
+  });
+
+  test('Play keeps a start armed while stopped, also after a switch', async () => {
+    const h = await opened();
+    await h.session.saveAndEvaluate(); // A evaluated, stopped
+    await h.session.switchSong(PB);
+    h.pb.arm({ start: 'b' });
+    await h.session.saveAndEvaluate(); // B is not taking over playback
+    expect(h.tp().armed).toBe('b');
+  });
+
+  test('a meta error refusing the evaluate disarms', async () => {
+    const h = await opened();
+    h.pb.arm({ start: 'verse' });
+    h.view.dispatch({
+      changes: {
+        from: 0,
+        to: h.view.state.doc.length,
+        insert: SA.replace("'Alpha'", "'A', bpm: 'x'"),
+      },
+    });
+    await h.session.saveAndEvaluate();
+    expect(h.rt.evaluated).toEqual([]);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('deleting the active song while stopped disarms for the next one', async () => {
+    const h = await opened();
+    h.pb.arm({ start: 'verse' });
+    await h.session.deleteSong(PA, { discard: false });
+    expect(get(h.session.store).active).toBe(PB);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('deleting the active song while another plays leaves its transport alone', async () => {
+    const h = await opened();
+    await h.session.switchSong(PB);
+    await h.play();
+    h.pb.arm({ loop: 'b' });
+    await h.session.switchSong(PA);
+    await h.session.deleteSong(PA, { discard: false });
+    expect(h.tp().loop).toEqual({ section: 'b', names: ['b'] });
+    expect(get(h.pb.store).playing).toEqual({ path: PB, title: 'Beta' });
+  });
+
+  test('deleting an inactive song leaves the armed start alone', async () => {
+    const h = await opened();
+    h.pb.arm({ start: 'verse' });
+    await h.session.deleteSong(PB, { discard: false });
+    expect(h.tp().armed).toBe('verse');
+  });
+});

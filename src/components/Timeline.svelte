@@ -33,6 +33,7 @@
   const rt = runtime.store;
   const tp = runtime.transport.store;
   const ss = session.store;
+  const pb = session.playback.store;
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
   const structure = $derived(editableStructure($ss));
@@ -48,8 +49,8 @@
   const hasLoop = $derived(savedLoop !== null);
 
   // The evaluated song is the active one; otherwise there is no playhead or menu.
-  const playingActive = $derived($rt.started && $ss.evaluated?.path === $ss.active);
-  const playingOther = $derived($rt.started && $ss.evaluated !== null && !playingActive);
+  const playingActive = $derived($rt.started && $pb.evaluated?.path === $ss.active);
+  const playingOther = $derived($rt.started && $pb.evaluated !== null && !playingActive);
   const playable = $derived($rt.started ? $rt.structure : structure);
   const ending = $derived(hasEnding(playable));
 
@@ -170,7 +171,7 @@
 <section class="timeline">
   <div class="status">
     {#if playingOther}
-      <span>playing: {$ss.evaluated?.title}</span>
+      <span>playing: {$pb.evaluated?.title}</span>
     {:else if $tp.pendingStart && armedName}
       <span>will start at {armedName}</span>
     {/if}

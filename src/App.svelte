@@ -33,7 +33,8 @@
   const rollOpen = $derived($prefs.pianoRollOpen && $store.active !== null);
   const shortcutModifier = primaryModifier(navigator.platform);
   // The song whose audio is playing: only while the runtime runs.
-  const playingPath = $derived($rt.started ? ($store.evaluated?.path ?? null) : null);
+  const pb = session.playback.store;
+  const playingPath = $derived($rt.started ? ($pb.evaluated?.path ?? null) : null);
 
   let newSongOpen = $state(false);
   let instruments = $state.raw<{

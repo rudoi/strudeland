@@ -58,7 +58,6 @@ describe('export dialog', () => {
       metaError: null,
       structure,
       notice: null,
-      evaluated: { path: 'songs/other.js', title: 'other' },
     };
     expect(captureExportSong(state, editor.source)).toEqual(editor);
     expect(captureExportSong(state, '')?.source).toBe('');

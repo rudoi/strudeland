@@ -12,6 +12,7 @@ import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
 import { readSongHeader, type MetaError } from './song-header';
+import { createSongPlayback, type SongPlayback } from './song-playback';
 import { setMetaValue, type MetaPath } from './meta-write';
 import { stripSongExt } from './ui';
 import {
@@ -56,8 +57,6 @@ export interface SessionState {
   metaError: string | null;
   /** The active song's structure, read from its header as typed; null without an active song. */
   structure: SongStructure | null;
-  /** The song the last successful evaluate played (kept on Stop, cleared on project change). */
-  evaluated: { path: string; title: string } | null;
   /** Derived: the active song still shows the mark of an external (Claude) edit. */
   notice: { kind: 'claude-edit'; path: string; title: string } | null;
 }
@@ -133,6 +132,8 @@ export class InstrumentApplyError extends Error {
 
 export interface Session {
   readonly store: Readable<SessionState>;
+  /** The playing song and its transport: what was evaluated, what plays, what is armed. */
+  readonly playback: SongPlayback;
   readonly pianoRollRevision: Readable<number>;
   pianoRollChanged(selected?: boolean): void;
   pianoRollSnapshot(): PianoRollSnapshot | null;
@@ -162,8 +163,8 @@ export interface Session {
   createSong(stem: string): Promise<string | null>;
   /**
    * Rename a song on disk and move its editor state (text, undo history, marks, dirty buffer,
-   * conflict) to the new path; `active` and `evaluated` follow. Does not switch to it. Rejects with
-   * the API's `ProjectError` (`songExists`, `invalidName`, `songNotFound`).
+   * conflict) to the new path; `active` and the evaluated song follow. Does not switch to it.
+   * Rejects with the API's `ProjectError` (`songExists`, `invalidName`, `songNotFound`).
    */
   renameSong(path: string, stem: string): Promise<RenameOutcome>;
   /**
@@ -292,7 +293,8 @@ export { errorMessage };
 export const fileStem = (path: string): string =>
   stripSongExt(path.slice(path.lastIndexOf('/') + 1));
 
-const titleFrom = (path: string, title: unknown): string =>
+/** `meta.title` when it is a non-blank string, else the file name without ".js". */
+export const titleFrom = (path: string, title: unknown): string =>
   typeof title === 'string' && title.trim() ? title : fileStem(path);
 
 /** CRLF and lone CR line breaks to LF. */
@@ -472,7 +474,6 @@ function sameState(a: SessionState, b: SessionState): boolean {
     a.error === b.error &&
     a.metaError === b.metaError &&
     a.structure === b.structure &&
-    a.evaluated === b.evaluated &&
     sameNotice(a.notice, b.notice) &&
     a.songs.length === b.songs.length &&
     a.songs.every((s, i) => sameItem(s, b.songs[i]))
@@ -492,20 +493,21 @@ export function createSession(deps: SessionDeps): Session {
   let active: string | null = null;
   let error: string | null = null;
   /**
-   * What the last successful evaluate played: the published `song` (identity-stable, so
-   * `sameState` sees no change until it moves) and the text's `meta.title`, to retitle it on a rename.
-   */
-  let evaluated: {
-    song: NonNullable<SessionState['evaluated']>;
-    metaTitle: unknown;
-    instruments: InstrumentSnapshot | undefined;
-  } | null = null;
-  /**
    * The open project's generation, unique per open attempt (`nextGeneration`). Results and change
    * events that belong to an older one are dropped.
    */
   let generation = 0;
   let nextGeneration = 0;
+  const playback = createSongPlayback({
+    runtime,
+    getHeader: () => ({
+      active,
+      structure: active ? derive(active).structure : null,
+      metaError: active ? (derive(active).headerError?.located ?? null) : null,
+    }),
+    currentGen: () => generation,
+    titleFrom,
+  });
   /**
    * While an open waits for `project_open`: the generation it will install. The new project's
    * watcher already runs then, so events arriving meanwhile belong to it.
@@ -666,7 +668,6 @@ export function createSession(deps: SessionDeps): Session {
       error,
       metaError: active ? (derive(active).headerError?.located ?? null) : null,
       structure: active ? derive(active).structure : null,
-      evaluated: evaluated?.song ?? null,
       notice: noticeOf(active),
     };
   }
@@ -818,8 +819,7 @@ export function createSession(deps: SessionDeps): Session {
 
   async function install(info: ProjectInfo, gen: number): Promise<void> {
     generation = gen;
-    runtime.stop(); // playback always stops when the project changes
-    runtime.transport.reset();
+    playback.projectChanged(); // playback always stops when the project changes
     project = info;
     instruments = undefined;
     instrumentError = null;
@@ -830,7 +830,6 @@ export function createSession(deps: SessionDeps): Session {
     active = null;
     shown = null; // the view still holds the old project's song; show() replaces it below
     blanked = false;
-    evaluated = null;
 
     const paths = info.songs.map((s) => s.path);
     const [reads] = await Promise.all([
@@ -1071,35 +1070,26 @@ export function createSession(deps: SessionDeps): Session {
    */
   async function evaluateSong(path: string, text: string, autostart = true): Promise<boolean> {
     const header = readSongHeader(text);
-    const started = get(runtime.store).started;
     if (!header.ok) {
       // Nothing will start, so a start armed while stopped must not linger as "will start at".
-      if (!started) runtime.transport.reset();
+      playback.refused();
       return false;
     }
     if (instrumentError !== null) {
-      if (!started) runtime.transport.reset();
+      playback.refused();
       error = instrumentError;
       emit();
       return false;
     }
-    // A different song taking over playback must not inherit the playing song's transport. While
-    // stopped the transport belongs to the active song (reset on every switch), so a start armed
-    // before Play is kept.
-    if (started && evaluated?.song.path !== path) runtime.transport.reset();
-    const gen = generation;
     const opts = header.options;
     if (instruments !== undefined) opts.instruments = instruments;
-    const ok = await runtime.evaluate(text, autostart ? opts : { ...opts, autostart: false });
-    if (ok && gen === generation) {
-      evaluated = {
-        song: { path, title: titleFrom(path, header.title) },
-        metaTitle: header.title,
-        instruments: opts.instruments,
-      };
-      emit();
-    }
-    return ok;
+    // Synchronous up to `runtime.evaluate`, so its resume stays inside the user gesture.
+    return playback.evaluate(
+      path,
+      text,
+      { options: autostart ? opts : { ...opts, autostart: false }, metaTitle: header.title },
+      generation,
+    );
   }
 
   async function beforeChange(): Promise<void> {
@@ -1151,15 +1141,9 @@ export function createSession(deps: SessionDeps): Session {
     if (!(await ensureLoaded(path))) return;
     if (!songs.has(path)) return; // removed while it was read
     active = path;
-    activeTransport();
+    playback.activeChanged();
     show();
     emit();
-  }
-
-  /** Call after `active` changes. While stopped the transport is the active song's: an armed
-   * start does not carry over to the next one. */
-  function activeTransport(): void {
-    if (!get(runtime.store).started) runtime.transport.reset();
   }
 
   /** The song's edits would be lost without a save: dirty, or kept with a `deleted` conflict. */
@@ -1217,10 +1201,7 @@ export function createSession(deps: SessionDeps): Session {
       song.derived = null; // the title may follow the file name
       if (active === path) active = next;
       if (shown === path) shown = next;
-      if (evaluated?.song.path === path) {
-        const { metaTitle } = evaluated;
-        evaluated = { ...evaluated, song: { path: next, title: titleFrom(next, metaTitle) } };
-      }
+      playback.renamed(path, next);
       return next;
     });
     if (to === null) return { ok: false, reason: 'projectChanged' };
@@ -1257,14 +1238,9 @@ export function createSession(deps: SessionDeps): Session {
     }
     if (active === path) {
       activateFirstLoadable();
-      activeTransport();
+      playback.activeChanged();
     }
-    let stopped = false;
-    if (evaluated?.song.path === path) {
-      stopped = get(runtime.store).started;
-      runtime.stop();
-      evaluated = null;
-    }
+    const { stopped } = playback.removed(path);
     emit();
     return { ok: true, stopped };
   }
@@ -1329,6 +1305,7 @@ export function createSession(deps: SessionDeps): Session {
 
   return {
     store: { subscribe: state.subscribe },
+    playback,
 
     async init(canCloseWindow) {
       if (!available) return;
@@ -1380,7 +1357,9 @@ export function createSession(deps: SessionDeps): Session {
     pianoRollSnapshot,
     pianoRollMatchesLivePins() {
       return (
-        evaluated !== null && instrumentError === null && evaluated.instruments === instruments
+        get(playback.store).evaluated !== null &&
+        instrumentError === null &&
+        playback.instruments() === instruments
       );
     },
     editPianoRoll(snapshot, patches, target) {

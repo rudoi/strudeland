@@ -310,6 +310,7 @@ export function createControlHandler({
   function state(): AppStateSummary {
     const ss = get(session.store);
     const rs = get(runtime.store);
+    const { evaluated } = get(session.playback.store);
     const open = ss.project !== null;
     const position = rs.started ? runtime.position() : null;
     const meter =
@@ -328,9 +329,7 @@ export function createControlHandler({
         : [],
       active: open ? ss.active : null,
       playing:
-        open && rs.started && ss.evaluated
-          ? { path: ss.evaluated.path, title: ss.evaluated.title }
-          : null,
+        open && rs.started && evaluated ? { path: evaluated.path, title: evaluated.title } : null,
       started: rs.started,
       cps: cpsAtMeter(rs.cps, rs.meter, meter),
       bpm: Math.round(bpmFromCps(rs.cps, rs.meter)),
@@ -376,7 +375,7 @@ export function createControlHandler({
     const p = eventsParams(params);
     const rs = get(runtime.store);
     const ss = get(session.store);
-    const evaluated = ss.evaluated;
+    const evaluated = get(session.playback.store).evaluated;
     const code = rs.activeCode;
     if (evaluated === null || code === null) throw nothingEvaluated();
     const { from, to } = eventsRange(rs.structure, p.bars, p.section);
@@ -457,7 +456,7 @@ export function createControlHandler({
       throw songChanged();
     }
     const started = get(runtime.store).started;
-    const playingPath = get(session.store).evaluated?.path ?? null;
+    const playingPath = get(session.playback.store).evaluated?.path ?? null;
     const run =
       mode === 'always' ||
       (mode === 'auto' && r.changed && shouldAutoEval(started, playingPath, target));

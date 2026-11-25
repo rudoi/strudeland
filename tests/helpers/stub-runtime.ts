@@ -52,8 +52,6 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
   let result = true;
   let hold: Promise<void> | undefined;
   let stops = 0;
-  /** Per reset, how many evaluates had been called before it. */
-  const resets: number[] = [];
   /** `startFrom`/`loopSection` calls as `startFrom <i>` / `loopSection <i>`, and `reset`. */
   const transportCalls: string[] = [];
   let answer: QueryAnswer = null;
@@ -139,7 +137,6 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
       },
       playEnding: () => model.playEnding(),
       reset() {
-        resets.push(evaluated.length);
         transportCalls.push('reset');
         model.reset();
       },
@@ -170,8 +167,6 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     setLevels: (l: LevelHoldSnapshot | null) => void (levelSnap = l),
     /** Every `setLimiter(on)` call, in order. */
     limiterCalls: () => limiterCalls,
-    /** Per transport reset, the number of evaluates called before it. */
-    resets: () => resets,
     /** Every `startFrom`, `loopSection` and `reset` call, in order. */
     transportCalls: () => transportCalls,
     setStarted: (started: boolean) => store.update((s) => ({ ...s, started })),

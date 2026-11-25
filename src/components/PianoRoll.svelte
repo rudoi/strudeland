@@ -34,6 +34,7 @@
   // svelte-ignore state_referenced_locally
   const { session, runtime, rollInspection, scopeClock, recording } = app;
   const song = session.store;
+  const playback = session.playback.store;
   const transport = runtime.store;
   const revisions = session.pianoRollRevision;
   const inspected = rollInspection.store;
@@ -177,7 +178,7 @@
   });
   const matchesLive = $derived(
     snapshot &&
-      $song.evaluated?.path === snapshot.path &&
+      $playback.evaluated?.path === snapshot.path &&
       $transport.activeCode === snapshot.code &&
       session.pianoRollMatchesLivePins(),
   );

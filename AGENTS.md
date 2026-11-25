@@ -112,8 +112,11 @@ the V8 download the host brings.
 - `src/lib/project/` projects: `song-header.ts` (`readSongHeader`: the static song header read,
   its structure and evaluate options), `api.ts` (the only module that calls Tauri for projects:
   commands, events, dialogs, window), `session.ts` (open project, songs, dirty state, hot-reload
-  and conflict rules; tested with the fake in `tests/helpers/fake-project-api.ts`), `actions.ts`
-  (shared open and create actions for the File menu, keyboard shortcut, and welcome screen),
+  and conflict rules; tested with the fake in `tests/helpers/fake-project-api.ts`),
+  `song-playback.ts` (the playing song and its transport: the evaluated song, the reset when
+  another song takes over, arming sections by name; the session builds it as `session.playback`
+  and calls its verbs, never `runtime.transport`), `actions.ts` (shared open and create actions
+  for the File menu, keyboard shortcut, and welcome screen),
   `meta-write.ts` (minimal-diff edits of header values), `timeline.ts` (pure helpers for
   `Timeline.svelte`).
 - `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs) and

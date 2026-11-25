@@ -1716,7 +1716,7 @@ describe('instrument.apply', () => {
     });
     expect(h.doc()).toBe(A.slice(0, from) + insert + A.slice(to));
     expect(h.item(PA).dirty).toBe(true);
-    expect(h.st().evaluated).toBeNull();
+    expect(get(h.session.playback.store).evaluated).toBeNull();
     expect(await h.api.readSong('/p', PA)).toBe(A);
     expect(undo(h.view)).toBe(true);
     expect(h.doc()).toBe(A);
