@@ -109,6 +109,10 @@ the V8 download the host brings.
   `src/lib/theme/` `resolveColor` (computed colours for canvas code) and the `Tone` type.
   `src/lib/scope/` the scope's pure maths (`trace.ts`, `draw.ts`) and the shared animation loop
   (`clock.ts`).
+- `src/lib/play-arbiter.ts` the play arbiter: what play, stop, evaluate, section arming and record
+  mean while a song, an audible memo, a take or an audition sounds. The toolbar, Cmd-Enter,
+  the Timeline, the recording controls, the instrument browser, the audition gating and
+  the control handler go through it.
 - `src/lib/project/` projects: `song-header.ts` (`readSongHeader`: the static song header read,
   its structure and evaluate options), `api.ts` (the only module that calls Tauri for projects:
   commands, events, dialogs, window), `session.ts` (open project, songs, dirty state, hot-reload

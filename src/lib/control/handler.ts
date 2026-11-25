@@ -14,6 +14,7 @@ import {
   type SessionState,
 } from '../project/session';
 import { ProjectError } from '../project/api';
+import { createPlayArbiter, type PlayArbiter } from '../play-arbiter';
 import type { PlaybackTransport } from '../project/song-playback';
 import { songPath, stripSongExt } from '../project/ui';
 import { peakDb, roundDb, type LevelHoldSnapshot } from '../levels/levels';
@@ -251,32 +252,17 @@ function resolve(session: Session, ref: string | undefined): string {
   return st.active;
 }
 
-/** What the handler needs of memo playback and a take; absent outside Tauri (no recording). */
-export interface ControlPlayback {
-  /** A take runs: its song and metronome are its own. */
-  taking(): boolean;
-  /** Stop a playing memo (and the backing it started). */
-  stopMemo(): void;
-  /** Stop and save the take. */
-  stopTake(): Promise<void>;
-}
-
-const NO_PLAYBACK: ControlPlayback = {
-  taking: () => false,
-  stopMemo: () => {},
-  stopTake: async () => {},
-};
-
 export function createControlHandler({
   session,
   runtime,
-  playback = NO_PLAYBACK,
+  arbiter = createPlayArbiter({ session, runtime, stopAuditions: () => {} }),
   now = () => performance.now(),
   vim = () => false,
 }: {
   session: Session;
   runtime: Runtime;
-  playback?: ControlPlayback;
+  /** Evaluate and stop as the toolbar does; without one, an arbiter with no take or memo. */
+  arbiter?: Pick<PlayArbiter, 'evaluate' | 'stop'>;
   /** Milliseconds, for request deadlines; a test seam. */
   now?: () => number;
   /** Whether the editor has vim keybindings on. */
@@ -495,11 +481,7 @@ export function createControlHandler({
    * starts the song (a song the take plays takes the new code, as a re-evaluate does).
    */
   async function evaluateGuarded(target: string): Promise<EvalOutcome> {
-    playback.stopMemo();
-    const r = await session.evaluateBuffer(
-      target,
-      playback.taking() ? { autostart: false } : undefined,
-    );
+    const r = await arbiter.evaluate(target);
     // The session's errorKind stays off the wire.
     const { errorKind: _errorKind, ...outcome } = r;
     return outcome;
@@ -513,13 +495,8 @@ export function createControlHandler({
 
   /** As the toolbar's stop: during a take it stops (and saves) the take, else a memo and the song. */
   async function stop() {
-    const wasPlaying = get(runtime.store).started;
-    if (playback.taking()) {
-      await playback.stopTake();
-      return { wasPlaying };
-    }
-    playback.stopMemo();
-    runtime.stop();
+    const { wasPlaying, done } = arbiter.stop();
+    await done;
     return { wasPlaying };
   }
 

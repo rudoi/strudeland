@@ -11,7 +11,8 @@ const { ControlError, ErrorCode } = await import('../src/lib/control/protocol');
 const { EditorView } = await import('@codemirror/view');
 const { undo } = await import('@codemirror/commands');
 const { get } = await import('svelte/store');
-import type { ControlHandler, ControlPlayback } from '../src/lib/control/handler';
+import type { ControlHandler } from '../src/lib/control/handler';
+import type { PlayArbiter } from '../src/lib/play-arbiter';
 import type { Session } from '../src/lib/project/session';
 import { deferred, fakeProjectApi, flush } from './helpers/fake-project-api';
 import { stubRuntime } from './helpers/stub-runtime';
@@ -32,7 +33,7 @@ async function setup(
   opts: {
     last?: string | null;
     failRead?: string[];
-    playback?: ControlPlayback;
+    arbiter?: (session: Session) => Pick<PlayArbiter, 'evaluate' | 'stop'>;
     vim?: () => boolean;
   } = {},
 ) {
@@ -56,7 +57,7 @@ async function setup(
   const handle = createControlHandler({
     session,
     runtime: rt.runtime,
-    playback: opts.playback,
+    arbiter: opts.arbiter?.(session),
     vim: opts.vim,
   });
   const st = () => get(session.store);
@@ -547,50 +548,36 @@ describe('eval and play', () => {
   });
 });
 
-describe('during memo playback and a take', () => {
-  function playback() {
+describe('the play arbiter', () => {
+  test('eval, play and code.set evaluate through it; stop awaits its done and keeps the wire', async () => {
     const log: string[] = [];
-    let taking = false;
-    const p: ControlPlayback = {
-      taking: () => taking,
-      stopMemo: () => void log.push('stopMemo'),
-      stopTake: async () => void log.push('stopTake'),
-    };
-    return { p, log, setTaking: (t: boolean) => (taking = t) };
-  }
-
-  test('eval, play and code.set stop a playing memo before they evaluate', async () => {
-    const pb = playback();
-    const h = await setup({ playback: pb.p });
-    await h.handle('eval', {});
-    await h.handle('play', {});
-    await h.handle('code.set', { code: '$: s("c")\n', eval: 'always' });
-    expect(pb.log).toEqual(['stopMemo', 'stopMemo', 'stopMemo']);
-    expect(h.rt.options.map((o) => o?.autostart)).toEqual([undefined, undefined, undefined]);
-  });
-
-  test('during a take an evaluate never starts the song', async () => {
-    const pb = playback();
-    const h = await setup({ playback: pb.p });
-    pb.setTaking(true);
+    const done = deferred();
+    const h = await setup({
+      arbiter: (session) => ({
+        evaluate(path) {
+          log.push(`evaluate ${path}`);
+          return session.evaluateBuffer(path, { autostart: false });
+        },
+        stop() {
+          log.push('stop');
+          return { stopped: 'take', wasPlaying: true, done: done.promise };
+        },
+      }),
+    });
     expect(await h.handle('play', {})).toMatchObject({ ok: true, started: false });
+    await h.handle('eval', { song: PB });
     await h.handle('code.set', { code: '$: s("c")\n', eval: 'always' });
-    expect(h.rt.options.map((o) => o?.autostart)).toEqual([false, false]);
-    expect(get(h.rt.runtime.store).started).toBe(false);
-  });
-
-  test('stop stops a memo, or during a take the take instead of the song', async () => {
-    const pb = playback();
-    const h = await setup({ playback: pb.p });
+    expect(h.rt.options.map((o) => o?.autostart)).toEqual([false, false, false]);
     const before = h.rt.stops();
-    await h.handle('stop', {});
-    expect(pb.log).toEqual(['stopMemo']);
-    expect(h.rt.stops()).toBe(before + 1);
-    pb.setTaking(true);
-    h.rt.setStarted(true);
-    expect(await h.handle('stop', {})).toEqual({ wasPlaying: true });
-    expect(pb.log).toEqual(['stopMemo', 'stopTake']);
-    expect(h.rt.stops()).toBe(before + 1);
+    let reply: unknown = null;
+    const stopping = h.handle('stop', {}).then((r) => (reply = r));
+    await flush();
+    expect(reply).toBeNull();
+    done.resolve();
+    await stopping;
+    expect(reply).toEqual({ wasPlaying: true });
+    expect(log).toEqual([`evaluate ${PA}`, `evaluate ${PB}`, `evaluate ${PB}`, 'stop']);
+    expect(h.rt.stops()).toBe(before);
   });
 });
 

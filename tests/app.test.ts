@@ -605,15 +605,6 @@ describe('recording and memos', () => {
     expect(rec.fake.argsOf('list').at(-1)).toEqual(['/q']);
   });
 
-  test('evaluateDoc stops a playing memo first', async () => {
-    const { app } = await withRecording();
-    let stops = 0;
-    const stopPlayback = app.memos!.stopPlayback;
-    app.memos!.stopPlayback = () => (stops++, stopPlayback());
-    app.evaluateDoc();
-    expect(stops).toBe(1);
-  });
-
   test('project changes, recording and play requests retire an instrument preview immediately', async () => {
     const { app, fake } = await withRecording();
     const stop = app.instrumentPreview.stop;
@@ -664,17 +655,6 @@ describe('recording and memos', () => {
       startSection: null,
       loopSection: 'verse',
     });
-    await app.recording!.stop();
-  });
-
-  test('during a take playFrom arms only', async () => {
-    const { app } = await withRecording();
-    await app.recording!.record({ song: false, metronome: false, countIn: false });
-    await flush();
-    expect(get(app.recording!.store).phase).toBe('recording');
-    const calls = logged(app, false);
-    app.playFrom({ start: 'verse' });
-    expect(calls).toEqual(['arm {"start":"verse"}']);
     await app.recording!.stop();
   });
 

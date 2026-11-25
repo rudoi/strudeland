@@ -1,8 +1,5 @@
 <script lang="ts">
-  import { get, readable } from 'svelte/store';
   import type { App } from '../lib/app';
-  import { takeRunning } from '../lib/recording/memo-ui';
-  import type { RecordingUiState } from '../lib/recording/types';
   import {
     bpmFromCps,
     cpsAtMeter,
@@ -17,17 +14,13 @@
   let { app }: { app: App } = $props();
   // `app` is constant for the window's lifetime, so reading it once is correct.
   // svelte-ignore state_referenced_locally
-  const { runtime, recording, session, memos, scopeClock, prefs: preferences } = app;
+  const { runtime, recording, session, scopeClock, prefs: preferences, arbiter } = app;
   const rt = runtime.store;
   const prefs = preferences.store;
   const sessionState = session.store;
-  const recStore = recording?.store ?? readable<RecordingUiState | null>(null);
+  const play = arbiter.store;
   // While a take runs, play and stop belong to it.
-  const taking = $derived(takeRunning($recStore?.phase ?? null));
-  const playerStore = memos?.player ?? readable(null);
-  const memoAudible = $derived(
-    $playerStore?.status === 'loading' || $playerStore?.status === 'playing',
-  );
+  const taking = $derived($play.taking);
   let playingMeter = $state.raw<Meter | null>(null);
   $effect(() => {
     const structure = $rt.structure;
@@ -43,23 +36,18 @@
   const meter = $derived(playingMeter ?? $rt.meter);
   const bpm = $derived(bpmFromCps($rt.cps, $rt.meter));
   const stopHelp = $derived.by(() => {
-    if (taking) {
-      if ($recStore?.phase === 'starting') return 'Wait for the recording to start.';
-      if ($recStore?.phase === 'stopping') return 'The memo is already being saved.';
+    if ($play.stopTarget === 'take') {
+      if ($play.takePhase === 'starting') return 'Wait for the recording to start.';
+      if ($play.takePhase === 'stopping') return 'The memo is already being saved.';
       return 'End the recording and save it in this project.';
     }
-    if (memoAudible) return 'Stop the memo and any song or metronome backing.';
+    if ($play.stopTarget === 'memo') return 'Stop the memo and any song or metronome backing.';
     if ($rt.started) return 'Stop song playback.';
     return 'Playback is already stopped.';
   });
 
   function stop() {
-    if (taking && recording) void recording.stop();
-    else {
-      // Stopping a memo also stops the song it started.
-      memos?.stopPlayback();
-      if (get(rt).started) runtime.stop();
-    }
+    void arbiter.stop();
   }
 </script>
 
@@ -73,8 +61,8 @@
 <header>
   <Button
     variant="primary"
-    onclick={() => app.evaluateDoc()}
-    disabled={taking}
+    onclick={() => arbiter.play()}
+    disabled={!$play.canPlay}
     help={taking
       ? 'Finish the recording before evaluating the song.'
       : $sessionState.active === null
@@ -85,9 +73,7 @@
   >
     {$rt.started ? 're-evaluate' : 'play'}
   </Button>
-  <Button onclick={stop} disabled={!$rt.started && !taking && !memoAudible} help={stopHelp}>
-    stop
-  </Button>
+  <Button onclick={stop} disabled={!$play.stopEnabled} help={stopHelp}>stop</Button>
   <Button
     data-piano-roll
     aria-controls="piano-roll-dock"
@@ -103,7 +89,7 @@
       void app.prefs.setPianoRollOpen(!$prefs.pianoRollOpen);
     }}>Piano Roll</Button
   >
-  <RecordControls {recording} {session} {memos} />
+  <RecordControls {recording} {session} {arbiter} />
   {@render readout(cpsAtMeter($rt.cps, $rt.meter, meter).toFixed(3), 'cps')}
   {@render readout(
     String(Math.round(bpm)),

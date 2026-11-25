@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { readable } from 'svelte/store';
   import type { App } from '../lib/app';
+  import type { ArmChoice } from '../lib/project/song-playback';
   import {
     blockPlayhead,
     commitInput,
@@ -16,8 +16,6 @@
     rulerMarks,
     type InputField,
   } from '../lib/project/timeline';
-  import { takeRunning } from '../lib/recording/memo-ui';
-  import type { RecordingUiState } from '../lib/recording/types';
   import { authoredLoop, meterString } from '../lib/strudel/structure';
   import { canPlayEnding, type Located } from '../lib/strudel/transport';
   import { catOf } from '../lib/theme/tones';
@@ -31,14 +29,14 @@
   let { app }: { app: App } = $props();
   // `app` is constant for the window's lifetime, so reading it once is correct.
   // svelte-ignore state_referenced_locally
-  const { runtime, session, recording } = app;
+  const { runtime, session, arbiter } = app;
   const rt = runtime.store;
   const ss = session.store;
   const playback = session.playback;
   const pb = playback.store;
   const canArm = playback.canArm;
-  const rec = recording?.store ?? readable<RecordingUiState | null>(null);
-  const taking = $derived(takeRunning($rec?.phase ?? null));
+  const play = arbiter.store;
+  const taking = $derived($play.taking);
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
   const structure = $derived(editableStructure($ss));
@@ -108,9 +106,9 @@
     choosingEnd = false;
   }
   /** Start here or loop (through a later section); while stopped, also evaluate so it starts. */
-  function playFrom(choice: Parameters<App['playFrom']>[0]) {
+  function playFrom(choice: ArmChoice) {
     menuFor = null;
-    app.playFrom(choice);
+    arbiter.playFrom(choice);
   }
   function stopLooping() {
     menuFor = null;

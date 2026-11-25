@@ -294,4 +294,7 @@ light Loss check run.
     stop is disabled when idle, so it is unaffected. (Refine corrected an earlier "only when
     started" rule, which would have changed behaviour.)
 13a. **`play ending` and `stop looping` stay outside approved change 2,** as known rows.
+14. **The toolbar's stop of a memo playing alone now calls `runtime.stop()` too** (user, 2026-11-25,
+    found in stage 002). As with Cmd-. and `strudeland stop` today, that clears a stale "audio
+    error" notice.
 13. **Hot reload into a take's or memo's backing stays in the session,** as a known row.
