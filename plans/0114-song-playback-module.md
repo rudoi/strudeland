@@ -2,212 +2,324 @@
 
 ## Goal
 
-One module owns "what is playing" and "what is armed". It holds the song whose evaluate is
-sounding, the rule for when the transport resets, and arming by section name. Everyone else reads
-its store and calls its verbs; nobody recombines `runtime.started` with the session's evaluated
-song, and nobody outside it touches `runtime.transport`.
+One module owns "what is playing" and "what is armed". It holds:
 
-This is a refactor with one deliberate fix. Nothing a user, the CLI or the control protocol sees
-changes, except that `strudeland state` names the armed section correctly in one edge case (see
-decision 7).
+- the song whose evaluate is sounding;
+- the rule for when the transport resets;
+- arming by section name.
+
+Everyone else reads its store and calls its verbs. Nobody recombines `runtime.started` with the
+evaluated song, and nobody outside it touches `runtime.transport`.
+
+This is a refactor with one deliberate fix. `strudeland state` will always name the armed section
+the timeline shows, which is also the one that plays next (decision 7). Every other user-visible,
+CLI and control-protocol output is unchanged.
 
 ## Background
 
 The [re-verification](0114-song-playback-module/reverify.md) has the evidence. In summary:
 
-- **"The playing song" is rebuilt in five places** from `runtime.started` and
-  `session.evaluated`: `App.svelte`, `Timeline.svelte`, the control handler (twice) and
-  `PianoRoll.svelte`.
-- **The transport is reset from six sites:** five in the session, one in backing.
-  - The session's tests assert the order of the calls (`stubRuntime.resets`), not their outcomes.
-- **The armed section is an index.** Three readers look it up against different structures:
-  - the Timeline and the recording controller use the song header's structure;
-  - the control handler uses the evaluated structure.
+- **"The playing song" is rebuilt in five places** from `runtime.started` and `session.evaluated`:
+  `App.svelte`, `Timeline.svelte`, the control handler (twice) and `PianoRoll.svelte`.
+- **The transport is reset from six sites:** five in the session, one in backing. The session's
+  tests assert the order of those calls (`stubRuntime.resets`), not their outcome.
+- **The armed section is an index, read against two different structures.**
+  - The Timeline and the recording controller look it up in the song header's structure.
+  - The control handler looks it up in the last evaluated structure.
   - `matchingSectionRange` exists only to translate between them.
-- **A live bug follows from that.** Arm a section on song B while stopped, and let B's evaluate
-  fail. The timeline and `strudeland state` then name different sections.
+  - As a result `strudeland state` and the timeline disagree in three cases: nothing evaluated
+    yet, the header edited after the last evaluate, and a failed evaluate.
+- **The transport's glue lives inside `runtime.ts`.** That is `setSegments`, `change`, the
+  index-level verbs, and the rewind on stop. So the test stub can only record calls, and tests
+  cannot model the transport.
 
 ## Scope
 
 In:
 
-1. **A song playback module,** `src/lib/project/song-playback.ts`. It owns:
-   - the evaluated song (`path`, `title`, header title, instrument snapshot) and its project
-     generation;
-   - `playing`, the playing song;
-   - `started`;
-   - the transport, published with section names;
+1. **Extract the transport model.** The runtime's transport glue becomes an exported factory in
+   `src/lib/strudel/transport.ts`, `createTransportModel(...)`.
+   - The runtime uses it, with its scheduler-backed boundary and clock.
+   - `stubRuntime` uses it too, with a boundary and clock the test supplies.
+   - `tests/runtime.test.ts` stays the conformance suite for it.
+2. **Add a song playback module,** `src/lib/project/song-playback.ts`. It owns:
+   - the evaluated song;
+   - `playing`;
+   - `started` (derived);
+   - the transport published by section name;
    - the reset-on-song-change policy;
-   - arming by section name;
+   - arming by name;
    - arm, start, disarm on failure.
-2. **The session drives it.** It calls the module's verbs from `evaluateSong`, a refused evaluate,
-   song switch, project change, rename and delete. The session stops touching `runtime.transport`.
-3. **`SessionState.evaluated` moves to the module's store.** Every reader moves with it: App,
-   Timeline, PianoRoll, the control handler and the recording code.
-4. **Arm-then-play becomes one verb.** The Timeline's two copies become `app.playFrom(choice)`. It
-   arms by name through the module, then plays through `app.evaluateDoc`, keeping the take, memo
-   and audition guards.
-5. **Backing's section start becomes `playback.start(...)`:** stop if playing, resolve against the
-   evaluated structure, arm, start, disarm on failure.
-6. **The control handler reads `playing`, `started` and the named transport from the module.** The
-   wire shape is unchanged.
-7. **`matchingSectionRange` moves into the module's name resolution.** It is deleted from
-   `project/timeline.ts`, and its tests move with it.
-8. **`stubRuntime`'s transport becomes a faithful model** built from `transport.ts`'s pure
-   functions, so tests assert published state. `resets()` is deleted.
-9. **`GLOSSARY.md`:** adds playing song and armed section.
+3. **The session constructs the module and exposes it as `session.playback`.** The session calls
+   the module's verbs and stops touching `runtime.transport`. `SessionState.evaluated` moves into
+   the module's store.
+4. **Callers move to the module:** App, Timeline, PianoRoll, the control handler, the recording
+   controller and backing.
+5. **The Timeline's two arm-then-play copies become `app.playFrom(choice)`.**
+6. **`matchingSectionRange` moves into the module's name resolution.** Its tests move with it.
+7. **`stubRuntime`'s transport becomes the shared model.** `resets()` and the raw
+   `setTransport` go, and tests assert published state.
+8. **`AGENTS.md` lists `song-playback.ts`.** The glossary already gained "playing song" and
+   "armed section" in the plan commit.
 
 Out:
 
-- **Disarming the Timeline's arm when an evaluate fails** (decision 5: keep today's behaviour).
-- **Making `song()` check its sections against the header.** That would add a new eval error; it
-  is #140.
-- **The session's hot-reload rule** (`path === active && started`). It stays in the session.
-- **The playhead and `canPlayEnding`.** They are per-frame position, not playback identity, and
-  stay in Timeline.
-- **The play/stop arbitration between song, memo and take.** That is #115, which builds on this
-  task.
+- **Disarming the Timeline's arm when an evaluate fails.** Decision 5 keeps today's behaviour.
+- **Making `song()` check its sections against the header.** It adds a new eval error, so it is
+  #140.
+- **The session's hot-reload rule.** It stays in the session (`session.ts:1016`).
+- **The playhead, `canPlayEnding` and the `head` name translation.** They are per-frame
+  position, and stay in Timeline (see below).
+- **Play/stop arbitration between song, memo and take.** That is #115.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-  S["session.ts<br/>files · buffers · conflicts · header gating"] -->|"evaluate(path,text,opts) · refused() ·<br/>activeChanged() · projectChanged() ·<br/>renamed() · removed()"| P
+  S["session.ts<br/>files · buffers · conflicts · header gating · generation"] -->|"constructs; calls verbs"| P
   APP["app.ts playFrom(choice)"] --> P
   B["recording/backing.ts"] -->|"start({section, countIn, backend})"| P
-  P["song-playback.ts<br/>store: evaluated · playing · started ·<br/>transport {view, loop, armed} by NAME<br/>verbs: arm · playEnding · start"]
-  P -.seam.-> R["runtime Transport (indices)<br/>real runtime | faithful stub"]
-  P -->|"reads {active, structure}"| HDR["active song header (session store)"]
-  UI["App · Timeline · PianoRoll · handler · recording controller"] -->|read| P
+  P["song-playback.ts<br/>store: evaluated · playing · started ·<br/>transport {view, loop names, armed} ·<br/>canArm (derived)"]
+  P -->|"subscribes; index verbs"| T["runtime.transport<br/>(createTransportModel)"]
+  P -->|subscribes| RS["runtime.store<br/>started · structure"]
+  P -->|"getHeader(): {active, structure, metaError}"| S
+  UI["App · Timeline · PianoRoll · handler · recording controller"] -->|"read store / call verbs"| P
+  STUB["stubRuntime"] -->|uses| TM["createTransportModel"]
+  T -.same factory.-> TM
   classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a,stroke-width:3px;
   class P deep
 ```
 
-- **Runtime stays the index mechanism behind a real seam.** It has two adapters: the runtime and
-  the stub.
-- **The module turns names into indices once, against one structure.**
-  - While playing, that is the evaluated structure (`runtime.store.structure`).
-  - While stopped, it is the active song header's structure.
-- **It remembers the names it armed,** so what it publishes never depends on which structure the
-  runtime holds at that moment.
+- **Two adapters behind the runtime seam:** the real runtime and `stubRuntime`. Both are built on
+  one transport model, so the stub behaves like the runtime instead of recording calls.
+- **The module follows the runtime; it does not shadow it.**
+  - `started` comes from `runtime.store`.
+  - The view and `pendingStart` come from `runtime.transport.store`.
+  - The armed names are cleared whenever the runtime reports that no start is pending. That
+    covers every stop: the toolbar, auto-stop, the scheduler's own stop, and the recording code.
+  - While playing, the loop names are re-mapped on every `runtime.store.structure` change, as the
+    handler does today. A hot reload with different sections renames them with no verb call.
 
 ## Technical design
 
-### Store
+### Transport model (`transport.ts`)
+
+- **`createTransportModel({ started, structure, boundary, now })`.** This is the glue moved out of
+  `runtime.ts`:
+  - `setSegments`, from `:421-456`;
+  - `change`, `startFrom`, `loopSection`, `loopRange`, `playEnding` and `reset`, from `:835-890`;
+  - the rewind when `started` goes from true to false, from `:639-643`.
+- **Its inputs:**
+  - `started`: a readable.
+  - `structure`: the evaluated structure getter.
+  - `boundary`: the next safe bar while playing. It covers the scheduler's `lastEnd`, `toCycle`
+    and `pruneAt`, plus mixed-meter timing.
+  - `now`.
+- **It returns the existing `Transport` interface.** The runtime's own behaviour does not change.
+- **The stub** passes a `boundary` and `now` that each test controls.
+- **`runtime.ts` and `transport.ts` are bundled into the headless host,** so `bun run host:build`
+  runs. Neither is a planner file, so the engine refs are untouched.
+
+### The module's store
 
 ```
 {
-  evaluated: { path, title } | null,        // last successful evaluate; kept on stop
-  playing: { path, title } | null,          // evaluated while started
-  started: boolean,
+  evaluated: { path, title } | null,      // last successful evaluate; kept on stop
+  playing: { path, title } | null,        // evaluated while started
+  started: boolean,                       // from runtime.store
   transport: {
-    view: 'song' | 'loop' | 'release',
-    loop: { section: string; through?: string } | null,
-    armed: string | null,
+    view: { kind: 'song' } | { kind: 'loop'; section: number; through?: number } | { kind: 'release' },
+    loop: { section: string; through?: string; names: string[] } | null,   // names: every section in the range
+    armed: string | null,                 // non-null exactly when a start is pending
   },
 }
 ```
 
-Internally it also keeps `metaTitle` and `instruments` for the evaluated song, which the session's
-rename and piano-roll pin checks use today.
+- **`view` is the raw runtime view, with indices.** The Timeline's `canPlayEnding` and `isLoopPass`
+  need it, so they read it here instead of from `runtime.transport`.
+- **`canArm`** is a derived store, `(choice) => boolean`, built from the header and the runtime
+  stores. The Timeline's menus re-render from it; it replaces `resolveRange`.
+- **Accessors outside the store:**
+  - `metaTitle()` and `instruments()`, which the session's rename and `pianoRollMatchesLivePins`
+    use;
+  - `removedStops(path)`.
 
-### Verbs
+### Verbs and their contracts
 
-- `evaluate(path, text, opts) → Promise<boolean>`.
-  - If another song is playing, it resets the transport synchronously, before `runtime.evaluate`.
-    This is today's take-over rule at `session.ts:1089`.
-  - On success, it records the evaluated song, provided the generation still matches.
-- `refused()`: a header or instrument error refused the evaluate; disarm if stopped.
-- `activeChanged()`: disarm if stopped. This is today's `activeTransport`.
-- `projectChanged()`: stop, reset, clear, and bump the generation.
-- `renamed(from, to, title)`; `removed(path) → { stopped }`.
-- `arm({ start: name } | { loop: name, through?: name } | 'clear')`, and `canArm(...)` for the
-  menus.
-- `playEnding()`.
-- `start({ section?, countIn, backend }) → { T, cps } | { missingSection } | null`. This is
-  backing's flow.
+1. **`evaluate(path, text, opts, gen) → Promise<boolean>`.** The session calls it after its header
+   and instrument gating.
+   - **Synchronous until `runtime.evaluate`.** If another song is playing, reset the transport,
+     then call `runtime.evaluate`, with no await in between. That keeps the engine's synchronous
+     resume inside the user gesture.
+   - **On success,** record the evaluated song (`path`, its title, `metaTitle`, `instruments`) if
+     `gen` still equals the session's current generation. The session passes a `currentGen()`
+     getter at construction, so there is one counter.
+2. **`refused()`.** A header or instrument error refused the evaluate: disarm if stopped.
+3. **`activeChanged()`.** Disarm if stopped. This is today's `activeTransport`.
+4. **`projectChanged()`.** Stop if started, reset, and clear `evaluated`. It runs synchronously
+   from `install`.
+5. **`renamed(from, to)`.** Synchronous, inside the session's `whileMoving`. If `evaluated` is
+   `from`, it retitles to `titleFrom(to, metaTitle)`. `titleFrom` moves to a shared export in
+   `song-header.ts` or `session.ts`, so the module calls it.
+6. **`removed(path) → { stopped }`.** It runs after `activeChanged()`, as in `deleteTask`.
+   - If `evaluated.path === path`: stop if started, clear `evaluated`, and return
+     `stopped = started at call time`.
+   - Otherwise return `{ stopped: false }`.
+7. **`arm(choice)`,** where `choice` is one of:
+   - `{ start: name }`;
+   - `{ loop: name, through?: name }`;
+   - `'stopLooping'`.
+
+   It resolves names to indices against the structure in force (see the next section), then calls
+   the runtime's index verb, and records the armed names. `'stopLooping'` keeps today's two
+   behaviours:
+   - while stopped, `loopSection(null)` resets the whole transport, an armed start included;
+   - while playing, it appends a loop end at the next bar.
+8. **`playEnding()`.** A passthrough.
+9. **`start({ section?, countIn, backend }) → { T, cps } | { missingSection } | null`.** This is
+   backing's flow:
+   - stop if playing;
+   - resolve the name against `runtime.store.structure`, the evaluated structure;
+   - arm, then call `runtime.start` with no await in between;
+   - on a failed start, disarm only if the runtime is still stopped.
 
 ### Name resolution
 
-- **A start or a loop of one section:** the section's index, in the structure in force.
-- **A range** (`loop` plus `through`): both indices, and the range must be contiguous and forward.
-  That is today's `matchingSectionRange` rule.
-- **Published names** are the names the module armed. The view while playing is the runtime's
-  view index mapped back to names through the evaluated structure, exactly as the handler does
-  today.
-- **While stopped, `transport.armed` is the armed name for the active song.** That fixes the edge
-  case in decision 7.
+- **Structure in force:** the evaluated structure (`runtime.store.structure`) while started. While
+  stopped, it is the active song header's structure from `getHeader()`.
+  - When the header has a `metaError`, nothing can be armed. `canArm` is false and `arm` does
+    nothing, matching today's `editableStructure` gate.
+- **A start or a single-section loop:** the index of the first section with that name. That is
+  today's lookup, so duplicate names keep resolving to the first one.
+- **A range** (`loop` plus `through`): take the header's names from `loop` through `through`, and
+  check that they appear contiguously and in order in the structure in force. That is today's
+  `matchingSectionRange` rule.
+- **Published names:**
+  - `armed` is the name the module armed, kept until the runtime reports no pending start.
+  - While stopped, `loop` holds the names the module armed.
+  - While playing, `loop` holds the runtime view's indices mapped through the evaluated structure.
+
+### Wiring
+
+- **The session** constructs the module with:
+  - `runtime`, called through the object at call time, so `app.test.ts`'s monkey-patching keeps
+    working;
+  - `getHeader`;
+  - `currentGen`;
+  - `titleFrom`.
+
+  It exposes the module as `session.playback`.
+- **`app.ts`** passes `session.playback` to the handler deps, `createBackingStarter`
+  (`BackingDeps`) and `RecordingControllerDeps`. It adds `playFrom(choice)`:
+  - If a take is active, it arms only, as today. Today `arm()` arms, then `evaluateDoc` returns
+    early.
+  - Otherwise, if stopped, it arms, then calls `evaluateDoc()`, which keeps the memo and audition
+    guards. That is today's order inside the user gesture.
+  - If started, it arms only.
 
 ### Callers
 
 | Caller | After |
 |---|---|
 | `App.svelte` / `SongList` | `$pb.playing?.path` |
-| `Timeline.svelte` | reads `playing`, `transport.armed` and `transport.loop`; arms through `app.playFrom`; keeps `playable`, the playhead and `canPlayEnding` |
-| `PianoRoll.svelte` | `matchesLive` reads `evaluated` |
-| `control/handler.ts` | `state.playing`, `state.started` and `state.transport` from the module, with the same wire shape; `events` and `codeSet` read `evaluated` and `playing` |
-| `recording/controller.ts` | reads `transport.armed` and `transport.loop` by name, still before its stop rewinds the transport |
-| `recording/backing.ts` | its section start becomes `playback.start(...)` |
-| `session.ts` | calls the verbs; no `runtime.transport`; `SessionState.evaluated` removed |
+| `Timeline.svelte` | reads `playing`, `transport` and `canArm`; arms through `app.playFrom`; `stopLooping` and `playEnding` through the module; keeps the playhead, `canPlayEnding` (fed `transport.view`), `playable` and the `head` translation (`$rt.structure`) |
+| `PianoRoll.svelte` | `matchesLive` and the playhead gate read `evaluated` and `started` |
+| `control/handler.ts` | `state.playing`, `state.started` and `state.transport` (wire shape unchanged; names from the module); `events` reads `evaluated`; `shouldAutoEval` gets `playback.evaluated?.path` |
+| `recording/controller.ts` | reads `transport.armed` and `transport.loop` from the store before its stop rewinds the transport |
+| `recording/backing.ts` | the section start becomes `playback.start(...)`; the `BackingStarter` interface is unchanged, so `memo-player` is unaffected |
+| `session.ts` | calls the verbs; no `runtime.transport`; `SessionState.evaluated` removed; `pianoRollMatchesLivePins` reads `playback.instruments()` |
 
 ### Tests (replace, don't layer)
 
-- **New: `tests/song-playback.test.ts`.** Outcome tests through the module's interface:
-  - take-over resets;
+- **New: `tests/song-playback.test.ts`.** Outcome tests through the module's interface, on the
+  shared transport model:
+  - take-over reset before `runtime.evaluate` is called, in the same tick;
   - switching while stopped disarms;
   - a refused evaluate disarms when stopped;
-  - project change, rename and delete;
+  - any runtime stop clears the armed names;
+  - project change; rename, keeping `metaTitle`; delete and its `stopped` rule;
   - arming by name against the header while stopped and against the evaluated structure while
     playing;
-  - range contiguity;
-  - backing's start, with disarm on failure;
-  - decision 7's edge case pinned.
-- **`tests/helpers/stub-runtime.ts`.** The transport becomes a faithful model built from
-  `transport.ts`'s pure functions (`withStartFrom`, `withLoop`, `locate`, the stop rewind).
-  `resets()` goes.
-- **Moved to the module's tests:** `session.test.ts`'s `transport reset` block and the delete
-  resets. The session tests keep only the verbs they call.
-- **Rewritten as names:** `control-handler.test.ts` (transport state, `playing`),
-  `recording-controller.test.ts`, `recording-backing.test.ts` and `timeline.test.ts`.
-- **Updated for `evaluated` moving:** `app.test.ts`.
+  - range contiguity, moved from `timeline.test.ts`;
+  - no arming under a `metaError`;
+  - `stopLooping`'s two behaviours;
+  - backing's `start`, with disarm on failure and no await before `runtime.start`;
+  - `playFrom`'s three guard paths;
+  - decision 7's three cases.
+- **`tests/helpers/stub-runtime.ts`:** the transport is `createTransportModel`, following the
+  stub's `started`. `resets()`, `transportCalls()` and `setTransport` are removed or narrowed.
+- **`tests/runtime.test.ts`** stays as the transport model's conformance suite.
+- **`tests/session.test.ts`:**
+  - About 19 `st().evaluated` assertions move to `playback`.
+  - The 23 `resets()` calls become outcome assertions in the module tests.
+  - The `transport reset` block and the delete resets move.
+- **`tests/control-handler.test.ts`:**
+  - Transport tests (`:1074-1118`) become module verbs on the model.
+  - The null-structure case at `:1091-1095` is rewritten under decision 7.
+  - The unreachable out-of-range-index case goes.
+- **Rewritten as outcomes:** `tests/recording-controller.test.ts` (`:592-630`) and
+  `tests/recording-backing.test.ts` (`:210-262`).
+- **Smaller edits:**
+  - `tests/timeline.test.ts` loses the `matchingSectionRange` tests;
+  - `tests/export-dialog.test.ts:61` drops `evaluated` from its `SessionState`;
+  - `tests/app.test.ts` gets the new wiring.
+- **Unchanged:** `tests/memo-player.test.ts`, `memos.test.ts`, `vim.test.ts` and
+  `editor-theme.test.ts`.
 
 ## Dependencies
 
-- Builds on the song header module (#113, done).
-- Blocks #115 (play/stop arbitration), #126 (runtime internals) and #133 (timeline view-model).
+- **Builds on:** the song header module (#113, done).
+- **Blocks:**
+  - #115, play/stop arbitration;
+  - #126, runtime internals;
+  - #133, timeline view-model;
+  - #140, checking sections in `song()`.
 
 ## Risks
 
-- **Reset ordering.** The take-over reset must stay synchronous before `runtime.evaluate`.
-- **The user gesture.** `runtime.start` must still run inside the gesture
-  (`runtime.ts:176-182`), so `playFrom` keeps arm, evaluate and start in today's order.
-- **Stale evaluates.** A late evaluate must not repopulate `evaluated` after a project change,
-  which is why the module keeps a generation.
-- **Recording.** The controller reads the armed section before its stop rewinds the transport.
-  Keep that order.
-- **The faithful stub could drift from the runtime.** Build it from `transport.ts`'s pure
-  functions, not a re-implementation.
-- **Test churn.** About 42 `evaluated` assertions in `session.test.ts` move or change.
+- **Ordering.** Each verb's contract states its rule: synchronous reset before evaluate, no await
+  before `runtime.start`, rename inside `whileMoving`, and removed after `activeChanged`. Tests
+  pin each one.
+- **Extracting the transport model** could change the runtime's transport behaviour.
+  `runtime.test.ts` and `runtime-backends.test.ts` are the guard, together with the mixed-meter
+  tests.
+- **Stale armed names.** The module clears them from the runtime's own `pendingStart`, never from
+  its verbs alone.
+- **Recording reads.** The controller reads the store before stopping, so the store must update
+  synchronously on stop. Svelte stores are synchronous.
+- **Test churn.** Large but mechanical. The faithful model removes the order-coupled tests rather
+  than porting them.
 
 ## Complexity
 
-Medium to large. About 11 source files and 8 test files, one subsystem (the frontend), and subtle
-async ordering. Fracture is skipped, so the plan stays one document. Singletonize and a light Loss
-check run.
+Medium to large: about 12 source files and 10 test files in one subsystem (the frontend), with
+subtle ordering. Fracture is skipped. Singletonize and a light Loss check run.
 
 ## Decisions
 
-1. **Wiring:** the session holds the module and calls its verbs. The module does not subscribe to
-   the session.
+1. **Wiring:** the session constructs the module, exposes it as `session.playback`, and calls its
+   verbs. The module reads the header through `getHeader()` and never subscribes to the session.
 2. **`evaluated` has one owner:** the module's store. `SessionState.evaluated` goes.
-3. **Arming while stopped resolves against the active song header.** Backing resolves against the
-   evaluated structure. `song()` checking sections against the header is out (#140).
-4. **Arm-then-play is one verb,** reached through `app.playFrom`, keeping `evaluateDoc`'s guards.
-5. **A failed evaluate keeps the Timeline's arm** (user, 2026-11-25). No visible change.
-6. **`playEnding` is a module passthrough.** The playhead and `canPlayEnding` stay in Timeline.
-7. **The armed name on the wire is the one armed on the active song** (user, 2026-11-25). In the
-   failed-evaluate edge case, `strudeland state` now names B's armed section instead of A's index
-   lookup. Pinned by a test; normal output is byte-identical.
-8. **Name:** `src/lib/project/song-playback.ts`. `GLOSSARY.md` gains playing song and armed
-   section.
-9. **`stubRuntime`'s transport is a faithful model** built from `transport.ts`'s pure functions.
+3. **What arming resolves against.** While stopped, the active song header. While playing, and in
+   backing's `start`, the evaluated structure. Checking sections in `song()` is #140.
+4. **Arm-then-play is one verb.** It is reached through `app.playFrom`:
+   - during a take it arms only, as today;
+   - while stopped it arms and then evaluates;
+   - while playing it arms only.
+5. **A failed evaluate keeps the Timeline's arm.** No visible change (user, 2026-11-25).
+6. **`playEnding` and `stopLooping` are module verbs.** The playhead, `canPlayEnding` and the
+   `head` translation stay in Timeline, reading `transport.view` and `$rt.structure`.
+7. **The wire names the armed section the timeline shows.** This covers three cases where it
+   differed before:
+   - nothing evaluated yet;
+   - the header edited after the last evaluate;
+   - a failed evaluate.
+
+   Output is byte-identical whenever the header and the evaluated song agree. The three cases are
+   pinned, and `control-handler.test.ts:1091-1095` is rewritten (user, 2026-11-25, two answers).
+8. **Name:** `src/lib/project/song-playback.ts`, listed in `AGENTS.md`. `GLOSSARY.md` has playing
+   song and armed section.
+9. **One transport model.** `createTransportModel` in `transport.ts` is shared by the runtime and
+   `stubRuntime`, with `runtime.test.ts` as its conformance suite. It replaces "the stub
+   re-implements the transport".
+10. **One generation counter:** the session's. The module receives `currentGen()`.
