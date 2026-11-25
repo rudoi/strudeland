@@ -169,8 +169,8 @@ the V8 download the host brings.
   `?audioworklet` imports resolve under `bun test`. `package.json` overrides `vite` to one
   version; `vite.config.ts` uses the workspace `vite-plugin-bundle-audioworklet`.
 - `strudel-pins.json` (schema 2) the vendored commit plus the npm pins that remain (kabelsalat);
-  read by `tests/pins.test.ts` and embedded into the Rust binary (`app_info`, the status bar
-  tooltip).
+  read by `tests/pins.test.ts` and embedded into the Rust binary (`app_info`, used by About &
+  licenses in Settings).
 - `src/lib/render/` the pure render analysis (no Strudel, DOM, Tauri or Playwright imports): `contract.ts`
   (`Renderer`, `RenderRequest`, `RenderResult`), `schedule.ts`, `wav.ts`, `dsp.ts`, `loudness.ts`,
   `align.ts`, `features.ts` (golden features), `parity.ts`, `lookback.ts`, `chunks.ts`,
@@ -364,7 +364,11 @@ the V8 download the host brings.
   (`tests/theme-tokens.test.ts` enforces it). Components use role and domain tokens and
   `data-tone`/`data-cat`, never palette tokens. Build UI from `src/components/ui/`; add a primitive
   when an element appears in two components. UI copy is lowercase except proper nouns, user content,
-  error text and licence identifiers. Canvas code gets colours from `resolveColor()`.
+  error text, licence identifiers and contextual help sentences. Canvas code gets colours from `resolveColor()`.
+- Contextual help: Shared controls take a `help` prop. Custom controls use the `helpTarget` action
+  on the interactive element. `src/lib/help/targets.ts` owns pointer/focus selection and each
+  control's accessible description. `Help.svelte` presents the status and dialog slots. Read [Writing contextual help](docs/writing-contextual-help.md) when adding,
+  changing or reviewing hover and focus hints. Verify each hint against the control's behavior and states.
 - Headless host: `crates/strudeland-host/js/host.js` and `host.inputs.json` are committed and
   written only by `bun run host:build`, never hand-edited; rebuild after a Strudel sync (the sync
   prints the reminder) or an edit of any file listed in `host.inputs.json` (a `bun test` staleness

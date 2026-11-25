@@ -1,10 +1,20 @@
 import { describe, expect, mock, test } from 'bun:test';
 import {
+  isProjectMenuAction,
   pickedFolder,
   UNSAVED_BUTTONS,
   unsavedChoice,
   unsavedMessage,
 } from '../src/lib/project/api';
+
+test('the native menu routes Settings alongside the project and export actions', () => {
+  for (const action of ['settings', 'openProject', 'newProject', 'exportAudio']) {
+    expect(isProjectMenuAction(action)).toBe(true);
+  }
+  for (const unrelated of ['quit', 'settings…', { action: 'settings' }, undefined]) {
+    expect(isProjectMenuAction(unrelated)).toBe(false);
+  }
+});
 
 test('the pressed button label maps to a choice', () => {
   expect(unsavedChoice(UNSAVED_BUTTONS.yes)).toBe('save');

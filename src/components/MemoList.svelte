@@ -162,6 +162,7 @@
                 width="fill"
                 bind:el={renameInput}
                 aria-label="rename memo"
+                help="Enter a new name and press Enter to rename this memo."
                 spellcheck="false"
                 oninput={(e) => {
                   renameText = e.currentTarget.value;
@@ -175,8 +176,19 @@
           {:else if deleting === m.stem}
             <div class="line confirm" bind:this={confirmBox}>
               <span class="ask" title={m.stem}>delete {m.stem}?</span>
-              <Button size="sm" onclick={() => (deleting = null)}>cancel</Button>
-              <Button size="sm" tone="danger" onclick={() => void confirmDelete(m.stem)}>
+              <Button
+                size="sm"
+                help="Keep this memo in the project."
+                onclick={() => (deleting = null)}
+              >
+                cancel
+              </Button>
+              <Button
+                size="sm"
+                tone="danger"
+                help="Permanently delete this recording and its timing information from the project."
+                onclick={() => void confirmDelete(m.stem)}
+              >
                 delete
               </Button>
             </div>
@@ -185,7 +197,8 @@
               <ListRow
                 active={row.active}
                 disabled={row.disabled}
-                title={row.title}
+                title={m.stem}
+                help={row.help}
                 onclick={() => clickRow(m)}
               >
                 {m.stem}
@@ -200,6 +213,9 @@
                 aria-label="memo actions"
                 aria-haspopup="menu"
                 aria-expanded={menuFor === m.stem}
+                help={menuFor === m.stem
+                  ? 'Close this memo’s actions.'
+                  : 'Choose playback with backing, rename or delete for this memo.'}
                 onclick={(e) => openMenu(e, m.stem)}
               >
                 …
@@ -216,14 +232,24 @@
               {#each memoPlayItems(m, song, phase) as item (item.how)}
                 <MenuItem
                   disabled={item.disabled}
-                  title={item.title}
+                  help={item.help}
                   onclick={() => playWith(m.stem, item.how)}
                 >
                   {item.label}
                 </MenuItem>
               {/each}
-              <MenuItem onclick={() => void startRename(m.stem)}>rename</MenuItem>
-              <MenuItem onclick={() => void startDelete(m.stem)}>delete</MenuItem>
+              <MenuItem
+                help="Open the name field for this memo."
+                onclick={() => void startRename(m.stem)}
+              >
+                rename
+              </MenuItem>
+              <MenuItem
+                help="Ask for confirmation before removing this memo."
+                onclick={() => void startDelete(m.stem)}
+              >
+                delete
+              </MenuItem>
             </Menu>
           {/if}
           {#if deleteError?.stem === m.stem}

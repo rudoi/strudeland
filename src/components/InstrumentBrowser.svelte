@@ -7,6 +7,7 @@
   import { takeRunning } from '../lib/recording/memo-ui';
   import Button from './ui/Button.svelte';
   import Field from './ui/Field.svelte';
+  import Help from './ui/Help.svelte';
   import ListRow from './ui/ListRow.svelte';
   import Notice from './ui/Notice.svelte';
 
@@ -30,11 +31,17 @@
   const rt = runtime.store;
   const rec = recording?.store ?? readable(null);
   const memo = memos?.player ?? readable(null);
-  const busy = $derived(
-    $rt.started ||
-      takeRunning($rec?.phase ?? null) ||
-      $memo?.status === 'playing' ||
-      $memo?.status === 'loading',
+  const playing = $derived(
+    $rt.started || $memo?.status === 'playing' || $memo?.status === 'loading',
+  );
+  const taking = $derived(takeRunning($rec?.phase ?? null));
+  const busy = $derived(playing || taking);
+  const busyHelp = $derived(
+    playing && taking
+      ? 'Stop playback and recording to hear a preview.'
+      : taking
+        ? 'Stop recording to hear a preview.'
+        : 'Stop playback to hear a preview.',
   );
   const sounding = $derived($audio.status === 'playing' || $audio.status === 'loading');
   const list = $derived($catalog.lists[$catalog.source]);
@@ -44,6 +51,15 @@
   const pin = $derived($catalog.lists.project?.entries.find((row) => row.id === version?.id));
   const differs = $derived(global && pin && global.fingerprint !== pin.fingerprint);
   const inProject = $derived($catalog.source === 'project');
+  const projectPins = $derived($catalog.lists.project);
+  const definitionHelp = $derived(
+    $catalog.readError
+      ? 'Refresh the list to retry reading this instrument.'
+      : 'Reading the instrument definition.',
+  );
+  const selectionHelp =
+    'Select a complete pattern expression in the editor, then reopen Instruments.';
+  const writingHelp = 'Wait for the project pin to finish saving.';
   let dialog: HTMLDialogElement;
   let rows: HTMLUListElement;
   let applying = $state(false);
@@ -116,7 +132,15 @@
 >
   <header>
     <h2 id="instruments-title">instruments</h2>
-    <Button variant="quiet" size="sm" disabled={applying} onclick={() => onclose()}>close</Button>
+    <Button
+      variant="quiet"
+      size="sm"
+      disabled={applying}
+      onclick={() => onclose()}
+      help={applying
+        ? 'Wait for the editor change to finish.'
+        : 'Stop the preview and return to the workspace.'}>close</Button
+    >
   </header>
   <div class="panes" inert={applying}>
     <div class="catalog">
@@ -124,6 +148,7 @@
         <Button
           size="sm"
           pressed={!inProject}
+          help="Browse versions available to pin to this project."
           onclick={() => {
             applyError = '';
             browser.show('library');
@@ -132,6 +157,7 @@
         <Button
           size="sm"
           pressed={inProject}
+          help="Browse the instrument versions this project uses."
           onclick={() => {
             applyError = '';
             browser.show('project');
@@ -147,6 +173,9 @@
         }}
         onkeydown={(e) => navigate(e, -1)}
         aria-label="search instruments"
+        help={list
+          ? 'Filter by instrument ID. Press Down Arrow to move to the first result.'
+          : 'Instruments are loading. Enter part of an instrument ID to filter the list.'}
         placeholder="search instruments"
         width="fill"
         spellcheck="false"
@@ -158,6 +187,7 @@
             <ListRow
               active={row.id === version?.id}
               tabindex={row.id === version?.id ? 0 : -1}
+              help="Show this instrument’s definition. Use Up and Down Arrow to browse the list."
               onkeydown={(e) => {
                 applyError = '';
                 navigate(e, index);
@@ -187,7 +217,12 @@
           >{#if list && !list.error}{$catalog.rows.length}
             {$catalog.rows.length === 1 ? 'instrument' : 'instruments'}{/if}</span
         >
-        <Button variant="quiet" size="sm" onclick={refresh}>refresh</Button>
+        <Button
+          variant="quiet"
+          size="sm"
+          onclick={refresh}
+          help="Reload the global library and project pins.">refresh</Button
+        >
       </div>
     </div>
     <section class="inspector" aria-label="instrument details">
@@ -199,6 +234,13 @@
               variant="primary"
               disabled={!sounding && (busy || !definition)}
               aria-label={sounding ? 'stop preview' : 'preview'}
+              help={sounding
+                ? 'End this instrument’s preview.'
+                : busy
+                  ? busyHelp
+                  : !definition
+                    ? definitionHelp
+                    : 'Hear a short example of the selected instrument version.'}
               onclick={() => {
                 if (sounding) instrumentPreview.stop();
                 else if (version) void instrumentPreview.play(version);
@@ -215,7 +257,7 @@
           </div>
           {#if $audio.status === 'loading'}<p class="subtle" role="status">preparing preview…</p>
           {:else if $audio.status === 'error'}<Notice tone="danger">{$audio.message}</Notice>
-          {:else if busy}<p class="subtle">stop playback and recording to preview</p>{/if}
+          {:else if busy}<p class="subtle">{busyHelp}</p>{/if}
           {#if $catalog.readError}
             <Notice tone="danger">{$catalog.readError}</Notice>
           {:else if definition}
@@ -263,28 +305,49 @@
           <div class="actions">
             {#if !inProject && !pin}
               <Button
-                disabled={!definition ||
-                  $catalog.writing ||
-                  !$catalog.lists.project ||
-                  !!$catalog.lists.project.error}
+                disabled={!definition || $catalog.writing || !projectPins || !!projectPins.error}
+                help={$catalog.writing
+                  ? writingHelp
+                  : !projectPins
+                    ? 'Wait for the project pins to load.'
+                    : projectPins.error
+                      ? 'Refresh the list to retry reading project pins.'
+                      : !definition
+                        ? definitionHelp
+                        : 'Copy this version into the project so songs can use it.'}
                 onclick={browser.writePin}>pin to project</Button
               >
             {/if}
             {#if differs}
-              <Button disabled={!definition || $catalog.writing} onclick={browser.writePin}
-                >update project pin</Button
+              <Button
+                disabled={!definition || $catalog.writing}
+                help={$catalog.writing
+                  ? writingHelp
+                  : !definition
+                    ? definitionHelp
+                    : 'Replace the project’s pinned version with the global library version.'}
+                onclick={browser.writePin}>update project pin</Button
               >
             {/if}
             {#if !inProject && pin}
               <Button
+                help="Inspect the version saved in this project."
                 onclick={() => {
                   applyError = '';
                   browser.show('project', pin!.id);
                 }}>view project pin</Button
               >
             {:else if inProject}
-              <Button disabled={!selection || !definition || $catalog.writing} onclick={apply}
-                >apply to selection</Button
+              <Button
+                disabled={!selection || !definition || $catalog.writing}
+                help={$catalog.writing
+                  ? writingHelp
+                  : !selection
+                    ? selectionHelp
+                    : !definition
+                      ? definitionHelp
+                      : 'Apply this pin to the selected pattern. The edit stays unsaved.'}
+                onclick={apply}>apply to selection</Button
               >
             {/if}
           </div>
@@ -294,10 +357,7 @@
           {:else if inProject && $catalog.lists.library?.error}<p class="subtle">
               library comparison unavailable
             </p>{/if}
-          {#if inProject && !selection}<p class="subtle">
-              select a complete pattern expression in the editor, then open instruments to apply
-              this pin.
-            </p>{/if}
+          {#if inProject && !selection}<p class="subtle">{selectionHelp}</p>{/if}
           {#if $catalog.writing || applying}<p class="subtle" role="status">
               {applying ? 'applying to selection…' : 'saving project pin…'}
             </p>{/if}
@@ -316,6 +376,7 @@
       {/if}
     </section>
   </div>
+  <Help />
 </dialog>
 
 <style>
@@ -328,7 +389,11 @@
     background: var(--surface);
     color: var(--text);
     box-shadow: var(--shadow-pop);
-    overflow: auto;
+    overflow: hidden;
+  }
+  dialog[open] {
+    display: flex;
+    flex-direction: column;
   }
   dialog::backdrop {
     background: var(--modal-backdrop);
@@ -347,6 +412,7 @@
     justify-content: space-between;
   }
   header {
+    flex: none;
     padding: var(--space-3) var(--space-4);
     border-bottom: 1px solid var(--border);
   }
@@ -366,6 +432,7 @@
     display: grid;
     grid-template-columns: minmax(210px, 31%) minmax(0, 1fr);
     height: min(438px, 75vh);
+    min-height: 0;
   }
   .catalog,
   .inspector {
@@ -500,14 +567,19 @@
   }
   @media (max-width: 600px) {
     .panes {
-      display: flex;
-      flex-direction: column;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: max-content max-content;
       height: auto;
+      overflow-y: auto;
     }
     .catalog {
       border-right: 0;
       border-bottom: 1px solid var(--border);
       gap: var(--space-2);
+    }
+    .catalog,
+    .inspector {
+      overflow: visible;
     }
     ul {
       max-height: 100px;

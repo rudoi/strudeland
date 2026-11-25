@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { readable } from 'svelte/store';
   import type { App } from '../lib/app';
   import {
     blockPlayhead,
@@ -16,6 +17,8 @@
     rulerMarks,
     type InputField,
   } from '../lib/project/timeline';
+  import { takeRunning } from '../lib/recording/memo-ui';
+  import type { RecordingUiState } from '../lib/recording/types';
   import { authoredLoop, meterString } from '../lib/strudel/structure';
   import { canPlayEnding, type Located } from '../lib/strudel/transport';
   import { catOf } from '../lib/theme/tones';
@@ -29,10 +32,12 @@
   let { app }: { app: App } = $props();
   // `app` is constant for the window's lifetime, so reading it once is correct.
   // svelte-ignore state_referenced_locally
-  const { runtime, session } = app;
+  const { runtime, session, recording } = app;
   const rt = runtime.store;
   const tp = runtime.transport.store;
   const ss = session.store;
+  const rec = recording?.store ?? readable<RecordingUiState | null>(null);
+  const taking = $derived(takeRunning($rec?.phase ?? null));
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
   const structure = $derived(editableStructure($ss));
@@ -180,6 +185,15 @@
         class="ending"
         onclick={() => runtime.transport.playEnding()}
         disabled={!endingEnabled}
+        help={endingEnabled
+          ? 'Finish the loop pass, then play the ending once.'
+          : playingOther
+            ? 'The ending belongs to the song currently playing.'
+            : !$rt.started
+              ? 'Start song playback to reach its defined loop.'
+              : $tp.view.kind === 'release'
+                ? 'The ending is already queued or playing.'
+                : 'Available while the song plays through its defined loop.'}
       >
         play ending
       </Button>
@@ -207,29 +221,71 @@
                 {#snippet menu()}
                   <Menu open={menuFor === i} onclose={() => (menuFor = null)} class="section-menu">
                     {#if choosingEnd}
-                      <MenuItem onclick={() => showRangeOptions(false)}>back</MenuItem>
+                      <MenuItem
+                        help="Return to the section’s playback options."
+                        onclick={() => showRangeOptions(false)}>back</MenuItem
+                      >
                       {#each sections.slice(i + 1) as end, offset (end.name)}
+                        {@const range = resolveRange(i, i + offset + 1)}
                         <MenuItem
                           data-range-focus=""
-                          disabled={!resolveRange(i, i + offset + 1)}
+                          disabled={!range}
+                          help={!range
+                            ? 'Re-evaluate the song to use this section range.'
+                            : $rt.started
+                              ? 'Repeat through the selected end, starting at the next available bar line.'
+                              : taking
+                                ? 'Set this section range to repeat the next time the song plays.'
+                                : 'Start playback and repeat through the selected end.'}
                           onclick={() => armRange(i, i + offset + 1)}
                         >
                           through {end.name}
                         </MenuItem>
                       {/each}
                     {:else}
-                      <MenuItem disabled={!resolveRange(i)} onclick={() => arm(i, 'startFrom')}>
+                      {@const target = resolveRange(i)}
+                      <MenuItem
+                        disabled={!target}
+                        help={!target
+                          ? 'Re-evaluate the song to play this section.'
+                          : $rt.started
+                            ? 'Jump to this section at the next available bar line.'
+                            : taking
+                              ? 'Set this section as the starting point for the next play.'
+                              : 'Start song playback at the first bar of this section.'}
+                        onclick={() => arm(i, 'startFrom')}
+                      >
                         start here
                       </MenuItem>
-                      <MenuItem disabled={!resolveRange(i)} onclick={() => arm(i, 'loopSection')}>
+                      <MenuItem
+                        disabled={!target}
+                        help={!target
+                          ? 'Re-evaluate the song to loop this section.'
+                          : $rt.started
+                            ? 'Repeat this section starting at the next available bar line.'
+                            : taking
+                              ? 'Set this section to repeat the next time the song plays.'
+                              : 'Start playback and repeat this section.'}
+                        onclick={() => arm(i, 'loopSection')}
+                      >
                         loop this section
                       </MenuItem>
                       {#if i < sections.length - 1}
-                        <MenuItem data-range-focus="" onclick={() => showRangeOptions(true)}
-                          >loop through…</MenuItem
+                        <MenuItem
+                          data-range-focus=""
+                          help="Choose the last section to include in the loop."
+                          onclick={() => showRangeOptions(true)}>loop through…</MenuItem
                         >
                       {/if}
-                      <MenuItem onclick={stopLooping} disabled={$tp.view.kind !== 'loop'}>
+                      <MenuItem
+                        onclick={stopLooping}
+                        disabled={$tp.view.kind !== 'loop'}
+                        help={$tp.view.kind !== 'loop'
+                          ? 'There’s no temporary section loop to clear.'
+                          : $rt.started
+                            ? 'Return to the song’s normal playback at the next available bar line.'
+                            : 'Clear the temporary section loop for the next play.'}
+                      >
                         stop looping
                       </MenuItem>
                     {/if}
@@ -283,6 +339,7 @@
     <div class="inputs">
       <Field
         label="quarter-note bpm"
+        help="Set the tempo in quarter notes per minute. Applies on the next evaluation."
         size="sm"
         width="narrow"
         class="mono"
@@ -293,6 +350,9 @@
       />
       <Field
         label={structure.meterChanges ? 'starting meter' : 'meter'}
+        help={structure.meterChanges
+          ? 'Set the time signature before the first meter change, for example 4/4. Applies on the next evaluation.'
+          : 'Set the song’s time signature, for example 4/4. Applies on the next evaluation.'}
         size="sm"
         width="narrow"
         class="mono"
@@ -304,6 +364,7 @@
       {#if hasLoop}
         <Field
           label="loops"
+          help="Set how many times the defined loop plays in the song’s clip layout."
           size="sm"
           width="narrow"
           class="mono"
@@ -316,6 +377,7 @@
       {#each structure.sections as sec, i (i)}
         <Field
           label="{sec.name} bars"
+          help="Set this section’s length in whole bars. Applies on the next evaluation."
           size="sm"
           width="narrow"
           class="mono"

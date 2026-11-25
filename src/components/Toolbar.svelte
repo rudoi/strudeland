@@ -42,6 +42,16 @@
   });
   const meter = $derived(playingMeter ?? $rt.meter);
   const bpm = $derived(bpmFromCps($rt.cps, $rt.meter));
+  const stopHelp = $derived.by(() => {
+    if (taking) {
+      if ($recStore?.phase === 'starting') return 'Wait for the recording to start.';
+      if ($recStore?.phase === 'stopping') return 'The memo is already being saved.';
+      return 'End the recording and save it in this project.';
+    }
+    if (memoAudible) return 'Stop the memo and any song or metronome backing.';
+    if ($rt.started) return 'Stop song playback.';
+    return 'Playback is already stopped.';
+  });
 
   function stop() {
     if (taking && recording) void recording.stop();
@@ -65,16 +75,29 @@
     variant="primary"
     onclick={() => app.evaluateDoc()}
     disabled={taking}
-    title={taking ? 'recording a memo' : undefined}
+    help={taking
+      ? 'Finish the recording before evaluating the song.'
+      : $sessionState.active === null
+        ? 'Open a song to start playback.'
+        : $rt.started
+          ? 'Save edits and apply the open song’s code to playback.'
+          : 'Save edits and start playback from the open song’s code.'}
   >
     {$rt.started ? 're-evaluate' : 'play'}
   </Button>
-  <Button onclick={stop} disabled={!$rt.started && !taking && !memoAudible}>stop</Button>
+  <Button onclick={stop} disabled={!$rt.started && !taking && !memoAudible} help={stopHelp}>
+    stop
+  </Button>
   <Button
     data-piano-roll
     aria-controls="piano-roll-dock"
     aria-expanded={$prefs.pianoRollOpen && $sessionState.active !== null}
     disabled={$sessionState.active === null}
+    help={$sessionState.active === null
+      ? 'Open a song to inspect its notes.'
+      : $prefs.pianoRollOpen
+        ? 'Hide the note grid and give the code editor more room.'
+        : 'Show notes for the pattern you’re working on.'}
     onclick={(event) => {
       if ($prefs.pianoRollOpen) event.currentTarget.focus();
       void app.prefs.setPianoRollOpen(!$prefs.pianoRollOpen);

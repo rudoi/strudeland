@@ -24,6 +24,11 @@ change, link the relevant issue, and list the checks you ran. Include tests for 
 keep the diff focused. Review the [license](LICENSE) and
 [third-party notices](THIRD-PARTY-NOTICES.md) before contributing external material.
 
+When adding or reviewing hover and focus hints, follow [Writing contextual help](docs/writing-contextual-help.md).
+Give shared controls a `help` prop. [PianoRoll.svelte](src/components/PianoRoll.svelte) shows help
+derived from control state. Put the `helpTarget` action on the actual control for custom markup,
+as in the [master meter](src/components/ui/MasterMeter.svelte).
+
 ## Verify your changes
 
 Run the following checks from the repository root to match

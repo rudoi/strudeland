@@ -7,7 +7,6 @@ import { writable, type Writable } from 'svelte/store';
 import type { MemoPlayerState, PlayHow } from '../audio/memo-player';
 import type { Tone } from '../theme/tones';
 import { bpmFromCps, meterString, type Meter, type SongStructure } from '../strudel/structure';
-import { FIXED_METER_BACKING_MESSAGE } from './types';
 import type {
   BackingChoice,
   InputDevice,
@@ -54,12 +53,15 @@ export interface RecordButton {
   tone: Tone;
   variant: 'default' | 'primary';
   disabled: boolean;
-  title: string;
+  help: string;
   /** What a click does. */
   action: 'record' | 'stop' | null;
 }
 
-const button = (p: Partial<RecordButton> & Pick<RecordButton, 'title'>): RecordButton => {
+const DESKTOP_RECORDING_HELP = 'Microphone recording requires the desktop app.';
+const STOP_RECORDING_HELP = 'End the take and save the memo in this project.';
+
+const button = (p: Partial<RecordButton> & Pick<RecordButton, 'help'>): RecordButton => {
   const text = p.text ?? 'record';
   const mono = p.mono ?? null;
   return {
@@ -76,16 +78,16 @@ const button = (p: Partial<RecordButton> & Pick<RecordButton, 'title'>): RecordB
 };
 
 /** Why record is off in `idle`, from the error that put it there. */
-function idleTitle(state: RecordingUiState): string {
+function idleHelp(state: RecordingUiState): string {
   switch (state.error?.kind) {
     case 'permissionDenied':
-      return 'microphone access denied';
+      return 'Microphone access denied.';
     case 'noDevice':
-      return 'no input device found';
+      return 'No input device found.';
     case 'deviceLost':
-      return 'input device lost';
+      return 'Input device lost.';
     default:
-      return 'the microphone is not ready';
+      return 'The microphone is not ready.';
   }
 }
 
@@ -95,21 +97,22 @@ export function recordButton(
   hasProject: boolean,
   elapsedMs = 0,
 ): RecordButton {
-  if (!hasProject || state === null) return button({ title: 'open a project to record' });
+  if (state === null) return button({ help: DESKTOP_RECORDING_HELP });
+  if (!hasProject) return button({ help: 'Open a project to record.' });
   switch (state.phase) {
     case 'idle':
-      return button({ title: idleTitle(state) });
+      return button({ help: idleHelp(state) });
     case 'arming':
-      return button({ title: 'waiting for microphone access' });
+      return button({ help: 'Waiting for microphone access.' });
     case 'armed':
       return button({
         tone: 'danger',
         disabled: false,
-        title: 'record a memo',
+        help: 'Start a microphone take in this project with your selected backing.',
         action: 'record',
       });
     case 'starting':
-      return button({ tone: 'danger', title: 'starting the recording' });
+      return button({ tone: 'danger', help: 'Starting the recording.' });
     case 'count-in':
       return button({
         glyph: null,
@@ -117,7 +120,7 @@ export function recordButton(
         mono: state.countInBeat === null ? null : String(state.countInBeat),
         tone: 'danger',
         disabled: false,
-        title: 'stop recording',
+        help: STOP_RECORDING_HELP,
         action: 'stop',
       });
     case 'recording':
@@ -128,7 +131,7 @@ export function recordButton(
         tone: 'danger',
         variant: 'primary',
         disabled: false,
-        title: 'stop recording',
+        help: STOP_RECORDING_HELP,
         action: 'stop',
       });
     case 'stopping':
@@ -137,7 +140,7 @@ export function recordButton(
         text: 'saving…',
         tone: 'danger',
         variant: 'primary',
-        title: 'saving the memo',
+        help: 'Saving the memo.',
       });
   }
 }
@@ -191,7 +194,7 @@ export interface ToggleView {
   label: string;
   pressed: boolean;
   disabled: boolean;
-  title: string;
+  help: string;
 }
 
 /** The three toggles' views, in toolbar order. */
@@ -202,32 +205,46 @@ export function toggleViews(
   hasSong: boolean,
 ): ToggleView[] {
   const eff = effectiveBacking(choice, hasSong);
-  const off = !hasProject || phase === null || takeRunning(phase);
+  const blocker =
+    phase === null
+      ? DESKTOP_RECORDING_HELP
+      : !hasProject
+        ? 'Open a project to choose recording backing.'
+        : takeRunning(phase)
+          ? 'Finish the current take before changing its backing.'
+          : undefined;
+  const off = blocker !== undefined;
+  const hasBacking = eff.song || eff.metronome;
   return [
     {
       key: 'song',
       label: 'song',
       pressed: eff.song,
       disabled: off || !hasSong,
-      title: hasSong ? 'play the song while recording' : 'no song open',
+      help:
+        blocker ??
+        (hasSong
+          ? 'Hear the open song while recording.'
+          : 'Open a song to hear it while recording.'),
     },
     {
       key: 'metronome',
       label: 'metronome',
       pressed: eff.metronome,
       disabled: off,
-      title: 'play a click while recording; wear headphones so it is not recorded',
+      help: blocker ?? 'Hear a click while recording. Use headphones to keep it out of the take.',
     },
     {
       key: 'countIn',
       label: 'count-in',
       // Forced off shows the remembered value, dimmed by `disabled`.
       pressed: choice.countIn,
-      disabled: off || !(eff.song || eff.metronome),
-      title:
-        eff.song || eff.metronome
-          ? 'one bar of clicks before the take'
-          : 'needs the song or the metronome',
+      disabled: off || !hasBacking,
+      help:
+        blocker ??
+        (hasBacking
+          ? 'Hear one bar of clicks before the first downbeat.'
+          : 'Enable song or metronome backing to use a count-in.'),
     },
   ];
 }
@@ -414,10 +431,6 @@ const TEMPO_MATCH_EPSILON = 1e-6;
 export const tempoChanged = (memo: SidecarTempo, song: SongTempo): boolean =>
   !(Math.abs(song.cps - memo.cps) <= TEMPO_MATCH_EPSILON);
 
-/** The disabled song items' title. */
-export const tempoChangedTitle = (memo: SidecarTempo, song: SongTempo): string =>
-  `the song's tempo changed since this memo (${memoTempoText(memo)} → ${songTempoText(song)})`;
-
 /** The status-bar text when the song turned out to be at another tempo. */
 export const tempoNotice = (memo: SidecarTempo, song: SongTempo): string =>
   `memo was recorded at ${memoTempoText(memo)}; the song is now ${songTempoText(song)}`;
@@ -464,13 +477,14 @@ export function memoChips(e: RecordingEntry): MemoChip[] {
 }
 
 /** Playback is off while a take runs. */
-export const BUSY_TITLE = 'finish the recording first';
+const BUSY_PLAYBACK_HELP = 'Finish recording before playing a memo.';
+const NO_TIMING_HELP = 'This memo has no saved bar position.';
 
 export interface MemoRowView {
   /** Loading or playing. */
   active: boolean;
   disabled: boolean;
-  title: string;
+  help: string;
   /** What a click does. */
   action: 'play' | 'stop';
 }
@@ -483,17 +497,30 @@ export function memoRow(
 ): MemoRowView {
   const active =
     (player.status === 'loading' || player.status === 'playing') && player.stem === stem;
-  if (active) return { active, disabled: false, title: `stop ${stem}`, action: 'stop' };
+  if (active) {
+    return {
+      active,
+      disabled: false,
+      help: 'Stop this memo and any backing it started.',
+      action: 'stop',
+    };
+  }
   const busy = takeRunning(phase);
-  return { active, disabled: busy, title: busy ? BUSY_TITLE : `play ${stem}`, action: 'play' };
+  return {
+    active,
+    disabled: busy,
+    help: busy
+      ? BUSY_PLAYBACK_HELP
+      : 'Play this recording on its own, stopping any song already playing.',
+    action: 'play',
+  };
 }
 
 export interface PlayItemView {
   how: Exclude<PlayHow, 'alone'>;
   label: string;
   disabled: boolean;
-  /** Why it is disabled; undefined when enabled. */
-  title: string | undefined;
+  help: string;
 }
 
 /** The row menu's play items, in order. `song` is null without an open song. */
@@ -502,33 +529,43 @@ export function memoPlayItems(
   song: SongTempo | null,
   phase: RecordingPhase | null,
 ): PlayItemView[] {
-  const busy = takeRunning(phase);
-  const timing = hasTiming(e);
-  const songWhy = (): string | undefined => {
-    if (busy) return BUSY_TITLE;
-    if (!timing) return 'no bar position saved';
-    if (song === null) return 'no song open';
-    if (song.mixedMeter) return FIXED_METER_BACKING_MESSAGE;
+  const metronomeBlocker = takeRunning(phase)
+    ? BUSY_PLAYBACK_HELP
+    : hasTiming(e)
+      ? undefined
+      : NO_TIMING_HELP;
+  function songWhy(): string | undefined {
+    if (metronomeBlocker) return metronomeBlocker;
+    if (song === null) return 'Open a song to play it with this memo.';
+    if (song.mixedMeter) return 'Song backing requires a fixed time signature.';
     // A `setcps` take's tempo is the evaluated one; playing checks it after the evaluate.
     const memo = e.sidecar!.tempo;
-    if (!memo.tempoOverride && tempoChanged(memo, song)) return tempoChangedTitle(memo, song);
+    if (!memo.tempoOverride && tempoChanged(memo, song)) {
+      return `The song’s tempo changed since this memo (${memoTempoText(memo)} → ${songTempoText(song)}).`;
+    }
     return undefined;
-  };
-  const metronomeWhy = busy ? BUSY_TITLE : timing ? undefined : 'no bar position saved';
-  const songTitle = songWhy();
+  }
+  const songBlocker = songWhy();
   return [
     {
       how: 'metronome',
       label: 'play with metronome',
-      disabled: metronomeWhy !== undefined,
-      title: metronomeWhy,
+      disabled: metronomeBlocker !== undefined,
+      help:
+        metronomeBlocker ??
+        'Play the memo against clicks at the recorded tempo and time signature.',
     },
-    { how: 'song', label: 'play with song', disabled: songTitle !== undefined, title: songTitle },
+    {
+      how: 'song',
+      label: 'play with song',
+      disabled: songBlocker !== undefined,
+      help: songBlocker ?? 'Align the memo’s saved downbeat to the open song.',
+    },
     {
       how: 'song+metronome',
       label: 'play with song and metronome',
-      disabled: songTitle !== undefined,
-      title: songTitle,
+      disabled: songBlocker !== undefined,
+      help: songBlocker ?? 'Align the memo’s saved downbeat to the open song and a click track.',
     },
   ];
 }

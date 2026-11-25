@@ -193,3 +193,27 @@ test('setState with a new editor state keeps keymap and hooks working', () => {
   expect(first.fired).toEqual([]);
   view.destroy();
 });
+
+test('editor help describes the real slider without hiding its control or changing its edit', async () => {
+  const { updateSliderWidgets } = await import('@strudel/codemirror');
+  const { runtime } = fakeRuntime();
+  const view = createEditor(document.body, 'slider(0.5)', runtime);
+  const description = (element: HTMLElement) =>
+    document.getElementById(element.getAttribute('aria-describedby') ?? '')?.textContent;
+
+  expect(description(view.contentDOM)).toContain('evaluate and play');
+  updateSliderWidgets(view, [{ type: 'slider', from: 7, to: 10, value: '0.5', min: 0, max: 1 }]);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  const slider = view.dom.querySelector<HTMLInputElement>('.cm-slider input')!;
+  expect(slider.parentElement?.hasAttribute('aria-hidden')).toBe(false);
+  expect(slider.getAttribute('aria-label')).toBe('Pattern slider');
+  expect(description(slider)).toBe('Change the value in your code and the evaluated pattern.');
+  slider.value = '0.7';
+  slider.dispatchEvent(new Event('input'));
+  expect(view.state.doc.toString()).toBe('slider(0.7)');
+
+  const id = slider.getAttribute('aria-describedby')!;
+  view.destroy();
+  expect(document.getElementById(id)).toBeNull();
+});
