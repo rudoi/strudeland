@@ -154,7 +154,11 @@ test('consumer proof checks operators, binding flow, widths, plain strings and s
 
 test('grid source moves and resizes across rows, retains trivia, and releases holds into silence', () => {
   const code = "const line=noteGrid([ 'c4:0.30   _  ~ ~', // row 1\n  '~ ~  ~ _', ]);";
-  const moved = edited(code, 'c4:', { kind: 'move', id: 'grid-0', start: '3/4' });
+  const gesture = { kind: 'move', id: 'grid-0', start: '3/4' } as const;
+  const owner = target(code, 'c4:')!;
+  const patches = planRollEdit(code, owner.expression, gesture)!;
+  expect(patches.find(({ reveal }) => reveal)?.insert).toBe('c4:0.30');
+  const moved = edited(code, 'c4:', gesture);
   expect(moved).toBe("const line=noteGrid([ '~   _  ~ c4:0.30', // row 1\n  '_ ~  ~ _', ]);");
   const resized = edited(moved, 'c4:', { kind: 'resize', id: 'grid-3', end: '3/2' });
   expect(resized).toBe(moved.replace("'_ ~  ~ _'", "'_ _  ~ _'"));

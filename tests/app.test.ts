@@ -10,6 +10,9 @@ const { redo, undo } = await import('@codemirror/commands');
 const { EditorSelection, EditorState, StateEffect } = await import('@codemirror/state');
 const { EditorView: EditorViewExtension } = await import('@codemirror/view');
 const { pianoRollEditHighlight, pianoRollEditLocation } = await import('../src/lib/editor/visuals');
+const { planEventEdit, preparePhraseEvents } = await import('../src/lib/piano-roll/event-source');
+const { resolvePostEditTarget } = await import('../src/lib/piano-roll/feedback');
+const { resolveRollTarget } = await import('../src/lib/piano-roll/source');
 const { get } = await import('svelte/store');
 const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
@@ -137,6 +140,61 @@ describe('createApp', () => {
     focused.remove();
     app.destroy();
   });
+
+  test.each([
+    ['ASI semicolon', 'const lead = note(60)\nlead', ';('],
+    ['shorthand property', 'const lead = note(60)\nsong(meta, { lead })', 'lead: ('],
+  ])(
+    'retains the saved event scope after rewriting %s syntax',
+    async (_name, code, addedPrefix) => {
+      const { app, view } = await setup();
+      const from = code.lastIndexOf('lead');
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: code },
+        selection: { anchor: from, head: from + 4 },
+      });
+      const snapshot = app.session.pianoRollSnapshot()!;
+      const authored = resolveRollTarget(snapshot.code, snapshot.selection!)!;
+      const [note] = preparePhraseEvents(authored.phrase!.notes, authored.phrase!.bars);
+      const scope = { kind: 'expression', expression: authored.expression } as const;
+      const patches = planEventEdit(code, scope, note!, {
+        kind: 'pitch',
+        id: note!.id,
+        pitch: 64,
+      })!;
+      expect(patches[0]?.insert).toBe(addedPrefix);
+
+      const result = app.session.editPianoRoll(snapshot, patches, authored.expression)!;
+      const inside = from + addedPrefix.length;
+      expect(result.targetCaret).toBe(inside);
+      expect(result.snapshot.selection).toEqual({
+        from: inside,
+        to: inside + 4,
+      });
+      expect(resolveRollTarget(result.snapshot.code, result.target!)).toBeNull();
+      const wrapped = resolvePostEditTarget(result, true);
+      expect(wrapped?.phrase).toBeUndefined();
+      expect(result.snapshot.code.slice(wrapped!.expression.from, wrapped!.expression.to)).toMatch(
+        /^\(lead\)\._pianoEdits\(/,
+      );
+      expect(resolvePostEditTarget(result, false)).toBeNull();
+
+      const repeated = planEventEdit(
+        result.snapshot.code,
+        { ...scope, expression: wrapped!.expression },
+        note!,
+        {
+          kind: 'pitch',
+          id: note!.id,
+          pitch: 65,
+        },
+      );
+      expect(repeated).toHaveLength(1);
+      expect(repeated?.[0]?.insert).toContain('key: 65');
+      expect(repeated?.[0]?.insert).not.toContain('._pianoEdits(');
+      app.destroy();
+    },
+  );
 
   test('a changed instrument snapshot invalidates live piano roll parity', async () => {
     const { app, fake } = await setup();

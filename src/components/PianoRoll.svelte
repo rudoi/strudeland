@@ -5,10 +5,20 @@
   import type { PianoRollSnapshot } from '../lib/project/session';
   import { takeRunning } from '../lib/recording/memo-ui';
   import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
-  import { planRollEdit, resolveRollTarget, targetsDefinition } from '../lib/piano-roll/source';
+  import {
+    planRollEdit,
+    resolveRollTarget,
+    rollSourceHasSyntax,
+    targetsDefinition,
+  } from '../lib/piano-roll/source';
   import { planEventEdit, preparePhraseEvents } from '../lib/piano-roll/event-source';
   import { cycleNumber } from '../lib/piano-roll/grid';
-  import { notePosition, projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
+  import {
+    projectRollEdit,
+    reconcileRollNotes,
+    resolvePostEditTarget,
+    sourceEditFeedback,
+  } from '../lib/piano-roll/feedback';
   import type {
     InspectionRequest,
     RollBar,
@@ -43,8 +53,13 @@
   let shared = $state.raw<{ context: string; name: string } | null>(null);
   let approvedDraft = $state.raw<{ song: string; code: string }>();
   let retained = $state.raw<{ snapshot: PianoRollSnapshot; target: RollTarget }>();
-  let optimistic = $state.raw<{ key: string; notes: readonly RollNote[] }>();
-  let feedback = $state.raw<{ key: string; notes: readonly ReturnType<typeof notePosition>[] }>();
+  let lastContext = $state.raw<{ song: string; label: string }>();
+  let optimistic = $state.raw<{
+    key: string;
+    notes: readonly RollNote[];
+    edited: ReadonlySet<string>;
+  }>();
+  let feedback = $state.raw<{ key: string; edited: ReadonlySet<string> }>();
   let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
   let notice = $state('');
   let contributors = $state.raw<{ spans: readonly SourceSpan[]; section?: Section } | null>(null);
@@ -66,6 +81,18 @@
     )
       return retained.target;
     return resolveRollTarget(snapshot.code, snapshot.selection);
+  });
+  const incompleteContext = $derived(
+    !target &&
+      snapshot?.selection &&
+      lastContext?.song === songKey &&
+      !rollSourceHasSyntax(snapshot.code)
+      ? lastContext.label
+      : undefined,
+  );
+  $effect(() => {
+    if (target) lastContext = { song: songKey, label: target.label };
+    else if (!snapshot?.selection || rollSourceHasSyntax(snapshot.code)) lastContext = undefined;
   });
   const structure = $derived($song.structure);
   const definition = $derived(target?.definition);
@@ -186,6 +213,9 @@
     );
   });
   const response = $derived($inspected?.request === request ? $inspected : null);
+  const staleEdits = $derived(
+    response?.phase === 'ready' ? (response.result.staleEdits?.length ?? 0) : 0,
+  );
   const inspectionNotes = $derived(
     response?.phase === 'ready' ? response.result.notes : emptyNotes,
   );
@@ -216,7 +246,11 @@
   const showingOptimistic = $derived(
     !phrase && response?.phase !== 'ready' && optimistic?.key === gestureKey,
   );
-  const notes = $derived(showingOptimistic ? (optimistic?.notes ?? emptyNotes) : preparedNotes);
+  const notes = $derived.by(() => {
+    if (phrase || optimistic?.key !== gestureKey) return preparedNotes;
+    if (showingOptimistic) return optimistic.notes;
+    return reconcileRollNotes(optimistic.notes, preparedNotes, optimistic.edited);
+  });
   const omitted = $derived(baseNotes.length - preparedNotes.length);
   const sourceMatches = $derived(mode === 'song' && notes.some((note) => note.sourceMatch));
   const auditionSound = $derived.by(() => {
@@ -339,13 +373,17 @@
     const previousGridRow = target.gridRow;
     const wasApproved = matchesLive || draftApproved;
     const previousContext = contextKey;
+    const wrappedTarget =
+      !direct &&
+      mode === 'expression' &&
+      expression.from === target.expression.from &&
+      expression.to === target.expression.to;
     const result = session.editPianoRoll(snapshot, patches, target.expression);
     if (!result) {
       notice = 'The editor changed during this edit.';
       return false;
     }
-    const mapped = result.target;
-    const nextTarget = mapped && resolveRollTarget(result.snapshot.code, mapped);
+    const nextTarget = resolvePostEditTarget(result, wrappedTarget);
     if (nextTarget) {
       retained = {
         snapshot: result.snapshot,
@@ -357,8 +395,12 @@
     if (shared?.context === previousContext) shared = { ...shared, context: contextKey };
     goToPage(previousPage);
     if (wasApproved) approvedDraft = { song: songKey, code: result.snapshot.code };
-    optimistic = { key: gestureKey, notes: preview.notes };
-    feedback = { key: gestureKey, notes: preview.edited.map(notePosition) };
+    const edited = new Set(preview.edited.map(({ id }) => id));
+    optimistic = direct ? undefined : { key: gestureKey, notes: preview.notes, edited };
+    feedback = {
+      key: gestureKey,
+      edited: direct ? sourceEditFeedback(preview.notes, preparedNotes, edited) : edited,
+    };
     clearTimeout(feedbackTimer);
     feedbackTimer = setTimeout(clearFeedback, 850);
     notice = '';
@@ -420,7 +462,7 @@
       </div>
     {/if}
   </div>
-  {#if mode === 'expression' && definition?.phrase && (definition.uses.length || definition.incomplete) && snapshot}
+  {#if mode === 'expression' && definition && (definition.uses.length || definition.incomplete) && snapshot}
     <div class="shared">
       {#if !definitionMode && !inDefinition}
         <Button size="sm" onclick={openDefinition}>Edit shared definition</Button>
@@ -443,7 +485,9 @@
   {/if}
   {#if !target}
     <p class="roll-status" role="status">
-      Place the caret inside a pitched pattern or select an expression.
+      {incompleteContext
+        ? `Finish the code edit to return to ${incompleteContext}.`
+        : 'Place the caret inside a pitched pattern or select an expression.'}
     </p>
   {:else if needsInspection && !rollInspection.available && !showingOptimistic}
     <p class="roll-status" role="status">
@@ -468,6 +512,13 @@
     {#if response?.phase === 'error'}<p class="roll-status" role="status">
         {response.message}
       </p>{/if}
+    {#if staleEdits}
+      <p class="roll-status compact" role="status">
+        {staleEdits}
+        {staleEdits === 1 ? 'saved edit no longer matches' : 'saved edits no longer match'}
+        the pattern.
+      </p>
+    {/if}
     {#if sourceMatches || omitted || (response?.phase === 'ready' && response.result.truncated) || !notes.length}
       <p class="roll-status compact" role="status">
         {sourceMatches ? 'Source matches outlined' : ''}{omitted
@@ -499,11 +550,7 @@
       {gestureKey}
       focusedBar={mode === 'expression' ? target.gridRow : undefined}
       gridSteps={mode === 'expression' ? target.gridSteps : undefined}
-      isFlashing={(note) =>
-        Boolean(
-          feedback?.key === gestureKey &&
-          feedback.notes.some((position) => sameRollPosition(note, position)),
-        )}
+      isFlashing={(note) => feedback?.key === gestureKey && feedback.edited.has(note.id)}
       oncancel={() => (notice = 'The editor changed during this edit.')}
       insertable={editTarget !== undefined && phrase?.insertable === true}
       {playhead}

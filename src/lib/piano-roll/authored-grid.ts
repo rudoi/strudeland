@@ -182,6 +182,7 @@ function createGrid(
       {
         id: `grid-${start}`,
         pitch: tone.midi,
+        glideBend: tone.bend,
         start: Fraction(start).div(score.width).toFraction(),
         end: Fraction(end).div(score.width).toFraction(),
         origin: { from, to: from + tone.spelling.length },
@@ -477,7 +478,14 @@ export function planGridEdit(
         insert: text.slice(0, text.length - suffixLength),
       });
     } else {
-      patches.push({ ...range, insert: text });
+      patches.push({
+        ...range,
+        insert: text,
+        ...((edit.kind === 'move' || edit.kind === 'insert' || edit.kind === 'delete') &&
+        slot === start
+          ? { reveal: true }
+          : {}),
+      });
     }
   }
   if (!patches.length) return null;

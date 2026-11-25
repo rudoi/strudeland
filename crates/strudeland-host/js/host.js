@@ -25290,6 +25290,115 @@ Please check with "npm ls @strudel/core".`);
   }
   globalThis._strudelLoaded = true;
 
+  // src/lib/strudel/song.ts
+  var segmentSource = () => INITIAL_SEGMENTS;
+  var registered = null;
+  var songPlacement = Symbol("written song placement");
+  var observingPlacement = false;
+  function withSongPlacement(query) {
+    const previous = observingPlacement;
+    observingPlacement = true;
+    try {
+      return query();
+    } finally {
+      observingPlacement = previous;
+    }
+  }
+  function setSegmentSource(get) {
+    segmentSource = get;
+  }
+  function beginEvaluate() {
+    registered = null;
+  }
+  function registeredStructure() {
+    return registered;
+  }
+  function structureOf(meta) {
+    if (!isPlainObject(meta))
+      throw new Error("song: the first argument must be the meta object");
+    let structure;
+    try {
+      structure = buildStructure(meta);
+    } catch (e) {
+      if (e instanceof StructureError)
+        throw new Error(`song: ${e.message}`);
+      throw e;
+    }
+    if (structure.sections.length === 0) {
+      throw new Error("song: meta.sections is required, e.g. [{ name: 'intro', bars: 4 }]");
+    }
+    return structure;
+  }
+  function partsOf(structure, parts) {
+    if (!isPlainObject(parts)) {
+      throw new Error("song: the second argument must be an object of parts, e.g. { intro: pat }");
+    }
+    const names = new Set(structure.sections.map((s2) => s2.name));
+    for (const key of Object.keys(parts)) {
+      if (!names.has(key))
+        throw new Error(`song: part '${key}' is not a section in meta.sections`);
+    }
+    return structure.sections.map((s2) => {
+      const part = Object.prototype.hasOwnProperty.call(parts, s2.name) ? parts[s2.name] : undefined;
+      if (part === undefined)
+        throw new Error(`song: no part for section '${s2.name}'`);
+      return reify(part);
+    });
+  }
+  function register2(structure) {
+    if (registered && !sameStructure(registered, structure)) {
+      throw new Error("song: one structure per song");
+    }
+    registered ??= structure;
+  }
+  function song(meta, parts) {
+    const structure = structureOf(meta);
+    const pats = partsOf(structure, parts);
+    register2(structure);
+    return new Pattern((state2) => {
+      const segments = state2.controls?._segments ?? segmentSource();
+      const end2 = state2.span.end;
+      if (end2.lt(0) || end2.eq(0) && state2.span.begin.lt(0))
+        return [];
+      let g = state2.span.begin.lt(0) ? fraction_default(0) : state2.span.begin;
+      const haps = [];
+      do {
+        const cycle = g.floor().valueOf();
+        const located = locate(cycle, structure, segments);
+        const boundary = pieceEnd(cycle, structure, segments, located);
+        const to = boundary === Infinity ? end2 : end2.min(fraction_default(boundary));
+        if (to.lte(g) && g.lt(end2))
+          throw new Error("song: transport segments must start at whole cycles");
+        if (located === null) {
+          if (boundary === Infinity)
+            break;
+        } else {
+          const offset3 = cycle - located.localCycle;
+          const bars = structure.sections[located.section].bars;
+          const occurrence = new TimeSpan(offset3, offset3 + bars);
+          const piece = new TimeSpan(g, to);
+          const local = state2.setSpan(new TimeSpan(g.sub(offset3), to.sub(offset3)));
+          for (const hap2 of pats[located.section].query(local)) {
+            const shifted = hap2.withSpan((span) => span.withTime((t) => t.add(offset3)));
+            const part = shifted.part.intersection(piece);
+            if (!part)
+              continue;
+            let whole;
+            if (shifted.whole) {
+              whole = shifted.whole.intersection(occurrence);
+              if (!whole)
+                continue;
+            }
+            const context = observingPlacement ? { ...hap2.context, [songPlacement]: whole ?? part } : hap2.context;
+            haps.push(new Hap(whole, part, hap2.value, context, hap2.stateful));
+          }
+        }
+        g = to;
+      } while (g.lt(end2));
+      return haps;
+    });
+  }
+
   // src/lib/levels/levels.ts
   function mergeFrames(a, b) {
     return {
@@ -25337,7 +25446,7 @@ Please check with "npm ls @strudel/core".`);
     const haps = [];
     const mixedMeter = !!structure.meterChanges?.length;
     const painters = state2.controls.painters;
-    const registered = mixedMeter && painters ? new Map : undefined;
+    const registered2 = mixedMeter && painters ? new Map : undefined;
     do {
       const to = Math.min(end2, clock.nextMeterBoundary(from));
       const localCps = cpsAtMeter(referenceCps, structure.meter, clock.meterAt(from));
@@ -25346,17 +25455,17 @@ Please check with "npm ls @strudel/core".`);
         _cps: localCps,
         _mixedMeter: mixedMeter
       });
-      if (registered)
+      if (registered2)
         piece.controls.painters = [];
       const result = pattern3.query(piece);
-      if (registered) {
+      if (registered2) {
         const occurrences = new Map;
         for (const painter of piece.controls.painters) {
           const count = (occurrences.get(painter) ?? 0) + 1;
           occurrences.set(painter, count);
-          if (count > (registered.get(painter) ?? 0)) {
+          if (count > (registered2.get(painter) ?? 0)) {
             painters.push(painter);
-            registered.set(painter, count);
+            registered2.set(painter, count);
           }
         }
       }
@@ -28992,7 +29101,37 @@ Please check with "npm ls @strudel/core".`);
   // src/lib/strudel/seed.ts
   var applySeed = (pattern3, seed2) => seed2 === undefined ? pattern3 : pattern3.seed(seed2);
 
+  // src/lib/strudel/note-name.ts
+  var SHARP = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"];
+  var FLAT = ["c", "db", "d", "eb", "e", "f", "gb", "g", "ab", "a", "bb", "b"];
+  function spellNote(pitch, old = "") {
+    const octave2 = Math.floor(pitch / 12) - 1;
+    const style = /^[a-g][bf]/i.test(old) ? FLAT : SHARP;
+    let name = style[(pitch % 12 + 12) % 12];
+    if (old[1] === "s")
+      name = name.replace("#", "s");
+    if (old[1]?.toLowerCase() === "f" && name.length > 1)
+      name = name[0] + "f";
+    if (/^[A-G]/.test(old))
+      name = name[0].toUpperCase() + name.slice(1);
+    return name + octave2;
+  }
+
   // src/lib/strudel/event-edits.ts
+  var reporting;
+  function withReports(sink, query) {
+    const previous = reporting;
+    reporting = sink;
+    try {
+      return query();
+    } finally {
+      reporting = previous;
+    }
+  }
+  function inspectEventEdits(query) {
+    const sink = new Set;
+    return { value: withReports(sink, query), staleEdits: [...sink] };
+  }
   var marker = Symbol("piano edit");
   var EDGE = /^-?\d{1,24}(?:\/[1-9]\d{0,23})?$/;
   var fraction2 = (v2) => typeof v2 === "string" && EDGE.test(v2) && Math.abs(Number(fraction_default(v2))) <= 1000128;
@@ -29007,6 +29146,7 @@ Please check with "npm ls @strudel/core".`);
     "count",
     "continuous",
     "period",
+    "placement",
     "capture",
     "to",
     "key",
@@ -29018,7 +29158,7 @@ Please check with "npm ls @strudel/core".`);
       throw new Error("piano edits: expected a bounded entries list");
     const ids = new Set;
     for (const e of spec.entries) {
-      if (!record(e) || Object.keys(e).some((k) => !fields.has(k)) || typeof e.id !== "string" || !/^[a-zA-Z0-9_-]{1,40}$/.test(e.id) || ids.has(e.id) || !Array.isArray(e.from) || e.from.length !== 2 || !e.from.every(fraction2) || !fraction_default(e.from[0]).lt(fraction_default(e.from[1])) || !finite(e.pitch) || e.voice !== undefined && (typeof e.voice !== "string" || e.voice.length > 2048) || e.count !== undefined && (!Number.isSafeInteger(e.count) || Number(e.count) < 1 || Number(e.count) > 16384) || e.index !== undefined && (!Number.isSafeInteger(e.index) || Number(e.index) < 0 || Number(e.index) >= Number(e.count ?? 1)) || e.to !== undefined && !fraction2(e.to) || e.until !== undefined && (!fraction2(e.until) || !fraction_default(e.until).gt(fraction_default(e.to ?? e.from[0]))) || e.period !== undefined && (!Number.isSafeInteger(e.period) || Number(e.period) < 1 || Number(e.period) > 1024 || e.until !== undefined && Number(fraction_default(e.until).sub(fraction_default(e.to ?? e.from[0]))) > Number(e.period) * 128) || e.key !== undefined && !finite(e.key) || e.remove !== undefined && typeof e.remove !== "boolean" || e.continuous !== undefined && typeof e.continuous !== "boolean" || e.capture !== undefined && boundedData(e.capture) === undefined)
+      if (!record(e) || Object.keys(e).some((k) => !fields.has(k)) || typeof e.id !== "string" || !/^[a-zA-Z0-9_-]{1,40}$/.test(e.id) || ids.has(e.id) || !Array.isArray(e.from) || e.from.length !== 2 || !e.from.every(fraction2) || !fraction_default(e.from[0]).lt(fraction_default(e.from[1])) || !finite(e.pitch) || e.placement !== undefined && e.placement !== "song" && e.placement !== "absolute" || e.voice !== undefined && (typeof e.voice !== "string" || e.voice.length > 2048) || e.count !== undefined && (!Number.isSafeInteger(e.count) || Number(e.count) < 1 || Number(e.count) > 16384) || e.index !== undefined && (!Number.isSafeInteger(e.index) || Number(e.index) < 0 || Number(e.index) >= Number(e.count ?? 1)) || e.to !== undefined && !fraction2(e.to) || e.until !== undefined && (!fraction2(e.until) || !fraction_default(e.until).gt(fraction_default(e.to ?? e.from[0]))) || e.period !== undefined && (!Number.isSafeInteger(e.period) || Number(e.period) < 1 || Number(e.period) > 1024 || e.until !== undefined && Number(fraction_default(e.until).sub(fraction_default(e.to ?? e.from[0]))) > Number(e.period) * 128) || e.key !== undefined && !finite(e.key) || e.remove !== undefined && typeof e.remove !== "boolean" || e.continuous !== undefined && typeof e.continuous !== "boolean" || e.capture !== undefined && boundedData(e.capture) === undefined)
         throw new Error("piano edits: invalid or repeated event entry");
       ids.add(e.id);
     }
@@ -29045,32 +29185,49 @@ Please check with "npm ls @strudel/core".`);
       return;
     return value;
   }
-  function eventPitch(value, primitive) {
-    if (primitive && finite(value))
+  function frequency(value) {
+    if (typeof value !== "number" && typeof value !== "string")
+      return;
+    const hz = Number(value);
+    return finite(hz) && hz > 0 ? hz : undefined;
+  }
+  function scalarPitch(value) {
+    if (finite(value))
       return value;
-    if (primitive && typeof value === "string" && isNote(value))
-      return noteToMidi(value);
+    if (typeof value !== "string" || !isNote(value))
+      return;
+    const midi = noteToMidi(value);
+    return finite(midi) ? midi : undefined;
+  }
+  function octaveOffset(value) {
+    return typeof value === "number" || typeof value === "string" ? 12 * Number(value) : 0;
+  }
+  function eventPitch(value, primitive) {
     if (!record(value))
+      return primitive ? scalarPitch(value) : undefined;
+    const hz = frequency(value.freq);
+    const base2 = hz === undefined ? scalarPitch(value.note) : freqToMidi(hz);
+    if (base2 === undefined)
       return;
-    const { note: note2, freq: freq2, octave: octave2 } = value;
-    const pitch = Number(freq2) > 0 && Number.isFinite(Number(freq2)) ? freqToMidi(Number(freq2)) : finite(note2) ? note2 : typeof note2 === "string" && isNote(note2) ? noteToMidi(note2) : undefined;
-    if (pitch === undefined)
-      return;
-    const midi = pitch + 12 * Number(octave2 ?? 0);
-    return Number.isFinite(midi) ? midi : undefined;
+    const midi = base2 + octaveOffset(value.octave);
+    return finite(midi) ? midi : undefined;
   }
   function retune(value, pitch) {
     if (pitch === undefined)
       return value;
     if (!record(value))
-      return pitch;
-    const base2 = pitch - 12 * Number(value.octave ?? 0);
-    return Number(value.freq) > 0 ? { ...value, freq: midiToFreq2(base2) } : { ...value, note: base2 };
+      return typeof value === "string" && Number.isInteger(pitch) ? spellNote(pitch, value) : pitch;
+    const base2 = pitch - octaveOffset(value.octave);
+    if (frequency(value.freq) !== undefined)
+      return { ...value, freq: midiToFreq2(base2) };
+    if (typeof value.note === "string" && Number.isInteger(base2))
+      return { ...value, note: spellNote(base2, value.note) };
+    return { ...value, note: base2 === 0 ? "c-1" : base2 };
   }
   function voiceOf(value, detailed = false) {
     if (!record(value))
       return typeof value;
-    const kind = Number(value.freq) > 0 ? "freq" : "note";
+    const kind = frequency(value.freq) !== undefined ? "freq" : "note";
     if (!detailed) {
       return JSON.stringify([kind, value.s ?? null, value.orbit ?? null, value.label ?? null]);
     }
@@ -29093,7 +29250,7 @@ Please check with "npm ls @strudel/core".`);
     });
   }
   var spanOf = (hap2) => hap2.whole ?? hap2.part;
-  var sameSpan = (a, b) => a.begin.eq(b.begin) && a.end.eq(b.end);
+  var placementOf = (hap2) => hap2.context?.[songPlacement]?.equals(spanOf(hap2)) ? "song" : "absolute";
   function identifyEvent(hap2, siblings, primitive, stochastic) {
     const pitch = eventPitch(hap2.value, primitive);
     if (pitch === undefined || hap2.stateful)
@@ -29102,8 +29259,9 @@ Please check with "npm ls @strudel/core".`);
     const from = [arc.begin.toFraction(), arc.end.toFraction()];
     if (!from.every(fraction2) || !arc.begin.lt(arc.end))
       return;
+    const placement = primitive ? undefined : placementOf(hap2);
     let voice2 = voiceOf(hap2.value);
-    const simultaneous = siblings.filter((h2) => !!h2.whole === !!hap2.whole && sameSpan(spanOf(h2), arc) && h2.part.begin.lte(hap2.part.begin) && h2.part.end.gte(hap2.part.begin) && (!h2.part.end.eq(hap2.part.begin) || h2.part.begin.eq(hap2.part.begin)));
+    const simultaneous = siblings.filter((h2) => (placement === undefined || placementOf(h2) === placement) && !!h2.whole === !!hap2.whole && spanOf(h2).equals(arc) && soundingAt(h2, hap2.part.begin));
     let lane = simultaneous.filter((h2) => voiceOf(h2.value) === voice2);
     if (lane.length > 1) {
       voice2 = voiceOf(hap2.value, true);
@@ -29125,6 +29283,7 @@ Please check with "npm ls @strudel/core".`);
       from,
       pitch,
       voice: voice2,
+      ...placement ? { placement } : {},
       ...same.length > 1 ? { index, count: same.length } : {},
       ...!hap2.whole ? { continuous: true } : {},
       ...capture !== undefined ? { capture } : {},
@@ -29132,7 +29291,7 @@ Please check with "npm ls @strudel/core".`);
     };
   }
   function candidates(haps, e, whole, continuous = false) {
-    return haps.filter((h2) => (continuous ? !h2.whole : h2.whole && sameSpan(h2.whole, whole)) && (e.voice === undefined || voiceOf(h2.value, e.voice.startsWith("=")) === e.voice));
+    return haps.filter((h2) => (e.placement === undefined || placementOf(h2) === e.placement) && (continuous ? !h2.whole : h2.whole && h2.whole.equals(whole)) && (e.voice === undefined || voiceOf(h2.value, e.voice.startsWith("=")) === e.voice));
   }
   function pick3(group, e, canonical) {
     if (canonical) {
@@ -29149,17 +29308,52 @@ Please check with "npm ls @strudel/core".`);
     if (e.capture !== undefined && group.length === 1)
       return group[0];
   }
-  function verifyEventOrigin(observation, identity, haps) {
+  function soundingAt(hap2, time3) {
+    return hap2.part.begin.eq(time3) || hap2.part.begin.lt(time3) && hap2.part.end.gt(time3);
+  }
+  function selectedParts(group, entry, canonical) {
+    if (group.length <= 1) {
+      const matched = pick3(group, entry, canonical);
+      return matched ? [matched] : [];
+    }
+    const ordered = [...group].sort((a, b) => a.part.begin.compare(b.part.begin));
+    const selected = new Set;
+    let active = [];
+    for (let i3 = 0;i3 < ordered.length; ) {
+      const at2 = ordered[i3].part.begin;
+      active = active.filter((h2) => soundingAt(h2, at2));
+      do {
+        active.push(ordered[i3++]);
+      } while (i3 < ordered.length && ordered[i3].part.begin.eq(at2));
+      const matched = pick3(active, entry, canonical);
+      if (matched && matched.part.begin.eq(at2))
+        selected.add(matched);
+    }
+    return group.filter((h2) => selected.has(h2));
+  }
+  function replacementHap(entry, h2, whole, part, destScale) {
+    const old = h2?.value;
+    const pinned = entry.capture !== undefined && (!h2 || entry.continuous || eventPitch(old, true) !== entry.pitch);
+    let value = retune(pinned ? entry.capture : old, entry.key);
+    if (entry.until && record(value) && typeof value.duration === "number")
+      value = { ...value, duration: value.duration * Number(destScale) };
+    const context = { ...h2?.context, [marker]: entry.id };
+    if (entry.placement)
+      context[songPlacement] = entry.placement === "song" ? whole : undefined;
+    return new Hap(whole, part, value, context, h2?.stateful);
+  }
+  function verifyEventOrigin(observation, identity, haps, requireOrigin = false) {
     const entry = { ...identity, id: "" };
-    const group = candidates(haps, entry, spanOf(observation));
+    const arc = spanOf(observation);
+    const group = candidates(haps, entry, arc).filter((h2) => soundingAt(h2, arc.begin));
     const origin = pick3(group, entry, observation);
     if (!origin)
-      return identity.capture !== undefined && group.length === 0 ? identity : undefined;
+      return !requireOrigin && identity.capture !== undefined && group.length === 0 ? identity : undefined;
     const same = inSourceOrder(group.filter((h2) => eventPitch(h2.value, true) === identity.pitch));
     const index = same.indexOf(origin);
     if (index < 0)
       return identity.capture === undefined ? undefined : identity;
-    if (locations(observation) !== locations(origin))
+    if (same.length > 1 && locations(observation) !== locations(origin))
       return;
     const { index: _, count: __, ...base2 } = identity;
     return same.length > 1 ? { ...base2, index, count: same.length } : base2;
@@ -29174,6 +29368,18 @@ Please check with "npm ls @strudel/core".`);
     }
     return [...offsets].map((offset3) => ({ arc, offset: offset3 }));
   }
+  function outsideCuts(hap2, cuts) {
+    const remaining = [];
+    let begin2 = hap2.part.begin;
+    for (const cut2 of cuts.sort((a, b) => a.begin.compare(b.begin))) {
+      if (begin2.lt(cut2.begin))
+        remaining.push(new Hap(undefined, new TimeSpan(begin2, cut2.begin), hap2.value, hap2.context, hap2.stateful));
+      begin2 = begin2.max(cut2.end);
+    }
+    if (begin2.lt(hap2.part.end))
+      remaining.push(new Hap(undefined, new TimeSpan(begin2, hap2.part.end), hap2.value, hap2.context, hap2.stateful));
+    return remaining;
+  }
   function editPatternEvents(pattern3, spec, layout) {
     validateEventSpec(spec);
     if (!spec.entries.length)
@@ -29182,11 +29388,16 @@ Please check with "npm ls @strudel/core".`);
       const source2 = new TimeSpan(...entry.from);
       const a = fraction_default(entry.to ?? entry.from[0]);
       const dest = new TimeSpan(a, entry.until ?? a.add(source2.duration));
-      return { entry, source: source2, dest };
+      const sourceScale = source2.duration.div(dest.duration);
+      const destScale = dest.duration.div(source2.duration);
+      return { entry, source: source2, dest, sourceScale, destScale };
     });
+    const queryInput = (state2) => layout ? withSongPlacement(() => pattern3.query(state2)) : pattern3.query(state2);
     return new Pattern((state2) => {
-      const haps = pattern3.query(state2);
+      const haps = queryInput(state2);
       const suppressed = new Set;
+      const cuts = new Map;
+      const activeByArc = new Map;
       const additions = [];
       const atOriginal = new Map;
       const probes = new Map;
@@ -29206,93 +29417,106 @@ Please check with "npm ls @strudel/core".`);
           break;
         g = to;
       } while (true);
-      function probe(query) {
-        const key = query.begin.toFraction() + ":" + query.end.toFraction();
+      const absolutePiece = [{ arc: state2.span, offset: 0 }];
+      function probe(query, absolute) {
+        const key = (absolute ? "a" : "w") + query.begin.toFraction() + ":" + query.end.toFraction();
         const hit = probes.get(key);
         if (hit)
           return hit;
         let controls2 = { ...state2.controls, painters: [] };
-        if (layout)
+        if (layout) {
+          const segments = absolute ? state2.controls._segments ?? layout.segments() : LINEAR_SEGMENTS;
+          const cycle = Number(query.begin.floor());
+          const writtenBar = absolute ? locate(cycle, layout.structure, segments)?.songBar : cycle;
           controls2 = {
             ...controls2,
-            _segments: LINEAR_SEGMENTS,
-            _cps: cpsAtMeter(layout.cps(), layout.structure.meter, meterAtBar(layout.structure, Number(query.begin.floor())))
+            _segments: segments,
+            _cps: cpsAtMeter(layout.cps(), layout.structure.meter, writtenBar === undefined ? layout.structure.meter : meterAtBar(layout.structure, writtenBar))
           };
-        const result = pattern3.query(new State(query, controls2));
+        }
+        const probeState = new State(query, controls2);
+        const result = reporting ? withReports(undefined, () => queryInput(probeState)) : queryInput(probeState);
         probes.set(key, result);
         return result;
       }
-      for (const { entry, source: source2, dest } of entries) {
+      for (const { entry, source: source2, dest, sourceScale, destScale } of entries) {
         const periodic = entry.period !== undefined && !layout;
-        const occurrences = periodic ? periodicPieces(state2.span, source2, dest, entry.period) : pieces;
+        const absolute = entry.placement === "absolute";
+        const occurrences = periodic ? periodicPieces(state2.span, source2, dest, entry.period) : absolute ? absolutePiece : pieces;
         for (const { arc, offset: offset3 } of occurrences) {
           const shift = (span) => span.withTime((t) => t.add(offset3));
           const origin = shift(source2), target = shift(dest);
-          if (!origin.intersection(arc) && !target.intersection(arc))
+          const sourcePart = origin.intersection(arc);
+          const part = target.intersection(arc);
+          if (!sourcePart && !part)
             continue;
           const readSource = periodic ? origin : source2;
           const onset = entry.continuous ? readSource : new TimeSpan(readSource.begin, readSource.begin);
-          const originGroup = candidates(probe(onset), entry, readSource, entry.continuous);
+          const originGroup = candidates(probe(onset, absolute), entry, readSource, entry.continuous);
           const canonical = pick3(originGroup, entry);
-          if (!canonical && !(entry.capture !== undefined && originGroup.length === 0))
+          const missingCapture = entry.capture !== undefined && !canonical && originGroup.length === 0;
+          if (!canonical && !missingCapture) {
+            if (entry.capture === undefined)
+              reporting?.add(entry.id);
             continue;
-          let removed;
-          if (origin.intersection(arc)) {
-            const active = haps.filter((h3) => h3.part.intersection(arc));
+          }
+          const inPlace = source2.equals(dest) && !entry.continuous;
+          let replacedInPlace = false;
+          if (sourcePart) {
+            let active = activeByArc.get(arc);
+            if (!active) {
+              active = haps.filter((h2) => h2.part.intersection(arc));
+              activeByArc.set(arc, active);
+            }
             if (entry.continuous) {
-              const h3 = pick3(candidates(active, entry, origin, true), entry, canonical);
-              if (h3 && h3.part.intersection(origin)) {
-                suppressed.add(h3);
-                for (const part2 of [
-                  new TimeSpan(h3.part.begin, h3.part.end.min(origin.begin)),
-                  new TimeSpan(h3.part.begin.max(origin.end), h3.part.end)
-                ]) {
-                  if (part2.begin.lt(part2.end))
-                    additions.push(new Hap(undefined, part2, h3.value, h3.context, h3.stateful));
-                }
+              const h2 = pick3(candidates(active, entry, origin, true), entry, canonical);
+              const cut2 = h2?.part.intersection(sourcePart);
+              if (cut2) {
+                const previous = cuts.get(h2);
+                if (previous)
+                  previous.push(cut2);
+                else
+                  cuts.set(h2, [cut2]);
               }
             } else {
-              const h3 = pick3(candidates(active, entry, origin), entry, canonical);
-              removed = h3;
-              if (h3)
-                suppressed.add(h3);
+              const selected2 = selectedParts(candidates(active, entry, origin), entry, canonical);
+              for (const h2 of selected2) {
+                suppressed.add(h2);
+                if (inPlace && !entry.remove) {
+                  const originalPart = h2.part.intersection(sourcePart);
+                  if (!originalPart)
+                    continue;
+                  const replacement = replacementHap(entry, h2, h2.whole, originalPart, destScale);
+                  replacedInPlace = true;
+                  const previous = atOriginal.get(h2);
+                  if (previous)
+                    previous.push(replacement);
+                  else
+                    atOriginal.set(h2, [replacement]);
+                }
+              }
             }
           }
-          const part = target.intersection(arc);
-          if (!part || entry.remove)
+          if (!part || entry.remove || inPlace && (!missingCapture || replacedInPlace))
             continue;
-          const ratio2 = source2.duration.div(dest.duration);
-          const inverse = (t) => readSource.begin.add(t.sub(target.begin).mul(ratio2));
+          const inverse = (t) => readSource.begin.add(t.sub(target.begin).mul(sourceScale));
           const query = entry.continuous ? readSource : part.withTime(inverse);
-          const sourceGroup = candidates(probe(query), entry, readSource, entry.continuous);
-          const h2 = pick3(sourceGroup, entry, canonical);
-          if (!h2 && (entry.capture === undefined || canonical || sourceGroup.length))
-            continue;
-          const old = h2?.value;
-          const value = entry.capture !== undefined && (!h2 || entry.continuous || eventPitch(old, true) !== entry.pitch) ? entry.capture : old;
-          let editedValue = retune(value, entry.key);
-          if (entry.until && record(editedValue) && typeof editedValue.duration === "number") {
-            editedValue = {
-              ...editedValue,
-              duration: editedValue.duration * Number(dest.duration.div(source2.duration))
-            };
-          }
-          const clipped = h2 && !entry.continuous ? h2.part.withTime((t) => target.begin.add(t.sub(readSource.begin).div(ratio2))).intersection(part) : part;
-          if (clipped) {
-            const replacement = new Hap(target, clipped, editedValue, { ...h2?.context, [marker]: entry.id }, h2?.stateful);
-            if (removed && source2.begin.eq(dest.begin)) {
-              const previous = atOriginal.get(removed);
-              if (previous)
-                previous.push(replacement);
-              else
-                atOriginal.set(removed, [replacement]);
-            } else
-              additions.push(replacement);
+          const sourceGroup = candidates(probe(query, absolute), entry, readSource, entry.continuous);
+          const selected = selectedParts(sourceGroup, entry, canonical);
+          if (!selected.length && entry.capture !== undefined && !canonical && !sourceGroup.length)
+            additions.push(replacementHap(entry, undefined, target, part, destScale));
+          for (const h2 of selected) {
+            const clipped = entry.continuous ? part : h2.part.withTime((t) => target.begin.add(t.sub(readSource.begin).mul(destScale))).intersection(part);
+            if (clipped)
+              additions.push(replacementHap(entry, h2, target, clipped, destScale));
           }
         }
       }
       return [
-        ...haps.flatMap((h2) => atOriginal.get(h2) ?? (suppressed.has(h2) ? [] : [h2])),
+        ...haps.flatMap((h2) => {
+          const removed = cuts.get(h2);
+          return removed ? outsideCuts(h2, removed) : atOriginal.get(h2) ?? (suppressed.has(h2) ? [] : [h2]);
+        }),
         ...additions
       ];
     }, pattern3._steps);
@@ -29304,6 +29528,8 @@ Please check with "npm ls @strudel/core".`);
     if ("_pianoEdits" in Pattern.prototype || "pianoEdits" in Pattern.prototype)
       throw new Error("piano edits: operation already registered");
     register("pianoEdits", (spec, pattern3) => editPatternEvents(pattern3, spec), true, true);
+    for (const key of ["pianoEdits", "_pianoEdits"])
+      Object.defineProperty(Pattern.prototype, key, { writable: false });
     installed = true;
   }
 
@@ -29327,103 +29553,6 @@ Please check with "npm ls @strudel/core".`);
     validateEventSpec(spec);
     const node = parseExpressionAt2(code.slice(0, end2), start, options);
     return { spec, node, start, end: end2 };
-  }
-
-  // src/lib/strudel/song.ts
-  var segmentSource = () => INITIAL_SEGMENTS;
-  var registered = null;
-  function setSegmentSource(get) {
-    segmentSource = get;
-  }
-  function beginEvaluate() {
-    registered = null;
-  }
-  function registeredStructure() {
-    return registered;
-  }
-  function structureOf(meta) {
-    if (!isPlainObject(meta))
-      throw new Error("song: the first argument must be the meta object");
-    let structure;
-    try {
-      structure = buildStructure(meta);
-    } catch (e) {
-      if (e instanceof StructureError)
-        throw new Error(`song: ${e.message}`);
-      throw e;
-    }
-    if (structure.sections.length === 0) {
-      throw new Error("song: meta.sections is required, e.g. [{ name: 'intro', bars: 4 }]");
-    }
-    return structure;
-  }
-  function partsOf(structure, parts) {
-    if (!isPlainObject(parts)) {
-      throw new Error("song: the second argument must be an object of parts, e.g. { intro: pat }");
-    }
-    const names = new Set(structure.sections.map((s2) => s2.name));
-    for (const key of Object.keys(parts)) {
-      if (!names.has(key))
-        throw new Error(`song: part '${key}' is not a section in meta.sections`);
-    }
-    return structure.sections.map((s2) => {
-      const part = Object.prototype.hasOwnProperty.call(parts, s2.name) ? parts[s2.name] : undefined;
-      if (part === undefined)
-        throw new Error(`song: no part for section '${s2.name}'`);
-      return reify(part);
-    });
-  }
-  function register2(structure) {
-    if (registered && !sameStructure(registered, structure)) {
-      throw new Error("song: one structure per song");
-    }
-    registered ??= structure;
-  }
-  function song(meta, parts) {
-    const structure = structureOf(meta);
-    const pats = partsOf(structure, parts);
-    register2(structure);
-    return new Pattern((state2) => {
-      const segments = state2.controls?._segments ?? segmentSource();
-      const end2 = state2.span.end;
-      if (end2.lt(0) || end2.eq(0) && state2.span.begin.lt(0))
-        return [];
-      let g = state2.span.begin.lt(0) ? fraction_default(0) : state2.span.begin;
-      const haps = [];
-      do {
-        const cycle = g.floor().valueOf();
-        const located = locate(cycle, structure, segments);
-        const boundary = pieceEnd(cycle, structure, segments, located);
-        const to = boundary === Infinity ? end2 : end2.min(fraction_default(boundary));
-        if (to.lte(g) && g.lt(end2))
-          throw new Error("song: transport segments must start at whole cycles");
-        if (located === null) {
-          if (boundary === Infinity)
-            break;
-        } else {
-          const offset3 = cycle - located.localCycle;
-          const bars = structure.sections[located.section].bars;
-          const occurrence = new TimeSpan(offset3, offset3 + bars);
-          const piece = new TimeSpan(g, to);
-          const local = state2.setSpan(new TimeSpan(g.sub(offset3), to.sub(offset3)));
-          for (const hap2 of pats[located.section].query(local)) {
-            const shifted = hap2.withSpan((span) => span.withTime((t) => t.add(offset3)));
-            const part = shifted.part.intersection(piece);
-            if (!part)
-              continue;
-            let whole;
-            if (shifted.whole) {
-              whole = shifted.whole.intersection(occurrence);
-              if (!whole)
-                continue;
-            }
-            haps.push(new Hap(whole, part, hap2.value, hap2.context, hap2.stateful));
-          }
-        }
-        g = to;
-      } while (g.lt(end2));
-      return haps;
-    });
   }
 
   // src/lib/strudel/runtime.ts
@@ -29592,6 +29721,7 @@ Please check with "npm ls @strudel/core".`);
       transportSubscribers.forEach((fn) => fn(transportState));
     }
     let evaluatedPattern = null;
+    let unseededPattern = null;
     let playbackPattern = null;
     let playError = null;
     let undoInstall;
@@ -29626,6 +29756,7 @@ Please check with "npm ls @strudel/core".`);
           phaseOffsetSec,
           audibleHistory,
           evaluatedPattern,
+          unseededPattern,
           playbackPattern,
           playError,
           schedulerPattern: r.scheduler.pattern
@@ -29637,6 +29768,7 @@ Please check with "npm ls @strudel/core".`);
             phaseOffsetSec,
             audibleHistory,
             evaluatedPattern,
+            unseededPattern,
             playbackPattern,
             playError
           } = previous);
@@ -29667,6 +29799,7 @@ Please check with "npm ls @strudel/core".`);
           queryMetered(seeded, imminent, structure, clock, pending.cps);
         }
         evaluatedPattern = seeded;
+        unseededPattern = edited;
         playError = null;
         playbackPattern = clock && liveStructure ? meteredPlayback(seeded, liveStructure, () => clock, () => phaseOffsetSec, (error) => {
           playError = errorMessage(error);
@@ -29924,16 +30057,17 @@ Please check with "npm ls @strudel/core".`);
         setSegments(INITIAL_SEGMENTS);
       }
     };
-    function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS) {
+    function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS, seedOverride) {
       if (evaluatedPattern === null)
         return null;
+      const pattern3 = seedOverride === undefined ? evaluatedPattern : applySeed(unseededPattern, seedOverride);
       const controls2 = { _cps: r.scheduler.cps, cyclist: "cyclist", _segments: segments2 };
       const span = new State(new TimeSpan(fromCycle, toCycle2), controls2);
       const structure = state2.structure;
       if (structure?.meterChanges?.length) {
-        return queryMetered(evaluatedPattern, span, structure, layoutClock(structure, segments2), r.scheduler.cps);
+        return queryMetered(pattern3, span, structure, layoutClock(structure, segments2), r.scheduler.cps);
       }
-      return evaluatedPattern.query(span);
+      return pattern3.query(span);
     }
     (opts.setInterval ?? globalThis.setInterval)(() => {
       const a = active();
@@ -30211,9 +30345,14 @@ Please check with "npm ls @strudel/core".`);
       if (!capture || capture.code !== input)
         return;
       return {
-        leave(node) {
+        leave(node, parent, key) {
           if (node.type !== capture.type || node.start !== capture.span.from || node.end !== capture.span.to)
             return;
+          if (parent?.type === "Property" && parent.shorthand) {
+            if (key !== "value")
+              return;
+            parent.shorthand = false;
+          }
           capture.rewritten = true;
           return this.replace({
             type: "CallExpression",
@@ -30248,7 +30387,7 @@ Please check with "npm ls @strudel/core".`);
       case "SequenceExpression":
         return true;
       case "Property":
-        return key === "value" && parent.kind === "init" && !parent.shorthand && !parent.method;
+        return key === "value" && parent.kind === "init" && !parent.method;
       default:
         return false;
     }
@@ -30326,23 +30465,22 @@ Please check with "npm ls @strudel/core".`);
       Reflect.deleteProperty(globalThis, name);
     }
   }
-  function queryExpression(pattern3, structure, cps2, seed2, request) {
-    const { from, to, anchorBar } = request;
-    const state2 = new State(new TimeSpan(from, to), {
-      _cps: cps2,
-      cyclist: "cyclist",
-      _segments: LINEAR_SEGMENTS
-    });
+  function expressionQuery(pattern3, structure, cps2, seed2, anchorBar) {
     const seeded = applySeed(pattern3, seed2);
-    if (!structure.meterChanges?.length)
-      return seeded.query(state2);
-    const written = layoutClock(structure, LINEAR_SEGMENTS);
-    const local = {
+    const written = structure.meterChanges?.length ? layoutClock(structure, LINEAR_SEGMENTS) : undefined;
+    const local = written && {
       ...written,
       meterAt: (cycle) => anchorBar === undefined ? structure.meter : written.meterAt(anchorBar + cycle),
       nextMeterBoundary: (cycle) => anchorBar === undefined ? Infinity : written.nextMeterBoundary(anchorBar + cycle) - anchorBar
     };
-    return queryMetered(seeded, state2, structure, local, cps2);
+    return (from, to) => {
+      const state2 = new State(new TimeSpan(from, to), {
+        _cps: cps2,
+        cyclist: "cyclist",
+        _segments: LINEAR_SEGMENTS
+      });
+      return local ? queryMetered(seeded, state2, structure, local, cps2) : seeded.query(state2);
+    };
   }
   function pitchOf(value, allowPrimitive) {
     const pitch = eventPitch(value, allowPrimitive);
@@ -30408,7 +30546,8 @@ Please check with "npm ls @strudel/core".`);
       return expression2;
     }
   }
-  function inspectHaps(haps, code, request, query) {
+  function inspectHaps(code, request, query, alternateQueries = []) {
+    const { value: haps, staleEdits } = inspectEventEdits(() => query(request.from, request.to));
     const uncertain = uncertainSpans(code);
     const fallbackOrigin = directOrigin(code, request);
     const notes = [];
@@ -30418,7 +30557,9 @@ Please check with "npm ls @strudel/core".`);
       return (h2.whole ? "w" : "p") + arc.begin.toFraction() + ":" + arc.end.toFraction();
     };
     const groups = new Map;
-    for (const h2 of haps.slice(0, MAX_HAPS_TO_SCAN)) {
+    const scanCount = Math.min(haps.length, MAX_HAPS_TO_SCAN);
+    for (let i3 = 0;i3 < scanCount; i3++) {
+      const h2 = haps[i3];
       const key = groupKey(h2), group = groups.get(key);
       if (group)
         group.push(h2);
@@ -30427,8 +30568,47 @@ Please check with "npm ls @strudel/core".`);
     }
     let bytes = 0;
     const probes = new Map;
+    const samples = new Map;
+    let probeBudget = MAX_HAPS_TO_SCAN;
+    const queries = [query, ...alternateQueries];
+    const probe = (from, to, run2) => {
+      if (probeBudget <= 0)
+        return null;
+      const result = run2(from, to);
+      probeBudget -= result.length + 1;
+      return probeBudget >= 0 ? result : null;
+    };
+    function atOnset(begin2, start, index = 0) {
+      const run2 = queries[index];
+      const key = `${index}:${start}`;
+      const cycle = Number(begin2);
+      if (fraction_default(cycle).toFraction() === start) {
+        if (!probes.has(key))
+          probes.set(key, probe(cycle, cycle, run2));
+        return probes.get(key);
+      }
+      const bar = Number(begin2.floor());
+      const sampleKey = `${index}:${bar}`;
+      if (!samples.has(sampleKey)) {
+        const haps2 = probe(bar, bar + 1, run2);
+        const byStart = haps2 && new Map;
+        if (haps2 && byStart) {
+          for (const h2 of haps2) {
+            const edge = h2.part.begin.toFraction();
+            const group = byStart.get(edge);
+            if (group)
+              group.push(h2);
+            else
+              byStart.set(edge, [h2]);
+          }
+        }
+        samples.set(sampleKey, byStart);
+      }
+      const sample = samples.get(sampleKey);
+      return sample && (sample.get(start) ?? []);
+    }
     let truncated = haps.length > MAX_HAPS_TO_SCAN;
-    for (let i3 = 0;i3 < Math.min(haps.length, MAX_HAPS_TO_SCAN); i3++) {
+    for (let i3 = 0;i3 < scanCount; i3++) {
       const hap2 = haps[i3];
       const data2 = pitchOf(hap2.value, request.view === "expression");
       if (!data2)
@@ -30448,14 +30628,34 @@ Please check with "npm ls @strudel/core".`);
       }
       const locations2 = contributors(hap2, code, uncertain);
       const origin = locations2.length === 1 ? locations2[0] : locations2.length === 0 ? fallbackOrigin : undefined;
-      let event = identifyEvent(hap2, groups.get(groupKey(hap2)), request.view === "expression", stochastic);
+      const siblings = groups.get(groupKey(hap2));
+      const primitive = request.view === "expression";
+      let event = identifyEvent(hap2, siblings, primitive, false);
       if (event && hap2.whole && (stochastic || event.count || visibleStart !== start)) {
-        let at2 = probes.get(start);
-        if (!at2) {
-          at2 = query(Number(begin2), Number(begin2));
-          probes.set(start, at2);
+        const at2 = atOnset(begin2, start);
+        if (at2 === null)
+          truncated = true;
+        event = at2 === null ? undefined : verifyEventOrigin(hap2, event, at2);
+        if (stochastic && at2 !== null) {
+          const captured = identifyEvent(hap2, siblings, primitive, true);
+          if (captured?.capture !== undefined) {
+            if (!event) {
+              event = verifyEventOrigin(hap2, captured, at2, true);
+            } else {
+              for (let index = 1;index < queries.length; index++) {
+                const alternate = atOnset(begin2, start, index);
+                if (alternate === null) {
+                  truncated = true;
+                  break;
+                }
+                if (!verifyEventOrigin(hap2, event, alternate) && verifyEventOrigin(hap2, captured, alternate)) {
+                  event = { ...event, capture: captured.capture };
+                  break;
+                }
+              }
+            }
+          }
         }
-        event = verifyEventOrigin(hap2, event, at2);
       }
       bytes += 384 + (event ? JSON.stringify(event).length * 4 : 0) + locations2.length * 52;
       if (bytes > 980000) {
@@ -30478,7 +30678,11 @@ Please check with "npm ls @strudel/core".`);
       });
     }
     notes.sort((a, b) => a.order - b.order);
-    return { notes: notes.map(({ note: note2 }) => note2), truncated };
+    return {
+      notes: notes.map(({ note: note2 }) => note2),
+      truncated,
+      ...staleEdits.length ? { staleEdits } : {}
+    };
   }
 
   // vendor/strudel/packages/draw/index.mjs
@@ -31561,9 +31765,9 @@ Please check with "npm ls @strudel/core".`);
     let { intervals, tonic } = getScale(scale2);
     tonic = tonic || "C";
     const { pc, oct: oct2 = 3 } = import_tonal2.Note.get(tonic);
-    const octaveOffset = Math.floor(step / intervals.length);
+    const octaveOffset2 = Math.floor(step / intervals.length);
     const scaleStep3 = _mod(step, intervals.length);
-    const interval = import_tonal2.Interval.add(intervals[scaleStep3], octavesInterval(octaveOffset));
+    const interval = import_tonal2.Interval.add(intervals[scaleStep3], octavesInterval(octaveOffset2));
     return import_tonal2.Note.transpose(pc + oct2, interval);
   }
   function scaleOffset(scale2, offset3, note2) {
@@ -32769,11 +32973,15 @@ Please check with "npm ls @strudel/core".`);
     const request = parseRequest(requestJson);
     if (!inspectionWindow(request))
       throw new PlanJobError("plan", "Invalid piano roll window.");
-    const rt = hostAdapter(hostRuntime(), request.instruments);
+    const runtime = hostRuntime();
+    const rt = hostAdapter(runtime, request.instruments);
+    const otherSeeds = (seed2 = 0) => [seed2 + 1, seed2 + 2, seed2 + 3];
     if (request.view === "song") {
-      const { segments } = await evaluateSong(rt, code, "linear");
-      const query = querySong(rt, segments);
-      return JSON.stringify(inspectHaps(query(request.from, request.to), code, request, query));
+      const { segments, seed: seed2 } = await evaluateSong(rt, code, "linear");
+      const songQuery = querySong(rt, segments);
+      const query = (from, to) => withSongPlacement(() => songQuery(from, to));
+      const alternate = otherSeeds(seed2).map((sample) => (from, to) => withSongPlacement(() => runtime.query(from, to, segments, sample) ?? []));
+      return JSON.stringify(inspectHaps(code, request, query, alternate));
     }
     if (!request.expression)
       throw new PlanJobError("plan", "Select a pattern expression.");
@@ -32781,8 +32989,9 @@ Please check with "npm ls @strudel/core".`);
       const { structure, cps: cps2 } = await evaluateSong(rt, code, "linear");
       const pattern3 = selected();
       const seed2 = rt.state().seed;
-      const query = (from, to) => queryExpression(pattern3, structure, cps2, seed2, { ...request, from, to });
-      return inspectHaps(query(request.from, request.to), code, request, query);
+      const query = expressionQuery(pattern3, structure, cps2, seed2, request.anchorBar);
+      const alternate = otherSeeds(seed2).map((sample) => expressionQuery(pattern3, structure, cps2, sample, request.anchorBar));
+      return inspectHaps(code, request, query, alternate);
     }));
   }
   var strudelandHost = {

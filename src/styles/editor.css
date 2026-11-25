@@ -182,7 +182,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .cm-piano-roll-edit,
   .cm-line.cm-piano-roll-edit-line {
-    animation: piano-roll-source-pulse 650ms ease-out;
+    animation: piano-roll-source-pulse var(--dur-edit-feedback) var(--ease);
   }
 }
 

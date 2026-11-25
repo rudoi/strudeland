@@ -5,9 +5,11 @@ import {
   fitPitchRange,
   gridPoint,
   layoutNoteTracks,
+  noteMarkerKey,
   pitchLabel,
   rollGeometry,
   rollOffset,
+  shiftRollEdge,
   snapGrid,
 } from '../src/lib/piano-roll/grid';
 import type { RollNote } from '../src/lib/piano-roll/types';
@@ -96,6 +98,21 @@ describe('piano roll geometry', () => {
       ['second', 1, 3],
       ['later', 0, 1],
     ]);
+  });
+
+  test('measures a carry-in edit relative to the visible portion without jumping its onset', () => {
+    expect(shiftRollEdge('0', '3', '49/16')).toBe('1/16');
+    expect(shiftRollEdge('3', '5/2', '11/4')).toBe('13/4');
+    expect(shiftRollEdge('1/3', '1/3', '1/2')).toBe('1/2');
+  });
+
+  test('keys disconnected fragments of the same note separately across inspections', () => {
+    const first = { ...note(60), id: 'first', end: '1', visibleEnd: '1/4' };
+    const later = { ...first, id: 'later', visibleStart: '1/2', visibleEnd: '3/4' };
+    const markers = layoutNoteTracks([first, later], 0, 1);
+    expect(markers.map(({ track }) => track)).toEqual([0, 0]);
+    expect(noteMarkerKey(first, 0)).not.toBe(noteMarkerKey(later, 0));
+    expect(noteMarkerKey({ ...first, id: 'next inspection' }, 0)).toBe(noteMarkerKey(first, 0));
   });
 
   test('assigns tracks using clipped fragments rather than whole spans', () => {

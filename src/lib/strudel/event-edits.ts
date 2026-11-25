@@ -10,6 +10,8 @@ import {
   noteToMidi,
   register,
 } from '@strudel/core';
+import { spellNote } from './note-name';
+import { songPlacement, withSongPlacement } from './song';
 import { LINEAR_SEGMENTS, locate, pieceEnd, type Segment } from './transport';
 import { cpsAtMeter, meterAtBar, type SongStructure } from './structure';
 
@@ -23,6 +25,7 @@ export interface EventEditIdentity {
   count?: number;
   continuous?: boolean;
   period?: number;
+  placement?: 'song' | 'absolute';
   capture?: Data;
   entry?: string;
 }
@@ -37,6 +40,24 @@ export interface EventEditEntry extends Omit<EventEditIdentity, 'entry'> {
 
 export interface EventEditSpec {
   entries: EventEditEntry[];
+}
+
+let reporting: Set<string> | undefined;
+
+function withReports<T>(sink: Set<string> | undefined, query: () => T): T {
+  const previous = reporting;
+  reporting = sink;
+  try {
+    return query();
+  } finally {
+    reporting = previous;
+  }
+}
+
+/** Collect stale deterministic entries during one synchronous visible-window query. */
+export function inspectEventEdits<T>(query: () => T): { value: T; staleEdits: string[] } {
+  const sink = new Set<string>();
+  return { value: withReports(sink, query), staleEdits: [...sink] };
 }
 
 const marker = Symbol('piano edit');
@@ -55,6 +76,7 @@ const fields = new Set([
   'count',
   'continuous',
   'period',
+  'placement',
   'capture',
   'to',
   'key',
@@ -83,6 +105,7 @@ export function validateEventSpec(spec: unknown): asserts spec is EventEditSpec 
       !e.from.every(fraction) ||
       !Fraction(e.from[0]).lt(Fraction(e.from[1])) ||
       !finite(e.pitch) ||
+      (e.placement !== undefined && e.placement !== 'song' && e.placement !== 'absolute') ||
       (e.voice !== undefined && (typeof e.voice !== 'string' || e.voice.length > 2048)) ||
       (e.count !== undefined &&
         (!Number.isSafeInteger(e.count) || Number(e.count) < 1 || Number(e.count) > 16384)) ||
@@ -136,35 +159,48 @@ function boundedData(value: unknown): Data | undefined {
   return value as Data;
 }
 
+function frequency(value: unknown): number | undefined {
+  if (typeof value !== 'number' && typeof value !== 'string') return;
+  const hz = Number(value);
+  return finite(hz) && hz > 0 ? hz : undefined;
+}
+
+function scalarPitch(value: unknown): number | undefined {
+  if (finite(value)) return value;
+  if (typeof value !== 'string' || !isNote(value)) return;
+  const midi = noteToMidi(value);
+  return finite(midi) ? midi : undefined;
+}
+
+function octaveOffset(value: unknown) {
+  return typeof value === 'number' || typeof value === 'string' ? 12 * Number(value) : 0;
+}
+
 export function eventPitch(value: unknown, primitive: boolean): number | undefined {
-  if (primitive && finite(value)) return value;
-  if (primitive && typeof value === 'string' && isNote(value)) return noteToMidi(value);
-  if (!record(value)) return;
-  const { note, freq, octave } = value;
-  const pitch =
-    Number(freq) > 0 && Number.isFinite(Number(freq))
-      ? freqToMidi(Number(freq))
-      : finite(note)
-        ? note
-        : typeof note === 'string' && isNote(note)
-          ? noteToMidi(note)
-          : undefined;
-  if (pitch === undefined) return;
-  const midi = pitch + 12 * Number(octave ?? 0);
-  return Number.isFinite(midi) ? midi : undefined;
+  if (!record(value)) return primitive ? scalarPitch(value) : undefined;
+  const hz = frequency(value.freq);
+  const base = hz === undefined ? scalarPitch(value.note) : freqToMidi(hz);
+  if (base === undefined) return;
+  const midi = base + octaveOffset(value.octave);
+  return finite(midi) ? midi : undefined;
 }
 
 function retune(value: any, pitch: number | undefined) {
   if (pitch === undefined) return value;
-  if (!record(value)) return pitch;
-  const base = pitch - 12 * Number(value.octave ?? 0);
-  return Number(value.freq) > 0 ? { ...value, freq: midiToFreq(base) } : { ...value, note: base };
+  if (!record(value))
+    return typeof value === 'string' && Number.isInteger(pitch) ? spellNote(pitch, value) : pitch;
+  const base = pitch - octaveOffset(value.octave);
+  if (frequency(value.freq) !== undefined) return { ...value, freq: midiToFreq(base) };
+  if (typeof value.note === 'string' && Number.isInteger(base))
+    return { ...value, note: spellNote(base, value.note) };
+  // Both audio backends treat numeric zero as the missing note default.
+  return { ...value, note: base === 0 ? 'c-1' : base };
 }
 
 /** The voice evidence is independent of source offsets and the selected pitch. */
 function voiceOf(value: any, detailed = false): string {
   if (!record(value)) return typeof value;
-  const kind = Number(value.freq) > 0 ? 'freq' : 'note';
+  const kind = frequency(value.freq) !== undefined ? 'freq' : 'note';
   if (!detailed) {
     return JSON.stringify([kind, value.s ?? null, value.orbit ?? null, value.label ?? null]);
   }
@@ -194,7 +230,8 @@ function inSourceOrder(haps: any[]): any[] {
 }
 
 const spanOf = (hap: any) => hap.whole ?? hap.part;
-const sameSpan = (a: any, b: any) => a.begin.eq(b.begin) && a.end.eq(b.end);
+const placementOf = (hap: any) =>
+  hap.context?.[songPlacement]?.equals(spanOf(hap)) ? ('song' as const) : ('absolute' as const);
 
 export function identifyEvent(
   hap: any,
@@ -207,14 +244,14 @@ export function identifyEvent(
   const arc = spanOf(hap);
   const from: [string, string] = [arc.begin.toFraction(), arc.end.toFraction()];
   if (!from.every(fraction) || !arc.begin.lt(arc.end)) return;
+  const placement = primitive ? undefined : placementOf(hap);
   let voice = voiceOf(hap.value);
   const simultaneous = siblings.filter(
     (h) =>
+      (placement === undefined || placementOf(h) === placement) &&
       !!h.whole === !!hap.whole &&
-      sameSpan(spanOf(h), arc) &&
-      h.part.begin.lte(hap.part.begin) &&
-      h.part.end.gte(hap.part.begin) &&
-      (!h.part.end.eq(hap.part.begin) || h.part.begin.eq(hap.part.begin)),
+      spanOf(h).equals(arc) &&
+      soundingAt(h, hap.part.begin),
   );
   let lane = simultaneous.filter((h) => voiceOf(h.value) === voice);
   if (lane.length > 1) {
@@ -240,6 +277,7 @@ export function identifyEvent(
     from,
     pitch,
     voice,
+    ...(placement ? { placement } : {}),
     ...(same.length > 1 ? { index, count: same.length } : {}),
     ...(!hap.whole ? { continuous: true } : {}),
     ...(capture !== undefined ? { capture } : {}),
@@ -256,7 +294,8 @@ function candidates(
 ): any[] {
   return haps.filter(
     (h) =>
-      (continuous ? !h.whole : h.whole && sameSpan(h.whole, whole)) &&
+      (e.placement === undefined || placementOf(h) === e.placement) &&
+      (continuous ? !h.whole : h.whole && h.whole.equals(whole)) &&
       (e.voice === undefined || voiceOf(h.value, e.voice.startsWith('=')) === e.voice),
   );
 }
@@ -278,19 +317,63 @@ function pick(group: any[], e: EventEditEntry, canonical?: any): any {
   if (e.capture !== undefined && group.length === 1) return group[0];
 }
 
+function soundingAt(hap: any, time: any) {
+  return hap.part.begin.eq(time) || (hap.part.begin.lt(time) && hap.part.end.gt(time));
+}
+
+/** Rank simultaneous voices at each part onset. A later fragment of the same
+ * whole gets the same rank and retains its own span, value and context. */
+function selectedParts(group: any[], entry: EventEditEntry, canonical: any): any[] {
+  if (group.length <= 1) {
+    const matched = pick(group, entry, canonical);
+    return matched ? [matched] : [];
+  }
+  const ordered = [...group].sort((a, b) => a.part.begin.compare(b.part.begin));
+  const selected = new Set<any>();
+  let active: any[] = [];
+  for (let i = 0; i < ordered.length;) {
+    const at = ordered[i].part.begin;
+    active = active.filter((h) => soundingAt(h, at));
+    do {
+      active.push(ordered[i++]);
+    } while (i < ordered.length && ordered[i].part.begin.eq(at));
+    const matched = pick(active, entry, canonical);
+    if (matched && matched.part.begin.eq(at)) selected.add(matched);
+  }
+  return group.filter((h) => selected.has(h));
+}
+
+function replacementHap(entry: EventEditEntry, h: any, whole: any, part: any, destScale: any) {
+  const old = h?.value;
+  const pinned =
+    entry.capture !== undefined &&
+    (!h || entry.continuous || eventPitch(old, true) !== entry.pitch);
+  let value = retune(pinned ? entry.capture : old, entry.key);
+  if (entry.until && record(value) && typeof value.duration === 'number')
+    value = { ...value, duration: value.duration * Number(destScale) };
+  const context = { ...h?.context, [marker]: entry.id };
+  if (entry.placement) context[songPlacement] = entry.placement === 'song' ? whole : undefined;
+  return new Hap(whole, part, value, context, h?.stateful);
+}
+
 export function verifyEventOrigin(
   observation: any,
   identity: EventEditIdentity,
   haps: any[],
+  requireOrigin = false,
 ): EventEditIdentity | undefined {
   const entry = { ...identity, id: '' };
-  const group = candidates(haps, entry, spanOf(observation));
+  const arc = spanOf(observation);
+  const group = candidates(haps, entry, arc).filter((h) => soundingAt(h, arc.begin));
   const origin = pick(group, entry, observation);
-  if (!origin) return identity.capture !== undefined && group.length === 0 ? identity : undefined;
+  if (!origin)
+    return !requireOrigin && identity.capture !== undefined && group.length === 0
+      ? identity
+      : undefined;
   const same = inSourceOrder(group.filter((h) => eventPitch(h.value, true) === identity.pitch));
   const index = same.indexOf(origin);
   if (index < 0) return identity.capture === undefined ? undefined : identity;
-  if (locations(observation) !== locations(origin)) return;
+  if (same.length > 1 && locations(observation) !== locations(origin)) return;
   const { index: _, count: __, ...base } = identity;
   return same.length > 1 ? { ...base, index, count: same.length } : base;
 }
@@ -316,6 +399,24 @@ function periodicPieces(arc: any, source: any, dest: any, period: number): Piece
   return [...offsets].map((offset) => ({ arc, offset }));
 }
 
+/** Emit each surviving interval once, including when several edits overlap. */
+function outsideCuts(hap: any, cuts: any[]): any[] {
+  const remaining = [];
+  let begin = hap.part.begin;
+  for (const cut of cuts.sort((a, b) => a.begin.compare(b.begin))) {
+    if (begin.lt(cut.begin))
+      remaining.push(
+        new Hap(undefined, new TimeSpan(begin, cut.begin), hap.value, hap.context, hap.stateful),
+      );
+    begin = begin.max(cut.end);
+  }
+  if (begin.lt(hap.part.end))
+    remaining.push(
+      new Hap(undefined, new TimeSpan(begin, hap.part.end), hap.value, hap.context, hap.stateful),
+    );
+  return remaining;
+}
+
 export function editPatternEvents(pattern: any, spec: EventEditSpec, layout?: Layout): any {
   validateEventSpec(spec);
   if (!spec.entries.length) return pattern;
@@ -323,11 +424,17 @@ export function editPatternEvents(pattern: any, spec: EventEditSpec, layout?: La
     const source = new TimeSpan(...entry.from);
     const a = Fraction(entry.to ?? entry.from[0]);
     const dest = new TimeSpan(a, entry.until ?? a.add(source.duration));
-    return { entry, source, dest };
+    const sourceScale = source.duration.div(dest.duration);
+    const destScale = dest.duration.div(source.duration);
+    return { entry, source, dest, sourceScale, destScale };
   });
+  const queryInput = (state: any) =>
+    layout ? withSongPlacement(() => pattern.query(state)) : pattern.query(state);
   return new Pattern((state: any) => {
-    const haps = pattern.query(state);
+    const haps = queryInput(state);
     const suppressed = new Set<any>();
+    const cuts = new Map<any, any[]>();
+    const activeByArc = new Map<any, any[]>();
     const additions: any[] = [];
     const atOriginal = new Map<any, any[]>();
     const probes = new Map<string, any[]>();
@@ -349,111 +456,124 @@ export function editPatternEvents(pattern: any, spec: EventEditSpec, layout?: La
       if (to.gte(state.span.end) || to.lte(g)) break;
       g = to;
     } while (true);
-    function probe(query: any): any[] {
-      const key = query.begin.toFraction() + ':' + query.end.toFraction();
+    const absolutePiece = [{ arc: state.span, offset: 0 }];
+    function probe(query: any, absolute: boolean): any[] {
+      const key = (absolute ? 'a' : 'w') + query.begin.toFraction() + ':' + query.end.toFraction();
       const hit = probes.get(key);
       if (hit) return hit;
       let controls = { ...state.controls, painters: [] };
-      if (layout)
+      if (layout) {
+        const segments = absolute
+          ? (state.controls._segments ?? layout.segments())
+          : LINEAR_SEGMENTS;
+        const cycle = Number(query.begin.floor());
+        const writtenBar = absolute ? locate(cycle, layout.structure, segments)?.songBar : cycle;
         controls = {
           ...controls,
-          _segments: LINEAR_SEGMENTS,
+          _segments: segments,
           _cps: cpsAtMeter(
             layout.cps(),
             layout.structure.meter,
-            meterAtBar(layout.structure, Number(query.begin.floor())),
+            writtenBar === undefined
+              ? layout.structure.meter
+              : meterAtBar(layout.structure, writtenBar),
           ),
         };
-      const result = pattern.query(new State(query, controls));
+      }
+      const probeState = new State(query, controls);
+      // A destination lookup can query an unrelated origin outside the inspected window.
+      const result = reporting
+        ? withReports(undefined, () => queryInput(probeState))
+        : queryInput(probeState);
       probes.set(key, result);
       return result;
     }
-    for (const { entry, source, dest } of entries) {
+    for (const { entry, source, dest, sourceScale, destScale } of entries) {
       const periodic = entry.period !== undefined && !layout;
+      const absolute = entry.placement === 'absolute';
       const occurrences = periodic
         ? periodicPieces(state.span, source, dest, entry.period!)
-        : pieces;
+        : absolute
+          ? absolutePiece
+          : pieces;
       for (const { arc, offset } of occurrences) {
         const shift = (span: any) => span.withTime((t: any) => t.add(offset));
         const origin = shift(source),
           target = shift(dest);
-        if (!origin.intersection(arc) && !target.intersection(arc)) continue;
+        const sourcePart = origin.intersection(arc);
+        const part = target.intersection(arc);
+        if (!sourcePart && !part) continue;
         const readSource = periodic ? origin : source;
         const onset = entry.continuous
           ? readSource
           : new TimeSpan(readSource.begin, readSource.begin);
-        const originGroup = candidates(probe(onset), entry, readSource, entry.continuous);
+        const originGroup = candidates(probe(onset, absolute), entry, readSource, entry.continuous);
         const canonical = pick(originGroup, entry);
         // A stochastic voice that disappeared from this run may still be pinned.
         // Ambiguous or manually invalidated matches leave the original material intact.
-        if (!canonical && !(entry.capture !== undefined && originGroup.length === 0)) continue;
-        let removed: any;
-        if (origin.intersection(arc)) {
-          const active = haps.filter((h: any) => h.part.intersection(arc));
+        const missingCapture =
+          entry.capture !== undefined && !canonical && originGroup.length === 0;
+        if (!canonical && !missingCapture) {
+          if (entry.capture === undefined) reporting?.add(entry.id);
+          continue;
+        }
+        const inPlace = source.equals(dest) && !entry.continuous;
+        let replacedInPlace = false;
+        if (sourcePart) {
+          let active = activeByArc.get(arc);
+          if (!active) {
+            active = haps.filter((h: any) => h.part.intersection(arc)) as any[];
+            activeByArc.set(arc, active);
+          }
           if (entry.continuous) {
             const h = pick(candidates(active, entry, origin, true), entry, canonical);
-            if (h && h.part.intersection(origin)) {
-              suppressed.add(h);
-              for (const part of [
-                new TimeSpan(h.part.begin, h.part.end.min(origin.begin)),
-                new TimeSpan(h.part.begin.max(origin.end), h.part.end),
-              ]) {
-                if (part.begin.lt(part.end))
-                  additions.push(new Hap(undefined, part, h.value, h.context, h.stateful));
-              }
+            const cut = h?.part.intersection(sourcePart);
+            if (cut) {
+              const previous = cuts.get(h);
+              if (previous) previous.push(cut);
+              else cuts.set(h, [cut]);
             }
           } else {
-            const h = pick(candidates(active, entry, origin), entry, canonical);
-            removed = h;
-            if (h) suppressed.add(h);
+            const selected = selectedParts(candidates(active, entry, origin), entry, canonical);
+            for (const h of selected) {
+              suppressed.add(h);
+              if (inPlace && !entry.remove) {
+                const originalPart = h.part.intersection(sourcePart);
+                if (!originalPart) continue;
+                const replacement = replacementHap(entry, h, h.whole, originalPart, destScale);
+                replacedInPlace = true;
+                const previous = atOriginal.get(h);
+                if (previous) previous.push(replacement);
+                else atOriginal.set(h, [replacement]);
+              }
+            }
           }
         }
-        const part = target.intersection(arc);
-        if (!part || entry.remove) continue;
+        if (!part || entry.remove || (inPlace && (!missingCapture || replacedInPlace))) continue;
         // Read the actual source slice for transforms whose whole contains a partially muted gate.
-        const ratio = source.duration.div(dest.duration);
-        const inverse = (t: any) => readSource.begin.add(t.sub(target.begin).mul(ratio));
+        const inverse = (t: any) => readSource.begin.add(t.sub(target.begin).mul(sourceScale));
         const query = entry.continuous ? readSource : part.withTime(inverse);
-        const sourceGroup = candidates(probe(query), entry, readSource, entry.continuous);
-        const h = pick(sourceGroup, entry, canonical);
-        if (!h && (entry.capture === undefined || canonical || sourceGroup.length)) continue;
-        const old = h?.value;
-        const value =
-          entry.capture !== undefined &&
-          (!h || entry.continuous || eventPitch(old, true) !== entry.pitch)
-            ? entry.capture
-            : old;
-        let editedValue = retune(value, entry.key);
-        if (entry.until && record(editedValue) && typeof editedValue.duration === 'number') {
-          editedValue = {
-            ...editedValue,
-            duration: editedValue.duration * Number(dest.duration.div(source.duration)),
-          };
-        }
-        const clipped =
-          h && !entry.continuous
-            ? h.part
-                .withTime((t: any) => target.begin.add(t.sub(readSource.begin).div(ratio)))
-                .intersection(part)
-            : part;
-        if (clipped) {
-          const replacement = new Hap(
-            target,
-            clipped,
-            editedValue,
-            { ...h?.context, [marker]: entry.id },
-            h?.stateful,
-          );
-          if (removed && source.begin.eq(dest.begin)) {
-            const previous = atOriginal.get(removed);
-            if (previous) previous.push(replacement);
-            else atOriginal.set(removed, [replacement]);
-          } else additions.push(replacement);
+        const sourceGroup = candidates(probe(query, absolute), entry, readSource, entry.continuous);
+        const selected = selectedParts(sourceGroup, entry, canonical);
+        if (!selected.length && entry.capture !== undefined && !canonical && !sourceGroup.length)
+          additions.push(replacementHap(entry, undefined, target, part, destScale));
+        for (const h of selected) {
+          const clipped = entry.continuous
+            ? part
+            : h.part
+                .withTime((t: any) => target.begin.add(t.sub(readSource.begin).mul(destScale)))
+                .intersection(part);
+          if (clipped) additions.push(replacementHap(entry, h, target, clipped, destScale));
         }
       }
     }
     return [
-      ...haps.flatMap((h: any) => atOriginal.get(h) ?? (suppressed.has(h) ? [] : [h])),
+      ...haps.flatMap((h: any) => {
+        const removed = cuts.get(h);
+        return removed
+          ? outsideCuts(h, removed)
+          : (atOriginal.get(h) ?? (suppressed.has(h) ? [] : [h]));
+      }),
       ...additions,
     ];
   }, pattern._steps);
@@ -470,5 +590,9 @@ export function registerEventEdits(): void {
     true,
     true,
   );
+  // Strudel's register assigns both prototype methods before updating the
+  // eval scope. Refuse a song's later registration before it mutates either one.
+  for (const key of ['pianoEdits', '_pianoEdits'])
+    Object.defineProperty(Pattern.prototype, key, { writable: false });
   installed = true;
 }

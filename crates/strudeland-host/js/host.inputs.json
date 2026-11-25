@@ -76,8 +76,8 @@
     "node_modules/source-map/lib/util.js": "c83bf8e825fc7366ff511da21c58dde4c4a032308a51c0a71865760c3b43a401",
     "node_modules/source-map/source-map.js": "dc098456c2d9ab90a4c0a17cca9be16665b9813df20906553a98b0088a157be7",
     "src/host/backend.ts": "25b2d9391bcfa7cc3cab8912460f9dbffaeb0d21d2a0d6e8804deadf784af7ab",
-    "src/host/inspection.ts": "f8617b74d487cb58ffe3ca74ca23da7eb62122105b6fc0518aae16caa08e72ae",
-    "src/host/main.ts": "6544df6bd611cb3aba2359f5dbb842174f8329e6cb722c1b8cb8ddadbcc15119",
+    "src/host/inspection.ts": "47911e6226a2845e3e355ef17178d8bd387752ef41b371bb7e829bb145418110",
+    "src/host/main.ts": "2a0ba92470ea21fb6107c9a441a657e4d13033cc01ba065a45c2af76b9306351",
     "src/host/prebake.ts": "5cdddf2c9241e8a70fbad9c41c2f548355e17cac9a6261ed5c2b7bc44527fd62",
     "src/host/shims.ts": "6af1da421ab0fdcf8a38fde7f7dbbd514b550d55204dfdee694b26f88b6039a3",
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
@@ -100,13 +100,14 @@
     "src/lib/render/thresholds.ts": "5d724732d426a5e17e8a77af9b5f93916d816a286f2333fbbf67bd33c6dfe089",
     "src/lib/render/timing.ts": "a6ec0899423b10d0f21ea74c04c0249e529d1ed300ef108d24e987a2b00a6047",
     "src/lib/strudel/event-document.ts": "f3bd7467f7121c8f84746a1b36878358b48df7d9ceca7988acb3a4b44565b1d9",
-    "src/lib/strudel/event-edits.ts": "09323bc27bbd60d853664847cfe99d78f1880fd63884ea908521a74436e656f4",
+    "src/lib/strudel/event-edits.ts": "0ba20a48e2b8cb852cf14f7c437a85ac0c37bb705252ab79aaa4ffcf587488bc",
     "src/lib/strudel/instruments.ts": "a9aee0178c3013271b00316add1c354ba419f47be3de2aa503a21a84afed2029",
     "src/lib/strudel/metered-pattern.ts": "98dfc133580639c70f9c4016141bbd2a833a8f9185f37143148dc082473b706b",
     "src/lib/strudel/note-grid.ts": "88aa7ba98aaf98f515b29138c36dde29ce854efdf7a2fb270c31c831b58129f2",
-    "src/lib/strudel/runtime.ts": "8df5d403ed0e432336e188140e18c76cf56d00d2877009d7f32ff15a07807406",
+    "src/lib/strudel/note-name.ts": "ee99615eb8be5130d8a587e009ac87bb264d100da203869cf44df66a31b661d2",
+    "src/lib/strudel/runtime.ts": "5f8b3b6075b7965ea281b8c1cdfc38cb7e42bdc04a14662889073694fa2fa347",
     "src/lib/strudel/seed.ts": "d2453dfd92566e735aa67e36efffa3c0cafd17924134be001527024b760edc06",
-    "src/lib/strudel/song.ts": "3847a9ef3924b2ca9b4a3199bf9038559747593f86b13cf2172a06ccb30d104d",
+    "src/lib/strudel/song.ts": "743adc4ae2cc5ca1f303169ac52fae74a9eb4476e811982b659b65507fa25c83",
     "src/lib/strudel/structure.ts": "126fd0b95bf8c2bff1be03eb19a03ab051dcf2b9a5d329de7501af6212bae6a2",
     "src/lib/strudel/timing.ts": "460340192fd0eb64cad58bcd6d869113a5a86cd0fdce286c79f2ec676f6fd258",
     "src/lib/strudel/transport.ts": "894add51e3b8a1d6c427f5c8c6ae290d6211a14dcc8535debfa542476e403405",
@@ -155,5 +156,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "cd70a0fa95c8f1d357b683052bcb9e24478d117a665f29b2a66128f29d8f01eb"
+  "combined": "4d4a4f3057097f9967a8236391288f0d31069d8cfab086060e4342f112242610"
 }

@@ -448,20 +448,38 @@ function destination(visit: Visit, script: Script, traceUses = false) {
   return { incomplete };
 }
 
-/** Collect written references through immutable aliases without treating same-spelled names as uses. */
-function definitionUses(
-  root: Binding,
-  script: Script,
-): Pick<RollDefinition, 'uses' | 'incomplete'> {
-  const visitsByBinding = new Map<Binding, Visit[]>();
+type DefinitionUseSummary = Pick<RollDefinition, 'uses' | 'incomplete'>;
+type BindingReferences = Map<Binding, Visit[]>;
+const usageIndexes = new WeakMap<
+  Script,
+  {
+    references: BindingReferences;
+    summaries: Map<Binding, DefinitionUseSummary>;
+  }
+>();
+
+function usageIndex(script: Script) {
+  const cached = usageIndexes.get(script);
+  if (cached) return cached;
+  const references: BindingReferences = new Map();
   for (const visit of script.visits.values()) {
     if (!isReference(visit, script) || visit.node.type !== 'Identifier') continue;
     const binding = lookup(visit, visit.node.name);
     if (!binding) continue;
-    const list = visitsByBinding.get(binding);
+    const list = references.get(binding);
     if (list) list.push(visit);
-    else visitsByBinding.set(binding, [visit]);
+    else references.set(binding, [visit]);
   }
+  const index = { references, summaries: new Map<Binding, DefinitionUseSummary>() };
+  usageIndexes.set(script, index);
+  return index;
+}
+
+/** Collect written references through immutable aliases without treating same-spelled names as uses. */
+function definitionUses(root: Binding, script: Script): DefinitionUseSummary {
+  const { references, summaries } = usageIndex(script);
+  const cached = summaries.get(root);
+  if (cached) return cached;
   const known = new Map<Binding, string[]>();
   const uses: RollUse[] = [];
   let incomplete = !script.staticSafe;
@@ -470,7 +488,7 @@ function definitionUses(
     if (existing) return existing;
     const sections: string[] = [];
     known.set(binding, sections);
-    for (const ref of visitsByBinding.get(binding) ?? []) {
+    for (const ref of references.get(binding) ?? []) {
       const next = destination(ref, script, true);
       if (next.incomplete) incomplete = true;
       const local =
@@ -481,7 +499,9 @@ function definitionUses(
     return sections;
   }
   collect(root);
-  return { uses: uses.sort((a, b) => a.span.from - b.span.from), incomplete };
+  const result = { uses: uses.sort((a, b) => a.span.from - b.span.from), incomplete };
+  summaries.set(root, result);
+  return result;
 }
 
 function trimSelection(source: string, selection: SourceSpan, comments: Comment[]): SourceSpan {
@@ -590,7 +610,7 @@ function caretNode(source: string, caret: number, script: Script): AnyNode | und
     if (method(at.node)?.name === '_pianoEdits') return at.node;
     if (at.key === 'arguments' && at.parent?.node.type === 'CallExpression') {
       const chain = method(at.parent.node);
-      if (chain && chain.name !== 'note' && chain.name !== 'freq') return;
+      if (chain && !['note', 'freq', '_pianoEdits'].includes(chain.name)) return;
     }
   }
 
@@ -657,6 +677,10 @@ function scriptFor(code: string): Script | undefined {
   return cachedSource.script;
 }
 
+export function rollSourceHasSyntax(code: string): boolean {
+  return scriptFor(code) !== undefined;
+}
+
 const gridIndexes = new WeakMap<Script, readonly AuthoredGrid[]>();
 
 function gridsFor(source: string, script: Script): readonly AuthoredGrid[] {
@@ -692,8 +716,9 @@ function gridTarget(
   for (const grid of gridsFor(source, script)) {
     const match = matchGridSelection(grid, selection);
     if (!match) continue;
-    const node = [...script.visits.keys()].find((candidate) => exact(candidate, grid.expression));
-    if (node) return { node, script, grid, row: match.row };
+    for (const node of script.visits.keys()) {
+      if (exact(node, grid.expression)) return { node, script, grid, row: match.row };
+    }
   }
 }
 

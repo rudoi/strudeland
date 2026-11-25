@@ -101,6 +101,7 @@ export interface PianoRollSnapshot {
 export interface PianoRollCommit {
   snapshot: PianoRollSnapshot;
   target?: SourceSpan;
+  targetCaret?: number;
   spans: readonly SourceSpan[];
 }
 
@@ -1387,18 +1388,19 @@ export function createSession(deps: SessionDeps): Session {
       const changes = view.state.changes(patches);
       const spans: SourceSpan[] = [];
       changes.iterChangedRanges((_from, _to, from, to) => spans.push({ from, to }));
-      const primary = spans.at(-1);
-      if (!primary) return null;
-      const reveal = patches.at(-1)!.from;
+      if (!spans.length) return null;
+      const reveal = (patches.find((patch) => patch.reveal) ?? patches.at(-1)!).from;
+      const primary = changes.mapPos(reveal, -1);
       const { from, to } = view.viewport;
       const mappedTarget = target && {
         from: changes.mapPos(target.from, -1),
         to: changes.mapPos(target.to, 1),
       };
+      const targetCaret = target && changes.mapPos(target.from, 1);
       apply(snapshot.path, {
         changes,
         effects: [
-          EditorView.scrollIntoView(primary.from, {
+          EditorView.scrollIntoView(primary, {
             y: reveal < from || reveal > to ? 'center' : 'nearest',
           }),
           pianoRollEditLocation.of(spans),
@@ -1407,7 +1409,7 @@ export function createSession(deps: SessionDeps): Session {
         annotations: isolateHistory.of('full'),
       });
       const current = pianoRollSnapshot();
-      return current && { snapshot: current, target: mappedTarget, spans };
+      return current && { snapshot: current, target: mappedTarget, targetCaret, spans };
     },
     clearPianoRollFeedback() {
       if (view?.state.field(pianoRollEditHighlight, false)?.size) {

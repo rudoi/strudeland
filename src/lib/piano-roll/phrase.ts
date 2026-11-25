@@ -1,3 +1,4 @@
+import { spellNote } from '../strudel/note-name';
 import { Fraction, State, TimeSpan, noteToMidi } from '@strudel/core';
 import { getLeafLocation, mini2ast, patternifyAST } from '@strudel/mini';
 import type { RollEdit, RollNote, RollPatch, RollPhrase, SourceSpan } from './types';
@@ -352,18 +353,8 @@ export function matchesPitchSelection(input: PhraseInput, selection: SourceSpan)
   }
 }
 
-const SHARP = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
-const FLAT = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b'];
-
 export function namePitch(pitch: number, old = ''): string {
-  if (MIDI.test(old)) return String(pitch);
-  const octave = Math.floor(pitch / 12) - 1;
-  const style = /^[a-g][bf]/i.test(old) ? FLAT : SHARP;
-  let name = style[pitch % 12];
-  if (old[1] === 's') name = name.replace('#', 's');
-  if (old[1] === 'f') name = name.replace('b', 'f');
-  if (/^[A-G]/.test(old)) name = name[0].toUpperCase() + name.slice(1);
-  return name + octave;
+  return MIDI.test(old) ? String(pitch) : spellNote(pitch, old);
 }
 
 type Cell = { start: Rational; end: Rational; spelling: string };

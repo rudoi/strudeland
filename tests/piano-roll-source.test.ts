@@ -86,8 +86,12 @@ describe('piano roll source projection', () => {
 
   test('keeps a saved event edit as the target when the caret is in its original expression', () => {
     const source = '(note("c4"))._pianoEdits({ entries: [] })';
-    const from = source.indexOf('c4');
-    expect(resolveRollTarget(source, { from, to: from })?.expression).toEqual(span(source, source));
+    for (const fragment of ['c4', 'entries']) {
+      const from = source.indexOf(fragment) + 1;
+      expect(resolveRollTarget(source, { from, to: from })?.expression).toEqual(
+        span(source, source),
+      );
+    }
   });
 
   test('opens a carried note from the second grid row and edits where the pitch originated', () => {
@@ -396,6 +400,12 @@ describe('piano roll exact phrase edits', () => {
       [60, '0', '1/2'],
       [64, '0', '1/2'],
     ]);
+  });
+
+  test('a flat accidental spelling keeps the B root for a natural retune', () => {
+    const source = 'note("df4")';
+    const note = editable(source).phrase.notes[0];
+    expect(edit(source, { kind: 'pitch', id: note.id, pitch: 71 })).toBe('note("b4")');
   });
 
   test('retains direct MIDI and pitch spelling styles', () => {

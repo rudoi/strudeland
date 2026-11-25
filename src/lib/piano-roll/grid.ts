@@ -56,6 +56,22 @@ export function adjacentStep(bar: GridBar, cycle: number, steps: number, delta: 
 
 export const keyPitch = (pitch: number): number => Math.max(0, Math.min(127, pitch));
 
+export function shiftRollEdge(edge: string, anchor: string, destination: string): string {
+  return Fraction(edge).add(Fraction(destination).sub(anchor)).toFraction();
+}
+
+/** Identify the marker across inspections that regenerate IDs. A single event may have gaps. */
+export function noteMarkerKey(note: RollNote, track: number): string {
+  return [
+    note.pitch,
+    note.start,
+    note.end,
+    note.visibleStart ?? note.start,
+    note.visibleEnd ?? note.end,
+    track,
+  ].join(':');
+}
+
 /** Split overlapping visible notes within a pitch lane. Touching intervals can reuse a track. */
 export function layoutNoteTracks(notes: readonly RollNote[], from: number, to: number) {
   type Interval = { note: RollNote; start: number; end: number };

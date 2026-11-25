@@ -1,9 +1,22 @@
 import { expect, test } from 'bun:test';
-import { Fraction, Hap, Pattern, State, TimeSpan, note, pure, stack } from '@strudel/core';
+import {
+  Fraction,
+  Hap,
+  Pattern,
+  State,
+  TimeSpan,
+  note,
+  pure,
+  register,
+  sequence,
+  stack,
+} from '@strudel/core';
 import { transpiler } from '@strudel/transpiler';
 import {
   editPatternEvents,
+  inspectEventEdits,
   identifyEvent,
+  verifyEventOrigin,
   registerEventEdits,
   eventPitch,
   type EventEditEntry,
@@ -12,7 +25,7 @@ import { planEventEdit, preparePhraseEvents } from '../src/lib/piano-roll/event-
 import { songEditComment } from '../src/lib/strudel/event-document';
 import { buildStructure } from '../src/lib/strudel/structure';
 import { INITIAL_SEGMENTS, LINEAR_SEGMENTS } from '../src/lib/strudel/transport';
-import { song } from '../src/lib/strudel/song';
+import { beginEvaluate, song, withSongPlacement } from '../src/lib/strudel/song';
 import { formatSong } from '../src/lib/editor/format-song';
 import type { RollNote, RollPatch } from '../src/lib/piano-roll/types';
 
@@ -177,9 +190,10 @@ test('written song edits move a note across sections on every loop visit and cli
       { name: 'tail', bars: 1 },
     ],
   };
+  beginEvaluate();
   const structure = buildStructure(meta),
     p = song(meta, { intro: note(60), loop: note(64), tail: note(67) });
-  const all = query(p, 0, 3, { _segments: LINEAR_SEGMENTS });
+  const all = withSongPlacement(() => query(p, 0, 3, { _segments: LINEAR_SEGMENTS }));
   const entry = { ...identifyEvent(all[0], all, false, false)!, id: 'roll1', to: '3/2', key: 72 };
   const edited = editPatternEvents(
     p,
@@ -233,4 +247,230 @@ test('a first edit preserves an implicit statement boundary before an unlabelled
   );
   const p = new Function('note', transpiler(saved, {}).output)(note);
   expect(query(p, 0, 1)[0].value.note).toBe(64);
+});
+
+test('continuous cuts leave the same intervals in a full query and in sliced queries', () => {
+  const value = { note: 60 };
+  const p = new Pattern((state: any) => [new Hap(undefined, state.span, value)]);
+  const cuts: [string, string][] = [
+    ['3/4', '1'],
+    ['1/4', '1/2'],
+    ['5/16', '3/8'],
+  ];
+  const entries = cuts.map((from, i) => ({
+    id: 'cut' + i,
+    from,
+    pitch: 60,
+    continuous: true,
+    capture: value,
+    remove: true,
+  }));
+  const edited = editPatternEvents(p, { entries });
+  const expected = [
+    ['0', '1/4'],
+    ['1/2', '3/4'],
+  ];
+  const spans = (haps: any[]) =>
+    haps.map((h) => [h.part.begin.toFraction(), h.part.end.toFraction()]);
+  expect(spans(query(edited, 0, 1))).toEqual(expected);
+  const edges = ['0', '1/4', '1/2', '3/4', '1'];
+  expect(edges.slice(1).flatMap((end, i) => spans(query(edited, edges[i], end)))).toEqual(expected);
+  expect(query(edited, '1/4', '1/4')).toEqual([]);
+  expect(query(edited, '1/2', '1/2')).toHaveLength(1);
+});
+
+test('final song edits distinguish an independent voice from an identical section voice on each loop visit', () => {
+  beginEvaluate();
+  const m = { sections: [{ name: 'loop', bars: 1, loop: true }] };
+  const p = stack(song(m, { loop: note(70) }), note(70));
+  const haps = withSongPlacement(() => query(p, 0, 1, { _segments: LINEAR_SEGMENTS }));
+  const structure = buildStructure(m),
+    layout = { structure, segments: () => INITIAL_SEGMENTS, cps: () => 0.5 };
+  for (const [index, repeat] of [
+    [0, true],
+    [1, false],
+  ] as const) {
+    const identity = identifyEvent(haps[index], haps, false, false)!;
+    expect(identity.placement).toBe(repeat ? 'song' : 'absolute');
+    const edited = editPatternEvents(
+      p,
+      { entries: [{ ...identity, id: 'roll1', key: 72 }] },
+      layout,
+    );
+    expect(
+      query(edited, 0, 1)
+        .map((h: any) => h.value.note)
+        .sort(),
+    ).toEqual([70, 72]);
+    expect(
+      query(edited, 1, 2)
+        .map((h: any) => h.value.note)
+        .sort(),
+    ).toEqual(repeat ? [70, 72] : [70, 70]);
+  }
+});
+
+test('planner checks the limit across existing and new entries before writing source', () => {
+  const entries = Array.from({ length: 2048 }, (_, i) => ({
+    id: 'e' + i,
+    from: ['0', '1'],
+    pitch: 60,
+    key: 63,
+  }));
+  const code = 'note(60)\n/* @piano-edits ' + JSON.stringify({ entries }) + ' */';
+  const note = preparePhraseEvents([{ id: 'n', start: '0', end: '1', pitch: 60 }])[0];
+  expect(
+    planEventEdit(code, { kind: 'song' }, note, { kind: 'pitch', id: 'n', pitch: 61 }),
+  ).not.toBeNull();
+  expect(
+    planEventEdit(
+      code,
+      { kind: 'song' },
+      { ...note, event: { from: ['1', '2'], pitch: 60 } },
+      { kind: 'pitch', id: 'n', pitch: 61 },
+    ),
+  ).toBeNull();
+});
+
+test('primitive malformed pitches cannot cross the host boundary as non-finite MIDI numbers', () => {
+  expect(eventPitch('c-', true)).toBeUndefined();
+  expect(eventPitch(Infinity, true)).toBeUndefined();
+  expect(eventPitch({ freq: [], note: 60, octave: [] }, false)).toBe(60);
+  expect(eventPitch({ freq: Symbol('freq'), note: 65 }, false)).toBe(65);
+});
+
+test('masked note edits retain disjoint parts across whole and split requests and distinguish stacked copies', () => {
+  const masked = note(60).mask(sequence(1, 0, 1, 0));
+  for (const p of [masked, stack(masked, masked)]) {
+    const fragments = query(p, 0, 1);
+    const target = fragments[fragments.length - 1];
+    const observed = identifyEvent(target, fragments, true, false)!;
+    const verified = verifyEventOrigin(target, observed, query(p, 0, 0))!;
+    expect(verified).toBeDefined();
+    expect(verified.count ?? 1).toBe(fragments.length / 2);
+    const retuned = editPatternEvents(p, { entries: [{ ...verified, id: 'r', key: 65 }] });
+    const moved = editPatternEvents(p, { entries: [{ ...verified, id: 'r', key: 65, to: '5/4' }] });
+    const targetParts = (haps: any[]) =>
+      haps
+        .filter((h) => h.value.note === 65)
+        .map((h) => [
+          h.whole.begin.toFraction(),
+          h.part.begin.toFraction(),
+          h.part.end.toFraction(),
+          h.hasOnset(),
+        ]);
+    const expected = [
+      ['0', '0', '1/4', true],
+      ['0', '1/2', '3/4', false],
+    ];
+    expect(targetParts(query(retuned, 0, 1))).toEqual(expected);
+    expect(
+      targetParts([
+        ...query(retuned, 0, '1/4'),
+        ...query(retuned, '1/4', '1/2'),
+        ...query(retuned, '1/2', 1),
+      ]),
+    ).toEqual(expected);
+    expect(query(retuned, 0, 1).filter((h: any) => h.value.note === 60).length).toBe(
+      fragments.length - 2,
+    );
+    expect(targetParts(query(moved, 1, 3))).toEqual([
+      ['5/4', '5/4', '3/2', true],
+      ['5/4', '7/4', '2', false],
+    ]);
+    expect(query(moved, 0, 1).filter((h: any) => h.value.note === 60).length).toBe(
+      fragments.length - 2,
+    );
+  }
+});
+
+test('a final time transform edits its absolute occurrence without adding onsets on loop wrap', () => {
+  beginEvaluate();
+  const m = { sections: [{ name: 'loop', bars: 1, loop: true }] };
+  const p = song(m, { loop: note(60) }).slow(2);
+  const linear = withSongPlacement(() => query(p, 0, 2, { _segments: LINEAR_SEGMENTS }));
+  const identity = identifyEvent(linear[0], linear, false, false)!;
+  expect(identity.placement).toBe('absolute');
+  const edited = editPatternEvents(
+    p,
+    { entries: [{ ...identity, id: 'r', key: 65 }] },
+    { structure: buildStructure(m), segments: () => INITIAL_SEGMENTS, cps: () => 0.5 },
+  );
+  const onsets = (hs: any[]) =>
+    hs.filter((h) => h.hasOnset()).map((h) => [Number(h.whole.begin), h.value.note]);
+  expect(onsets(query(edited, 0, 4))).toEqual([
+    [0, 65],
+    [2, 60],
+  ]);
+  expect(onsets([0, 1, 2, 3].flatMap((i) => query(edited, i, i + 1)))).toEqual([
+    [0, 65],
+    [2, 60],
+  ]);
+});
+
+test('song registration cannot silently replace the operation used by saved edits', () => {
+  registerEventEdits();
+  expect(() => register('pianoEdits', (_spec: unknown, p: any) => p)).toThrow();
+  const p = note(60)._pianoEdits({
+    entries: [{ id: 'first', from: ['0', '1'], pitch: 60, key: 62 }],
+  });
+  expect(query(p, 0, 1)[0].value.note).toBe(62);
+});
+
+test('retuning a note to base MIDI zero uses a sounding pitch with and without an octave offset', () => {
+  for (const octave of [0, 1]) {
+    const p = pure({ note: 60, octave });
+    const all = query(p, 0, 1);
+    const patched = event(p, all[0], all, { key: 12 * octave });
+    const value = query(patched, 0, 1)[0].value;
+    expect(value.note).toBe('c-1');
+    expect(eventPitch(value, false)).toBe(12 * octave);
+  }
+});
+
+test('string-valued pitch transforms retain string inputs and the written spelling convention', () => {
+  const p = pure('db4');
+  const haps = query(p, 0, 1);
+  const flat = event(p, haps[0], haps, { key: 63 });
+  expect(query(flat, 0, 1)[0].value).toBe('eb4');
+  const line = event(p, haps[0], haps, { key: 64 });
+  expect(query(line.fmap((x: string) => x.toUpperCase()).note(), 0, 1)[0].value.note).toBe('E4');
+  const tagged = note('C4');
+  const observed = query(tagged, 0, 1);
+  expect(query(event(tagged, observed[0], observed, { key: 66 }), 0, 1)[0].value.note).toBe('F#4');
+});
+
+test('an explicitly captured retune replays its missing onset after a seed change', () => {
+  const captured = { note: 60, s: 'sine', gain: 0.4 };
+  const p = new Pattern((s: any) => (s.controls.randSeed === 3 ? pure(captured).query(s) : []));
+  const first = query(p, 0, 1, { randSeed: 3 }),
+    original = identifyEvent(first[0], first, true, true)!;
+  const edited = editPatternEvents(p, { entries: [{ ...original, id: 'captured', key: 64 }] });
+  expect(query(edited, 0, 1, { randSeed: 3 })).toHaveLength(1);
+  const full = inspectEventEdits(() => query(edited, 0, 1, { randSeed: 4 }));
+  expect(full.staleEdits).toEqual([]);
+  expect(full.value[0].value).toEqual({ ...captured, note: 64 });
+  expect(query(edited, '1/2', 1, { randSeed: 4 })[0].hasOnset()).toBe(false);
+  const { capture: _, ...selector } = original;
+  const live = editPatternEvents(p, { entries: [{ ...selector, id: 'live', key: 64 }] });
+  const stale = inspectEventEdits(() => query(live, 0, 1, { randSeed: 4 }));
+  expect(stale).toEqual({ value: [], staleEdits: ['live'] });
+});
+
+test('collect stale entries only for visible queries and isolate nested inspections', () => {
+  const inner = editPatternEvents(note(60), {
+    entries: [{ id: 'old', from: ['0', '1'], pitch: 67, key: 65 }],
+  });
+  const moved = editPatternEvents(inner, {
+    entries: [{ id: 'move', from: ['0', '1'], pitch: 60, to: '2' }],
+  });
+  const visible = inspectEventEdits(() => query(moved, 2, 3));
+  expect(visible.staleEdits).toEqual([]);
+  const original = inspectEventEdits(() => {
+    query(inner, 0, 1);
+    query(inner, 0, 1);
+    return inspectEventEdits(() => query(inner, 2, 3)).staleEdits;
+  });
+  expect(original).toEqual({ value: [], staleEdits: ['old'] });
+  expect(query(inner, 0, 1)[0].value.note).toBe(60);
 });

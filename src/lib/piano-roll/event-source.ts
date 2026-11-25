@@ -124,6 +124,7 @@ function printJs(data: unknown): string {
 
 function sameEvent(a: EventEditIdentity, b: EventEditIdentity) {
   return (
+    a.placement === b.placement &&
     a.from[0] === b.from[0] &&
     a.from[1] === b.from[1] &&
     a.pitch === b.pitch &&
@@ -191,7 +192,10 @@ export function planEventEdit(
     }
     if (gesture.kind === 'resize') entry.until = gesture.end;
     if (gesture.kind === 'delete') entry.remove = true;
-    validateEventSpec({ entries: [entry] });
+    const entries = [...existing];
+    if (index >= 0) entries[index] = entry;
+    else entries.push(entry);
+    validateEventSpec({ entries });
     const song = scope.kind === 'song';
     const printed = song ? JSON.stringify(entry).replaceAll('*/', '*\\/') : printJs(entry);
     let patches: RollPatch[];

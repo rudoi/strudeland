@@ -17,6 +17,7 @@ export interface RollNote {
   contributors?: readonly SourceSpan[];
   sound?: string;
   sourceMatch?: boolean;
+  glideBend?: number;
   pitchEditable?: boolean;
   timeEditable?: boolean;
 }
@@ -63,6 +64,8 @@ export type RollEdit =
 
 export interface RollPatch extends SourceSpan {
   insert: string;
+  /** Reveal this patch when an edit changes several separate source ranges. */
+  reveal?: true;
 }
 
 export interface RollBar {
@@ -84,6 +87,8 @@ export interface InspectionRequest {
 }
 
 export interface InspectionResult {
+  /** Saved event IDs that no longer matched in the inspected window. */
+  staleEdits?: readonly string[];
   notes: readonly RollNote[];
   truncated: boolean;
 }

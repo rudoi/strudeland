@@ -202,7 +202,12 @@ export interface Runtime {
    * or null before the first successful evaluate. Pattern errors throw. `segments` defaults to
    * the linear layout; pass `clipSegments(structure)` for the clip layout.
    */
-  query(fromCycle: number, toCycle: number, segments?: readonly Segment[]): any[] | null;
+  query(
+    fromCycle: number,
+    toCycle: number,
+    segments?: readonly Segment[],
+    seedOverride?: number,
+  ): any[] | null;
   /** Fills `buf` with the latest master output samples; false when the backend has none. */
   readScope(buf: Float32Array): boolean;
   /**
@@ -451,6 +456,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
 
   /** The last successfully evaluated pattern (a failed evaluate leaves it); never exposed. */
   let evaluatedPattern: any = null;
+  let unseededPattern: any = null;
 
   // editPattern runs before autostart's first synchronous tick, so install both
   // sides of the new pattern there. afterEval publishes the logical one.
@@ -508,6 +514,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         phaseOffsetSec,
         audibleHistory,
         evaluatedPattern,
+        unseededPattern,
         playbackPattern,
         playError,
         schedulerPattern: r.scheduler.pattern,
@@ -519,6 +526,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
           phaseOffsetSec,
           audibleHistory,
           evaluatedPattern,
+          unseededPattern,
           playbackPattern,
           playError,
         } = previous);
@@ -555,6 +563,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         queryMetered(seeded, imminent, structure, clock, pending.cps);
       }
       evaluatedPattern = seeded;
+      unseededPattern = edited;
       playError = null;
       playbackPattern =
         clock && liveStructure
@@ -886,8 +895,11 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     fromCycle: number,
     toCycle: number,
     segments: readonly Segment[] = LINEAR_SEGMENTS,
+    seedOverride?: number,
   ): any[] | null {
     if (evaluatedPattern === null) return null;
+    const pattern =
+      seedOverride === undefined ? evaluatedPattern : applySeed(unseededPattern, seedOverride);
     // `song()` reads its layout from the controls, which every nested query state inherits.
     const controls = { _cps: r.scheduler.cps, cyclist: 'cyclist', _segments: segments };
     const span = new State(new TimeSpan(fromCycle, toCycle), controls);
@@ -895,14 +907,14 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const structure = state.structure;
     if (structure?.meterChanges?.length) {
       return queryMetered(
-        evaluatedPattern,
+        pattern,
         span,
         structure,
         layoutClock(structure, segments),
         r.scheduler.cps,
       );
     }
-    return evaluatedPattern.query(span);
+    return pattern.query(span);
   }
 
   // Auto-stop: once the song has played past its end. One interval for the window's lifetime.

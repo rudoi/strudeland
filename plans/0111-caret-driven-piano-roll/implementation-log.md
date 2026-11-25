@@ -15,3 +15,41 @@ caret ownership, alias and effect boundaries, and reopening an existing edit wra
 
 The proof requirements in the [proposal](proposal.md) apply to the integrated feature.
 Record additional results below as they complete.
+
+## Integrated implementation
+
+- The caret opens the nearest proven pitch value and keeps explicit ranges authoritative. Cached
+  source and lexical-use analysis preserve the active scope across local caret motion. Shared
+  definitions retain an explicit navigation path.
+- The Luoyuan adapter recognizes the local legacy consumer by its operations and lexical
+  bindings. The reusable `noteGrid` helper shares exact row decoding. In-place output keeps
+  grid spelling, glide controls and source formatting. A horizontal drag uses authored slot
+  spacing against the existing meter ruler.
+- A generated-note or In song drag writes a scoped event edit in one source transaction.
+  Runtime haps retain their exact spans and controls. The final-output operation uses the
+  written occurrence where verified and the inspected absolute occurrence for independently
+  clocked or outer-transformed material. Captured pitches require evidence that the lane
+  varies. Inspection reports a stale deterministic selector without deleting the current music.
+- CodeMirror commits all patches as one undo item. It reveals the edited source, retains roll
+  focus, and marks the affected notes and written spans with reduced-motion support.
+
+## Test and review iteration
+
+- The Chromium app smoke ran against a local project transport stand-in and the real host JavaScript
+  inspection entry. Direct, repeated generated, and arranged gestures wrote before fresh inspection
+  returned. It verified source scrolling, target stability, roll focus, note and source highlights,
+  an undo, a horizontal edit, and reduced motion. A separate smoke used the local Luoyuan script
+  in memory and changed only its D5 pitch token while retaining the glide suffix.
+- The render page and native host produced identical mixed-meter plans for a synthetic song
+  using both a local event edit and a final-output edit, in clip, tagged, intro, and folded
+  loop layouts. The local Luoyuan probe verified the corresponding two-layer pitch change and
+  the next glide's expected bend.
+- The first workspace test sweep picked up archives under the shared Cargo target. The suite was
+  scoped to the repository's `tests` directory. It caught raw CSS pulse timings, which now share
+  a motion token. Local socket and FSEvents tests required an elevated retry; all 213 app tests
+  passed on that retry.
+- The simplify and independent correctness passes covered the full task diff across editor,
+  source resolver, grid, runtime, host and transport. Regressions retained during those passes
+  include disconnected note fragments, multiple continuous cuts, wrapped shorthand and ASI,
+  carry-in movement, duplicate note focus, source reveal anchors, re-registration, generated
+  pitch shape, changed seeds and stale selectors. The final gate reruns across the integrated tree.

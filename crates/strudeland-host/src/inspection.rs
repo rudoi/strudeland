@@ -78,7 +78,16 @@ impl InspectionRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum EventPlacement {
+    Song,
+    Absolute,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EventEditIdentity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placement: Option<EventPlacement>,
     pub from: [String; 2],
     pub pitch: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,6 +127,8 @@ pub struct InspectedNote {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InspectionResult {
+    #[serde(rename = "staleEdits", default, skip_serializing_if = "Vec::is_empty")]
+    pub stale_edits: Vec<String>,
     pub notes: Vec<InspectedNote>,
     pub truncated: bool,
 }
