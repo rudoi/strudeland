@@ -12,6 +12,7 @@
   import InstrumentBrowser from './components/InstrumentBrowser.svelte';
   import NewProject from './components/NewProject.svelte';
   import NewSong from './components/NewSong.svelte';
+  import PianoRoll from './components/PianoRoll.svelte';
   import SongList from './components/SongList.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Timeline from './components/Timeline.svelte';
@@ -28,6 +29,8 @@
   const projectActions = createProjectActions(session);
   const newProjectFolder = projectActions.folder;
   const rt = app.runtime.store;
+  const prefs = app.prefs.store;
+  const rollOpen = $derived($prefs.pianoRollOpen && $store.active !== null);
   const shortcutModifier = primaryModifier(navigator.platform);
   // The song whose audio is playing: only while the runtime runs.
   const playingPath = $derived($rt.started ? ($store.evaluated?.path ?? null) : null);
@@ -149,7 +152,9 @@
   function onGesture(event: Event) {
     if (
       event.target instanceof Element &&
-      event.target.closest('[data-note-audition-toggle], [data-instrument-browser]')
+      event.target.closest(
+        '[data-note-audition-toggle], [data-instrument-browser], [data-piano-roll]',
+      )
     )
       return;
     if (!app.prepareNoteAudition(event.target)) void app.runtime.resumeAudio();
@@ -200,7 +205,14 @@
         <NewSong {session} bind:open={newSongOpen} />
       </section>
     {/if}
-    <Editor {app} hidden={$store.active === null} />
+    <div class="editing" hidden={$store.active === null} class:roll-open={rollOpen}>
+      <Editor {app} hidden={$store.active === null} />
+      <div id="piano-roll-dock" hidden={!rollOpen}>
+        {#if rollOpen}
+          {#key $store.active}<PianoRoll {app} />{/key}
+        {/if}
+      </div>
+    </div>
     {#if $store.active !== null}<Timeline {app} />{/if}
     <StatusBar
       runtime={app.runtime}
@@ -251,6 +263,22 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+  }
+  .editing:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .roll-open :global(.editor) {
+    min-height: 4rem;
+  }
+  #piano-roll-dock:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 75%;
   }
   .empty {
     flex: 1;

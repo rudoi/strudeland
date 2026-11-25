@@ -7,6 +7,7 @@ export interface AuditionRequest {
   pitch: number;
   sound: string;
   controls: Readonly<Record<string, number>>;
+  fallbackToTriangle?: boolean;
 }
 
 interface SynthHandle {
@@ -52,8 +53,8 @@ export function createNoteAuditionPlayer(deps: {
   }
 
   async function play(
-    { pitch, sound, controls }: AuditionRequest,
-    onSounding?: () => (() => void) | undefined,
+    { pitch, sound, controls, fallbackToTriangle }: AuditionRequest,
+    onSounding?: (fallback: boolean) => (() => void) | undefined,
   ): Promise<void> {
     stop();
     let graph: AudioGraph | null = null;
@@ -76,8 +77,11 @@ export function createNoteAuditionPlayer(deps: {
       }
     }
     try {
-      if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127 || !isAuditionSound(sound)) return;
-      const trigger = lookup(sound.toLowerCase());
+      if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) return;
+      const selected = isAuditionSound(sound) ? lookup(sound.toLowerCase()) : undefined;
+      const fallback = !selected && fallbackToTriangle === true;
+      // The fallback uses the captured built-in even when the song replaces the registry entry.
+      const trigger = selected ?? (fallback ? builtinTriggers.get('triangle') : undefined);
       graph = deps.graph();
       if (!trigger || !graph) return;
       // Superdough treats note: 0 as a missing note. Frequency also covers C-1.
@@ -97,7 +101,7 @@ export function createNoteAuditionPlayer(deps: {
       output.gain.value = 0.5 * Math.min(1, Math.max(0, gain));
       handle.node.connect(output);
       output.connect(graph.destination);
-      if (output.gain.value > 0) clearHighlight = onSounding?.();
+      if (output.gain.value > 0) clearHighlight = onSounding?.(fallback);
     } catch {
       // Preview is best effort while the graph is being rebuilt or a worklet is unavailable.
       cancel();

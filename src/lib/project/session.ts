@@ -7,6 +7,7 @@ import { instrumentApplication } from '../editor/apply-instrument';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
 import { attachState } from '../editor/visuals';
+import type { RollPatch, SourceSpan } from '../piano-roll/types';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
@@ -87,6 +88,15 @@ export interface InstrumentSelection {
   expect: string;
 }
 
+export interface PianoRollSnapshot {
+  root: string;
+  path: string;
+  revision: number;
+  selectionRevision: number;
+  selection: SourceSpan | null;
+  code: string;
+}
+
 export type InstrumentApplyRequest = Omit<InstrumentSelection, 'song'> & {
   id: string;
   song?: string;
@@ -110,6 +120,11 @@ export class InstrumentApplyError extends Error {
 
 export interface Session {
   readonly store: Readable<SessionState>;
+  readonly pianoRollRevision: Readable<number>;
+  pianoRollChanged(selected?: boolean): void;
+  pianoRollSnapshot(): PianoRollSnapshot | null;
+  editPianoRoll(snapshot: PianoRollSnapshot, patches: readonly RollPatch[]): boolean;
+  revealPianoRoll(snapshot: PianoRollSnapshot, span: SourceSpan): void;
   /** Reopens the last project and installs the window close guard. */
   init(canCloseWindow?: () => boolean): Promise<void>;
   /** Show the active song in `view` (or detach with undefined). The live state moves with it. */
@@ -492,6 +507,25 @@ export function createSession(deps: SessionDeps): Session {
   let shown: string | null = null;
   /** The view shows no song of ours (a blank state, or the one it was created with). */
   let blanked = false;
+  let rollRevision = 0;
+  let rollSelectionRevision = 0;
+  const pianoRollRevision = writable(rollRevision);
+  function pianoRollChanged(selected = false): void {
+    if (selected) rollSelectionRevision++;
+    pianoRollRevision.set(++rollRevision);
+  }
+
+  function matchesPianoRoll(snapshot: PianoRollSnapshot): boolean {
+    return (
+      snapshot.revision === rollRevision &&
+      snapshot.root === project?.root &&
+      snapshot.path === active &&
+      active === shown &&
+      !opening &&
+      uiOpening === 0 &&
+      songs.get(snapshot.path)?.conflict !== 'deleted'
+    );
+  }
 
   // ---- view ----
 
@@ -519,6 +553,7 @@ export function createSession(deps: SessionDeps): Session {
       attachState(view, prepare(createState('')));
       blanked = true;
     } else return;
+    pianoRollChanged(true);
     deps.onShown?.(view);
   }
 
@@ -883,6 +918,7 @@ export function createSession(deps: SessionDeps): Session {
 
   function acceptInstrumentSnapshot(snapshot: InstrumentSnapshot): void {
     instruments = Object.keys(snapshot).length ? snapshot : undefined;
+    pianoRollChanged();
     if (instrumentError !== null && error === instrumentError) error = null;
     instrumentError = null;
   }
@@ -893,6 +929,7 @@ export function createSession(deps: SessionDeps): Session {
       acceptInstrumentSnapshot(await api.instruments(root));
     } catch (e) {
       instruments = undefined;
+      pianoRollChanged();
       const message = `reading instruments failed: ${errorMessage(e)}`;
       if (instrumentError !== null && error === instrumentError) error = message;
       instrumentError = message;
@@ -1293,6 +1330,48 @@ export function createSession(deps: SessionDeps): Session {
       view = next;
       blanked = true; // a newly attached view shows none of our songs
       show();
+      if (!next) pianoRollChanged();
+    },
+
+    pianoRollRevision: { subscribe: pianoRollRevision.subscribe },
+    pianoRollChanged,
+    pianoRollSnapshot() {
+      if (!view || !project || !active || shown !== active) return null;
+      const { doc, selection } = view.state;
+      const { from, to } = selection.main;
+      return {
+        root: project.root,
+        path: active,
+        revision: rollRevision,
+        selectionRevision: rollSelectionRevision,
+        selection: selection.ranges.length === 1 && from < to ? { from, to } : null,
+        code: doc.toString(),
+      };
+    },
+    editPianoRoll(snapshot, patches) {
+      if (!view || !matchesPianoRoll(snapshot) || view.state.doc.toString() !== snapshot.code) {
+        return false;
+      }
+      if (!patches.length) return false;
+      apply(snapshot.path, {
+        changes: patches,
+        userEvent: 'input.pianoRoll',
+        annotations: isolateHistory.of('full'),
+      });
+      return true;
+    },
+    revealPianoRoll(snapshot, { from, to }) {
+      if (
+        !view ||
+        !matchesPianoRoll(snapshot) ||
+        from < 0 ||
+        to < from ||
+        to > view.state.doc.length
+      ) {
+        return;
+      }
+      apply(snapshot.path, { selection: { anchor: from, head: to }, scrollIntoView: true });
+      view.focus();
     },
 
     newProject: (askName) =>

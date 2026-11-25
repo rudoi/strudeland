@@ -47,6 +47,8 @@ export interface EditorHooks {
   onEvaluate?: () => void;
   /** Any transaction that changes the document. */
   onDocChange?: () => void;
+  /** The active editor's document or selection changed. */
+  onSelectionChange?: (selected: boolean) => void;
   /** Whether to inspect editor updates for an audition; read before parsing. */
   auditionEnabled?: () => boolean;
   /** A typed pitch or delimiter, or null when the edit invalidates a pending pitch. */
@@ -124,6 +126,15 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     strudelKeymap(runtime, hooks),
     auditionHighlight,
     ...(hooks?.onDocChange ? [docChangeListener(hooks.onDocChange)] : []),
+    ...(hooks?.onSelectionChange
+      ? [
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged || update.selectionSet) {
+              hooks.onSelectionChange?.(update.selectionSet && !update.docChanged);
+            }
+          }),
+        ]
+      : []),
     ...(hooks?.onAuditionEdit
       ? [
           EditorView.updateListener.of((update) => {

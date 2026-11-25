@@ -25,6 +25,8 @@ pub struct Prefs {
     pub audition_notes: bool,
     /// Format supported Strudel patterns when saving a song.
     pub format_on_save: bool,
+    /// Show the piano roll dock when an editor is open.
+    pub piano_roll_open: bool,
 }
 
 /// The on-disk shape.
@@ -77,6 +79,7 @@ mod tests {
         assert!(!Prefs::default().vim);
         assert!(!Prefs::default().audition_notes);
         assert!(!Prefs::default().format_on_save);
+        assert!(!Prefs::default().piano_roll_open);
     }
 
     #[test]
@@ -154,6 +157,7 @@ mod tests {
             vim: true,
             audition_notes: true,
             format_on_save: true,
+            piano_roll_open: true,
         };
         prefs.save(&file).unwrap();
         let text = fs::read_to_string(&file).unwrap();
@@ -162,6 +166,7 @@ mod tests {
         assert!(text.contains("\"vim\": true"));
         assert!(text.contains("\"auditionNotes\": true"));
         assert!(text.contains("\"formatOnSave\": true"));
+        assert!(text.contains("\"pianoRollOpen\": true"));
         assert_eq!(Prefs::load(&file), prefs);
         Prefs::default().save(&file).unwrap();
         assert_eq!(Prefs::load(&file), Prefs::default());

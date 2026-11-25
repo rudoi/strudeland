@@ -21,6 +21,8 @@ export interface PrefsStore {
   setAuditionNotes(on: boolean): Promise<void>;
   /** Never rejects. */
   setFormatOnSave(on: boolean): Promise<void>;
+  /** Never rejects. */
+  setPianoRollOpen(on: boolean): Promise<void>;
 }
 
 export function createPrefs(api: PrefsApi | null): PrefsStore {
@@ -80,5 +82,6 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     setVim: (on) => set('vim', on),
     setAuditionNotes: (on) => set('auditionNotes', on),
     setFormatOnSave: (on) => set('formatOnSave', on),
+    setPianoRollOpen: (on) => set('pianoRollOpen', on),
   };
 }

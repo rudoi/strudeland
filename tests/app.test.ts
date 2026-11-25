@@ -6,6 +6,7 @@ afterAll(() => GlobalRegistrator.unregister());
 
 const { createApp } = await import('../src/lib/app');
 const { createEditor } = await import('../src/lib/editor/setup');
+const { undo } = await import('@codemirror/commands');
 const { get } = await import('svelte/store');
 const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
@@ -37,6 +38,33 @@ async function setup(opts: { last?: string | null; tauri?: boolean } = {}) {
 }
 
 describe('createApp', () => {
+  test('a roll edit changes only the buffer and is one isolated undo step', async () => {
+    const { app, view, fake, evaluated } = await setup();
+    view.dispatch({ selection: { anchor: 3, head: 9 } });
+    const snapshot = app.session.pianoRollSnapshot()!;
+    expect(snapshot.selection).toEqual({ from: 3, to: 9 });
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'b' }])).toBe(true);
+    expect(view.state.doc.toString()).toBe('$: s("b")\n');
+    expect(get(app.session.store).songs[0].dirty).toBe(true);
+    expect(fake.files().get(MAIN)).toBe('$: s("a")\n');
+    expect(evaluated).toEqual([]);
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(snapshot.code);
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBe(false);
+    app.destroy();
+  });
+
+  test('a roll snapshot is invalid after switching away and back', async () => {
+    const { app, view } = await setup();
+    view.dispatch({ selection: { anchor: 3, head: 9 } });
+    const snapshot = app.session.pianoRollSnapshot()!;
+    await app.session.switchSong('songs/x.js');
+    await app.session.switchSong(MAIN);
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual(snapshot.selection);
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBe(false);
+    app.destroy();
+  });
+
   test('init reopens the last project into the attached view and registers the close guard', async () => {
     const { app, view, fake } = await setup();
     expect(get(app.session.store).project?.name).toBe('p');
@@ -572,7 +600,9 @@ describe('vim keybindings', () => {
     prefs.failSet = false;
     await app.prefs.setVim(true);
     expect(get(app.prefs.store).error).toBeNull();
-    expect(prefs.saved).toEqual([{ vim: true, auditionNotes: false, formatOnSave: false }]);
+    expect(prefs.saved).toEqual([
+      { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+    ]);
     // Only the user's toggle focuses; a pref change by itself does not.
     expect(focused).toEqual([]);
     app.destroy();

@@ -15,6 +15,8 @@ import type { ControlInfo, ControlRequest } from './control/protocol';
 import { createEditorState, setKeymap, withKeymap, type EditorHooks } from './editor/setup';
 import { createVimMode, defineVimWrite, type VimMode } from './editor/vim-mode';
 import { createVisuals, highlightAudition } from './editor/visuals';
+import { inspectPianoRoll } from './piano-roll/api';
+import { createInspectionQueue } from './piano-roll/inspection';
 import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
 import { createPrefs, type PrefsStore } from './prefs/store';
 import { createTauriProjectApi, type InstrumentBrowserApi, type ProjectApi } from './project/api';
@@ -36,6 +38,13 @@ export interface App {
   session: Session;
   instruments: InstrumentBrowserApi;
   instrumentPreview: ReturnType<typeof createInstrumentPreview>;
+  rollInspection: ReturnType<typeof createInspectionQueue>;
+  auditionPianoRoll(
+    pitch: number,
+    sound?: string,
+    automatic?: boolean,
+  ): Promise<'triangle' | 'selected' | null>;
+  stopPianoRollAudition(): void;
   focusEditor(): void;
   /** The control socket's state; `off` outside Tauri (no `ControlApi`). */
   control: Readable<ControlInfo>;
@@ -89,6 +98,7 @@ export function createApp(
   prefsApi: PrefsApi | null = inTauri() ? createTauriPrefsApi() : null,
 ): App {
   const prefs = createPrefs(prefsApi);
+  const rollInspection = createInspectionQueue(inTauri() ? inspectPianoRoll : null);
   const vimMode = createVimMode();
   let view: EditorView | undefined;
   let runtime!: Runtime;
@@ -126,10 +136,17 @@ export function createApp(
   const canAudition = () => Boolean(view) && prefs.auditionNotes() && auditionsAvailable();
   const auditionGraph = () => superdough.graph?.() ?? null;
   const player = createNoteAuditionPlayer({ graph: auditionGraph });
+  let rollAudition: { automatic: boolean } | null = null;
+  function stopPianoRollAudition(): void {
+    if (!rollAudition) return;
+    rollAudition = null;
+    player.stop();
+  }
   const audition = createAuditionQueue({
     eligible: canAudition,
     prepare: runtime.prepareAudition,
     play(note) {
+      rollAudition = null;
       const editor = view;
       const doc = editor?.state.doc;
       void player.play(note, () => {
@@ -147,6 +164,7 @@ export function createApp(
     render: (version) => api.instrumentPreview(version),
   });
   function stopAuditions() {
+    stopPianoRollAudition();
     audition.stop();
     instrumentPreview.stop();
   }
@@ -161,6 +179,10 @@ export function createApp(
     onSave: () => void session.save(),
     onEvaluate: evaluateDoc,
     onDocChange: () => session.docChanged(),
+    onSelectionChange(selected) {
+      stopPianoRollAudition();
+      session.pianoRollChanged(selected);
+    },
     auditionEnabled: canAudition,
     onAuditionEdit: audition.edit,
     vim: prefs.vim,
@@ -173,6 +195,7 @@ export function createApp(
     formatOnSave: prefs.formatOnSave,
     prepareState: (s) => withKeymap(s, prefs.vim()),
     onShown: (v) => {
+      stopPianoRollAudition();
       audition.stop();
       vimMode.attach(v);
     },
@@ -185,7 +208,10 @@ export function createApp(
   });
   const restoreVimWrite = defineVimWrite(() => void session.save());
   let unprefs: (() => void) | null = prefs.store.subscribe(({ vim, auditionNotes }) => {
-    if (!auditionNotes) audition.stop();
+    if (!auditionNotes && (!rollAudition || rollAudition.automatic)) {
+      stopPianoRollAudition();
+      audition.stop();
+    }
     if (view && setKeymap(view, vim)) vimMode.attach(view);
   });
   const ready = prefs.load();
@@ -223,6 +249,26 @@ export function createApp(
     session,
     instruments: api,
     instrumentPreview,
+    rollInspection,
+    async auditionPianoRoll(pitch, sound, automatic = false) {
+      const eligible = () => auditionsAvailable() && (!automatic || prefs.auditionNotes());
+      if (!eligible() || !Number.isInteger(pitch) || pitch < 0 || pitch > 127) return null;
+      stopAuditions();
+      const request = { automatic };
+      rollAudition = request;
+      const ready = await runtime.prepareAudition();
+      if (rollAudition !== request || !ready || !eligible()) return null;
+      let voice: 'triangle' | 'selected' | null = null;
+      await player.play(
+        { pitch, sound: sound ?? '', controls: {}, fallbackToTriangle: true },
+        (fallback) => {
+          voice = fallback ? 'triangle' : 'selected';
+          return undefined;
+        },
+      );
+      return rollAudition === request ? voice : null;
+    },
+    stopPianoRollAudition,
     focusEditor: () => view?.focus(),
     control: { subscribe: control.subscribe },
     hooks,
@@ -235,6 +281,7 @@ export function createApp(
       return saved;
     },
     attachView(v) {
+      stopPianoRollAudition();
       audition.stop();
       view = v;
       session.attachView(v);
@@ -252,6 +299,7 @@ export function createApp(
     recording,
     memos,
     destroy() {
+      rollInspection.request(null);
       stopAuditions();
       unrecording?.();
       unmemo?.();
