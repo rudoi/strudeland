@@ -91,7 +91,10 @@ export interface SongPlaybackDeps {
 
 export interface SongPlayback {
   readonly store: Readable<PlaybackState>;
-  /** Whether `arm(choice)` would arm anything now. */
+  /**
+   * Whether `arm(choice)`'s names resolve now. The first section resolves, though arming it leaves
+   * nothing pending.
+   */
   readonly canArm: Readable<(choice: ArmChoice) => boolean>;
   /** The instrument pins the evaluated song was evaluated with. */
   instruments(): InstrumentSnapshot | undefined;
@@ -272,14 +275,17 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
     const ts = get(runtime.transport.store);
     if (!ts.pendingStart) armed = null;
     const song = evaluated?.song ?? null;
+    // While started nothing is armed, also in the moment the runtime has published `started` and
+    // the transport model has not yet re-applied (its `pendingStart` is stale then).
+    const pending = rs.started ? null : armed;
     return {
       evaluated: song,
       playing: rs.started ? song : null,
       started: rs.started,
       transport: {
         view: ts.view,
-        loop: rs.started ? viewLoop(ts.view, rs.structure) : (armed?.loop ?? null),
-        armed: armed ? nameOf(armed) : null,
+        loop: rs.started ? viewLoop(ts.view, rs.structure) : (pending?.loop ?? null),
+        armed: pending ? nameOf(pending) : null,
       },
     };
   }

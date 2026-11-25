@@ -10,7 +10,7 @@ const { createSongPlayback } = await import('../src/lib/project/song-playback');
 const { createSession } = await import('../src/lib/project/session');
 const { createEditorState } = await import('../src/lib/editor/setup');
 const { EditorView } = await import('@codemirror/view');
-import type { PlaybackTransport } from '../src/lib/project/song-playback';
+import type { PlaybackState, PlaybackTransport } from '../src/lib/project/song-playback';
 import type { Session } from '../src/lib/project/session';
 import type { InstrumentSnapshot } from '../src/lib/strudel/instruments';
 import type { SongStructure } from '../src/lib/strudel/structure';
@@ -176,6 +176,26 @@ describe('disarming', () => {
     h.pb.arm({ start: 'chorus' });
     h.rt.runtime.transport.reset();
     expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('no published state is armed while started, through a start and a stop', () => {
+    const h = setup(layout('intro', 'verse', 'chorus'), { live: true, audio: 'running' });
+    h.rt.patch({ structure: layout('intro', 'verse', 'chorus') });
+    const seen: PlaybackState[] = [];
+    const off = h.pb.store.subscribe((s) => seen.push(s));
+    for (const choice of [{ start: 'chorus' }, { loop: 'verse' }]) {
+      h.pb.arm(choice);
+      // The runtime publishes `started` before the transport model re-applies.
+      h.rt.setStarted(true);
+      h.rt.runtime.stop();
+    }
+    off();
+    expect(seen.some((s) => s.transport.armed !== null)).toBe(true);
+    for (const s of seen) {
+      if (s.started) expect(s.transport.armed).toBeNull();
+      else if (s.transport.armed === null) expect(s.transport.loop).toBeNull();
+    }
+    expect(seen.at(-1)).toMatchObject({ started: false, transport: NOT_ARMED });
   });
 
   test('a runtime stop while already stopped rewinds an armed start, as the runtime does', () => {
