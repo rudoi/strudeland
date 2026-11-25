@@ -5,7 +5,8 @@
 One module decides what play, stop, evaluate, section arming and record mean while a song, an
 audible memo, a take or an audition is sounding. The toolbar, the editor shortcuts, the Timeline,
 the recording controls, the instrument browser and the control handler all call it. Nobody
-re-derives "taking" or "memo audible", and nobody calls `runtime.stop()` directly.
+re-derives "taking" or "memo audible", and no UI or control entry point calls `runtime.stop()`
+directly. Internal calls inside the song playback, backing, recording and memo modules stay.
 
 Three visible changes, all approved by the user on 2026-11-25:
 
@@ -29,9 +30,9 @@ The [re-verification](0115-play-stop-arbitration/reverify.md) has the evidence.
 |---|---|---|---|---|---|
 | Toolbar play / Cmd-Enter | save if dirty, evaluate, autostart | save, re-evaluate | stop memo, save, evaluate, start | stop memo (stops its song), save, evaluate, start | refused (Cmd-Enter still flashes) |
 | Toolbar stop | disabled | stop song | stop memo | stop memo, then song | end and save the take (no-op while starting or stopping) |
-| Cmd/Ctrl-. | `runtime.stop` | stop song | **memo keeps playing** | **song stops, memo plays on** | **stops the take's backing; recording continues** |
+| Cmd/Ctrl-. | `runtime.stop` (silences auditions, cancels an in-flight autostart) | stop song | **memo keeps playing** | **song stops, memo plays on** | **with song backing: stops it; recording continues** (metronome keeps running) |
 | Control `eval`/`play` | no save, evaluate, autostart | as idle | stop memo, evaluate, start | stop memo, evaluate, start | evaluate with `autostart:false` |
-| Control `stop` | `{wasPlaying:false}` | `{wasPlaying:true}` | stops the memo, `{wasPlaying:false}` | `{wasPlaying:true}` | end the take |
+| Control `stop` | `runtime.stop`, `{wasPlaying:false}` | `{wasPlaying:true}` | stops the memo, `{wasPlaying:false}` | `{wasPlaying:true}` | end the take; `wasPlaying` = runtime started (true only with song backing) |
 | Timeline playFrom | arm, evaluate if it resolves | arm (jump at the next bar) | arm, then play stops the memo | **arm: jumps the backing** | **arm; with song backing, jumps it mid-take** |
 | Record | start a take | the take stops the song | stop memo first | stop memo (and its song) first | the button is stop |
 
@@ -56,8 +57,8 @@ In:
    - `InstrumentBrowser.svelte`;
    - `control/handler.ts`, where the `ControlPlayback` bag becomes the arbiter.
 3. **The three approved visible changes** above.
-4. **`GLOSSARY.md`:** adds take and audible memo, done in the plan commit. **`AGENTS.md`:** lists
-   `play-arbiter.ts`.
+4. **`GLOSSARY.md`:** take and audible memo were added in the plan commit. **`AGENTS.md`:**
+   lists `play-arbiter.ts`.
 
 Out:
 
@@ -95,76 +96,162 @@ flowchart TB
 
 ## Technical design
 
+### Construction
+
+`createPlayArbiter({ session, runtime, recording?, memos?, stopAuditions })`.
+
+- **`app.ts`** keeps `stopAuditions` (it is also the runtime's `onPlaybackRequest`, built before
+  the arbiter) and passes it in. It releases the arbiter with `arbiter.destroy()` in
+  `app.destroy`, before `memos.destroy()` and `recording.destroy()`.
+- **The arbiter calls every dependency through its object at call time:** `session.playback.arm`,
+  `session.saveAndEvaluate`, `memos.stopPlayback`, `runtime.stop`. `tests/app.test.ts`
+  monkey-patches these.
+- **The control handler** takes `Pick<PlayArbiter, 'evaluate' | 'stop'>` in place of
+  `ControlPlayback`.
+  - Without one, it builds `createPlayArbiter({ session, runtime, stopAuditions: () => {} })`,
+    replacing `NO_PLAYBACK`.
+  - The handler's wiring test passes a fake.
+
 ### Store
 
-Every field is derived from the recording controller's store, the memo player's store and
-`runtime.store`:
+Every field is derived from the recording store, the memo player store and `runtime.store`:
 
 - `taking`: `takeRunning(phase)`.
-- `takePhase`: the recording phase, for help copy.
+- `takePhase`.
 - `memoAudible`: the memo is loading or playing.
-- `started`.
+- `started`: `runtime.store.started`.
 - `canPlay`: `!taking`.
-- `stopTarget`: `'take' | 'memo' | 'song' | null`. Stop acts on the take first, then the memo
-  (which stops its own song), then the song. It drives the toolbar's stop button state and its
-  copy.
-- `busy`: `taking || memoAudible`. It drives audition gating, the instrument browser, and the
-  Timeline's disabling while the runtime is started.
+- `stopTarget`: the take, else the memo, else the song, else null. A memo cannot play during a
+  take (`memos.ts:184-188`), so `take` always wins.
+- `stopEnabled`: `started || taking || memoAudible`. This is today's toolbar predicate.
+- `busy`: `taking || memoAudible`.
+- `canPlayFrom`: `!(busy && started)`. This is approved change 2.
+- `auditionsAvailable()` (a function, read at call time): `playRequests === 0 &&
+  runtime.canAudition() && !taking && !memoAudible`. This is exactly today's `app.ts:141`, and
+  the `playRequests` counter moves into the arbiter.
+
+**Side effects the arbiter owns:** entering a take or an audible memo calls `stopAuditions()`,
+as `app.ts:232-239` does today.
+
+The **InstrumentBrowser** keeps its own copy predicate, `started || memoAudible || taking`, read
+from the store, so its `busyHelp` text is unchanged.
 
 ### Verbs and their contracts
 
 1. **`play(): boolean`.** The user's play: the toolbar and Cmd-Enter.
-   - **During a take,** it is refused and returns false, so the editor does not flash.
-   - **Otherwise,** it silences auditions, bumps `playRequests`, stops the memo, then calls
-     `session.saveAndEvaluate()`.
-   - **Synchronous up to the save:** nothing awaits before it, so the gesture holds. The capture
-     phase `onGesture` → `resumeAudio` in `App.svelte` stays.
-2. **`playFrom(choice): boolean`.** The Timeline. If `busy` and the runtime is started, it is
-   refused and returns false (approved change 2). Otherwise it keeps today's `app.playFrom`:
-   - during a take: arm only;
-   - while stopped: arm, then `play()`;
-   - while started: arm only.
-3. **`stop(): { stopped: 'take' | 'memo' | 'song' | null; wasPlaying: boolean }`.** The toolbar,
-   Cmd-. and control `stop`.
-   - **During a take:** `recording.stop()`, which is a no-op while starting or stopping.
-   - **Otherwise:** stop the memo, then `runtime.stop()` if the runtime is still started.
-   - **`wasPlaying` keeps the control `stop` result exactly:**
-     - it is true when the song or a take was playing;
-     - it stays false when only a memo was audible (#141 tracks changing that).
-4. **`evaluate(path): Promise<EvalOutcome>`.** Control `eval`, `play` and `code set`.
-   - It stops the memo and never saves.
-   - During a take it passes `{ autostart: false }` to `session.evaluateBuffer`.
-   - It returns the session outcome, and the handler maps it to the wire as today.
+   - **During a take,** it returns false and does nothing.
+   - **Otherwise,** it calls `stopAuditions()`, does `playRequests++`, calls
+     `memos.stopPlayback()`, then `session.saveAndEvaluate().finally(() => playRequests--)`, and
+     returns true.
+   - It returns true even when there is no active song (`saveAndEvaluate` does nothing then),
+     matching today.
+   - **Synchronous up to the save.** `saveAndEvaluate` may await a write when the song is dirty,
+     as today. `App.svelte`'s capture-phase `onGesture` → `resumeAudio`, `prepareNoteAudition`
+     and the rest of `App.svelte` stay untouched.
+2. **`playFrom(choice): boolean`.** The Timeline.
+   - **If `!canPlayFrom`,** it returns false and does nothing.
+   - **Otherwise it keeps today's `app.playFrom`:** read `started` from `session.playback.store`,
+     arm through `session.playback.arm`, then call `play()` only if the arm succeeded and the
+     runtime was stopped.
+     - During a take, `play()` returns false, so the arm stays (today's behaviour).
+     - With an audible memo alone, the runtime is stopped, so it arms and then `play()` stops the
+       memo, as today.
+3. **`stop(): { stopped: 'take' | 'memo' | 'song' | null; wasPlaying: boolean; done: Promise<void> }`.**
+   The toolbar, Cmd-. and control `stop`.
+   - `wasPlaying` is `runtime.store.started` read on entry, before anything stops, in every
+     branch. This is exactly the wire value today. Callers never derive it from `stopped`.
+   - **During a take,** it calls `recording.stop()` synchronously. `done` is that promise. The
+     call does nothing while the take is starting or stopping.
+   - **Otherwise,** it calls `memos.stopPlayback()`, then `runtime.stop()` **unconditionally**.
+     - This keeps today's control and Cmd-. semantics. The runtime's stop counter cancels an
+       in-flight evaluate's autostart, and `onPlaybackRequest` silences auditions.
+     - The toolbar's stop button is disabled while nothing is started, taking or audible, so
+       nothing changes for the toolbar.
+     - `done` is resolved.
+   - **Throws propagate:** `control-handler.test.ts:728` expects `INTERNAL_ERROR` when
+     `runtime.stop` throws.
+4. **`evaluate(path): Promise<SessionEvalOutcome>`.** Control `eval`, `play` and `code set`.
+   - It calls `memos.stopPlayback()`, then `session.evaluateBuffer(path, taking ? { autostart:
+     false } : undefined)`. It never saves and never goes through `play()`.
    - Another song evaluated during a take takes over the backing, as today (#142).
-5. **`record(choice)`.** It stops the memo, then calls `recording.record(choice)` synchronously,
-   which keeps `resumeAudio` inside the gesture.
+5. **`record(choice)`.** It calls `memos.stopPlayback()`, then `recording.record(choice)`, both
+   synchronously, so `resumeAudio` stays inside the gesture.
+6. **`destroy()`.** It releases the arbiter's subscriptions.
+
+### Editor hooks (`editor/setup.ts`)
+
+- **`onEvaluate?: () => boolean | void`.** `evaluateCommand` flashes unless the hook returns
+  exactly `false`. Void hooks still flash, so `tests/setup.test.ts:57` and the
+  `editor-hooks.test.ts` and `vim.test.ts` hooks pass unchanged.
+- **`onStop?: () => void`.** Mod-. and Ctrl-. call it when given, else `runtime.stop()`, as today.
+  The fallback tests (`editor-hooks.test.ts:153`, `vim.test.ts:206`, `setup.test.ts:48`) stay.
+- **`app.ts` wires them:** `onEvaluate: () => arbiter.play()` and `onStop: () => void
+  arbiter.stop()`.
+
+### Timeline (approved change 2)
+
+- **The section items** (start here, loop this section, and each "through …") are disabled when
+  `!$arbiter.canPlayFrom`.
+- **Help text precedence in each item:**
+  1. the resolve failure (`!target`/`!range`: "Re-evaluate the song …") comes first, as today;
+  2. then the new busy text: "Stop the take first." or "Stop the memo first.", chosen by
+     `stopTarget`;
+  3. then the existing branches.
+- **Per state:**
+  - **Memo alone:** the runtime is stopped, so the items stay enabled. A click arms, and play
+    stops the memo, as today.
+  - **Memo loading with song backing, or a take `starting`:** the runtime is not started yet, so
+    the items stay enabled until the song starts. That matches the predicate.
+  - **A take with a metronome or no backing:** the items stay enabled, and today's "taking" help
+    applies.
+  - **A take or memo with song backing, started:** the items are disabled.
+- **Out of approved change 2, unchanged:** `play ending` and `stop looping` still act on a
+  backing song. They are known rows.
 
 ### Callers
 
 | Caller | After |
 |---|---|
-| `app.ts` | builds the arbiter; `evaluateDoc` → `arbiter.play`; `playFrom` → `arbiter.playFrom`; audition gating reads `busy`; `takeActive`, `memoActive` and the `playRequests` counter move in; `hooks.onEvaluate` → `play`, and a new `hooks.onStop` → `stop` |
-| `editor/setup.ts` | Cmd-Enter flashes only when `onEvaluate` returns true; Mod-. and Ctrl-. call the `onStop` hook when one is given, else `runtime.stop` (tests and the plain editor) |
-| `Toolbar.svelte` | reads the arbiter's store; play → `play()`; stop → `stop()`; the copy text stays in the component |
-| `Timeline.svelte` | items call `arbiter.playFrom`; they are disabled with help text when `busy && started` (approved change 2) |
+| `app.ts` | builds the arbiter. `evaluateDoc` → `arbiter.play`; `playFrom` → `arbiter.playFrom`. Audition gating → `arbiter.auditionsAvailable()`. `takeActive`, `memoActive`, `playRequests` and the take/memo `stopAuditions` subscriptions move in. Hooks are wired as above. `beforeProjectChange` (stop the memo, then await `recording.stop()`) stays as it is, pinned by `app.test.ts:592-602` |
+| `editor/setup.ts` | the flash contract and `onStop` hook above |
+| `Toolbar.svelte` | reads `canPlay`, `stopEnabled`, `stopTarget` and `taking`. Play → `play()`, stop → `stop()`. The copy text stays in the component |
+| `Timeline.svelte` | items call `arbiter.playFrom`. Disabled by `canPlayFrom`, with the help precedence above. Its own `taking` reads the arbiter |
 | `RecordControls.svelte` | record → `arbiter.record` |
-| `InstrumentBrowser.svelte` | reads `busy` and `started` from the arbiter |
-| `control/handler.ts` | `ControlPlayback` is replaced by the arbiter; `evaluateGuarded` → `arbiter.evaluate`; `stop` → `arbiter.stop`; wire unchanged |
+| `InstrumentBrowser.svelte` | reads `started`, `memoAudible` and `taking` from the arbiter, with the same copy |
+| `PianoRoll.svelte` | its `takeRunning` playhead check reads `arbiter.taking` |
+| `control/handler.ts` | `ControlPlayback` is replaced by `Pick<PlayArbiter, 'evaluate' \| 'stop'>`. `evaluateGuarded` → `arbiter.evaluate`. `stop` → `arbiter.stop`, awaiting `done`, with the reply unchanged |
+
+**Internal calls that stay outside the arbiter:** these are not UI or control entry points.
+
+- `runtime.stop()` in `song-playback.ts`, `recording/backing.ts`, `recording/controller.ts` and
+  `audio/memo-player.ts`. A memo alone stops the song inside the memo player.
+- `memos.stopPlayback()` in `MemoList.svelte` (the row toggle) and `StatusBar.svelte` (dismissing
+  a player error).
 
 ### Tests (replace, don't layer)
 
 - **New: `tests/play-arbiter.test.ts`.** One table over small `Pick<>` fakes, using the stub
   runtime and the fake recording API.
-  - States: idle, song, memo alone, memo with song, take (each phase), audition.
-  - Actions: `play`, `stop`, `evaluate`, `playFrom`, `record`.
-  - Every row from the Current behaviour table is a named case, with the three approved changes
-    and the two kept quirks (#141, #142) as explicit rows.
-- **`tests/control-handler.test.ts`:** the "during memo playback and a take" block becomes one
-  wiring test with a fake arbiter.
-- **`tests/app.test.ts`:** the playFrom and take tests move to the arbiter. One integration test
-  through the fake recording API stays.
-- **`tests/setup.test.ts`:** Cmd-. calls the stop hook; Cmd-Enter flashes only when the evaluate
-  runs.
+  - **States:** idle, song, memo alone, memo with song, take (song backing, metronome only, and
+    each phase), audition, an in-flight evaluate.
+  - **Actions:** `play`, `stop`, `evaluate`, `playFrom`, `record`.
+  - **Every row of the Current behaviour table is a named case,** with the three approved
+    changes and the two kept quirks (#141, #142) as explicit rows.
+  - **Specific rows:**
+    - `wasPlaying` for: take with song, take with metronome, a take starting, memo alone, memo
+      with song;
+    - stop cancelling an in-flight autostart;
+    - stop silencing an audition while idle;
+    - `auditionsAvailable` during a pending play.
+- **`tests/control-handler.test.ts`:** the "during memo playback and a take" block (`:549-594`)
+  becomes one wiring test with a fake arbiter.
+  - `:588` and `:605` keep asserting the unconditional stop counter.
+  - `:728` still expects `INTERNAL_ERROR`.
+- **`tests/app.test.ts`:** the playFrom and take tests (`:608-655`, `:670-680`) move to the
+  arbiter. One integration test through the fake recording API stays. The tests that monkey-patch
+  through the app (`:40`, `:230`, `:269-300`, `:371`, `:394`, `:569`, `:592-654`) still pass.
+- **`tests/setup.test.ts`:** Cmd-. calls `onStop` when given. Cmd-Enter does not flash when
+  `onEvaluate` returns `false`. `editor-hooks.test.ts` and `vim.test.ts` stay unchanged.
 
 ## Dependencies
 
@@ -200,7 +287,11 @@ light Loss check run.
 8. **Stop while a take is starting or stopping stays a no-op.**
 9. **Timeline section items are disabled while busy and the runtime is started** (user).
 10. **"Stop the memo first" moves into `arbiter.record`.**
-11. **Audition gating reads the arbiter's `busy`.**
-12. **Stop calls `runtime.stop()` only when started,** everywhere. While stopped no audition can
-    sound, so nothing is lost.
+11. **Audition gating is `arbiter.auditionsAvailable()`,** exactly today's predicate, with
+    `playRequests` moved in.
+12. **Outside a take, stop calls `runtime.stop()` unconditionally,** as control and Cmd-. do
+    today. That cancels an in-flight evaluate's autostart and silences auditions. The toolbar's
+    stop is disabled when idle, so it is unaffected. (Refine corrected an earlier "only when
+    started" rule, which would have changed behaviour.)
+13a. **`play ending` and `stop looping` stay outside approved change 2,** as known rows.
 13. **Hot reload into a take's or memo's backing stays in the session,** as a known row.
