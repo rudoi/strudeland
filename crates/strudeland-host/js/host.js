@@ -18642,19 +18642,12 @@ Defaulting to 2020, but this will stop working in the future.`);
   var MAX_RENDER_BARS = 1e5;
   var BATCH_REUSE_SCHEDULE = true;
   var badRequest = (message) => new PlanJobError("plan", `bad request: ${message}`);
-  var LOOPS_MESSAGE = `--loops must be an integer from 1 to ${MAX_LOOPS}`;
   var isIntIn = (v, min, max) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
   var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
   function validateRenderRequest(request) {
     if (!isObject2(request))
       throw badRequest("not a JSON object");
-    const { mode, sampleRate, includeEvents, length } = request;
-    if (mode === "stems")
-      throw badRequest("mode: stems is not supported yet; v1 renders the mix");
-    if (mode !== "mix")
-      throw badRequest(`unknown mode ${String(mode)}`);
-    if (sampleRate !== SAMPLE_RATE)
-      throw badRequest(`sampleRate must be ${SAMPLE_RATE}`);
+    const { includeEvents, length } = request;
     if (includeEvents !== undefined && typeof includeEvents !== "boolean") {
       throw badRequest("includeEvents must be true or false");
     }
@@ -18668,7 +18661,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     switch (length.kind) {
       case "clip":
         if (length.loops !== undefined && !isIntIn(length.loops, 1, MAX_LOOPS)) {
-          throw new PlanJobError("meta", LOOPS_MESSAGE, "--loops");
+          throw badRequest(`--loops must be an integer from 1 to ${MAX_LOOPS}`);
         }
         return;
       case "section":

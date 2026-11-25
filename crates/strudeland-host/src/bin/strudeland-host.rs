@@ -15,10 +15,10 @@
 //! (seconds, greater than 0 and at most 86400; past it the host error is `timeout: …`).
 //!
 //! `plan-render` plans every chunk of a render in one call (`--request` is a `RenderPlanRequest`:
-//! `{"length":{"kind":"clip"|"section"|"length"|"window",…},"mode":"mix","sampleRate":44100,
-//! "includeEvents"?,"timeoutSec"?}`) and writes the plan as one JSON line to `--out` (or stdout,
-//! no trailing newline), nothing on stderr. A length the song cannot satisfy is a host error
-//! (`meta: …`, naming the flag).
+//! `{"length":{"kind":"clip"|"section"|"length"|"window",…},"preset"?,"includeEvents"?,
+//! "timeoutSec"?,"instruments"?}`) and writes the plan as one JSON line to `--out` (or stdout, no
+//! trailing newline), nothing on stderr. A bad length request (the bundle's `bad request: …`) is
+//! bad input; a length the song cannot satisfy is a host error (`meta: …`, naming the flag).
 //!
 //! `bench` plans each song three times on fresh hosts and writes one JSON document on stdout
 //! (medians, job size and hash, peak memory, the budget report) and a table on stderr; exit 0 when
@@ -46,8 +46,12 @@ enum Exit {
 }
 
 impl From<HostError> for Exit {
+    /// The bundle's `bad request: …` plan error is bad input; every other error is a host error.
     fn from(e: HostError) -> Self {
-        Exit::Host(e)
+        match e {
+            HostError::Plan(m) if m.starts_with("bad request:") => Exit::BadInput(m),
+            e => Exit::Host(e),
+        }
     }
 }
 

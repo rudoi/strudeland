@@ -6,8 +6,7 @@ use std::time::Instant;
 use strudeland_engine::EngineJob;
 use strudeland_engine::controls::{UnsupportedSignature, unsupported_signatures};
 use strudeland_host::{
-    ExportPreset, Host, Layout, Mode, PlannedRender, PlannedWindow, RenderPlanRequest, SAMPLE_RATE,
-    Structure,
+    ExportPreset, Host, Layout, PlannedRender, PlannedWindow, RenderPlanRequest, Structure,
 };
 
 use crate::{RenderError, RenderOptions, Unsupported};
@@ -24,8 +23,6 @@ pub(crate) fn plan(
         instruments: opts.instruments.clone(),
         length: opts.length.clone(),
         preset,
-        mode: Mode::Mix,
-        sample_rate: SAMPLE_RATE,
         include_events: opts.include_events.then_some(true),
         timeout_sec: opts.plan_timeout.map(|d| d.as_secs_f64()),
     };

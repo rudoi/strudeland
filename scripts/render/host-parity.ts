@@ -110,8 +110,6 @@ async function compareMixedMeter(
     const name = preset ?? 'clip';
     const request: RenderPlanRequest = {
       length: { kind: 'clip' },
-      mode: 'mix',
-      sampleRate: SAMPLE_RATE,
       includeEvents: true,
       ...(preset ? { preset } : {}),
     };

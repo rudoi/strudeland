@@ -247,8 +247,7 @@ fn query_errors_follow_the_plan_exit_codes() {
     );
 }
 
-const RENDER_REQUEST: &str =
-    r#"{"length":{"kind":"length","bars":4},"mode":"mix","sampleRate":44100}"#;
+const RENDER_REQUEST: &str = r#"{"length":{"kind":"length","bars":4}}"#;
 const SPIN: &str = "while (true) {}\n";
 
 #[test]
@@ -307,7 +306,7 @@ fn plan_render_length_errors_exit_1_naming_the_flag() {
         "--song",
         SONG,
         "--request",
-        r#"{"length":{"kind":"clip"},"mode":"mix","sampleRate":44100}"#,
+        r#"{"length":{"kind":"clip"}}"#,
     ]);
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(out.stdout.is_empty());
@@ -321,7 +320,7 @@ fn plan_render_length_errors_exit_1_naming_the_flag() {
         "--song",
         spin.path().to_str().unwrap(),
         "--request",
-        r#"{"length":{"kind":"length","bars":2},"mode":"mix","sampleRate":44100,"timeoutSec":0.5}"#,
+        r#"{"length":{"kind":"length","bars":2},"timeoutSec":0.5}"#,
     ]);
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(out.stdout.is_empty());
@@ -341,23 +340,27 @@ fn plan_render_bad_input_exits_2_with_the_usage() {
     };
     for (request, needle) in [
         (
-            r#"{"length":{"kind":"length","bars":4},"mode":"stems","sampleRate":44100}"#,
-            "mode: stems is not supported yet",
+            r#"{"length":{"kind":"length","bars":4},"mode":"mix"}"#,
+            "unknown field `mode`",
         ),
         (
-            r#"{"length":{"kind":"length","bars":0},"mode":"mix","sampleRate":44100}"#,
-            "length.bars",
+            r#"{"length":{"kind":"length","bars":0}}"#,
+            "bad request: length.bars",
         ),
         (
-            r#"{"length":{"kind":"clip","loops":0},"mode":"mix","sampleRate":44100}"#,
-            "--loops must be an integer from 1 to 1000",
+            r#"{"length":{"kind":"clip","loops":0}}"#,
+            "bad request: --loops must be an integer from 1 to 1000",
         ),
         (
-            r#"{"length":{"kind":"length","bars":4},"mode":"mix","sampleRate":44100,"timeoutSec":0}"#,
+            r#"{"length":{"kind":"window","fromBar":4,"toBar":4,"layout":"linear"}}"#,
+            "bad request: length window",
+        ),
+        (
+            r#"{"length":{"kind":"length","bars":4},"timeoutSec":0}"#,
             "timeoutSec",
         ),
         (
-            r#"{"length":{"kind":"length","bars":4,"loops":1},"mode":"mix","sampleRate":44100}"#,
+            r#"{"length":{"kind":"length","bars":4,"loops":1}}"#,
             "invalid request",
         ),
         (
