@@ -16,6 +16,7 @@
     type GridBar,
     type PitchRange,
   } from '../lib/piano-roll/grid';
+  import { projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
   import type { RollBar, RollEdit, RollNote } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
 
@@ -24,6 +25,10 @@
     bars,
     editable,
     insertable,
+    gestureKey,
+    focusedBar,
+    isFlashing,
+    oncancel,
     playhead,
     onedit,
     onaudition,
@@ -33,6 +38,10 @@
     bars: readonly RollBar[];
     editable: boolean;
     insertable: boolean;
+    gestureKey: string;
+    focusedBar?: number;
+    isFlashing: (note: RollNote) => boolean;
+    oncancel: () => void;
     playhead?: number;
     onedit: (edit: RollEdit) => boolean;
     onaudition: (pitch: number, note?: RollNote) => void;
@@ -50,14 +59,13 @@
   let keyboardPitch = $state(60);
   let cursor = $state<{ step: number; bar: number; pitch: number }>();
   let selected = $state<string>();
-  let ignoreClick: string | undefined;
+  let ignoreClick = false;
   let scrollFrame = 0;
 
   interface Gesture {
     pointer: number;
     note: RollNote;
-    notes: readonly RollNote[];
-    bars: readonly RollBar[];
+    key: string;
     range: PitchRange;
     x: number;
     y: number;
@@ -68,7 +76,7 @@
     lastX: number;
     lastY: number;
     free: boolean;
-    edit?: RollEdit;
+    edit?: Exclude<RollEdit, { kind: 'insert' }>;
   }
 
   let gesture = $state.raw<Gesture>();
@@ -143,15 +151,14 @@
 
   function beginPointer(event: PointerEvent, note: RollNote) {
     if (event.button !== 0 || !event.isPrimary) return;
-    ignoreClick = undefined;
+    ignoreClick = false;
     if (!editable || (!note.pitchEditable && !note.timeEditable)) return;
     const button = event.currentTarget as HTMLButtonElement;
     const rect = button.getBoundingClientRect();
     gesture = {
       pointer: event.pointerId,
       note,
-      notes,
-      bars,
+      key: gestureKey,
       range: pitchRange,
       x: event.clientX,
       y: event.clientY,
@@ -165,15 +172,17 @@
     button.setPointerCapture(event.pointerId);
   }
 
-  function timeEdit(current: Gesture): RollEdit | undefined {
+  function timeEdit(current: Gesture): Gesture['edit'] {
     const { note, resize, lastX, grabOffset, free } = current;
     const start = cycleNumber(note.start);
     const end = cycleNumber(note.end);
-    const bar = geometry.bars.find((bar) => start >= bar.cycle && start < bar.cycle + 1);
+    const offset = pointerOffset(lastX) - (resize ? 0 : grabOffset);
+    const bar = barAtOffset(geometry.bars, offset);
     if (!bar) return;
     const division = free ? FREE_STEPS : subdivision;
-    const offset = pointerOffset(lastX) - (resize ? 0 : grabOffset);
-    const point = snapGrid(bar, offset, division, resize ? 1 : 1 - (end - start));
+    const lastBar = bar === geometry.bars.at(-1);
+    const upper = !resize && lastBar ? 1 - 1 / (bar.numerator * division) : 1;
+    const point = snapGrid(bar, offset, division, upper);
     const value = cycleNumber(point);
     if (resize)
       return value > start && value !== end
@@ -205,7 +214,19 @@
   }
 
   const stillCurrent = (current: Gesture) =>
-    editable && current.notes === notes && current.bars === bars;
+    editable &&
+    current.key === gestureKey &&
+    notes.some((note) => note.id === current.note.id && sameRollPosition(note, current.note));
+
+  $effect(() => {
+    const current = gesture;
+    if (!current || stillCurrent(current)) return;
+    gesture = undefined;
+    ignoreClick = Boolean(current.axis);
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = 0;
+    if (current.axis) oncancel();
+  });
 
   function edgeScroll() {
     scrollFrame = 0;
@@ -247,7 +268,7 @@
     cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
     if (!cancelled && (current.axis || !stillCurrent(current))) {
-      ignoreClick = current.note.id;
+      ignoreClick = true;
       if (current.axis && stillCurrent(current)) {
         const { edit } = updateGesture({
           ...current,
@@ -255,14 +276,16 @@
           lastY: event.clientY,
           free: event.altKey,
         });
-        if (edit) onedit(edit);
+        if (edit && onedit(edit)) {
+          void restoreNoteFocus(event.currentTarget as HTMLButtonElement, current.note, edit);
+        }
       }
     }
   }
 
   function activateNote(event: MouseEvent, note: RollNote) {
-    if (ignoreClick === note.id && event.detail !== 0) {
-      ignoreClick = undefined;
+    if (ignoreClick && event.detail !== 0) {
+      ignoreClick = false;
       return;
     }
     selected = note.id;
@@ -286,22 +309,23 @@
       if (event.key === 'Delete' || event.key === 'Backspace')
         edit = { kind: 'delete', id: note.id };
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        const start = cycleNumber(note.start);
-        const end = cycleNumber(note.end);
-        const bar = geometry.bars.find((bar) => start >= bar.cycle && start < bar.cycle + 1);
+        const resize = event.shiftKey;
+        const delta = event.key === 'ArrowRight' ? 1 : -1;
+        const edge = cycleNumber(resize ? note.end : note.start);
+        const bar =
+          geometry.bars.find((bar) => edge >= bar.cycle && edge < bar.cycle + 1) ??
+          (edge === windowEnd ? geometry.bars.at(-1) : undefined);
         if (bar) {
-          const resize = event.shiftKey;
-          const step = adjacentStep(
-            bar,
-            resize ? end : start,
-            subdivision,
-            event.key === 'ArrowRight' ? 1 : -1,
-          );
-          const point = gridPoint(bar, step, subdivision);
+          const step = adjacentStep(bar, edge, subdivision, delta);
+          const previous = geometry.bars[geometry.bars.indexOf(bar) - 1];
+          const point =
+            step < 0 && previous
+              ? gridPoint(previous, previous.numerator * subdivision - 1, subdivision)
+              : gridPoint(bar, step, subdivision);
           const value = cycleNumber(point);
-          if (resize && value > start && value <= bar.cycle + 1)
+          if (resize && value > cycleNumber(note.start) && value <= windowEnd)
             edit = { kind: 'resize', id: note.id, end: point };
-          if (!resize && step >= 0 && value + (end - start) <= bar.cycle + 1 + Number.EPSILON)
+          if (!resize && value >= windowStart && value < windowEnd)
             edit = { kind: 'move', id: note.id, start: point };
         }
       }
@@ -319,12 +343,11 @@
   ) {
     await tick();
     if (document.activeElement !== document.body || !surface) return;
-    const pitch = edit.kind === 'pitch' ? edit.pitch : previous.pitch;
-    const start = edit.kind === 'move' ? edit.start : previous.start;
-    const next =
-      edit.kind === 'delete'
-        ? (visible.find((note) => cycleNumber(note.start) >= cycleNumber(start)) ?? visible.at(-1))
-        : visible.find((note) => note.pitch === pitch && note.start === start);
+    const destination = projectRollEdit([previous], edit, false).edited[0];
+    const next = destination
+      ? visible.find((note) => sameRollPosition(note, destination))
+      : (visible.find((note) => cycleNumber(note.start) >= cycleNumber(previous.start)) ??
+        visible.at(-1));
     if (button.isConnected) {
       button.focus();
     } else if (next) {
@@ -332,7 +355,7 @@
         .find((candidate) => candidate.dataset.noteId === next.id)
         ?.focus();
     } else {
-      placeButton?.focus();
+      (placeButton ?? surface.querySelector<HTMLButtonElement>('[data-note-id]'))?.focus();
     }
   }
 
@@ -505,6 +528,7 @@
           {#each geometry.bars as bar (bar.cycle)}
             <div
               class="measure"
+              class:focused={bar.cycle === focusedBar}
               style:left={percent(bar.offset) + '%'}
               style:width={percent(bar.width) + '%'}
             >
@@ -578,8 +602,9 @@
               ></div>
             {/if}
           {/if}
-          {#each markers as { note, track, tracks } (note.id)}
+          {#each markers as { note, track, tracks } (`${note.pitch}:${note.start}:${note.end}:${track}`)}
             {@const mark = markerPosition(note)}
+            {@const flashing = isFlashing(note)}
             {@const height = (ROW - 4) / tracks}
             {@const origin = sourceKey(note)}
             {@const linked = origin === undefined ? 0 : (sourceCounts.get(origin) ?? 0)}
@@ -588,6 +613,8 @@
               type="button"
               class="note"
               data-note-id={note.id}
+              data-roll-edited={flashing ? '' : undefined}
+              class:flashing
               class:editable={editable && (note.pitchEditable || note.timeEditable)}
               class:continued={cycleNumber(note.start) < windowStart ||
                 (note.visibleStart != null && note.visibleStart !== note.start)}
@@ -596,7 +623,7 @@
               class:linked={selected === note.id ||
                 (origin !== undefined && origin === selectedSource)}
               class:source-match={note.sourceMatch}
-              class:pending={gesture?.axis !== undefined && gesture?.note === note}
+              class:pending={gesture?.axis !== undefined && gesture?.note.id === note.id}
               style:left={mark.left + '%'}
               style:width={mark.width + '%'}
               style:top={laneY(note.pitch) + 2 + track * height + 'px'}
@@ -928,6 +955,31 @@
     z-index: var(--z-playhead);
     outline-offset: 0;
     border-color: var(--focus);
+  }
+
+  .measure.focused .bar-label {
+    color: var(--accent);
+  }
+
+  .note.flashing {
+    z-index: var(--z-playhead);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .note.flashing {
+      animation: roll-edit-pulse 650ms ease-out;
+    }
+  }
+
+  @keyframes roll-edit-pulse {
+    from {
+      outline-offset: 4px;
+    }
+    to {
+      outline-offset: 1px;
+    }
   }
 
   .note.continued {

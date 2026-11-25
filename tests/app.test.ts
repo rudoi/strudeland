@@ -6,11 +6,15 @@ afterAll(() => GlobalRegistrator.unregister());
 
 const { createApp } = await import('../src/lib/app');
 const { createEditor } = await import('../src/lib/editor/setup');
-const { undo } = await import('@codemirror/commands');
+const { redo, undo } = await import('@codemirror/commands');
+const { EditorSelection, EditorState, StateEffect } = await import('@codemirror/state');
+const { EditorView: EditorViewExtension } = await import('@codemirror/view');
+const { pianoRollEditHighlight, pianoRollEditLocation } = await import('../src/lib/editor/visuals');
 const { get } = await import('svelte/store');
 const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
 const { vimAdapter } = await import('../src/lib/editor/vim-mode');
+
 import type { EditorView } from '@codemirror/view';
 import type { Prefs } from '../src/lib/prefs/api';
 import { fakePrefsApi } from './helpers/fake-prefs-api';
@@ -43,14 +47,15 @@ describe('createApp', () => {
     view.dispatch({ selection: { anchor: 3, head: 9 } });
     const snapshot = app.session.pianoRollSnapshot()!;
     expect(snapshot.selection).toEqual({ from: 3, to: 9 });
-    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'b' }])).toBe(true);
+    const commit = app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'b' }]);
+    expect(commit?.spans).toEqual([{ from: 6, to: 7 }]);
     expect(view.state.doc.toString()).toBe('$: s("b")\n');
     expect(get(app.session.store).songs[0].dirty).toBe(true);
     expect(fake.files().get(MAIN)).toBe('$: s("a")\n');
     expect(evaluated).toEqual([]);
     expect(undo(view)).toBe(true);
     expect(view.state.doc.toString()).toBe(snapshot.code);
-    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBe(false);
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBeNull();
     app.destroy();
   });
 
@@ -61,27 +66,75 @@ describe('createApp', () => {
     await app.session.switchSong('songs/x.js');
     await app.session.switchSong(MAIN);
     expect(app.session.pianoRollSnapshot()?.selection).toEqual(snapshot.selection);
-    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBe(false);
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBeNull();
     app.destroy();
   });
 
-  test('rewriting a bar retains a resolvable selection when it consumes the selected atom', async () => {
+  test('one caret is exposed and multiple ranges leave the roll without a target', async () => {
     const { app, view } = await setup();
-    const code = 'note("c4 e4 ~@2")';
+    view.dispatch({ selection: { anchor: 6 } });
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 6, to: 6 });
+    const before = app.session.pianoRollSnapshot();
     view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: code },
-      selection: { anchor: 9, head: 11 },
+      effects: StateEffect.appendConfig.of(EditorState.allowMultipleSelections.of(true)),
     });
+    view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(4), EditorSelection.cursor(6)]),
+    });
+    const after = app.session.pianoRollSnapshot();
+    expect(after?.selection).toBeNull();
+    expect(after?.revision).not.toBe(before?.revision);
+    expect(after?.sourceRevision).toBe(before?.sourceRevision);
+    app.destroy();
+  });
+
+  test('a roll edit reveals all changed spans and preserves the mapped selection and roll focus', async () => {
+    const { app, view } = await setup();
+    const captured: { otherEffects: number; spans: number | undefined }[] = [];
+    view.dispatch({
+      selection: { anchor: 6 },
+      effects: StateEffect.appendConfig.of(
+        EditorViewExtension.updateListener.of((update) => {
+          for (const tr of update.transactions) {
+            if (!tr.isUserEvent('input.pianoRoll')) continue;
+            captured.push({
+              otherEffects: tr.effects.filter((effect) => !effect.is(pianoRollEditLocation)).length,
+              spans: tr.effects.find((effect) => effect.is(pianoRollEditLocation))?.value.length,
+            });
+          }
+        }),
+      ),
+    });
+    const focused = document.createElement('button');
+    document.body.append(focused);
+    focused.focus();
     const snapshot = app.session.pianoRollSnapshot()!;
-    expect(
-      app.session.editPianoRoll(snapshot, [{ from: 6, to: 15, insert: 'c4 ~ e4 ~' }], {
-        from: 0,
-        to: code.length,
-      }),
-    ).toBe(true);
-    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 0, to: code.length });
+    const commit = app.session.editPianoRoll(
+      snapshot,
+      [
+        { from: 3, to: 3, insert: '(' },
+        { from: 9, to: 9, insert: ').fast(2)' },
+      ],
+      { from: 3, to: 9 },
+    );
+    expect(commit?.spans).toEqual([
+      { from: 3, to: 4 },
+      { from: 10, to: 19 },
+    ]);
+    expect(commit?.target).toEqual({ from: 3, to: 19 });
+    expect(commit?.snapshot.selection).toEqual({ from: 7, to: 7 });
+    expect(captured).toEqual([{ otherEffects: 1, spans: 2 }]);
+    expect(view.state.field(pianoRollEditHighlight).size).toBe(2);
+    expect(document.activeElement).toBe(focused);
+    app.session.clearPianoRollFeedback();
+    expect(view.state.field(pianoRollEditHighlight).size).toBe(0);
     expect(undo(view)).toBe(true);
-    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 9, to: 11 });
+    expect(view.state.doc.toString()).toBe(snapshot.code);
+    expect(view.state.selection.main.head).toBe(6);
+    expect(redo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(commit!.snapshot.code);
+    expect(view.state.field(pianoRollEditHighlight).size).toBe(0);
+    focused.remove();
     app.destroy();
   });
 
