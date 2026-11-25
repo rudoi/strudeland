@@ -54,3 +54,11 @@ check remains for human review.
   7 tests were explicitly ignored by their suites. The run used macOS socket and FSEvents access.
 - `cargo clippy --locked --offline --workspace --all-targets -- -D warnings` and
   `cargo fmt --all --check` passed on the reviewed code.
+
+## Final review
+
+The user tried the signed macOS build and approved finalizing the initial piano roll. Keitora
+task #111 captures the next pass on caret-driven discovery, editable authored grids, and clearer
+routes from inspected patterns to editable source. Luoyuan’s `fluteGrid` excerpt is the
+acceptance case. The row consumer’s semantics need to be verified in that task. Cross-bar
+gestures remain in task #110.
