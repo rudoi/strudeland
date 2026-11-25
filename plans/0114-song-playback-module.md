@@ -176,6 +176,17 @@ flowchart TB
    - while stopped, `loopSection(null)` resets the whole transport, an armed start included;
    - while playing, it appends a loop end at the next bar.
 8. **`playEnding()`.** A passthrough.
+8a. **`headerChanged()`.** The session calls it from `publish()` whenever `active`, `structure` or
+    `metaError` changed. While stopped with a pending arm, it re-resolves the armed names through
+    the same resolution as `arm()`:
+    - same place (index and bar): do nothing;
+    - a new place: re-arm there;
+    - a name gone, a range broken or reordered, or a `metaError`: disarm.
+
+    It does nothing while playing, or while `start()` is waiting on `runtime.start`. This keeps the
+    timeline, `strudeland state` and what plays next on the same section after header edits. It
+    was added in Testing, after the stage-003 review found that an arm surviving a failed evaluate
+    could otherwise start the section now at the old index.
 9. **`start({ section?, countIn, backend }) → { T, cps } | { missingSection } | null`.** This is
    backing's flow:
    - stop if playing;
