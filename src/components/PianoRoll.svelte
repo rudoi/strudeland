@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import type { App } from '../lib/app';
   import type { PianoRollSnapshot } from '../lib/project/session';
-  import { meterAtBar, type Section } from '../lib/strudel/structure';
+  import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
   import { planRollEdit, resolveRollTarget } from '../lib/piano-roll/source';
   import type {
     InspectionRequest,
@@ -89,7 +89,8 @@
   const origin = $derived(mode === 'song' ? (anchor?.start ?? 0) : 0);
   const from = $derived(origin + focusedPage * windowBars);
   const maxCycle = $derived(
-    phrase?.bars ?? (mode === 'song' ? structure?.totalBars || 10000 : (anchor?.bars ?? 10000)),
+    phrase?.bars ??
+      (mode === 'song' ? structure?.totalBars || MAX_BARS : (anchor?.bars ?? MAX_BARS)),
   );
   const to = $derived(Math.min(from + windowBars, maxCycle));
   const bars = $derived.by<RollBar[]>(() => {
@@ -107,7 +108,10 @@
     });
   });
   const matchesLive = $derived(
-    snapshot && $song.evaluated?.path === snapshot.path && $transport.activeCode === snapshot.code,
+    snapshot &&
+      $song.evaluated?.path === snapshot.path &&
+      $transport.activeCode === snapshot.code &&
+      session.pianoRollMatchesLivePins(),
   );
   const needsInspection = $derived(target && (mode === 'song' || !phrase));
   const request = $derived.by<InspectionRequest | null>(() => {
@@ -188,17 +192,18 @@
   }
 
   function edit(change: RollEdit) {
-    if (!snapshot || !editTarget) return;
+    if (!snapshot || !editTarget) return false;
     const note = 'id' in change ? notes.find((item) => item.id === change.id) : undefined;
     const patches = planRollEdit(snapshot.code, editTarget, change);
     if (!patches || !session.editPianoRoll(snapshot, patches)) {
       notice = 'This edit does not fit the source phrase.';
-      return;
+      return false;
     }
     notice = '';
     if (change.kind === 'pitch' || change.kind === 'insert') {
       void audition(change.pitch, note?.sound ?? phrase?.notes[0]?.sound, true);
     }
+    return true;
   }
 </script>
 

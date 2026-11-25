@@ -132,6 +132,8 @@ describe('piano roll source projection', () => {
     for (const [source, selection] of [
       ['const m = () => 5; note("c4")', 'note("c4")'],
       ['const note = f; note("c4")', 'note("c4")'],
+      ['register(\'note\', f); s("sine").note("c4")', 's("sine").note("c4")'],
+      ['register(control, f); note("c4")', 'note("c4")'],
       ['function f(note) { return note("c4"); }', 'note("c4")'],
       ['/* mini-off */ note("c4 e4")', 'note("c4 e4")'],
       ['note(`c4 ${foo}`)', 'note(`c4 ${foo}`)'],

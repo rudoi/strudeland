@@ -123,6 +123,7 @@ export interface Session {
   readonly pianoRollRevision: Readable<number>;
   pianoRollChanged(selected?: boolean): void;
   pianoRollSnapshot(): PianoRollSnapshot | null;
+  pianoRollMatchesLivePins(): boolean;
   editPianoRoll(snapshot: PianoRollSnapshot, patches: readonly RollPatch[]): boolean;
   revealPianoRoll(snapshot: PianoRollSnapshot, span: SourceSpan): void;
   /** Reopens the last project and installs the window close guard. */
@@ -474,7 +475,11 @@ export function createSession(deps: SessionDeps): Session {
    * What the last successful evaluate played: the published `song` (identity-stable, so
    * `sameState` sees no change until it moves) and the text's `meta.title`, to retitle it on a rename.
    */
-  let evaluated: { song: NonNullable<SessionState['evaluated']>; metaTitle: unknown } | null = null;
+  let evaluated: {
+    song: NonNullable<SessionState['evaluated']>;
+    metaTitle: unknown;
+    instruments: InstrumentSnapshot | undefined;
+  } | null = null;
   /**
    * The open project's generation, unique per open attempt (`nextGeneration`). Results and change
    * events that belong to an older one are dropped.
@@ -1054,7 +1059,11 @@ export function createSession(deps: SessionDeps): Session {
     if (instruments !== undefined) opts.instruments = instruments;
     const ok = await runtime.evaluate(text, autostart ? opts : { ...opts, autostart: false });
     if (ok && gen === generation) {
-      evaluated = { song: { path, title: titleFrom(path, meta.title) }, metaTitle: meta.title };
+      evaluated = {
+        song: { path, title: titleFrom(path, meta.title) },
+        metaTitle: meta.title,
+        instruments: opts.instruments,
+      };
       emit();
     }
     return ok;
@@ -1177,7 +1186,7 @@ export function createSession(deps: SessionDeps): Session {
       if (shown === path) shown = next;
       if (evaluated?.song.path === path) {
         const { metaTitle } = evaluated;
-        evaluated = { song: { path: next, title: titleFrom(next, metaTitle) }, metaTitle };
+        evaluated = { ...evaluated, song: { path: next, title: titleFrom(next, metaTitle) } };
       }
       return next;
     });
@@ -1347,6 +1356,11 @@ export function createSession(deps: SessionDeps): Session {
         selection: selection.ranges.length === 1 && from < to ? { from, to } : null,
         code: doc.toString(),
       };
+    },
+    pianoRollMatchesLivePins() {
+      return (
+        evaluated !== null && instrumentError === null && evaluated.instruments === instruments
+      );
     },
     editPianoRoll(snapshot, patches) {
       if (!view || !matchesPianoRoll(snapshot) || view.state.doc.toString() !== snapshot.code) {

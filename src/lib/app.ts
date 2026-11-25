@@ -164,7 +164,7 @@ export function createApp(
     render: (version) => api.instrumentPreview(version),
   });
   function stopAuditions() {
-    stopPianoRollAudition();
+    rollAudition = null;
     audition.stop();
     instrumentPreview.stop();
   }
@@ -195,7 +195,7 @@ export function createApp(
     formatOnSave: prefs.formatOnSave,
     prepareState: (s) => withKeymap(s, prefs.vim()),
     onShown: (v) => {
-      stopPianoRollAudition();
+      rollAudition = null;
       audition.stop();
       vimMode.attach(v);
     },
@@ -209,7 +209,7 @@ export function createApp(
   const restoreVimWrite = defineVimWrite(() => void session.save());
   let unprefs: (() => void) | null = prefs.store.subscribe(({ vim, auditionNotes }) => {
     if (!auditionNotes && (!rollAudition || rollAudition.automatic)) {
-      stopPianoRollAudition();
+      rollAudition = null;
       audition.stop();
     }
     if (view && setKeymap(view, vim)) vimMode.attach(view);
@@ -281,7 +281,7 @@ export function createApp(
       return saved;
     },
     attachView(v) {
-      stopPianoRollAudition();
+      rollAudition = null;
       audition.stop();
       view = v;
       session.attachView(v);

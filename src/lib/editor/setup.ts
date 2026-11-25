@@ -125,10 +125,10 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     drawSelection({ cursorBlinkRate: 0 }),
     strudelKeymap(runtime, hooks),
     auditionHighlight,
-    ...(hooks?.onDocChange ? [docChangeListener(hooks.onDocChange)] : []),
-    ...(hooks?.onSelectionChange
+    ...(hooks?.onDocChange || hooks?.onSelectionChange
       ? [
           EditorView.updateListener.of((update) => {
+            if (update.docChanged) hooks.onDocChange?.();
             if (update.docChanged || update.selectionSet) {
               hooks.onSelectionChange?.(update.selectionSet && !update.docChanged);
             }
@@ -150,12 +150,6 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
       : []),
     claudeMark,
   ];
-}
-
-function docChangeListener(onDocChange: () => void): Extension {
-  return EditorView.updateListener.of((update) => {
-    if (update.docChanged) onDocChange();
-  });
 }
 
 /** A state with the Strudel extensions, so songs can be swapped into one view with `setState`. */

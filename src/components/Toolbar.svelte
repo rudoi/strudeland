@@ -75,7 +75,10 @@
     aria-controls="piano-roll-dock"
     aria-expanded={$prefs.pianoRollOpen && $sessionState.active !== null}
     disabled={$sessionState.active === null}
-    onclick={() => void app.prefs.setPianoRollOpen(!$prefs.pianoRollOpen)}>Piano Roll</Button
+    onclick={(event) => {
+      if ($prefs.pianoRollOpen) event.currentTarget.focus();
+      void app.prefs.setPianoRollOpen(!$prefs.pianoRollOpen);
+    }}>Piano Roll</Button
   >
   <RecordControls {recording} {session} {memos} />
   {@render readout(cpsAtMeter($rt.cps, $rt.meter, meter).toFixed(3), 'cps')}

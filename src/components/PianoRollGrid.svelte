@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import {
     adjacentStep,
     barAtOffset,
@@ -33,7 +33,7 @@
     editable: boolean;
     insertable: boolean;
     playhead?: number;
-    onedit: (edit: RollEdit) => void;
+    onedit: (edit: RollEdit) => boolean;
     onaudition: (pitch: number, note?: RollNote) => void;
     onsource?: (note: RollNote) => void;
   } = $props();
@@ -311,7 +311,31 @@
     }
     if (edit) {
       event.preventDefault();
-      onedit(edit);
+      if (onedit(edit)) void restoreNoteFocus(event.currentTarget as HTMLButtonElement, note, edit);
+    }
+  }
+
+  async function restoreNoteFocus(
+    button: HTMLButtonElement,
+    previous: RollNote,
+    edit: Exclude<RollEdit, { kind: 'insert' }>,
+  ) {
+    await tick();
+    if (document.activeElement !== document.body || !surface) return;
+    const pitch = edit.kind === 'pitch' ? edit.pitch : previous.pitch;
+    const start = edit.kind === 'move' ? edit.start : previous.start;
+    const next =
+      edit.kind === 'delete'
+        ? (visible.find((note) => cycleNumber(note.start) >= cycleNumber(start)) ?? visible.at(-1))
+        : visible.find((note) => note.pitch === pitch && note.start === start);
+    if (button.isConnected) {
+      button.focus();
+    } else if (next) {
+      Array.from(surface.querySelectorAll<HTMLButtonElement>('[data-note-id]'))
+        .find((candidate) => candidate.dataset.noteId === next.id)
+        ?.focus();
+    } else {
+      placeButton?.focus();
     }
   }
 
@@ -563,6 +587,7 @@
             <button
               type="button"
               class="note"
+              data-note-id={note.id}
               class:editable={editable && (note.pitchEditable || note.timeEditable)}
               class:continued={cycleNumber(note.start) < windowStart ||
                 (note.visibleStart != null && note.visibleStart !== note.start)}

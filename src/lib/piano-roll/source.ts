@@ -130,9 +130,22 @@ function readScript(source: string) {
       case 'WithStatement':
         staticSafe = false;
         break;
-      case 'CallExpression':
-        if (node.callee.type === 'Identifier' && node.callee.name === 'eval') staticSafe = false;
+      case 'CallExpression': {
+        if (node.callee.type !== 'Identifier') break;
+        if (node.callee.name === 'eval') staticSafe = false;
+        if (node.callee.name === 'register' || node.callee.name === 'registerControl') {
+          const registered = node.arguments[0];
+          if (
+            registered?.type !== 'Literal' ||
+            typeof registered.value !== 'string' ||
+            ['note', 'm', 's', 'sound'].includes(registered.value) ||
+            neutralControls.has(registered.value)
+          ) {
+            staticSafe = false;
+          }
+        }
         break;
+      }
       case 'AssignmentExpression':
       case 'UpdateExpression': {
         const target = node.type === 'AssignmentExpression' ? node.left : node.argument;

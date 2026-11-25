@@ -30009,19 +30009,23 @@ Please check with "npm ls @strudel/core".`);
     }
     if (value === null || typeof value !== "object")
       return null;
-    const { note: note2, freq: freq2, s: s2 } = value;
+    const { note: note2, freq: freq2, octave: octave2, s: s2 } = value;
     let pitch;
-    if (typeof freq2 === "number")
-      pitch = freqToMidi(freq2);
+    if ((typeof freq2 === "number" || typeof freq2 === "string") && freq2)
+      pitch = freqToMidi(Number(freq2));
     else if (typeof note2 === "number")
       pitch = note2;
     else if (typeof note2 === "string" && isNote(note2))
       pitch = noteToMidi(note2);
     else
       return null;
+    if (typeof octave2 === "number" || typeof octave2 === "string")
+      pitch += 12 * Number(octave2);
     return Number.isFinite(pitch) ? { pitch, ...typeof s2 === "string" && s2.length <= 64 ? { sound: s2 } : {} } : null;
   }
   function uncertainSpans(code) {
+    if (!/[\\\r]/.test(code))
+      return [];
     const lex = tokenizer2(code, { ecmaVersion: 2022 });
     const spans = [];
     for (let token = lex.getToken();token.type !== types$1.eof; token = lex.getToken()) {

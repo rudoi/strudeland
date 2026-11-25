@@ -65,6 +65,25 @@ describe('createApp', () => {
     app.destroy();
   });
 
+  test('a changed instrument snapshot invalidates live piano roll parity', async () => {
+    const { app, fake } = await setup();
+    await app.session.evaluateBuffer(MAIN, { autostart: false });
+    expect(app.session.pianoRollMatchesLivePins()).toBe(true);
+    fake.instrumentSnapshots.set('/p', {
+      lead: {
+        schema: 1,
+        parameters: {},
+        voices: [{ name: 'voice', chain: [{ control: 's', value: 'triangle' }] }],
+      },
+    });
+    fake.emit({ instruments: true });
+    await flush();
+    expect(app.session.pianoRollMatchesLivePins()).toBe(false);
+    await app.session.evaluateBuffer(MAIN, { autostart: false });
+    expect(app.session.pianoRollMatchesLivePins()).toBe(true);
+    app.destroy();
+  });
+
   test('init reopens the last project into the attached view and registers the close guard', async () => {
     const { app, view, fake } = await setup();
     expect(get(app.session.store).project?.name).toBe('p');

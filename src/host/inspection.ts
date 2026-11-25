@@ -253,12 +253,19 @@ function pitchOf(value: unknown): { pitch: number; sound?: string } | null {
     return Number.isFinite(pitch) ? { pitch } : null;
   }
   if (value === null || typeof value !== 'object') return null;
-  const { note, freq, s } = value as { note?: unknown; freq?: unknown; s?: unknown };
+  const { note, freq, octave, s } = value as {
+    note?: unknown;
+    freq?: unknown;
+    octave?: unknown;
+    s?: unknown;
+  };
   let pitch: number;
-  if (typeof freq === 'number') pitch = freqToMidi(freq);
+  if ((typeof freq === 'number' || typeof freq === 'string') && freq)
+    pitch = freqToMidi(Number(freq));
   else if (typeof note === 'number') pitch = note;
   else if (typeof note === 'string' && isNote(note)) pitch = noteToMidi(note);
   else return null;
+  if (typeof octave === 'number' || typeof octave === 'string') pitch += 12 * Number(octave);
   return Number.isFinite(pitch)
     ? { pitch, ...(typeof s === 'string' && s.length <= 64 ? { sound: s } : {}) }
     : null;
@@ -267,6 +274,7 @@ function pitchOf(value: unknown): { pitch: number; sound?: string } | null {
 /** Cooked string escapes and normalized CRs can move mini offsets. Keep those
  * haps visible without offering uncertain links back to the raw source. */
 function uncertainSpans(code: string): SourceSpan[] {
+  if (!/[\\\r]/.test(code)) return [];
   const lex = tokenizer(code, { ecmaVersion: 2022 });
   const spans: SourceSpan[] = [];
   for (let token = lex.getToken(); token.type !== tokTypes.eof; token = lex.getToken()) {

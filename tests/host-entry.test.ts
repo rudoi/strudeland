@@ -698,6 +698,14 @@ test('inspect: distinguish unavailable or skipped expressions from an empty pitc
   expect(JSON.parse(silent.value)).toEqual({ notes: [], truncated: false });
 });
 
+test('inspect: respect octave controls and fall back to a note from a zero frequency', async () => {
+  const code = 'stack(note("c4").octave(1), freq(440).octave(-1), note("e4").freq(0))';
+  const r = await inspection(host(), code, {});
+  expect(r.ok).toBe(true);
+  const { notes } = JSON.parse(r.value);
+  expect(notes.map(({ pitch }: { pitch: number }) => pitch)).toEqual([72, 57, 64]);
+});
+
 test('inspect: reject a wide window and report dense note truncation', async () => {
   const code = 'note("c4*2000")';
   expect(await inspection(host(), code, { to: 17 })).toMatchObject({ ok: false, kind: 'plan' });

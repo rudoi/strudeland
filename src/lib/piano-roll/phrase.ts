@@ -9,6 +9,7 @@ type Rational = {
   div(value: Rational | number): Rational;
   compare(value: Rational | number): number;
   floor(): Rational;
+  lcm(value: Rational): Rational;
   toFraction(): string;
   valueOf(): number;
 };
@@ -271,6 +272,7 @@ export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
     const bars = explicitBars?.length ?? 1;
     if (bars > MAX_BARS) return;
     const editBars = editableBars(root, explicitBars, quoted, input.span.from);
+    const insertable = editBars.length === bars;
     const origins = new Map<string, SourceSpan>();
     collectAtoms(root, quoted, input, origins);
     const pattern = patternifyAST(root, quoted, undefined, input.span.from);
@@ -296,11 +298,11 @@ export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
         origin,
         sound: input.sound,
         pitchEditable: origin !== undefined,
-        timeEditable: origin !== undefined && editBars.length === bars,
+        timeEditable: origin !== undefined && insertable,
       });
     }
     notes.sort((a, b) => fraction(a.start).compare(fraction(b.start)) || a.pitch - b.pitch);
-    return { input, notes, bars, editableBars: editBars, insertable: editBars.length === bars };
+    return { input, notes, bars, editableBars: editBars, insertable };
   } catch {
     return;
   }
@@ -347,15 +349,18 @@ function serialize(cells: readonly Cell[], bar: number): string | null {
   }
   if (cursor.compare(bar + 1) < 0)
     withRests.push({ start: cursor, end: fraction(bar + 1), spelling: '~' });
-  for (let factor = 1; factor <= MAX_ENCODED_STEPS; factor++) {
-    const counts = withRests.map((cell) => stepCount(cell.end.sub(cell.start), factor));
-    if (counts.every((count) => smallPositive(count, MAX_WEIGHT))) {
-      return withRests
-        .map((cell, i) => (counts[i] === 1 ? cell.spelling : `${cell.spelling}@${counts[i]}`))
-        .join(' ');
-    }
+  const durations = withRests.map((cell) => cell.end.sub(cell.start));
+  let factor = fraction(1);
+  for (const duration of durations) {
+    const denominator = duration.toFraction().split('/')[1] ?? '1';
+    factor = factor.lcm(fraction(denominator));
+    if (factor.compare(MAX_ENCODED_STEPS) > 0) return null;
   }
-  return null;
+  const counts = durations.map((duration) => stepCount(duration, factor.valueOf()));
+  if (!counts.every((count) => smallPositive(count, MAX_WEIGHT))) return null;
+  return withRests
+    .map((cell, i) => (counts[i] === 1 ? cell.spelling : `${cell.spelling}@${counts[i]}`))
+    .join(' ');
 }
 
 function editTime(
@@ -463,7 +468,10 @@ export function planPhraseEdit(
     const projected = readPhrase({ ...input, body });
     if (projected?.bars !== phrase.bars) return null;
     const actual = noteKeys(projected.notes);
-    return JSON.stringify(actual) === JSON.stringify(noteKeys(expected)) ? patch : null;
+    const wanted = noteKeys(expected);
+    return actual.length === wanted.length && actual.every((note, i) => note === wanted[i])
+      ? patch
+      : null;
   } catch {
     return null;
   }
