@@ -7,7 +7,7 @@ one place: the TS planner, which every planner path runs. Every user-facing outp
 
 ## Background
 
-The [re-verification](0116-render-request-cleanup/reverify.md) has the evidence.
+The [re-verification](reverify.md) has the evidence.
 
 - **`RenderPlanRequest.mode` and `sampleRate` each accept exactly one value.** Both languages
   validate them, and nothing reads them.
