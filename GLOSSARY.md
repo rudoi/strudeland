@@ -57,3 +57,14 @@ _Avoid_: evaluated song (in UI copy), current song
 A section a stopped transport will start from or loop when playback starts, named on the song it
 was armed for.
 _Avoid_: armed index, pending start
+
+**Take**
+
+One recording of a voice memo, from count-in until it is stopped and saved, possibly with the song
+or a metronome playing as backing.
+_Avoid_: recording (for the act), session
+
+**Audible memo**
+
+A voice memo that is loading or playing back, with or without song backing.
+_Avoid_: playing memo, memo playback (for the state)
