@@ -9,13 +9,16 @@
     isBlackKey,
     keyPitch,
     layoutNoteTracks,
+    noteMarkerKey,
     pitchLabel,
     rollGeometry,
     rollOffset,
+    shiftRollEdge,
     snapGrid,
     type GridBar,
     type PitchRange,
   } from '../lib/piano-roll/grid';
+  import { projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
   import type { RollBar, RollEdit, RollNote } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
 
@@ -24,6 +27,11 @@
     bars,
     editable,
     insertable,
+    gestureKey,
+    focusedBar,
+    gridSteps,
+    isFlashing,
+    oncancel,
     playhead,
     onedit,
     onaudition,
@@ -33,6 +41,11 @@
     bars: readonly RollBar[];
     editable: boolean;
     insertable: boolean;
+    gestureKey: string;
+    focusedBar?: number;
+    gridSteps?: number;
+    isFlashing: (note: RollNote) => boolean;
+    oncancel: () => void;
     playhead?: number;
     onedit: (edit: RollEdit) => boolean;
     onaudition: (pitch: number, note?: RollNote) => void;
@@ -50,25 +63,25 @@
   let keyboardPitch = $state(60);
   let cursor = $state<{ step: number; bar: number; pitch: number }>();
   let selected = $state<string>();
-  let ignoreClick: string | undefined;
+  let ignoreClick = false;
   let scrollFrame = 0;
 
   interface Gesture {
     pointer: number;
     note: RollNote;
-    notes: readonly RollNote[];
-    bars: readonly RollBar[];
+    key: string;
     range: PitchRange;
     x: number;
     y: number;
     scrollY: number;
     grabOffset: number;
+    anchor: string;
     resize: boolean;
     axis?: 'pitch' | 'time';
     lastX: number;
     lastY: number;
     free: boolean;
-    edit?: RollEdit;
+    edit?: Exclude<RollEdit, { kind: 'insert' }>;
   }
 
   let gesture = $state.raw<Gesture>();
@@ -106,6 +119,7 @@
   const percent = (offset: number) => (offset / geometry.width) * 100;
   const timePercent = (cycle: number) => percent(rollOffset(geometry.bars, cycle));
   const laneY = (pitch: number) => (pitchRange.high - keyPitch(pitch)) * ROW;
+  const stepsInBar = (bar: GridBar) => gridSteps ?? bar.numerator * subdivision;
 
   $effect(() => {
     const { low, high } = fitRange;
@@ -125,6 +139,7 @@
       cursor &&
       (!insertable ||
         !geometry.bars[cursor.bar] ||
+        cursor.step >= stepsInBar(geometry.bars[cursor.bar]!) ||
         cursor.pitch < fitRange.low ||
         cursor.pitch > fitRange.high)
     )
@@ -141,23 +156,34 @@
   const pitchAt = (clientY: number) =>
     keyPitch(pitchRange.high - Math.floor((clientY - surface!.getBoundingClientRect().top) / ROW));
 
+  function shownEdge(note: RollNote, right: boolean): string {
+    if (right) {
+      const end = note.visibleEnd ?? note.end;
+      return cycleNumber(end) > windowEnd ? String(windowEnd) : end;
+    }
+    const start = note.visibleStart ?? note.start;
+    return cycleNumber(start) < windowStart ? String(windowStart) : start;
+  }
+
   function beginPointer(event: PointerEvent, note: RollNote) {
     if (event.button !== 0 || !event.isPrimary) return;
-    ignoreClick = undefined;
+    ignoreClick = false;
     if (!editable || (!note.pitchEditable && !note.timeEditable)) return;
     const button = event.currentTarget as HTMLButtonElement;
     const rect = button.getBoundingClientRect();
+    const resize = Boolean(note.timeEditable && rect.width > 16 && rect.right - event.clientX <= 6);
+    const anchor = shownEdge(note, resize);
     gesture = {
       pointer: event.pointerId,
       note,
-      notes,
-      bars,
+      key: gestureKey,
       range: pitchRange,
       x: event.clientX,
       y: event.clientY,
       scrollY: viewport!.scrollTop,
-      grabOffset: pointerOffset(event.clientX) - rollOffset(geometry.bars, cycleNumber(note.start)),
-      resize: Boolean(note.timeEditable && rect.width > 16 && rect.right - event.clientX <= 6),
+      grabOffset: pointerOffset(event.clientX) - rollOffset(geometry.bars, cycleNumber(anchor)),
+      anchor,
+      resize,
       lastX: event.clientX,
       lastY: event.clientY,
       free: event.altKey,
@@ -165,21 +191,24 @@
     button.setPointerCapture(event.pointerId);
   }
 
-  function timeEdit(current: Gesture): RollEdit | undefined {
-    const { note, resize, lastX, grabOffset, free } = current;
+  function timeEdit(current: Gesture): Gesture['edit'] {
+    const { note, resize, lastX, grabOffset, anchor, free } = current;
     const start = cycleNumber(note.start);
     const end = cycleNumber(note.end);
-    const bar = geometry.bars.find((bar) => start >= bar.cycle && start < bar.cycle + 1);
+    const offset = pointerOffset(lastX) - grabOffset;
+    const bar = barAtOffset(geometry.bars, offset);
     if (!bar) return;
-    const division = free ? FREE_STEPS : subdivision;
-    const offset = pointerOffset(lastX) - (resize ? 0 : grabOffset);
-    const point = snapGrid(bar, offset, division, resize ? 1 : 1 - (end - start));
+    const steps = free ? bar.numerator * FREE_STEPS : stepsInBar(bar);
+    const lastBar = bar === geometry.bars.at(-1);
+    const upper = !resize && lastBar ? 1 - 1 / steps : 1;
+    const snapped = snapGrid(bar, offset, steps, upper);
+    const point = shiftRollEdge(resize ? note.end : note.start, anchor, snapped);
     const value = cycleNumber(point);
     if (resize)
       return value > start && value !== end
         ? { kind: 'resize', id: note.id, end: point }
         : undefined;
-    return value !== start ? { kind: 'move', id: note.id, start: point } : undefined;
+    return value >= 0 && value !== start ? { kind: 'move', id: note.id, start: point } : undefined;
   }
 
   function updateGesture(current: Gesture): Gesture {
@@ -205,7 +234,19 @@
   }
 
   const stillCurrent = (current: Gesture) =>
-    editable && current.notes === notes && current.bars === bars;
+    editable &&
+    current.key === gestureKey &&
+    notes.some((note) => note.id === current.note.id && sameRollPosition(note, current.note));
+
+  $effect(() => {
+    const current = gesture;
+    if (!current || stillCurrent(current)) return;
+    gesture = undefined;
+    ignoreClick = Boolean(current.axis);
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = 0;
+    if (current.axis) oncancel();
+  });
 
   function edgeScroll() {
     scrollFrame = 0;
@@ -247,7 +288,7 @@
     cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
     if (!cancelled && (current.axis || !stillCurrent(current))) {
-      ignoreClick = current.note.id;
+      ignoreClick = true;
       if (current.axis && stillCurrent(current)) {
         const { edit } = updateGesture({
           ...current,
@@ -255,14 +296,16 @@
           lastY: event.clientY,
           free: event.altKey,
         });
-        if (edit) onedit(edit);
+        if (edit && onedit(edit)) {
+          void restoreNoteFocus(event.currentTarget as HTMLButtonElement, current.note, edit);
+        }
       }
     }
   }
 
   function activateNote(event: MouseEvent, note: RollNote) {
-    if (ignoreClick === note.id && event.detail !== 0) {
-      ignoreClick = undefined;
+    if (ignoreClick && event.detail !== 0) {
+      ignoreClick = false;
       return;
     }
     selected = note.id;
@@ -286,22 +329,26 @@
       if (event.key === 'Delete' || event.key === 'Backspace')
         edit = { kind: 'delete', id: note.id };
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        const start = cycleNumber(note.start);
-        const end = cycleNumber(note.end);
-        const bar = geometry.bars.find((bar) => start >= bar.cycle && start < bar.cycle + 1);
+        const resize = event.shiftKey;
+        const delta = event.key === 'ArrowRight' ? 1 : -1;
+        const original = resize ? note.end : note.start;
+        const anchor = shownEdge(note, resize);
+        const edge = cycleNumber(anchor);
+        const bar =
+          geometry.bars.find((bar) => edge >= bar.cycle && edge < bar.cycle + 1) ??
+          (edge === windowEnd ? geometry.bars.at(-1) : undefined);
         if (bar) {
-          const resize = event.shiftKey;
-          const step = adjacentStep(
-            bar,
-            resize ? end : start,
-            subdivision,
-            event.key === 'ArrowRight' ? 1 : -1,
-          );
-          const point = gridPoint(bar, step, subdivision);
+          const step = adjacentStep(bar, edge, stepsInBar(bar), delta);
+          const previous = geometry.bars[geometry.bars.indexOf(bar) - 1];
+          const snapped =
+            step < 0 && previous
+              ? gridPoint(previous, stepsInBar(previous) - 1, stepsInBar(previous))
+              : gridPoint(bar, step, stepsInBar(bar));
+          const point = shiftRollEdge(original, anchor, snapped);
           const value = cycleNumber(point);
-          if (resize && value > start && value <= bar.cycle + 1)
+          if (resize && value > cycleNumber(note.start) && cycleNumber(snapped) <= windowEnd)
             edit = { kind: 'resize', id: note.id, end: point };
-          if (!resize && step >= 0 && value + (end - start) <= bar.cycle + 1 + Number.EPSILON)
+          if (!resize && value >= 0 && cycleNumber(snapped) < windowEnd)
             edit = { kind: 'move', id: note.id, start: point };
         }
       }
@@ -318,34 +365,37 @@
     edit: Exclude<RollEdit, { kind: 'insert' }>,
   ) {
     await tick();
-    if (document.activeElement !== document.body || !surface) return;
-    const pitch = edit.kind === 'pitch' ? edit.pitch : previous.pitch;
-    const start = edit.kind === 'move' ? edit.start : previous.start;
-    const next =
-      edit.kind === 'delete'
-        ? (visible.find((note) => cycleNumber(note.start) >= cycleNumber(start)) ?? visible.at(-1))
-        : visible.find((note) => note.pitch === pitch && note.start === start);
-    if (button.isConnected) {
-      button.focus();
-    } else if (next) {
+    const focused = document.activeElement;
+    if ((focused !== document.body && focused !== button) || !surface) return;
+    const destination = projectRollEdit([previous], edit, false).edited[0];
+    const next = destination
+      ? (visible.find((note) => note.id === previous.id && sameRollPosition(note, destination)) ??
+        visible.find((note) => isFlashing(note) && sameRollPosition(note, destination)) ??
+        visible.find((note) => sameRollPosition(note, destination)))
+      : (visible.find((note) => cycleNumber(note.start) >= cycleNumber(previous.start)) ??
+        visible.at(-1));
+    if (next) {
       Array.from(surface.querySelectorAll<HTMLButtonElement>('[data-note-id]'))
         .find((candidate) => candidate.dataset.noteId === next.id)
         ?.focus();
+    } else if (button.isConnected && button.dataset.noteId === previous.id) {
+      button.focus();
     } else {
-      placeButton?.focus();
+      (placeButton ?? surface.querySelector<HTMLButtonElement>('[data-note-id]'))?.focus();
     }
   }
 
   function showCursor() {
     if (cursor || !geometry.bars.length) return;
-    cursor = { bar: 0, step: 0, pitch: keyboardPitch };
+    const bar = geometry.bars.findIndex((bar) => bar.cycle === focusedBar);
+    cursor = { bar: Math.max(0, bar), step: 0, pitch: keyboardPitch };
   }
 
   function pointCursor(event: MouseEvent) {
     const offset = pointerOffset(event.clientX);
     const bar = barAtOffset(geometry.bars, offset);
     if (!bar) return;
-    const steps = bar.numerator * subdivision;
+    const steps = stepsInBar(bar);
     const step = Math.max(
       0,
       Math.min(steps - 1, Math.floor(((offset - bar.offset) / bar.width) * steps)),
@@ -356,11 +406,11 @@
   function insertNote() {
     if (!cursor || !editable || !insertable) return;
     const bar = geometry.bars[cursor.bar];
-    if (!bar || cursor.step >= bar.numerator * subdivision) return;
+    if (!bar || cursor.step >= stepsInBar(bar)) return;
     onedit({
       kind: 'insert',
-      start: gridPoint(bar, cursor.step, subdivision),
-      end: gridPoint(bar, cursor.step + 1, subdivision),
+      start: gridPoint(bar, cursor.step, stepsInBar(bar)),
+      end: gridPoint(bar, cursor.step + 1, stepsInBar(bar)),
       pitch: cursor.pitch,
     });
   }
@@ -372,10 +422,10 @@
     switch (event.key) {
       case 'ArrowLeft':
         if (step > 0) step--;
-        else if (bar > 0) step = geometry.bars[--bar]!.numerator * subdivision - 1;
+        else if (bar > 0) step = stepsInBar(geometry.bars[--bar]!) - 1;
         break;
       case 'ArrowRight':
-        if (step + 1 < geometry.bars[bar]!.numerator * subdivision) step++;
+        if (step + 1 < stepsInBar(geometry.bars[bar]!)) step++;
         else if (bar < geometry.bars.length - 1) {
           bar++;
           step = 0;
@@ -398,7 +448,7 @@
     event.preventDefault();
     cursor = { bar, step, pitch };
     const targetBar: GridBar = geometry.bars[bar]!;
-    const position = cycleNumber(gridPoint(targetBar, step, subdivision));
+    const position = cycleNumber(gridPoint(targetBar, step, stepsInBar(targetBar)));
     const x = (timePercent(position) / 100) * surface.clientWidth;
     const y = laneY(pitch);
     if (x < view.scrollLeft) view.scrollLeft = x;
@@ -434,10 +484,10 @@
   const cursorPosition = $derived.by(() => {
     if (!cursor) return;
     const bar = geometry.bars[cursor.bar];
-    if (!bar || cursor.step >= bar.numerator * subdivision) return;
+    if (!bar || cursor.step >= stepsInBar(bar)) return;
     return {
-      left: timePercent(cycleNumber(gridPoint(bar, cursor.step, subdivision))),
-      width: percent(bar.width / (bar.numerator * subdivision)),
+      left: timePercent(cycleNumber(gridPoint(bar, cursor.step, stepsInBar(bar)))),
+      width: percent(bar.width / stepsInBar(bar)),
       top: laneY(cursor.pitch),
     };
   });
@@ -453,7 +503,9 @@
 {#if geometry.bars.length}
   <div class="roll">
     <div class="commands">
-      {#if editable}
+      {#if editable && gridSteps !== undefined}
+        <span class="snap">Snap · {gridSteps} slots per bar</span>
+      {:else if editable}
         <label class="snap">
           Snap
           <select bind:value={subdivision} onchange={() => (cursor = undefined)} class="control">
@@ -505,6 +557,7 @@
           {#each geometry.bars as bar (bar.cycle)}
             <div
               class="measure"
+              class:focused={bar.cycle === focusedBar}
               style:left={percent(bar.offset) + '%'}
               style:width={percent(bar.width) + '%'}
             >
@@ -552,7 +605,7 @@
               style:left={percent(bar.offset) + '%'}
               style:width={percent(bar.width) + '%'}
               style:--roll-beat={100 / bar.numerator + '%'}
-              style:--roll-subbeat={100 / (bar.numerator * (editable ? subdivision : 1)) + '%'}
+              style:--roll-subbeat={100 / (editable ? stepsInBar(bar) : bar.numerator) + '%'}
               class:compound={bar.numerator > 3 && bar.numerator % 3 === 0 && bar.denominator >= 8}
               aria-hidden="true"
             ></div>
@@ -578,8 +631,9 @@
               ></div>
             {/if}
           {/if}
-          {#each markers as { note, track, tracks } (note.id)}
+          {#each markers as { note, track, tracks } (noteMarkerKey(note, track))}
             {@const mark = markerPosition(note)}
+            {@const flashing = isFlashing(note)}
             {@const height = (ROW - 4) / tracks}
             {@const origin = sourceKey(note)}
             {@const linked = origin === undefined ? 0 : (sourceCounts.get(origin) ?? 0)}
@@ -588,6 +642,8 @@
               type="button"
               class="note"
               data-note-id={note.id}
+              data-roll-edited={flashing ? '' : undefined}
+              class:flashing
               class:editable={editable && (note.pitchEditable || note.timeEditable)}
               class:continued={cycleNumber(note.start) < windowStart ||
                 (note.visibleStart != null && note.visibleStart !== note.start)}
@@ -596,7 +652,7 @@
               class:linked={selected === note.id ||
                 (origin !== undefined && origin === selectedSource)}
               class:source-match={note.sourceMatch}
-              class:pending={gesture?.axis !== undefined && gesture?.note === note}
+              class:pending={gesture?.axis !== undefined && gesture?.note.id === note.id}
               style:left={mark.left + '%'}
               style:width={mark.width + '%'}
               style:top={laneY(note.pitch) + 2 + track * height + 'px'}
@@ -928,6 +984,31 @@
     z-index: var(--z-playhead);
     outline-offset: 0;
     border-color: var(--focus);
+  }
+
+  .measure.focused .bar-label {
+    color: var(--accent);
+  }
+
+  .note.flashing {
+    z-index: var(--z-playhead);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .note.flashing {
+      animation: roll-edit-pulse var(--dur-edit-feedback) var(--ease);
+    }
+  }
+
+  @keyframes roll-edit-pulse {
+    from {
+      outline-offset: 4px;
+    }
+    to {
+      outline-offset: 1px;
+    }
   }
 
   .note.continued {

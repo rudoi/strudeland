@@ -1,17 +1,30 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { readable } from 'svelte/store';
   import type { App } from '../lib/app';
   import type { PianoRollSnapshot } from '../lib/project/session';
   import { takeRunning } from '../lib/recording/memo-ui';
   import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
-  import { planRollEdit, resolveRollTarget } from '../lib/piano-roll/source';
+  import {
+    planRollEdit,
+    resolveRollTarget,
+    rollSourceHasSyntax,
+    targetsDefinition,
+  } from '../lib/piano-roll/source';
+  import { planEventEdit, preparePhraseEvents } from '../lib/piano-roll/event-source';
   import { cycleNumber } from '../lib/piano-roll/grid';
+  import {
+    projectRollEdit,
+    reconcileRollNotes,
+    resolvePostEditTarget,
+    sourceEditFeedback,
+  } from '../lib/piano-roll/feedback';
   import type {
     InspectionRequest,
     RollBar,
     RollEdit,
     RollNote,
+    RollTarget,
     SourceSpan,
   } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
@@ -30,10 +43,24 @@
   const activePath = $derived($song.active);
 
   let mode = $state<'expression' | 'song'>('expression');
-  let page = $state.raw<{ selection: number; index: number; mode: typeof mode } | null>(null);
-  let anchorChoice = $state.raw<{ selection: number; name: string } | null>(null);
-  let shared = $state.raw<{ selection: number; path: string; name: string } | null>(null);
-  let approvedRevision = $state<number>();
+  let page = $state.raw<{
+    context: string;
+    gridRow?: number;
+    index: number;
+    mode: typeof mode;
+  } | null>(null);
+  let anchorChoice = $state.raw<{ context: string; name: string } | null>(null);
+  let shared = $state.raw<{ context: string; name: string } | null>(null);
+  let approvedDraft = $state.raw<{ song: string; code: string }>();
+  let retained = $state.raw<{ snapshot: PianoRollSnapshot; target: RollTarget }>();
+  let lastContext = $state.raw<{ song: string; label: string }>();
+  let optimistic = $state.raw<{
+    key: string;
+    notes: readonly RollNote[];
+    edited: ReadonlySet<string>;
+  }>();
+  let feedback = $state.raw<{ key: string; edited: ReadonlySet<string> }>();
+  let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
   let notice = $state('');
   let contributors = $state.raw<{ spans: readonly SourceSpan[]; section?: Section } | null>(null);
   let playhead = $state<number>();
@@ -45,30 +72,51 @@
     const current = session.pianoRollSnapshot();
     return current?.revision === revision && current.path === path ? current : null;
   });
-  const target = $derived(
-    snapshot?.selection ? resolveRollTarget(snapshot.code, snapshot.selection) : null,
+  const songKey = $derived(snapshot ? JSON.stringify([snapshot.root, snapshot.path]) : '');
+  const target = $derived.by(() => {
+    if (!snapshot?.selection) return null;
+    if (
+      retained?.snapshot.sourceRevision === snapshot.sourceRevision &&
+      retained.snapshot.selectionRevision === snapshot.selectionRevision
+    )
+      return retained.target;
+    return resolveRollTarget(snapshot.code, snapshot.selection);
+  });
+  const incompleteContext = $derived(
+    !target &&
+      snapshot?.selection &&
+      lastContext?.song === songKey &&
+      !rollSourceHasSyntax(snapshot.code)
+      ? lastContext.label
+      : undefined,
   );
+  $effect(() => {
+    if (target) lastContext = { song: songKey, label: target.label };
+    else if (!snapshot?.selection || rollSourceHasSyntax(snapshot.code)) lastContext = undefined;
+  });
   const structure = $derived($song.structure);
   const definition = $derived(target?.definition);
-  const selectionRevision = $derived(snapshot?.selectionRevision);
-  const definitionMode = $derived(
-    definition &&
-      shared?.selection === snapshot?.selectionRevision &&
-      shared?.path === snapshot?.path &&
-      shared?.name === definition.name,
+  const contextKey = $derived(
+    target ? JSON.stringify([songKey, target.expression.from, target.expression.to]) : '',
   );
+  const definitionMode = $derived(
+    definition && shared?.context === contextKey && shared.name === definition.name,
+  );
+  const inDefinition = $derived(target !== null && targetsDefinition(target));
+  const expressionFrom = $derived(
+    (definitionMode ? definition?.expression : target?.expression)?.from,
+  );
+  const expressionTo = $derived((definitionMode ? definition?.expression : target?.expression)?.to);
   const relevantSections = $derived.by(() => {
     const names = new Set(target?.sections);
     for (const use of definition?.uses ?? []) {
       for (const name of use.sections) names.add(name);
     }
-    if (anchorChoice?.selection === snapshot?.selectionRevision && anchorChoice) {
-      names.add(anchorChoice.name);
-    }
+    if (anchorChoice?.context === contextKey && anchorChoice) names.add(anchorChoice.name);
     return structure?.sections.filter((section) => names.has(section.name)) ?? [];
   });
   const anchor = $derived.by(() => {
-    if (anchorChoice && anchorChoice.selection === snapshot?.selectionRevision) {
+    if (anchorChoice?.context === contextKey) {
       const chosen = relevantSections.find((section) => section.name === anchorChoice?.name);
       if (chosen) return chosen;
     }
@@ -82,33 +130,46 @@
     mode === 'expression' ? (definitionMode ? definition?.phrase : target?.phrase) : undefined,
   );
   const editTarget = $derived(
-    mode !== 'expression' || !phrase
+    mode !== 'expression' ||
+      !phrase ||
+      expressionFrom === undefined ||
+      expressionTo === undefined ||
+      (!definitionMode &&
+        definition &&
+        (definition.uses.length || definition.incomplete) &&
+        !inDefinition)
       ? undefined
-      : definition?.uses.length || definition?.incomplete
-        ? definitionMode
-          ? definition.expression
-          : undefined
-        : (definition?.expression ?? target?.expression),
+      : { from: expressionFrom, to: expressionTo },
+  );
+  const gridBars = $derived(mode === 'expression' ? target?.gridBars : undefined);
+  const defaultPage = $derived(
+    gridBars === undefined
+      ? 0
+      : Math.min(Math.max(0, (target?.gridRow ?? 0) - 1), Math.max(0, gridBars - windowBars)),
   );
   const focusedPage = $derived(
-    page && page.selection === snapshot?.selectionRevision && page.mode === mode ? page.index : 0,
+    page?.context === contextKey && page.mode === mode && page.gridRow === target?.gridRow
+      ? page.index
+      : defaultPage,
   );
-  const origin = $derived(mode === 'song' ? (anchor?.start ?? 0) : 0);
-  const from = $derived(origin + focusedPage * windowBars);
+  const anchorBar = $derived(anchor?.start);
+  const origin = $derived(mode === 'song' ? (anchorBar ?? 0) : 0);
+  const from = $derived(origin + focusedPage * (gridBars === undefined ? windowBars : 1));
   const maxCycle = $derived(
     phrase?.bars ??
-      (mode === 'song' ? structure?.totalBars || MAX_BARS : (anchor?.bars ?? MAX_BARS)),
+      (mode === 'song' ? structure?.totalBars || MAX_BARS : (gridBars ?? anchor?.bars ?? MAX_BARS)),
   );
   const to = $derived(Math.min(from + windowBars, maxCycle));
   const bars = $derived.by<RollBar[]>(() => {
     if (!structure) return [];
     return Array.from({ length: Math.max(0, to - from) }, (_, i) => {
       const cycle = from + i;
-      const written = mode === 'song' ? cycle : anchor ? anchor.start + cycle : null;
+      const written = mode === 'song' ? cycle : anchorBar === undefined ? null : anchorBar + cycle;
       const meter = written === null ? structure.meter : meterAtBar(structure, written);
       return {
         cycle,
-        label: mode === 'song' ? `Bar ${cycle + 1}` : `Cycle ${cycle + 1}`,
+        label:
+          mode === 'song' || gridBars !== undefined ? `Bar ${cycle + 1}` : `Cycle ${cycle + 1}`,
         numerator: meter.num,
         denominator: meter.den,
       };
@@ -120,35 +181,77 @@
       $transport.activeCode === snapshot.code &&
       session.pianoRollMatchesLivePins(),
   );
-  const needsInspection = $derived(target && (mode === 'song' || !phrase));
+  const needsInspection = $derived(Boolean(target && (mode === 'song' || !phrase)));
+  const draftApproved = $derived(
+    approvedDraft?.song === songKey && approvedDraft?.code === snapshot?.code,
+  );
+  const viewKey = $derived(
+    JSON.stringify([contextKey, mode, anchorBar, from, to, expressionFrom, expressionTo]),
+  );
+  const sourceRevision = $derived(snapshot?.sourceRevision);
+  const gestureKey = $derived(`${sourceRevision}:${viewKey}`);
+  const inspectionKey = $derived(
+    needsInspection && rollInspection.available && (matchesLive || draftApproved) && to > from
+      ? gestureKey
+      : '',
+  );
   const request = $derived.by<InspectionRequest | null>(() => {
-    if (!snapshot || !target || !needsInspection || !rollInspection.available || to <= from)
-      return null;
-    if (!matchesLive && approvedRevision !== snapshot.revision) return null;
-    return {
-      root: snapshot.root,
-      code: snapshot.code,
-      view: mode,
-      expression: target.expression,
-      from,
-      to,
-      anchorBar: anchor?.start,
-    };
+    if (!inspectionKey) return null;
+    // The key excludes caret motion inside the working expression.
+    return untrack(() =>
+      snapshot && expressionFrom !== undefined && expressionTo !== undefined
+        ? {
+            root: snapshot.root,
+            code: snapshot.code,
+            view: mode,
+            expression: { from: expressionFrom, to: expressionTo },
+            from,
+            to,
+            anchorBar,
+          }
+        : null,
+    );
   });
   const response = $derived($inspected?.request === request ? $inspected : null);
-  const notes = $derived.by(() => {
-    if (phrase) return phrase.notes;
-    if (response?.phase !== 'ready' || !target) return emptyNotes;
-    const { from, to } = target.expression;
-    return mode === 'song'
-      ? response.result.notes.map((note) => ({
-          ...note,
-          sourceMatch: [note.origin, ...(note.contributors ?? [])].some(
-            (span) => span && span.from >= from && span.to <= to,
-          ),
-        }))
-      : response.result.notes;
+  const staleEdits = $derived(
+    response?.phase === 'ready' ? (response.result.staleEdits?.length ?? 0) : 0,
+  );
+  const inspectionNotes = $derived(
+    response?.phase === 'ready' ? response.result.notes : emptyNotes,
+  );
+  const baseNotes = $derived.by(() => {
+    if (phrase) return preparePhraseEvents(phrase.notes, phrase.bars);
+    if (mode !== 'song') return inspectionNotes;
+    return inspectionNotes.map((note) => ({
+      ...note,
+      sourceMatch: [note.origin, ...(note.contributors ?? [])].some(
+        (span) =>
+          span &&
+          expressionFrom !== undefined &&
+          expressionTo !== undefined &&
+          span.from >= expressionFrom &&
+          span.to <= expressionTo,
+      ),
+    }));
   });
+  const preparedNotes = $derived(
+    baseNotes
+      .filter((note) => note.event || (editTarget && note.pitchEditable))
+      .map((note) => ({
+        ...note,
+        pitchEditable: Boolean(note.event || (editTarget && note.pitchEditable)),
+        timeEditable: Boolean(note.event || (editTarget && note.timeEditable)),
+      })),
+  );
+  const showingOptimistic = $derived(
+    !phrase && response?.phase !== 'ready' && optimistic?.key === gestureKey,
+  );
+  const notes = $derived.by(() => {
+    if (phrase || optimistic?.key !== gestureKey) return preparedNotes;
+    if (showingOptimistic) return optimistic.notes;
+    return reconcileRollNotes(optimistic.notes, preparedNotes, optimistic.edited);
+  });
+  const omitted = $derived(baseNotes.length - preparedNotes.length);
   const sourceMatches = $derived(mode === 'song' && notes.some((note) => note.sourceMatch));
   const auditionSound = $derived.by(() => {
     if (phrase?.sound) return phrase.sound;
@@ -173,43 +276,53 @@
     });
   });
   $effect(() => {
-    // Clear feedback when the source selection changes, but retain successful edit feedback.
-    if (selectionRevision !== undefined) {
+    const key = gestureKey;
+    untrack(() => {
       notice = '';
       contributors = null;
-    }
+      if (optimistic?.key !== key) optimistic = undefined;
+      if (feedback && feedback.key !== key) clearFeedback();
+    });
   });
 
   onDestroy(() => {
     rollInspection.request(null);
     app.stopPianoRollAudition();
+    clearFeedback();
   });
+
+  function clearFeedback() {
+    clearTimeout(feedbackTimer);
+    feedback = undefined;
+    session.clearPianoRollFeedback();
+  }
+
+  function approveDraft() {
+    if (snapshot) approvedDraft = { song: songKey, code: snapshot.code };
+  }
 
   function changeAnchor(section: Section | undefined) {
     if (snapshot && section) {
-      anchorChoice = { selection: snapshot.selectionRevision, name: section.name };
+      anchorChoice = { context: contextKey, name: section.name };
       page = null;
     }
   }
 
   function goToPage(index: number) {
-    if (snapshot) page = { selection: snapshot.selectionRevision, index, mode };
+    if (snapshot) page = { context: contextKey, gridRow: target?.gridRow, index, mode };
   }
 
   function openDefinition() {
     if (!snapshot || !definition) return;
     mode = 'expression';
-    shared = { selection: snapshot.selectionRevision, path: snapshot.path, name: definition.name };
+    shared = { context: contextKey, name: definition.name };
     page = null;
   }
 
   function reveal(context: PianoRollSnapshot, span: SourceSpan, section?: Section) {
     mode = 'expression';
     session.revealPianoRoll(context, span);
-    const current = session.pianoRollSnapshot();
-    if (current && section) {
-      anchorChoice = { selection: current.selectionRevision, name: section.name };
-    }
+    if (section) anchorChoice = { context: contextKey, name: section.name };
   }
 
   function goToNote(note: RollNote) {
@@ -231,13 +344,65 @@
   }
 
   function edit(change: RollEdit) {
-    if (!snapshot || !editTarget) return false;
-    const note = 'id' in change ? notes.find((item) => item.id === change.id) : undefined;
-    const patches = planRollEdit(snapshot.code, editTarget, change);
-    if (!patches || !session.editPianoRoll(snapshot, patches, target?.expression)) {
-      notice = 'This edit does not fit the source phrase.';
+    if (!snapshot || !target || expressionFrom === undefined || expressionTo === undefined)
+      return false;
+    const current = session.pianoRollSnapshot();
+    if (current?.revision !== snapshot.revision) {
+      notice = 'The editor changed during this edit.';
       return false;
     }
+    const note = 'id' in change ? notes.find((item) => item.id === change.id) : undefined;
+    if ('id' in change && !note) return false;
+    const expression = { from: expressionFrom, to: expressionTo };
+    const direct = editTarget && planRollEdit(snapshot.code, editTarget, change);
+    const patches =
+      direct ||
+      (note &&
+        planEventEdit(
+          snapshot.code,
+          mode === 'song' ? { kind: 'song' } : { kind: 'expression', expression },
+          note,
+          change,
+        ));
+    if (!patches) {
+      notice = 'This edit does not fit the source pattern.';
+      return false;
+    }
+    const preview = projectRollEdit(notes, change, Boolean(direct));
+    const previousPage = focusedPage;
+    const previousGridRow = target.gridRow;
+    const wasApproved = matchesLive || draftApproved;
+    const previousContext = contextKey;
+    const wrappedTarget =
+      !direct &&
+      mode === 'expression' &&
+      expression.from === target.expression.from &&
+      expression.to === target.expression.to;
+    const result = session.editPianoRoll(snapshot, patches, target.expression);
+    if (!result) {
+      notice = 'The editor changed during this edit.';
+      return false;
+    }
+    const nextTarget = resolvePostEditTarget(result, wrappedTarget);
+    if (nextTarget) {
+      retained = {
+        snapshot: result.snapshot,
+        target: { ...nextTarget, gridRow: previousGridRow ?? nextTarget.gridRow },
+      };
+    }
+    if (anchorChoice?.context === previousContext)
+      anchorChoice = { ...anchorChoice, context: contextKey };
+    if (shared?.context === previousContext) shared = { ...shared, context: contextKey };
+    goToPage(previousPage);
+    if (wasApproved) approvedDraft = { song: songKey, code: result.snapshot.code };
+    const edited = new Set(preview.edited.map(({ id }) => id));
+    optimistic = direct ? undefined : { key: gestureKey, notes: preview.notes, edited };
+    feedback = {
+      key: gestureKey,
+      edited: direct ? sourceEditFeedback(preview.notes, preparedNotes, edited) : edited,
+    };
+    clearTimeout(feedbackTimer);
+    feedbackTimer = setTimeout(clearFeedback, 850);
     notice = '';
     if (change.kind === 'pitch' || change.kind === 'insert') {
       void audition(change.pitch, note?.sound ?? auditionSound, true);
@@ -297,11 +462,11 @@
       </div>
     {/if}
   </div>
-  {#if mode === 'expression' && definition?.phrase && (definition.uses.length || definition.incomplete) && snapshot}
+  {#if mode === 'expression' && definition && (definition.uses.length || definition.incomplete) && snapshot}
     <div class="shared">
-      {#if !definitionMode}
+      {#if !definitionMode && !inDefinition}
         <Button size="sm" onclick={openDefinition}>Edit shared definition</Button>
-      {:else}
+      {:else if definitionMode}
         <Button size="sm" onclick={() => (shared = null)}>Back to selection</Button>
       {/if}
       <span
@@ -320,36 +485,47 @@
   {/if}
   {#if !target}
     <p class="roll-status" role="status">
-      {snapshot?.selection
-        ? 'Select a supported pattern expression or a complete note token.'
-        : 'Select a pattern in the editor.'}
+      {incompleteContext
+        ? `Finish the code edit to return to ${incompleteContext}.`
+        : 'Place the caret inside a pitched pattern or select an expression.'}
     </p>
-  {:else if needsInspection && !rollInspection.available}
+  {:else if needsInspection && !rollInspection.available && !showingOptimistic}
     <p class="roll-status" role="status">
       Generated and in-song patterns can be inspected in the desktop app.
     </p>
-  {:else if needsInspection && !request}
+  {:else if needsInspection && !request && !showingOptimistic}
     <div class="preview">
-      <Button size="sm" onclick={() => (approvedRevision = snapshot?.revision)}
-        >Preview expression</Button
-      >
+      <Button size="sm" onclick={approveDraft}>Preview expression</Button>
       <span>Inspect the current draft without starting playback.</span>
     </div>
-  {:else if response?.phase === 'error'}
+  {:else if response?.phase === 'error' && !showingOptimistic}
     <p class="roll-status" role="status">{response.message}</p>
-  {:else if needsInspection && (!response || response.phase === 'loading')}
+  {:else if needsInspection && !showingOptimistic && (!response || response.phase === 'loading')}
     <p class="roll-status" role="status">Inspecting pattern…</p>
   {:else}
-    {#if !phrase}
+    {#if showingOptimistic && !request && rollInspection.available}
+      <div class="preview">
+        <Button size="sm" onclick={approveDraft}>Preview expression</Button>
+        <span>Inspect the current draft without starting playback.</span>
+      </div>
+    {/if}
+    {#if response?.phase === 'error'}<p class="roll-status" role="status">
+        {response.message}
+      </p>{/if}
+    {#if staleEdits}
       <p class="roll-status compact" role="status">
-        {mode === 'song'
-          ? sourceMatches
-            ? 'Arranged notes · source matches outlined'
-            : 'Arranged notes · selection source unavailable'
-          : 'Evaluated expression · view only'}{response?.phase === 'ready' &&
-        response.result.truncated
-          ? ' · results limited'
-          : ''}{notes.length === 0 ? ' · no pitched notes in this window' : ''}
+        {staleEdits}
+        {staleEdits === 1 ? 'saved edit no longer matches' : 'saved edits no longer match'}
+        the pattern.
+      </p>
+    {/if}
+    {#if sourceMatches || omitted || (response?.phase === 'ready' && response.result.truncated) || !notes.length}
+      <p class="roll-status compact" role="status">
+        {sourceMatches ? 'Source matches outlined' : ''}{omitted
+          ? `${sourceMatches ? ' · ' : ''}${omitted} ${omitted === 1 ? 'event lacks' : 'events lack'} a stable edit identity`
+          : ''}{response?.phase === 'ready' && response.result.truncated
+          ? `${sourceMatches || omitted ? ' · ' : ''}Results limited`
+          : ''}{!notes.length && !omitted ? 'No pitched notes in this window' : ''}
       </p>
     {/if}
     {#if snapshot && contributors?.spans.length}
@@ -370,7 +546,12 @@
     <PianoRollGrid
       {notes}
       {bars}
-      editable={editTarget !== undefined}
+      editable={editTarget !== undefined || notes.length > 0}
+      {gestureKey}
+      focusedBar={mode === 'expression' ? target.gridRow : undefined}
+      gridSteps={mode === 'expression' ? target.gridSteps : undefined}
+      isFlashing={(note) => feedback?.key === gestureKey && feedback.edited.has(note.id)}
+      oncancel={() => (notice = 'The editor changed during this edit.')}
       insertable={editTarget !== undefined && phrase?.insertable === true}
       {playhead}
       onedit={edit}

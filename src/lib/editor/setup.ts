@@ -2,7 +2,7 @@ import { claudeMark } from './claude-mark';
 import { inspectNoteAudition, type NoteAuditionEdit } from './note-audition';
 import { registerStrudelandSettings, STRUDELAND_THEME } from './theme';
 import { exitInsert } from './vim-mode';
-import { auditionHighlight } from './visuals';
+import { auditionHighlight, pianoRollEditHighlight } from './visuals';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
@@ -125,6 +125,7 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     drawSelection({ cursorBlinkRate: 0 }),
     strudelKeymap(runtime, hooks),
     auditionHighlight,
+    pianoRollEditHighlight,
     ...(hooks?.onDocChange || hooks?.onSelectionChange
       ? [
           EditorView.updateListener.of((update) => {

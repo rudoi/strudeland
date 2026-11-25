@@ -698,6 +698,25 @@ test('inspect: preserve continuations and duplicate voices without inventing pit
   ]);
 });
 
+test('inspect: verify continuation identity when the exact onset rounds to zero', async () => {
+  const start = '1/100000000000000000000001';
+  const expression = `new Pattern((state) => {
+    const whole = new TimeSpan('${start}', 2);
+    const part = whole.intersection(state.span);
+    return part ? [new Hap(whole, part, { note: 60 })] : [];
+  })`;
+  for (const options of [
+    {},
+    { view: 'expression', expression: selection(expression, expression) },
+  ]) {
+    const r = await inspection(host(), expression, { from: 1, to: 2, ...options });
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(r.value).notes).toMatchObject([
+      { start, visibleStart: '1', event: { from: [start, '2'], pitch: 60 } },
+    ]);
+  }
+});
+
 test('inspect: distinguish unavailable or skipped expressions from an empty pitched window', async () => {
   const expression = 'note("c4")';
   const code = `null?.play(${expression}); s("bd")`;
@@ -792,4 +811,126 @@ test('inspect: bound errors before returning the status', async () => {
     expect(r.error).toContain('error éé');
     expect(r.error.length).toBeLessThanOrEqual(513);
   }
+});
+
+test('inspect and plan saved Expression and final-output edits on real generated note haps', async () => {
+  const { planEventEdit } = await import('../src/lib/piano-roll/event-source');
+  const apply = (source: string, patches: ReturnType<typeof planEventEdit>) => {
+    expect(patches).not.toBeNull();
+    for (const p of [...patches!].reverse())
+      source = source.slice(0, p.from) + p.insert + source.slice(p.to);
+    return source;
+  };
+  const expression = 'note("c4 d4").transpose(2)';
+  const song = 'const phrase = ' + expression + ';\nlead: phrase\nbass: note(43)';
+  const span = selection(song, expression);
+  const observed = JSON.parse(
+    (await inspection(host(), song, { view: 'expression', expression: span })).value,
+  ).notes;
+  const edited = apply(
+    song,
+    planEventEdit(song, { kind: 'expression', expression: span }, observed[0], {
+      kind: 'move',
+      id: observed[0].id,
+      start: '3/2',
+    }),
+  );
+  const arranged = JSON.parse((await inspection(host(), edited, { to: 2 })).value).notes;
+  expect(arranged.find((h: any) => h.start === '0' && h.pitch === 62)).toBeUndefined();
+  const moved = arranged.find((h: any) => h.start === '3/2' && h.pitch === 62);
+  expect(moved.event.entry).toBe('roll1');
+  const bass = arranged.find((h: any) => h.start === '0' && h.pitch === 43);
+  const final = apply(
+    edited,
+    planEventEdit(edited, { kind: 'song' }, bass, { kind: 'pitch', id: bass.id, pitch: 48 }),
+  );
+  const fresh = JSON.parse((await inspection(host(), final, { to: 2 })).value).notes;
+  expect(fresh.filter((h: any) => h.start === '0').map((h: any) => h.pitch)).toEqual([48]);
+  const job = await host().call('planJob', final, JSON.stringify(REQUEST));
+  expect(job.ok).toBe(true);
+});
+
+test('inspect can observe a generated alias at a shorthand property', async () => {
+  const code =
+    "const meta = { sections: [{name: 'lead', bars: 1}] }; const lead = note(60).fast(2); song(meta, { lead });";
+  const at = code.lastIndexOf('lead');
+  const report = await inspection(host(), code, {
+    view: 'expression',
+    expression: { from: at, to: at + 4 },
+  });
+  expect(report.ok).toBe(true);
+  expect(JSON.parse(report.value).notes.map((n: any) => n.pitch)).toEqual([60, 60]);
+});
+
+test('inspect captures an observed stochastic lane across changed seeds in either view', async () => {
+  const { planEventEdit } = await import('../src/lib/piano-roll/event-source');
+  const expression = 'chooseCycles(60,62,64,67).note()';
+  const code = 'const meta = { seed: 3 }; ' + expression;
+  const span = selection(code, expression);
+  for (const scope of [{ kind: 'expression', expression: span }, { kind: 'song' }] as const) {
+    const observed = await inspection(host(), code, {
+      view: scope.kind,
+      ...(scope.kind === 'expression' ? { expression: span } : {}),
+    });
+    expect(observed.ok).toBe(true);
+    const [note] = JSON.parse(observed.value).notes;
+    expect(note.event.capture).toBeDefined();
+    const patches = planEventEdit(code, scope, note, { kind: 'pitch', id: note.id, pitch: 72 });
+    expect(patches).not.toBeNull();
+    const edited = [...patches!]
+      .reverse()
+      .reduce(
+        (source, patch) => source.slice(0, patch.from) + patch.insert + source.slice(patch.to),
+        code,
+      );
+    for (const seed of [0, 1, 3, 4]) {
+      const result = await inspection(host(), edited.replace('seed: 3', 'seed: ' + seed), {});
+      expect(result.ok).toBe(true);
+      expect(JSON.parse(result.value).notes.map((entry: any) => entry.pitch)).toEqual([72]);
+    }
+  }
+});
+
+test('inspect reports a saved deterministic edit whose source no longer matches', async () => {
+  const code =
+    'note(61)\n/* @piano-edits {"entries":[{"id":"roll1","from":["0","1"],"pitch":60,"key":65}]} */';
+  const report = await inspection(host(), code, {});
+  expect(report.ok).toBe(true);
+  const result = JSON.parse(report.value);
+  expect(result.staleEdits).toEqual(['roll1']);
+  expect(result.notes.map((note: any) => note.pitch)).toEqual([61]);
+});
+
+test('inspect does not capture a deterministic voice because the script mentions randomness', async () => {
+  const code = 'note(60) // random';
+  const h = host();
+  const r = await h.call(
+    'inspect',
+    code,
+    JSON.stringify({
+      view: 'expression',
+      expression: { from: 0, to: 8 },
+      from: 0,
+      to: 1,
+    }),
+  );
+  expect(r.ok).toBe(true);
+  const [note] = JSON.parse(h.get('__strudelandInspection')).notes;
+  expect(note.event).toBeDefined();
+  expect(note.event.capture).toBeUndefined();
+});
+
+test('arranged inspection distinguishes final-song and independent haps at the same position', async () => {
+  const code =
+    "const meta = {sections: [{name: 'loop', bars: 1, loop: true}]};\nstack(song(meta, {loop: note(70)}), note(70))";
+  const report = await inspection(host(), code, {});
+  expect(report.ok).toBe(true);
+  const notes = JSON.parse(report.value).notes;
+  expect(notes.map((n: any) => n.event.placement)).toEqual(['song', 'absolute']);
+  const malformed = "pure('c-')";
+  const scalar = await inspection(host(), malformed, {
+    view: 'expression',
+    expression: selection(malformed, malformed),
+  });
+  expect(JSON.parse(scalar.value).notes).toEqual([]);
 });

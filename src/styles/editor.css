@@ -173,6 +173,25 @@
   box-shadow: inset 3px 0 0 var(--claude-edit);
 }
 
+.cm-piano-roll-edit,
+.cm-line.cm-piano-roll-edit-line {
+  box-shadow: inset 0 -2px 0 var(--accent);
+  background-color: var(--accent-wash);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cm-piano-roll-edit,
+  .cm-line.cm-piano-roll-edit-line {
+    animation: piano-roll-source-pulse var(--dur-edit-feedback) var(--ease);
+  }
+}
+
+@keyframes piano-roll-source-pulse {
+  from {
+    box-shadow: inset 0 -4px 0 var(--accent);
+  }
+}
+
 /*
  * Vim's block cursor (normal and visual mode). codemirror-vim's own theme paints it a fixed colour
  * and sets each piece's text colour inline, hence the one !important on the focused colour. The

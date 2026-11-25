@@ -5,6 +5,7 @@ export interface SourceSpan {
 }
 
 export interface RollNote {
+  event?: import('../strudel/event-edits').EventEditIdentity;
   id: string;
   /** Exact cycle edges, in Fraction.toFraction() format. */
   start: string;
@@ -16,6 +17,7 @@ export interface RollNote {
   contributors?: readonly SourceSpan[];
   sound?: string;
   sourceMatch?: boolean;
+  glideBend?: number;
   pitchEditable?: boolean;
   timeEditable?: boolean;
 }
@@ -47,6 +49,10 @@ export interface RollTarget {
   phrase?: RollPhrase;
   definition?: RollDefinition;
   sections: readonly string[];
+  /** Focused row in a recognized authored grid, counted from zero. */
+  gridRow?: number;
+  gridBars?: number;
+  gridSteps?: number;
 }
 
 export type RollEdit =
@@ -58,6 +64,8 @@ export type RollEdit =
 
 export interface RollPatch extends SourceSpan {
   insert: string;
+  /** Reveal this patch when an edit changes several separate source ranges. */
+  reveal?: true;
 }
 
 export interface RollBar {
@@ -79,6 +87,8 @@ export interface InspectionRequest {
 }
 
 export interface InspectionResult {
+  /** Saved event IDs that no longer matched in the inspected window. */
+  staleEdits?: readonly string[];
   notes: readonly RollNote[];
   truncated: boolean;
 }

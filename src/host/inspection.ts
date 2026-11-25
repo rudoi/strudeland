@@ -1,4 +1,10 @@
-import { Pattern, State, TimeSpan, freqToMidi, isNote, noteToMidi } from '@strudel/core';
+import {
+  eventPitch,
+  identifyEvent,
+  inspectEventEdits,
+  verifyEventOrigin,
+} from '../lib/strudel/event-edits';
+import { Fraction, Pattern, State, TimeSpan } from '@strudel/core';
 import { registerTranspilerPlugin } from '@strudel/transpiler';
 import { parse, tokenizer, tokTypes, type AnyNode } from 'acorn';
 import type {
@@ -59,13 +65,17 @@ registerTranspilerPlugin({
     const capture = activeCapture;
     if (!capture || capture.code !== input) return;
     return {
-      leave(this: { replace(node: object): unknown }, node: AnyNode) {
+      leave(this: { replace(node: object): unknown }, node: AnyNode, parent: AnyNode, key: string) {
         if (
           node.type !== capture.type ||
           node.start !== capture.span.from ||
           node.end !== capture.span.to
         )
           return;
+        if (parent?.type === 'Property' && parent.shorthand) {
+          if (key !== 'value') return;
+          parent.shorthand = false;
+        }
         capture.rewritten = true;
         return this.replace({
           type: 'CallExpression',
@@ -101,7 +111,7 @@ function valueSlot(node: AnyNode, parent: AnyNode, key: string): boolean {
     case 'SequenceExpression':
       return true;
     case 'Property':
-      return key === 'value' && parent.kind === 'init' && !parent.shorthand && !parent.method;
+      return key === 'value' && parent.kind === 'init' && !parent.method;
     default:
       return false;
   }
@@ -203,34 +213,38 @@ export async function inspectExpression(
   }
 }
 
-export function queryExpression(
+type InspectQuery = (from: number, to: number) => RawHap[];
+
+export function expressionQuery(
   pattern: CapturedPattern,
   structure: SongStructure,
   cps: number,
   seed: number | undefined,
-  request: InspectionWindow,
-): RawHap[] {
-  const { from, to, anchorBar } = request;
-  const state = new State(new TimeSpan(from, to), {
-    _cps: cps,
-    cyclist: 'cyclist',
-    _segments: LINEAR_SEGMENTS,
-  });
+  anchorBar: number | undefined,
+): InspectQuery {
   const seeded = applySeed(pattern, seed);
-  if (!structure.meterChanges?.length) return seeded.query(state);
-
-  const written = layoutClock(structure, LINEAR_SEGMENTS);
-  const local = {
+  const written = structure.meterChanges?.length
+    ? layoutClock(structure, LINEAR_SEGMENTS)
+    : undefined;
+  const local = written && {
     ...written,
     meterAt: (cycle: number) =>
       anchorBar === undefined ? structure.meter : written.meterAt(anchorBar + cycle),
     nextMeterBoundary: (cycle: number) =>
       anchorBar === undefined ? Infinity : written.nextMeterBoundary(anchorBar + cycle) - anchorBar,
   };
-  return queryMetered(seeded, state, structure, local, cps);
+  return (from, to) => {
+    const state = new State(new TimeSpan(from, to), {
+      _cps: cps,
+      cyclist: 'cyclist',
+      _segments: LINEAR_SEGMENTS,
+    });
+    return local ? queryMetered(seeded, state, structure, local, cps) : seeded.query(state);
+  };
 }
 
 interface FractionEdge {
+  floor(): FractionEdge;
   toFraction(): string;
   valueOf(): number;
 }
@@ -251,27 +265,10 @@ function pitchOf(
   value: unknown,
   allowPrimitive: boolean,
 ): { pitch: number; sound?: string } | null {
-  if (allowPrimitive && typeof value === 'string' && isNote(value)) {
-    const pitch = noteToMidi(value);
-    return Number.isFinite(pitch) ? { pitch } : null;
-  }
-  if (value === null || typeof value !== 'object') return null;
-  const { note, freq, octave, s } = value as {
-    note?: unknown;
-    freq?: unknown;
-    octave?: unknown;
-    s?: unknown;
-  };
-  let pitch: number;
-  if ((typeof freq === 'number' || typeof freq === 'string') && freq)
-    pitch = freqToMidi(Number(freq));
-  else if (typeof note === 'number') pitch = note;
-  else if (typeof note === 'string' && isNote(note)) pitch = noteToMidi(note);
-  else return null;
-  if (typeof octave === 'number' || typeof octave === 'string') pitch += 12 * Number(octave);
-  return Number.isFinite(pitch)
-    ? { pitch, ...(typeof s === 'string' && s.length <= 64 ? { sound: s } : {}) }
-    : null;
+  const pitch = eventPitch(value, allowPrimitive);
+  if (pitch === undefined) return null;
+  const s = (value as { s?: unknown })?.s;
+  return { pitch, ...(typeof s === 'string' && s.length <= 64 ? { sound: s } : {}) };
 }
 
 /** Cooked string escapes and normalized CRs can move mini offsets. Keep those
@@ -347,15 +344,73 @@ function directOrigin(code: string, request: InspectionWindow): SourceSpan | und
 /** Retain individual haps and visible fragments. A note's pitch and whole span are not an identity
  * for overlapping voices. The command applies a deadline before entering the isolate. */
 export function inspectHaps(
-  haps: RawHap[],
   code: string,
   request: InspectionWindow,
+  query: InspectQuery,
+  alternateQueries: readonly InspectQuery[] = [],
 ): InspectionResult {
+  const { value: haps, staleEdits } = inspectEventEdits(() => query(request.from, request.to));
   const uncertain = uncertainSpans(code);
   const fallbackOrigin = directOrigin(code, request);
   const notes: { note: RollNote; order: number }[] = [];
+  const stochastic =
+    /\b(?:rand|irand|perlin|choose|chooseCycles|wchoose|degrade|degradeBy|sometimes|random|slider|cF)\b/.test(
+      code,
+    );
+  const groupKey = (h: RawHap) => {
+    const arc = h.whole ?? h.part;
+    return (h.whole ? 'w' : 'p') + arc.begin.toFraction() + ':' + arc.end.toFraction();
+  };
+  const groups = new Map<string, RawHap[]>();
+  const scanCount = Math.min(haps.length, MAX_HAPS_TO_SCAN);
+  for (let i = 0; i < scanCount; i++) {
+    const h = haps[i]!;
+    const key = groupKey(h),
+      group = groups.get(key);
+    if (group) group.push(h);
+    else groups.set(key, [h]);
+  }
+  let bytes = 0;
+  const probes = new Map<string, RawHap[] | null>();
+  const samples = new Map<string, Map<string, RawHap[]> | null>();
+  let probeBudget = MAX_HAPS_TO_SCAN;
+  const queries = [query, ...alternateQueries];
+  const probe = (from: number, to: number, run: InspectQuery): RawHap[] | null => {
+    if (probeBudget <= 0) return null;
+    const result = run(from, to);
+    probeBudget -= result.length + 1;
+    return probeBudget >= 0 ? result : null;
+  };
+  function atOnset(begin: FractionEdge, start: string, index = 0): RawHap[] | null {
+    const run = queries[index]!;
+    const key = `${index}:${start}`;
+    const cycle = Number(begin);
+    if (Fraction(cycle).toFraction() === start) {
+      if (!probes.has(key)) probes.set(key, probe(cycle, cycle, run));
+      return probes.get(key)!;
+    }
+    // A point query would round this onset. Sample its containing bar and keep only
+    // parts that start at the exact edge, so later unmuted fragments cannot stand in for it.
+    const bar = Number(begin.floor());
+    const sampleKey = `${index}:${bar}`;
+    if (!samples.has(sampleKey)) {
+      const haps = probe(bar, bar + 1, run);
+      const byStart = haps && new Map<string, RawHap[]>();
+      if (haps && byStart) {
+        for (const h of haps) {
+          const edge = h.part.begin.toFraction();
+          const group = byStart.get(edge);
+          if (group) group.push(h);
+          else byStart.set(edge, [h]);
+        }
+      }
+      samples.set(sampleKey, byStart);
+    }
+    const sample = samples.get(sampleKey)!;
+    return sample && (sample.get(start) ?? []);
+  }
   let truncated = haps.length > MAX_HAPS_TO_SCAN;
-  for (let i = 0; i < Math.min(haps.length, MAX_HAPS_TO_SCAN); i++) {
+  for (let i = 0; i < scanCount; i++) {
     const hap = haps[i]!;
     const data = pitchOf(hap.value, request.view === 'expression');
     if (!data) continue;
@@ -375,10 +430,50 @@ export function inspectHaps(
     const locations = contributors(hap, code, uncertain);
     const origin =
       locations.length === 1 ? locations[0] : locations.length === 0 ? fallbackOrigin : undefined;
+    const siblings = groups.get(groupKey(hap))!;
+    const primitive = request.view === 'expression';
+    let event = identifyEvent(hap, siblings, primitive, false);
+    // Probe continuations and ties. A random operation anywhere in the source only
+    // requests verification; a capture requires an observed change in this lane.
+    if (event && hap.whole && (stochastic || event.count || visibleStart !== start)) {
+      const at = atOnset(begin, start);
+      if (at === null) truncated = true;
+      event = at === null ? undefined : verifyEventOrigin(hap, event, at);
+      if (stochastic && at !== null) {
+        const captured = identifyEvent(hap, siblings, primitive, true);
+        if (captured?.capture !== undefined) {
+          if (!event) {
+            event = verifyEventOrigin(hap, captured, at, true);
+          } else {
+            for (let index = 1; index < queries.length; index++) {
+              const alternate = atOnset(begin, start, index);
+              if (alternate === null) {
+                truncated = true;
+                break;
+              }
+              if (
+                !verifyEventOrigin(hap, event, alternate) &&
+                verifyEventOrigin(hap, captured, alternate)
+              ) {
+                event = { ...event, capture: captured.capture };
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    // Native readout has a byte cap. Four bytes per code unit is a conservative UTF-8 bound.
+    bytes += 384 + (event ? JSON.stringify(event).length * 4 : 0) + locations.length * 52;
+    if (bytes > 980_000) {
+      truncated = true;
+      break;
+    }
     notes.push({
       order: Number(hap.part.begin),
       note: {
         id: String(i),
+        ...(event ? { event } : {}),
         start,
         end: finish,
         ...data,
@@ -390,5 +485,9 @@ export function inspectHaps(
     });
   }
   notes.sort((a, b) => a.order - b.order);
-  return { notes: notes.map(({ note }) => note), truncated };
+  return {
+    notes: notes.map(({ note }) => note),
+    truncated,
+    ...(staleEdits.length ? { staleEdits } : {}),
+  };
 }

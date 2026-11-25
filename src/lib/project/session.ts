@@ -1,12 +1,12 @@
 import { isolateHistory } from '@codemirror/commands';
 import { Text, type ChangeSpec, type EditorState, type TransactionSpec } from '@codemirror/state';
-import type { EditorView } from '@codemirror/view';
+import { EditorView } from '@codemirror/view';
 import { get, writable, type Readable } from 'svelte/store';
 import type { EvalOutcome } from '../control/protocol';
 import { instrumentApplication } from '../editor/apply-instrument';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
-import { attachState } from '../editor/visuals';
+import { attachState, pianoRollEditLocation, pianoRollEditHighlight } from '../editor/visuals';
 import type { RollPatch, SourceSpan } from '../piano-roll/types';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
@@ -93,8 +93,16 @@ export interface PianoRollSnapshot {
   path: string;
   revision: number;
   selectionRevision: number;
+  sourceRevision: number;
   selection: SourceSpan | null;
   code: string;
+}
+
+export interface PianoRollCommit {
+  snapshot: PianoRollSnapshot;
+  target?: SourceSpan;
+  targetCaret?: number;
+  spans: readonly SourceSpan[];
 }
 
 export type InstrumentApplyRequest = Omit<InstrumentSelection, 'song'> & {
@@ -128,7 +136,8 @@ export interface Session {
     snapshot: PianoRollSnapshot,
     patches: readonly RollPatch[],
     target?: SourceSpan,
-  ): boolean;
+  ): PianoRollCommit | null;
+  clearPianoRollFeedback(): void;
   revealPianoRoll(snapshot: PianoRollSnapshot, span: SourceSpan): void;
   /** Reopens the last project and installs the window close guard. */
   init(canCloseWindow?: () => boolean): Promise<void>;
@@ -518,9 +527,11 @@ export function createSession(deps: SessionDeps): Session {
   let blanked = false;
   let rollRevision = 0;
   let rollSelectionRevision = 0;
+  let rollSourceRevision = 0;
   const pianoRollRevision = writable(rollRevision);
-  function pianoRollChanged(selected = false): void {
+  function pianoRollChanged(selected = false, sourceChanged = !selected): void {
     if (selected) rollSelectionRevision++;
+    if (sourceChanged) rollSourceRevision++;
     pianoRollRevision.set(++rollRevision);
   }
 
@@ -534,6 +545,21 @@ export function createSession(deps: SessionDeps): Session {
       uiOpening === 0 &&
       songs.get(snapshot.path)?.conflict !== 'deleted'
     );
+  }
+
+  function pianoRollSnapshot(): PianoRollSnapshot | null {
+    if (!view || !project || !active || shown !== active) return null;
+    const { doc, selection } = view.state;
+    const { from, to } = selection.main;
+    return {
+      root: project.root,
+      path: active,
+      revision: rollRevision,
+      selectionRevision: rollSelectionRevision,
+      sourceRevision: rollSourceRevision,
+      selection: selection.ranges.length === 1 ? { from, to } : null,
+      code: doc.toString(),
+    };
   }
 
   // ---- view ----
@@ -562,7 +588,7 @@ export function createSession(deps: SessionDeps): Session {
       attachState(view, prepare(createState('')));
       blanked = true;
     } else return;
-    pianoRollChanged(true);
+    pianoRollChanged(true, true);
     deps.onShown?.(view);
   }
 
@@ -1348,19 +1374,7 @@ export function createSession(deps: SessionDeps): Session {
 
     pianoRollRevision: { subscribe: pianoRollRevision.subscribe },
     pianoRollChanged,
-    pianoRollSnapshot() {
-      if (!view || !project || !active || shown !== active) return null;
-      const { doc, selection } = view.state;
-      const { from, to } = selection.main;
-      return {
-        root: project.root,
-        path: active,
-        revision: rollRevision,
-        selectionRevision: rollSelectionRevision,
-        selection: selection.ranges.length === 1 && from < to ? { from, to } : null,
-        code: doc.toString(),
-      };
-    },
+    pianoRollSnapshot,
     pianoRollMatchesLivePins() {
       return (
         evaluated !== null && instrumentError === null && evaluated.instruments === instruments
@@ -1368,23 +1382,39 @@ export function createSession(deps: SessionDeps): Session {
     },
     editPianoRoll(snapshot, patches, target) {
       if (!view || !matchesPianoRoll(snapshot) || view.state.doc.toString() !== snapshot.code) {
-        return false;
+        return null;
       }
-      if (!patches.length) return false;
+      if (!patches.length) return null;
       const changes = view.state.changes(patches);
-      const selected = view.state.selection.main.map(changes);
-      // Rhythm edits can replace a whole bar around the selected atom.
-      const selection =
-        target && selected.from >= selected.to
-          ? { anchor: changes.mapPos(target.from, -1), head: changes.mapPos(target.to, 1) }
-          : undefined;
+      const spans: SourceSpan[] = [];
+      changes.iterChangedRanges((_from, _to, from, to) => spans.push({ from, to }));
+      if (!spans.length) return null;
+      const reveal = (patches.find((patch) => patch.reveal) ?? patches.at(-1)!).from;
+      const primary = changes.mapPos(reveal, -1);
+      const { from, to } = view.viewport;
+      const mappedTarget = target && {
+        from: changes.mapPos(target.from, -1),
+        to: changes.mapPos(target.to, 1),
+      };
+      const targetCaret = target && changes.mapPos(target.from, 1);
       apply(snapshot.path, {
         changes,
-        selection,
+        effects: [
+          EditorView.scrollIntoView(primary, {
+            y: reveal < from || reveal > to ? 'center' : 'nearest',
+          }),
+          pianoRollEditLocation.of(spans),
+        ],
         userEvent: 'input.pianoRoll',
         annotations: isolateHistory.of('full'),
       });
-      return true;
+      const current = pianoRollSnapshot();
+      return current && { snapshot: current, target: mappedTarget, targetCaret, spans };
+    },
+    clearPianoRollFeedback() {
+      if (view?.state.field(pianoRollEditHighlight, false)?.size) {
+        view.dispatch({ effects: pianoRollEditLocation.of([]) });
+      }
     },
     revealPianoRoll(snapshot, { from, to }) {
       if (
