@@ -364,7 +364,9 @@ the V8 download the host brings.
   (`tests/theme-tokens.test.ts` enforces it). Components use role and domain tokens and
   `data-tone`/`data-cat`, never palette tokens. Build UI from `src/components/ui/`; add a primitive
   when an element appears in two components. UI copy is lowercase except proper nouns, user content,
-  error text and licence identifiers. Canvas code gets colours from `resolveColor()`.
+  error text, licence identifiers and contextual help sentences. Canvas code gets colours from `resolveColor()`.
+- Contextual help: Read [Writing contextual help](docs/writing-contextual-help.md) when adding,
+  changing or reviewing hover and focus hints. Verify each hint against the control's behavior and states.
 - Headless host: `crates/strudeland-host/js/host.js` and `host.inputs.json` are committed and
   written only by `bun run host:build`, never hand-edited; rebuild after a Strudel sync (the sync
   prints the reminder) or an edit of any file listed in `host.inputs.json` (a `bun test` staleness

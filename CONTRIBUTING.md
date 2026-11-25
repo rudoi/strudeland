@@ -24,6 +24,8 @@ change, link the relevant issue, and list the checks you ran. Include tests for 
 keep the diff focused. Review the [license](LICENSE) and
 [third-party notices](THIRD-PARTY-NOTICES.md) before contributing external material.
 
+When adding or reviewing hover and focus hints, follow [Writing contextual help](docs/writing-contextual-help.md).
+
 ## Verify your changes
 
 Run the following checks from the repository root to match
