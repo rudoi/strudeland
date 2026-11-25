@@ -171,7 +171,8 @@ fn odd_request_numbers_are_errors() {
         assert!(
             matches!(
                 host.plan_render(SONG, &req),
-                Err(HostError::Plan(_) | HostError::MetaFlag { .. })
+                Err(HostError::Plan(ref m))
+                    if m.starts_with("bad request:") || m.starts_with("invalid request:")
             ),
             "{req:?}"
         );

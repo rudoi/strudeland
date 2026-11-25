@@ -140,7 +140,7 @@ export function failureText(o: PlanOutcome): string {
   return o.ok ? o.errors.join('; ') : o.message;
 }
 
-/** The `plan-render` request of a fixture's window: the explicit window kind, the mix. */
+/** The `plan-render` request of a fixture's window: the explicit window kind. */
 export function batchRequestJson(window: {
   fromBar: number;
   toBar: number;
