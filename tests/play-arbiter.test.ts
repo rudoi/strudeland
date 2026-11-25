@@ -626,6 +626,29 @@ describe('auditionsAvailable', () => {
     expect(w.arbiter.auditionsAvailable()).toBe(true);
   });
 
+  test('a pending control evaluate keeps them off until it settles', async () => {
+    const w = world();
+    const d = deferred();
+    w.session.evaluateBuffer = (path) => d.promise.then(() => ({ ...OUTCOME, song: path }));
+    const pending = w.arbiter.evaluate(MAIN);
+    expect(w.arbiter.auditionsAvailable()).toBe(false);
+    d.resolve();
+    await pending;
+    expect(w.arbiter.auditionsAvailable()).toBe(true);
+  });
+
+  test('a failed control evaluate releases them, sync or async', async () => {
+    const w = world();
+    w.session.evaluateBuffer = () => Promise.reject(new Error('gone'));
+    await expect(w.arbiter.evaluate(MAIN)).rejects.toThrow('gone');
+    expect(w.arbiter.auditionsAvailable()).toBe(true);
+    w.session.evaluateBuffer = () => {
+      throw new Error('sync');
+    };
+    expect(() => w.arbiter.evaluate(MAIN)).toThrow('sync');
+    expect(w.arbiter.auditionsAvailable()).toBe(true);
+  });
+
   test('entering a take or an audible memo silences them', () => {
     const w = world();
     w.recStore.set({ phase: 'starting' });

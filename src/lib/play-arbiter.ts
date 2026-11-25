@@ -72,7 +72,8 @@ export interface PlayArbiter {
   stop(): StopResult;
   /**
    * The control socket's evaluate: stop a memo, then evaluate `path`'s buffer without saving;
-   * during a take the song is not started (a playing backing takes the new code).
+   * during a take the song is not started (a playing backing takes the new code). A pending play
+   * until it settles, as `play`'s.
    */
   evaluate(path: string): Promise<SessionEvalOutcome>;
   /** Start a take: stop a memo first. Call from the click: `resumeAudio` runs inside it. */
@@ -183,7 +184,16 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
     },
     evaluate(path) {
       memos?.stopPlayback();
-      return session.evaluateBuffer(path, state.taking ? { autostart: false } : undefined);
+      // A pending play, as `play`'s: auditions wait for it.
+      playRequests++;
+      let pending: Promise<SessionEvalOutcome>;
+      try {
+        pending = session.evaluateBuffer(path, state.taking ? { autostart: false } : undefined);
+      } catch (e) {
+        playRequests--;
+        throw e;
+      }
+      return pending.finally(() => playRequests--);
     },
     record(choice) {
       memos?.stopPlayback();
