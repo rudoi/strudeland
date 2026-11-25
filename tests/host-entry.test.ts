@@ -793,3 +793,40 @@ test('inspect: bound errors before returning the status', async () => {
     expect(r.error.length).toBeLessThanOrEqual(513);
   }
 });
+
+test('inspect and plan saved Expression and final-output edits on real generated note haps', async () => {
+  const { planEventEdit } = await import('../src/lib/piano-roll/event-source');
+  const apply = (source: string, patches: ReturnType<typeof planEventEdit>) => {
+    expect(patches).not.toBeNull();
+    for (const p of [...patches!].reverse())
+      source = source.slice(0, p.from) + p.insert + source.slice(p.to);
+    return source;
+  };
+  const expression = 'note("c4 d4").transpose(2)';
+  const song = 'const phrase = ' + expression + ';\nlead: phrase\nbass: note(43)';
+  const span = selection(song, expression);
+  const observed = JSON.parse(
+    (await inspection(host(), song, { view: 'expression', expression: span })).value,
+  ).notes;
+  const edited = apply(
+    song,
+    planEventEdit(song, { kind: 'expression', expression: span }, observed[0], {
+      kind: 'move',
+      id: observed[0].id,
+      start: '3/2',
+    }),
+  );
+  const arranged = JSON.parse((await inspection(host(), edited, { to: 2 })).value).notes;
+  expect(arranged.find((h: any) => h.start === '0' && h.pitch === 62)).toBeUndefined();
+  const moved = arranged.find((h: any) => h.start === '3/2' && h.pitch === 62);
+  expect(moved.event.entry).toBe('roll1');
+  const bass = arranged.find((h: any) => h.start === '0' && h.pitch === 43);
+  const final = apply(
+    edited,
+    planEventEdit(edited, { kind: 'song' }, bass, { kind: 'pitch', id: bass.id, pitch: 48 }),
+  );
+  const fresh = JSON.parse((await inspection(host(), final, { to: 2 })).value).notes;
+  expect(fresh.filter((h: any) => h.start === '0').map((h: any) => h.pitch)).toEqual([48]);
+  const job = await host().call('planJob', final, JSON.stringify(REQUEST));
+  expect(job.ok).toBe(true);
+});

@@ -24,6 +24,8 @@ import { meteredPlayback, meteredSchedule, MIXED_CPS_ERROR, queryMetered } from 
 import { createInstrumentTranspiler, type InstrumentSnapshot } from './instruments';
 import { layoutClock, type LayoutClock } from './timing';
 import { applySeed } from './seed';
+import { editPatternEvents, type EventEditSpec } from './event-edits';
+import { songEditComment } from './event-document';
 import { beginEvaluate, registeredStructure, setSegmentSource } from './song';
 import {
   buildStructure,
@@ -455,6 +457,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   let playbackPattern: any = null;
   let playError: string | null = null;
   let undoInstall: (() => void) | undefined;
+  let eventSpec: EventEditSpec | undefined;
   const r = repl({
     onSchedule: output,
     onScheduleTap:
@@ -464,8 +467,10 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         hooks.onSchedule!(mapped?.hap ?? hap, t, mapped?.cps ?? cps, route);
       }),
     getTime: () => active().getTime(),
-    transpiler: (code: string, options: object) =>
-      instrumentTranspiler.transpile(code, options, pending.instruments),
+    transpiler: (code: string, options: object) => {
+      eventSpec = songEditComment(code)?.spec;
+      return instrumentTranspiler.transpile(code, options, pending.instruments);
+    },
     // Runs only after the code evaluated, right before the scheduler gets the pattern: starting
     // from stopped schedules the first haps synchronously, before afterEval, so the audio seed is
     // set here. Every successful evaluate sets it; a song without one gets 0.
@@ -485,7 +490,16 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
           throw new Error('song() must use the arrangement in the meta header');
       }
       if (structure?.meterChanges?.length && codeSetCps) throw new Error(MIXED_CPS_ERROR);
-      const seeded = applySeed(pattern, pending.seed);
+      const edited = eventSpec
+        ? editPatternEvents(
+            pattern,
+            eventSpec,
+            structure
+              ? { structure, segments: () => segments, cps: () => r.scheduler.cps }
+              : undefined,
+          )
+        : pattern;
+      const seeded = applySeed(edited, pending.seed);
       // repl installs the candidate before it awaits the first scheduler start.
       // A failed start must leave the previous pattern and clock available.
       const previous = {

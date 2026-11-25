@@ -5,6 +5,7 @@ export interface SourceSpan {
 }
 
 export interface RollNote {
+  event?: import('../strudel/event-edits').EventEditIdentity;
   id: string;
   /** Exact cycle edges, in Fraction.toFraction() format. */
   start: string;
@@ -47,6 +48,10 @@ export interface RollTarget {
   phrase?: RollPhrase;
   definition?: RollDefinition;
   sections: readonly string[];
+  /** Focused row in a recognized authored grid, counted from zero. */
+  gridRow?: number;
+  gridBars?: number;
+  gridSteps?: number;
 }
 
 export type RollEdit =

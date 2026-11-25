@@ -6,6 +6,8 @@ import * as tonal from '@strudel/tonal';
 import * as webaudio from '@strudel/webaudio';
 import { registerSynthSounds, registerZZFXSounds } from 'superdough';
 import { registerInstrumentOperation } from './instruments';
+import { registerEventEdits } from './event-edits';
+import { noteGrid } from './note-grid';
 import { song } from './song';
 
 /** Offline subset of @strudel/repl's prebake. Runs once, before the first evaluate. */
@@ -17,9 +19,10 @@ export async function prebake(): Promise<void> {
     webaudio, // also re-exports all of superdough
     draw,
     codemirror, // provides sliderWithID and registers the widget methods
-    { song },
+    { song, noteGrid },
   );
   registerInstrumentOperation();
+  registerEventEdits();
   registerSynthSounds();
   registerZZFXSounds();
 }

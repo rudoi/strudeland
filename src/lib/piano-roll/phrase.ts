@@ -355,7 +355,7 @@ export function matchesPitchSelection(input: PhraseInput, selection: SourceSpan)
 const SHARP = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
 const FLAT = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b'];
 
-function namePitch(pitch: number, old = ''): string {
+export function namePitch(pitch: number, old = ''): string {
   if (MIDI.test(old)) return String(pitch);
   const octave = Math.floor(pitch / 12) - 1;
   const style = /^[a-g][bf]/i.test(old) ? FLAT : SHARP;

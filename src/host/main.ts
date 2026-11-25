@@ -251,19 +251,18 @@ async function runInspection(code: string, requestJson: string): Promise<string>
   const rt = hostAdapter(hostRuntime(), request.instruments);
   if (request.view === 'song') {
     const { segments } = await evaluateSong(rt, code, 'linear');
-    return JSON.stringify(
-      inspectHaps(querySong(rt, segments)(request.from, request.to), code, request),
-    );
+    const query = querySong(rt, segments);
+    return JSON.stringify(inspectHaps(query(request.from, request.to), code, request, query));
   }
   if (!request.expression) throw new PlanJobError('plan', 'Select a pattern expression.');
   return JSON.stringify(
     await inspectExpression(code, request.expression, async (selected) => {
       const { structure, cps } = await evaluateSong(rt, code, 'linear');
-      return inspectHaps(
-        queryExpression(selected(), structure, cps, rt.state().seed, request),
-        code,
-        request,
-      );
+      const pattern = selected();
+      const seed = rt.state().seed;
+      const query = (from: number, to: number) =>
+        queryExpression(pattern, structure, cps, seed, { ...request, from, to });
+      return inspectHaps(query(request.from, request.to), code, request, query);
     }),
   );
 }

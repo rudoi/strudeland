@@ -9,6 +9,12 @@ import {
   type AuthoredPhrase,
   type PhraseInput,
 } from './phrase';
+import {
+  findAuthoredGrids,
+  matchGridSelection,
+  planGridEdit,
+  type AuthoredGrid,
+} from './authored-grid';
 import type { RollDefinition, RollEdit, RollPatch, RollTarget, RollUse, SourceSpan } from './types';
 
 type Scope = {
@@ -410,18 +416,19 @@ function sectionAtProperty(property: Visit, script: Script): string | undefined 
 }
 
 /** Trace a proven data-flow path from a pattern value to a section, alias or final expression. */
-function destination(visit: Visit, script: Script) {
+function destination(visit: Visit, script: Script, traceUses = false) {
+  let incomplete = false;
   for (let at: Visit = visit; at.parent; at = at.parent) {
     const { node } = at.parent;
     if (node.type === 'Property' && at.key === 'value') {
       const section = sectionAtProperty(at.parent, script);
-      return section === undefined ? { incomplete: true } : { section };
+      return section === undefined ? { incomplete: true } : { section, incomplete };
     }
     if (node.type === 'VariableDeclarator' && at.key === 'init') {
       const alias = script.definitions.get(ungroup(at.node));
-      return alias ? { alias } : { incomplete: true };
+      return alias ? { alias, incomplete } : { incomplete: true };
     }
-    if (node.type === 'ExpressionStatement') return {};
+    if (node.type === 'ExpressionStatement') return { incomplete };
     if (node.type === 'ParenthesizedExpression' || node.type === 'ChainExpression') continue;
     if (node.type === 'CallExpression') {
       const name = callName(node, script);
@@ -429,11 +436,16 @@ function destination(visit: Visit, script: Script) {
         continue;
       const transform = method(node);
       if (at.key === 'callee' && transform && knownTransforms.has(transform.name)) continue;
+      // Keep the written caller's meter as a preview for wrappers we cannot prove transparent.
+      if (traceUses && at.key === 'arguments') {
+        incomplete = true;
+        continue;
+      }
     }
     if (node.type === 'MemberExpression' && at.key === 'object') continue;
     return { incomplete: true };
   }
-  return {};
+  return { incomplete };
 }
 
 /** Collect written references through immutable aliases without treating same-spelled names as uses. */
@@ -459,7 +471,7 @@ function definitionUses(
     const sections: string[] = [];
     known.set(binding, sections);
     for (const ref of visitsByBinding.get(binding) ?? []) {
-      const next = destination(ref, script);
+      const next = destination(ref, script, true);
       if (next.incomplete) incomplete = true;
       const local =
         next.section !== undefined ? [next.section] : next.alias ? collect(next.alias) : [];
@@ -561,7 +573,6 @@ function selectedNode(source: string, selection: SourceSpan, script: Script): An
 }
 
 function caretNode(source: string, caret: number, script: Script): AnyNode | undefined {
-  if (script.comments.some(({ start, end }) => start <= caret && caret < end)) return;
   // At the end of a closing delimiter, the editor caret is still attached to the expression.
   const closing = /[)\]'`"]/.test(source[caret - 1] ?? '');
   let visit: Visit | undefined;
@@ -646,7 +657,47 @@ function scriptFor(code: string): Script | undefined {
   return cachedSource.script;
 }
 
-function locateTarget(source: string, selection: SourceSpan) {
+const gridIndexes = new WeakMap<Script, readonly AuthoredGrid[]>();
+
+function gridsFor(source: string, script: Script): readonly AuthoredGrid[] {
+  const cached = gridIndexes.get(script);
+  if (cached) return cached;
+  const grids = findAuthoredGrids(
+    source,
+    script.ast,
+    (node) => {
+      const visit = script.visits.get(node);
+      return visit && node.type === 'Identifier'
+        ? lookup(visit, node.name)?.declaration
+        : undefined;
+    },
+    script.staticSafe,
+  );
+  gridIndexes.set(script, grids);
+  return grids;
+}
+
+type LocatedTarget = {
+  node: AnyNode;
+  script: Script;
+  grid?: AuthoredGrid;
+  row?: number;
+};
+
+function gridTarget(
+  source: string,
+  selection: SourceSpan,
+  script: Script,
+): LocatedTarget | undefined {
+  for (const grid of gridsFor(source, script)) {
+    const match = matchGridSelection(grid, selection);
+    if (!match) continue;
+    const node = [...script.visits.keys()].find((candidate) => exact(candidate, grid.expression));
+    if (node) return { node, script, grid, row: match.row };
+  }
+}
+
+function locateTarget(source: string, selection: SourceSpan): LocatedTarget | undefined {
   if (
     !Number.isInteger(selection.from) ||
     !Number.isInteger(selection.to) ||
@@ -658,11 +709,17 @@ function locateTarget(source: string, selection: SourceSpan) {
   const script = scriptFor(source);
   if (!script) return;
   if (selection.from === selection.to) {
-    const node = caretNode(source, selection.from, script);
+    const caret = selection.from;
+    if (script.comments.some(({ start, end }) => start <= caret && caret < end)) return;
+    const grid = gridTarget(source, selection, script);
+    if (grid) return grid;
+    const node = caretNode(source, caret, script);
     return node ? { node, script } : undefined;
   }
   const trimmed = trimSelection(source, selection, script.comments);
   if (trimmed.from >= trimmed.to) return;
+  const grid = gridTarget(source, trimmed, script);
+  if (grid) return grid;
   const node = selectedNode(source, trimmed, script);
   if (node) return { node, script };
 }
@@ -671,17 +728,31 @@ export function resolveRollTarget(source: string, selection: SourceSpan): RollTa
   try {
     const selected = locateTarget(source, selection);
     if (!selected) return null;
-    const { node, script } = selected;
+    const { node, script, grid, row } = selected;
     const expression = spanOf(node);
     const direct = destination(script.visits.get(node)!, script);
-    const authored = phraseAt(node, script, source);
+    const authored = grid
+      ? grid.hasEventEdits
+        ? undefined
+        : grid.phrase
+      : phraseAt(node, script, source);
     const resolved = resolveAlias(
       script.definitions.get(node) ?? receiverBinding(node, script) ?? (authored && direct.alias),
       script,
     );
     const binding = resolved?.binding;
     const init = binding?.initializer;
-    const fullyAuthored = init && (init === node ? authored : phraseAt(init, script, source));
+    const bindingGrid =
+      init && gridsFor(source, script).find((item) => exact(init, item.expression));
+    const fullyAuthored =
+      init &&
+      (init === node
+        ? authored
+        : bindingGrid
+          ? bindingGrid.hasEventEdits
+            ? undefined
+            : bindingGrid.phrase
+          : phraseAt(init, script, source));
     const authoredDefinition = fullyAuthored
       ? init
       : authored && direct.alias === binding
@@ -714,10 +785,29 @@ export function resolveRollTarget(source: string, selection: SourceSpan): RollTa
       .slice(expression.from, expression.to)
       .trim()
       .split(/\s*\r?\n\s*/u, 1)[0];
-    return { expression, label, phrase, sections, definition };
+    const authoredGrid = grid ?? bindingGrid;
+    return {
+      expression,
+      label: grid?.rowsName ?? label,
+      phrase,
+      sections,
+      definition,
+      ...(authoredGrid
+        ? { gridRow: row, gridBars: authoredGrid.phrase.bars, gridSteps: authoredGrid.score.width }
+        : {}),
+    };
   } catch {
     return null;
   }
+}
+
+/** A writable receiver can sit inside a shared definition's outer method chain. */
+export function targetsDefinition({ expression, definition }: RollTarget): boolean {
+  return (
+    definition !== undefined &&
+    expression.from >= definition.expression.from &&
+    expression.to <= definition.expression.to
+  );
 }
 
 export function planRollEdit(
@@ -728,7 +818,8 @@ export function planRollEdit(
   try {
     const selected = locateTarget(source, target);
     if (!selected || !exact(selected.node, target)) return null;
-    const { node, script } = selected;
+    const { node, script, grid } = selected;
+    if (grid) return grid.hasEventEdits ? null : planGridEdit(source, grid, edit);
     const phrase = phraseAt(node, script, source);
     if (!phrase) return null;
     const patch = planPhraseEdit(source, phrase, edit);

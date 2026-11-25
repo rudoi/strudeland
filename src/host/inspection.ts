@@ -1,4 +1,5 @@
-import { Pattern, State, TimeSpan, freqToMidi, isNote, noteToMidi } from '@strudel/core';
+import { eventPitch, identifyEvent, verifyEventOrigin } from '../lib/strudel/event-edits';
+import { Pattern, State, TimeSpan } from '@strudel/core';
 import { registerTranspilerPlugin } from '@strudel/transpiler';
 import { parse, tokenizer, tokTypes, type AnyNode } from 'acorn';
 import type {
@@ -251,27 +252,10 @@ function pitchOf(
   value: unknown,
   allowPrimitive: boolean,
 ): { pitch: number; sound?: string } | null {
-  if (allowPrimitive && typeof value === 'string' && isNote(value)) {
-    const pitch = noteToMidi(value);
-    return Number.isFinite(pitch) ? { pitch } : null;
-  }
-  if (value === null || typeof value !== 'object') return null;
-  const { note, freq, octave, s } = value as {
-    note?: unknown;
-    freq?: unknown;
-    octave?: unknown;
-    s?: unknown;
-  };
-  let pitch: number;
-  if ((typeof freq === 'number' || typeof freq === 'string') && freq)
-    pitch = freqToMidi(Number(freq));
-  else if (typeof note === 'number') pitch = note;
-  else if (typeof note === 'string' && isNote(note)) pitch = noteToMidi(note);
-  else return null;
-  if (typeof octave === 'number' || typeof octave === 'string') pitch += 12 * Number(octave);
-  return Number.isFinite(pitch)
-    ? { pitch, ...(typeof s === 'string' && s.length <= 64 ? { sound: s } : {}) }
-    : null;
+  const pitch = eventPitch(value, allowPrimitive);
+  if (pitch === undefined) return null;
+  const s = (value as { s?: unknown })?.s;
+  return { pitch, ...(typeof s === 'string' && s.length <= 64 ? { sound: s } : {}) };
 }
 
 /** Cooked string escapes and normalized CRs can move mini offsets. Keep those
@@ -350,10 +334,28 @@ export function inspectHaps(
   haps: RawHap[],
   code: string,
   request: InspectionWindow,
+  query: (from: number, to: number) => RawHap[],
 ): InspectionResult {
   const uncertain = uncertainSpans(code);
   const fallbackOrigin = directOrigin(code, request);
   const notes: { note: RollNote; order: number }[] = [];
+  const stochastic =
+    /\b(?:rand|irand|perlin|choose|chooseCycles|wchoose|degrade|degradeBy|sometimes|random|slider|cF)\b/.test(
+      code,
+    );
+  const groupKey = (h: RawHap) => {
+    const arc = h.whole ?? h.part;
+    return (h.whole ? 'w' : 'p') + arc.begin.toFraction() + ':' + arc.end.toFraction();
+  };
+  const groups = new Map<string, RawHap[]>();
+  for (const h of haps.slice(0, MAX_HAPS_TO_SCAN)) {
+    const key = groupKey(h),
+      group = groups.get(key);
+    if (group) group.push(h);
+    else groups.set(key, [h]);
+  }
+  let bytes = 0;
+  const probes = new Map<string, RawHap[]>();
   let truncated = haps.length > MAX_HAPS_TO_SCAN;
   for (let i = 0; i < Math.min(haps.length, MAX_HAPS_TO_SCAN); i++) {
     const hap = haps[i]!;
@@ -375,10 +377,33 @@ export function inspectHaps(
     const locations = contributors(hap, code, uncertain);
     const origin =
       locations.length === 1 ? locations[0] : locations.length === 0 ? fallbackOrigin : undefined;
+    let event = identifyEvent(
+      hap,
+      groups.get(groupKey(hap))!,
+      request.view === 'expression',
+      stochastic,
+    );
+    // A full onset observation already contains the tie group if its part starts
+    // at the query boundary. Probe continuations, competing voices and random lanes.
+    if (event && hap.whole && (stochastic || event.count || visibleStart !== start)) {
+      let at = probes.get(start);
+      if (!at) {
+        at = query(Number(begin), Number(begin));
+        probes.set(start, at);
+      }
+      event = verifyEventOrigin(hap, event, at);
+    }
+    // Native readout has a byte cap. Four bytes per code unit is a conservative UTF-8 bound.
+    bytes += 384 + (event ? JSON.stringify(event).length * 4 : 0) + locations.length * 52;
+    if (bytes > 980_000) {
+      truncated = true;
+      break;
+    }
     notes.push({
       order: Number(hap.part.begin),
       note: {
         id: String(i),
+        ...(event ? { event } : {}),
         start,
         end: finish,
         ...data,

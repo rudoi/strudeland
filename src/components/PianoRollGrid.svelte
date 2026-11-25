@@ -27,6 +27,7 @@
     insertable,
     gestureKey,
     focusedBar,
+    gridSteps,
     isFlashing,
     oncancel,
     playhead,
@@ -40,6 +41,7 @@
     insertable: boolean;
     gestureKey: string;
     focusedBar?: number;
+    gridSteps?: number;
     isFlashing: (note: RollNote) => boolean;
     oncancel: () => void;
     playhead?: number;
@@ -114,6 +116,7 @@
   const percent = (offset: number) => (offset / geometry.width) * 100;
   const timePercent = (cycle: number) => percent(rollOffset(geometry.bars, cycle));
   const laneY = (pitch: number) => (pitchRange.high - keyPitch(pitch)) * ROW;
+  const stepsInBar = (bar: GridBar) => gridSteps ?? bar.numerator * subdivision;
 
   $effect(() => {
     const { low, high } = fitRange;
@@ -133,6 +136,7 @@
       cursor &&
       (!insertable ||
         !geometry.bars[cursor.bar] ||
+        cursor.step >= stepsInBar(geometry.bars[cursor.bar]!) ||
         cursor.pitch < fitRange.low ||
         cursor.pitch > fitRange.high)
     )
@@ -179,10 +183,10 @@
     const offset = pointerOffset(lastX) - (resize ? 0 : grabOffset);
     const bar = barAtOffset(geometry.bars, offset);
     if (!bar) return;
-    const division = free ? FREE_STEPS : subdivision;
+    const steps = free ? bar.numerator * FREE_STEPS : stepsInBar(bar);
     const lastBar = bar === geometry.bars.at(-1);
-    const upper = !resize && lastBar ? 1 - 1 / (bar.numerator * division) : 1;
-    const point = snapGrid(bar, offset, division, upper);
+    const upper = !resize && lastBar ? 1 - 1 / steps : 1;
+    const point = snapGrid(bar, offset, steps, upper);
     const value = cycleNumber(point);
     if (resize)
       return value > start && value !== end
@@ -316,12 +320,12 @@
           geometry.bars.find((bar) => edge >= bar.cycle && edge < bar.cycle + 1) ??
           (edge === windowEnd ? geometry.bars.at(-1) : undefined);
         if (bar) {
-          const step = adjacentStep(bar, edge, subdivision, delta);
+          const step = adjacentStep(bar, edge, stepsInBar(bar), delta);
           const previous = geometry.bars[geometry.bars.indexOf(bar) - 1];
           const point =
             step < 0 && previous
-              ? gridPoint(previous, previous.numerator * subdivision - 1, subdivision)
-              : gridPoint(bar, step, subdivision);
+              ? gridPoint(previous, stepsInBar(previous) - 1, stepsInBar(previous))
+              : gridPoint(bar, step, stepsInBar(bar));
           const value = cycleNumber(point);
           if (resize && value > cycleNumber(note.start) && value <= windowEnd)
             edit = { kind: 'resize', id: note.id, end: point };
@@ -361,14 +365,15 @@
 
   function showCursor() {
     if (cursor || !geometry.bars.length) return;
-    cursor = { bar: 0, step: 0, pitch: keyboardPitch };
+    const bar = geometry.bars.findIndex((bar) => bar.cycle === focusedBar);
+    cursor = { bar: Math.max(0, bar), step: 0, pitch: keyboardPitch };
   }
 
   function pointCursor(event: MouseEvent) {
     const offset = pointerOffset(event.clientX);
     const bar = barAtOffset(geometry.bars, offset);
     if (!bar) return;
-    const steps = bar.numerator * subdivision;
+    const steps = stepsInBar(bar);
     const step = Math.max(
       0,
       Math.min(steps - 1, Math.floor(((offset - bar.offset) / bar.width) * steps)),
@@ -379,11 +384,11 @@
   function insertNote() {
     if (!cursor || !editable || !insertable) return;
     const bar = geometry.bars[cursor.bar];
-    if (!bar || cursor.step >= bar.numerator * subdivision) return;
+    if (!bar || cursor.step >= stepsInBar(bar)) return;
     onedit({
       kind: 'insert',
-      start: gridPoint(bar, cursor.step, subdivision),
-      end: gridPoint(bar, cursor.step + 1, subdivision),
+      start: gridPoint(bar, cursor.step, stepsInBar(bar)),
+      end: gridPoint(bar, cursor.step + 1, stepsInBar(bar)),
       pitch: cursor.pitch,
     });
   }
@@ -395,10 +400,10 @@
     switch (event.key) {
       case 'ArrowLeft':
         if (step > 0) step--;
-        else if (bar > 0) step = geometry.bars[--bar]!.numerator * subdivision - 1;
+        else if (bar > 0) step = stepsInBar(geometry.bars[--bar]!) - 1;
         break;
       case 'ArrowRight':
-        if (step + 1 < geometry.bars[bar]!.numerator * subdivision) step++;
+        if (step + 1 < stepsInBar(geometry.bars[bar]!)) step++;
         else if (bar < geometry.bars.length - 1) {
           bar++;
           step = 0;
@@ -421,7 +426,7 @@
     event.preventDefault();
     cursor = { bar, step, pitch };
     const targetBar: GridBar = geometry.bars[bar]!;
-    const position = cycleNumber(gridPoint(targetBar, step, subdivision));
+    const position = cycleNumber(gridPoint(targetBar, step, stepsInBar(targetBar)));
     const x = (timePercent(position) / 100) * surface.clientWidth;
     const y = laneY(pitch);
     if (x < view.scrollLeft) view.scrollLeft = x;
@@ -457,10 +462,10 @@
   const cursorPosition = $derived.by(() => {
     if (!cursor) return;
     const bar = geometry.bars[cursor.bar];
-    if (!bar || cursor.step >= bar.numerator * subdivision) return;
+    if (!bar || cursor.step >= stepsInBar(bar)) return;
     return {
-      left: timePercent(cycleNumber(gridPoint(bar, cursor.step, subdivision))),
-      width: percent(bar.width / (bar.numerator * subdivision)),
+      left: timePercent(cycleNumber(gridPoint(bar, cursor.step, stepsInBar(bar)))),
+      width: percent(bar.width / stepsInBar(bar)),
       top: laneY(cursor.pitch),
     };
   });
@@ -476,7 +481,9 @@
 {#if geometry.bars.length}
   <div class="roll">
     <div class="commands">
-      {#if editable}
+      {#if editable && gridSteps !== undefined}
+        <span class="snap">Snap · {gridSteps} slots per bar</span>
+      {:else if editable}
         <label class="snap">
           Snap
           <select bind:value={subdivision} onchange={() => (cursor = undefined)} class="control">
@@ -576,7 +583,7 @@
               style:left={percent(bar.offset) + '%'}
               style:width={percent(bar.width) + '%'}
               style:--roll-beat={100 / bar.numerator + '%'}
-              style:--roll-subbeat={100 / (bar.numerator * (editable ? subdivision : 1)) + '%'}
+              style:--roll-subbeat={100 / (editable ? stepsInBar(bar) : bar.numerator) + '%'}
               class:compound={bar.numerator > 3 && bar.numerator % 3 === 0 && bar.denominator >= 8}
               aria-hidden="true"
             ></div>

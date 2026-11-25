@@ -5,7 +5,7 @@
   import type { PianoRollSnapshot } from '../lib/project/session';
   import { takeRunning } from '../lib/recording/memo-ui';
   import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
-  import { planRollEdit, resolveRollTarget } from '../lib/piano-roll/source';
+  import { planRollEdit, resolveRollTarget, targetsDefinition } from '../lib/piano-roll/source';
   import { planEventEdit, preparePhraseEvents } from '../lib/piano-roll/event-source';
   import { cycleNumber } from '../lib/piano-roll/grid';
   import { notePosition, projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
@@ -75,6 +75,7 @@
   const definitionMode = $derived(
     definition && shared?.context === contextKey && shared.name === definition.name,
   );
+  const inDefinition = $derived(target !== null && targetsDefinition(target));
   const expressionFrom = $derived(
     (definitionMode ? definition?.expression : target?.expression)?.from,
   );
@@ -109,8 +110,7 @@
       (!definitionMode &&
         definition &&
         (definition.uses.length || definition.incomplete) &&
-        (definition.expression.from !== expressionFrom ||
-          definition.expression.to !== expressionTo))
+        !inDefinition)
       ? undefined
       : { from: expressionFrom, to: expressionTo },
   );
@@ -190,7 +190,7 @@
     response?.phase === 'ready' ? response.result.notes : emptyNotes,
   );
   const baseNotes = $derived.by(() => {
-    if (phrase) return preparePhraseEvents(phrase.notes);
+    if (phrase) return preparePhraseEvents(phrase.notes, phrase.bars);
     if (mode !== 'song') return inspectionNotes;
     return inspectionNotes.map((note) => ({
       ...note,
@@ -349,7 +349,7 @@
     if (nextTarget) {
       retained = {
         snapshot: result.snapshot,
-        target: { ...nextTarget, gridRow: nextTarget.gridRow ?? previousGridRow },
+        target: { ...nextTarget, gridRow: previousGridRow ?? nextTarget.gridRow },
       };
     }
     if (anchorChoice?.context === previousContext)
@@ -422,9 +422,9 @@
   </div>
   {#if mode === 'expression' && definition?.phrase && (definition.uses.length || definition.incomplete) && snapshot}
     <div class="shared">
-      {#if !definitionMode}
+      {#if !definitionMode && !inDefinition}
         <Button size="sm" onclick={openDefinition}>Edit shared definition</Button>
-      {:else}
+      {:else if definitionMode}
         <Button size="sm" onclick={() => (shared = null)}>Back to selection</Button>
       {/if}
       <span
@@ -498,6 +498,7 @@
       editable={editTarget !== undefined || notes.length > 0}
       {gestureKey}
       focusedBar={mode === 'expression' ? target.gridRow : undefined}
+      gridSteps={mode === 'expression' ? target.gridSteps : undefined}
       isFlashing={(note) =>
         Boolean(
           feedback?.key === gestureKey &&

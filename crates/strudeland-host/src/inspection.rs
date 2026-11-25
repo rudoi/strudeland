@@ -78,8 +78,31 @@ impl InspectionRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EventEditIdentity {
+    pub from: [String; 2],
+    pub pitch: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuous: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InspectedNote {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<EventEditIdentity>,
     pub pitch: f64,
     pub start: String,
     pub end: String,

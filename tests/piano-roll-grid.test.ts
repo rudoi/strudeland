@@ -34,18 +34,32 @@ describe('piano roll geometry', () => {
 
   test('snaps triplets to exact fractions and keeps a bounded move within its bar', () => {
     const bar = bars[1]!;
-    expect(gridPoint(bar, 1, 3)).toBe('64/21');
-    expect(snapGrid(bar, 4.17, 3)).toBe('64/21');
-    expect(snapGrid(bar, 20, 3, 1 - 2 / 7)).toBe('26/7');
-    expect(snapGrid(bar, -4, 3)).toBe('3');
+    const tripletSteps = bar.numerator * 3;
+    expect(gridPoint(bar, 1, tripletSteps)).toBe('64/21');
+    expect(snapGrid(bar, 4.17, tripletSteps)).toBe('64/21');
+    expect(snapGrid(bar, 20, tripletSteps, 1 - 2 / 7)).toBe('26/7');
+    expect(snapGrid(bar, -4, tripletSteps)).toBe('3');
   });
 
   test('keyboard steps surround off-grid notes and pass through exact subdivision boundaries', () => {
     const bar = bars[1]!;
-    expect(adjacentStep(bar, 3 + 2 / 21, 3, 1)).toBe(3);
-    expect(adjacentStep(bar, 3 + 2 / 21, 3, -1)).toBe(1);
-    expect(adjacentStep(bar, 3 + 1 / 8, 3, 1)).toBe(3);
-    expect(adjacentStep(bar, 3 + 1 / 8, 3, -1)).toBe(2);
+    const tripletSteps = bar.numerator * 3;
+    expect(adjacentStep(bar, 3 + 2 / 21, tripletSteps, 1)).toBe(3);
+    expect(adjacentStep(bar, 3 + 2 / 21, tripletSteps, -1)).toBe(1);
+    expect(adjacentStep(bar, 3 + 1 / 8, tripletSteps, 1)).toBe(3);
+    expect(adjacentStep(bar, 3 + 1 / 8, tripletSteps, -1)).toBe(2);
+  });
+
+  test('snaps written slots independently of a mixed-meter bar ruler', () => {
+    const bar = bars[1]!;
+    const slots = 16;
+    expect(bar.numerator).toBe(7);
+    expect(gridPoint(bar, 1, slots)).toBe('49/16');
+    const offset = bar.offset + bar.width * 0.063;
+    expect(snapGrid(bar, offset, slots)).toBe('49/16');
+    expect(adjacentStep(bar, 3 + 1 / 16, slots, 1)).toBe(2);
+    expect(adjacentStep(bar, 3 + 1 / 16, slots, -1)).toBe(0);
+    expect(snapGrid(bar, bar.offset + bar.width, slots, 1 - 1 / slots)).toBe('63/16');
   });
 
   test('fits the visible pitches and retains padding against the MIDI limits', () => {
