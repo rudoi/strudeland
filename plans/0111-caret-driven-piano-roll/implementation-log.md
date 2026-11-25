@@ -72,3 +72,13 @@ The final code snapshot is `6670cf2`. Local validation passed:
   partitions, direct-grid glide feedback, seeded variation, and retained focused voices.
 - Updated the README and AGENTS.md and checked the plan and repository links. Existing
   Keitora #110 tracks general direct cross-bar serialization.
+
+## Final review
+
+The signed desktop build was launched from the reviewed branch. The user tried it, accepted the
+piano roll result, and authorized finalization and merge. This finalization commit records the
+review and removes the two temporary execution files named in the entry point.
+
+Keitora #112 tracks the requested contextual help gutter for interactive controls throughout
+Strudeland. Its acceptance cases start with the piano roll’s shared-definition and return
+actions, then cover hover, keyboard focus, and a common help mechanism across control types.
