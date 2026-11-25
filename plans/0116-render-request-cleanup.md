@@ -30,14 +30,24 @@ In:
    - `MAX_LOOPS` goes from `strudeland-host` (and its re-export in `lib.rs`).
    - TS `validateRenderRequest` stays the single length validator, minus its mode and sampleRate
      checks.
-3. **The dev binaries keep exit 2 for a bad length request,** the bad-input code AGENTS.md
-   documents.
-   - `strudeland-host plan-render` maps a bundle `MetaFlag`, or a `Plan` error starting with
-     `bad request:`, to bad input (exit 2).
-   - `strudeland-render` maps the same to exit 2. Today `--loops 0` there exits 1, so this makes
-     it consistent.
-   - The error texts become the TS planner's. These are dev harness binaries, not `strudeland`
-     subcommands.
+3. **A bad length request is a "bad request:", and the dev binaries keep exit 2 for it,** the
+   bad-input code AGENTS.md documents.
+   - **The TS planner reports a bad `--loops` value as a bad request.** Today `LOOPS_MESSAGE` is
+     a flagged `meta` error (`job-plan.ts:342`). It becomes `badRequest` (kind `plan`,
+     `bad request: --loops must be …`), like bars and window already are.
+   - **Song-dependent length errors stay flagged `meta` errors,** with their exit codes
+     unchanged. These are "no sections", "unknown section", "past the end", "--loops needs
+     meta.loop" and "past the render limit". A `MetaFlag` can't tell a bad value from a song that
+     can't satisfy the request, since the same `--loops` flag names both.
+   - **`strudeland-host plan-render`** maps only a `HostError::Plan` whose message starts with
+     `bad request:` to bad input (exit 2). `MetaFlag` stays a host error (exit 1, pinned by
+     `tests/bin.rs:304-320`).
+   - **`strudeland-render`** already maps `MetaFlag` to exit 2 through the shared `exit_class`.
+     Its binary's `From<RenderError> for Failure` also maps a `bad request:` plan error to exit 2.
+     The shared `exit_class` in `error.rs`, which the CLI's exit 4 and `pipeline.rs` rely on,
+     stays untouched.
+   - **The user-facing CLI is unaffected:** clap's ranges reject a bad `--loops` before the
+     planner sees it.
 4. **Docs:** `crates/strudeland-host/README.md`'s wire example.
 
 Out:
@@ -64,12 +74,30 @@ rejected as bad input. This is a deliberate hard break; every sender is in this 
   - delete the two fields, the length arms of `validate()` and `MAX_LOOPS`;
   - update the doc comments (`:205-208`, `:241-244`, and `host.rs:143-147`).
 - **`strudeland-render/src/plan.rs`:** build the request without `Mode` and `SAMPLE_RATE`.
-- **Exit mapping:**
-  - `crates/strudeland-host/src/bin/strudeland-host.rs` `host_error` (and `read_plan_request`):
-    a `HostError::MetaFlag`, or a `HostError::Plan` whose message starts with `bad request:`, maps
-    to `Exit::BadInput` (2).
-  - `crates/strudeland-render/src/bin/strudeland-render.rs`: the same rule, mapped to exit 2.
-  - The CLI's own mapping (`run.rs`) is unchanged.
+- **Exit mapping, as in Scope item 3:**
+  - `strudeland-host.rs` `host_error`: only `Plan("bad request: …")` goes to `Exit::BadInput`.
+  - `strudeland-render.rs` `From<RenderError> for Failure`: the same.
+  - `error.rs` `exit_class` and the CLI's `run.rs` are unchanged.
+- **Remove the now-unused imports** (`Mode`, `SAMPLE_RATE` in `strudeland-render/src/plan.rs`),
+  and check `joiner_identity.rs` and `never_panics.rs`.
+- **Every `RenderPlanRequest` literal loses the two fields.** These are listed by the refine
+  review:
+  - `crates/strudeland-host/tests/plan_render.rs`: `:16-26`, `:135`, `:182`, `:326-342`,
+    `:355`, `:379`, `:393`, `:412`, `:464`, `:494`, `:515`;
+  - `crates/strudeland-host/tests/never_panics.rs`: `:10-18`, `:145-175`;
+  - `crates/strudeland-host/tests/bin.rs`: `:251`, `:310`, `:324`, `:344-360`;
+  - `request.rs` tests: `:476`, `:491`, `:496`, `:536`, `:544`, `:550`, `:583-590`, `:649`,
+    `:678`, `:705`, `:706`, `:721`;
+  - `crates/strudeland-render/tests/joiner_identity.rs:36`.
+
+  Single-job `RenderRequest` literals stay: `host.rs:49` and `:217`, `perf_budget.rs`,
+  `common/mod.rs` and `bench.rs`.
+- **Docs:**
+  - `strudeland-host.rs:17-21` (the module doc and wire example);
+  - `request.rs:3-5`;
+  - the README wire example (`:56-58`).
+  - The exit sentences don't change: song errors stay exit 1 in `strudeland-host`, and bad
+    requests were already exit 2.
 
 ### TS
 
@@ -91,7 +119,18 @@ rejected as bad input. This is a deliberate hard break; every sender is in this 
 - **`crates/strudeland-render/tests/joiner_identity.rs`:** the constructor changes.
 - **`crates/strudeland-render` harness tests:** `--loops 0` and a bad window exit 2.
 - **`tests/render-job-plan.test.ts`:** drop the mode and sampleRate rows; the length rows stay.
-- **`tests/host-entry.test.ts` and `tests/render-host-parity.test.ts`:** drop the fields.
+- **`tests/host-entry.test.ts`:**
+  - the `renderRequest` helper (`:188`) drops the fields;
+  - the error rows at `:311-315` lose the `mode: stems` and `sampleRate` cases;
+  - the `{}` row's needle becomes `'length'`.
+- **`tests/render-host-parity.test.ts:158-164`:** drop the fields.
+- **`tests/render-job-plan.test.ts:679-700`:** the `--loops 0`, `1001`, `1.5` and `NaN` rows now
+  expect `plan` with `bad request: --loops must be …`. Check `crates/strudeland-render/tests/pipeline.rs:341`
+  for the same expectation, and update it if it reaches the planner.
+- **"invalid request:" prefix tests** (`tests/plan_render.rs:349`, `tests/host.rs:223`) switch to
+  a `timeoutSec` or snapshot case to keep the prefix.
+- **Every bad-input test JSON must lose `mode`.** Otherwise `deny_unknown_fields` rejects it, and
+  it passes for the wrong reason.
 
 ### Regeneration (AGENTS.md)
 
@@ -115,6 +154,9 @@ rejected as bad input. This is a deliberate hard break; every sender is in this 
 - **A missed sender fails hard,** because of `deny_unknown_fields`. Grep every plan-render
   request builder.
 - **The refs diff could hide a real change.** Check it is only provenance.
+- **Clippy can fail on unused imports.**
+- **Test JSON that still carries `mode` passes spuriously.** Strip it from every plan-request
+  literal.
 
 ## Complexity
 
@@ -127,7 +169,9 @@ the Loss check is light.
    (live harness stems) stays.
 2. **A hard break on the TS↔Rust plan request.** No shim; every sender is in-tree.
 3. **A bad length request exits 2 in both dev binaries,** keeping AGENTS.md's bad-input
-   contract. The error text becomes the TS planner's.
+   contract. The TS planner reports a bad `--loops` value as a bad request, and only bad-request
+   plan errors map to 2. Song-dependent flagged errors keep their codes. (The refine review
+   corrected the rule from "every MetaFlag".)
 4. **No shared `LengthArgs`.** It fails the deletion test for its payoff.
 5. **The CLI's `Preset` mirror stays.**
 6. **Delete `MAX_LOOPS` from `strudeland-host`.** TS `structure.ts`'s `MAX_LOOPS` is the
