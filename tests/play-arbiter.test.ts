@@ -276,8 +276,8 @@ const TABLE: Record<keyof typeof run, Row[]> = {
     },
     {
       state: 'take starting',
-      why: 'the take’s stop (a no-op while starting)',
-      returns: { stopped: 'take', wasPlaying: false },
+      why: 'the take’s stop ends nothing while starting',
+      returns: { stopped: null, wasPlaying: false },
       log: ['recording.stop'],
     },
     {
@@ -288,8 +288,8 @@ const TABLE: Record<keyof typeof run, Row[]> = {
     },
     {
       state: 'take stopping',
-      why: 'the take’s stop (a no-op while stopping)',
-      returns: { stopped: 'take', wasPlaying: true },
+      why: 'the take’s stop ends nothing while stopping',
+      returns: { stopped: null, wasPlaying: true },
       log: ['recording.stop'],
     },
     {
@@ -674,6 +674,21 @@ describe('the verbs', () => {
     expect(settled).toBe(true);
   });
 
+  test('stop while a take is stopping: done is the save in progress', async () => {
+    const w = world('take stopping');
+    const saved = deferred();
+    w.recording.stop = () => (w.log.push('recording.stop'), saved.promise);
+    const { stopped, done } = w.arbiter.stop();
+    expect(stopped).toBeNull();
+    let settled = false;
+    void done.then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    saved.resolve();
+    await flush();
+    expect(settled).toBe(true);
+  });
+
   test('stop outside a take: done is resolved', async () => {
     const w = world('song');
     await w.arbiter.stop().done;
@@ -864,6 +879,29 @@ describe('with the recording controller', () => {
     expect(get(arbiter.store).taking).toBe(false);
   });
 
+  test('stop while the take is stopping ends nothing more and waits for the save', async () => {
+    const { arbiter, recording, fake } = await withController();
+    await arbiter.record(NONE);
+    await flush();
+    const held = deferred();
+    fake.hold('stop', held.promise);
+    const first = arbiter.stop();
+    expect(first.stopped).toBe('take');
+    await flush();
+    expect(get(recording.store).phase).toBe('stopping');
+    const second = arbiter.stop();
+    expect(second.stopped).toBeNull();
+    let settled = false;
+    void second.done.then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    fake.hold('stop', null);
+    held.resolve();
+    await second.done;
+    await first.done;
+    expect(fake.stops).toHaveLength(1);
+  });
+
   test('stop while the take is starting does nothing', async () => {
     const { arbiter, recording, fake } = await withController();
     const held = deferred();
@@ -872,7 +910,7 @@ describe('with the recording controller', () => {
     await flush();
     expect(get(recording.store).phase).toBe('starting');
     const r = arbiter.stop();
-    expect(r.stopped).toBe('take');
+    expect(r.stopped).toBeNull();
     await r.done;
     expect(fake.stops).toHaveLength(0);
     expect(get(recording.store).phase).toBe('starting');

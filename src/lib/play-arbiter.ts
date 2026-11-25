@@ -66,7 +66,7 @@ export interface PlayArbiter {
   playFrom(choice: ArmChoice): boolean;
   /**
    * The toolbar's and the control socket's stop: during a take end it (nothing while it is
-   * starting or stopping), otherwise stop the memo and then the runtime, even when stopped (that
+   * starting or stopping: `stopped` is then null, `done` the save in progress), otherwise stop the memo and then the runtime, even when stopped (that
    * cancels an evaluate's autostart and silences auditions). Throws propagate.
    */
   stop(): StopResult;
@@ -171,9 +171,11 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
       return armed;
     },
     stop() {
-      const { stopTarget: stopped, started: wasPlaying } = state;
+      const { stopTarget: stopped, started: wasPlaying, takePhase } = state;
       if (stopped === 'take' && recording) {
-        return { stopped, wasPlaying, done: recording.stop() };
+        // Starting or stopping, the take's stop ends nothing (stopping, it returns the save).
+        const ends = takePhase !== 'starting' && takePhase !== 'stopping';
+        return { stopped: ends ? stopped : null, wasPlaying, done: recording.stop() };
       }
       memos?.stopPlayback();
       runtime.stop();
