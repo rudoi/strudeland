@@ -663,7 +663,14 @@ fn publish(
     operation: Publication<'_>,
     definition: impl FnOnce() -> Result<InstrumentDefinition, ProjectError>,
 ) -> Result<InstrumentEntry, ProjectError> {
-    let lock = open_member(dir, LOCK_FILE, true)?;
+    // Darwin can report ENOENT when two first writers create this lock concurrently.
+    // Recheck the held directory and try the same non-following open once more.
+    let lock = match open_member(dir, LOCK_FILE, true) {
+        Err(ProjectError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            open_member(dir, LOCK_FILE, true)
+        }
+        result => result,
+    }?;
     lock.lock()
         .map_err(|e| ProjectError::io(dir.path().join(LOCK_FILE), e))?;
     // A competing pin write can hold this lock while the global file is edited.
