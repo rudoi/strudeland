@@ -5,7 +5,7 @@
  */
 import { get, type Readable } from 'svelte/store';
 import type { Metronome, MetronomeGrid } from '../audio/metronome';
-import type { EvalOutcome } from '../control/protocol';
+import type { SessionEvalOutcome } from '../project/session';
 import type { Runtime } from '../strudel/runtime';
 import type { Meter } from '../strudel/structure';
 import { FIXED_METER_BACKING_MESSAGE } from './types';
@@ -52,7 +52,7 @@ export interface BackingDeps {
   runtime: Pick<Runtime, 'store' | 'start' | 'stop' | 'cycleTime' | 'transport'>;
   session: {
     readonly store: Readable<{ active: string | null }>;
-    evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<EvalOutcome>;
+    evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<SessionEvalOutcome>;
   };
   metronome: Pick<Metronome, 'start' | 'stop'>;
 }
@@ -69,9 +69,6 @@ export const BACKING_MESSAGES = {
   mixedMeter: FIXED_METER_BACKING_MESSAGE,
 } as const;
 
-/** The prefix `session.evaluateBuffer` gives a meta error. */
-const META_PREFIX = 'meta: ';
-
 export function createBackingStarter(deps: BackingDeps): BackingStarter {
   const { runtime, session, metronome } = deps;
   let startedSong = false;
@@ -82,7 +79,7 @@ export function createBackingStarter(deps: BackingDeps): BackingStarter {
     const r = await session.evaluateBuffer(active, { autostart: false });
     if (!r.ok) {
       const message = r.error ?? 'evaluate failed';
-      return { ok: false, kind: message.startsWith(META_PREFIX) ? 'meta' : 'eval', message };
+      return { ok: false, kind: r.errorKind === 'meta' ? 'meta' : 'eval', message };
     }
     const rs = get(runtime.store);
     if (rs.structure?.meterChanges) {

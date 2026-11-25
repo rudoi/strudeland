@@ -11513,7 +11513,6 @@
   };
   var isInt = (v, min, max) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
   var isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-  var hasLoopSection = (sections) => Array.isArray(sections) && sections.some((s) => isPlainObject(s) && s.loop === true);
   var bpmProblem = (v) => typeof v === "number" && Number.isFinite(v) && v >= MIN_BPM && v <= MAX_BPM ? null : `meta.bpm must be a number from ${MIN_BPM} to ${MAX_BPM}`;
   var MIN_SEED = -2147483648;
   var MAX_SEED = 2147483647;
@@ -11521,10 +11520,10 @@
   var engineProblem = (v) => v === "superdough" || v === "rust" ? null : "meta.engine must be 'superdough' or 'rust'";
   var meterProblem = (v, path = "meta.meter") => typeof v === "string" && parseMeter(v) !== null ? null : `${path} must be a string 'N/D' with N from 1 to ${MAX_METER_NUM} and D one of ${METER_DENS.join(", ")}`;
   var barsProblem = (v, path = "bars") => isInt(v, 1, MAX_BARS) ? null : `${path} must be an integer from 1 to ${MAX_BARS}`;
-  var loopsProblem = (v, hasLoopSection2) => {
+  var loopsProblem = (v, hasLoopSection) => {
     if (!isInt(v, 1, MAX_LOOPS))
       return `meta.loops must be an integer from 1 to ${MAX_LOOPS}`;
-    if (!hasLoopSection2)
+    if (!hasLoopSection)
       return "meta.loops needs a section with loop: true or a meta.loop range";
     return null;
   };
@@ -11640,15 +11639,17 @@
   var sameStructure = (a, b) => a === b || a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b);
 
   class StructureError extends Error {
-    constructor(message) {
+    field;
+    constructor(message, field) {
       super(message);
       this.name = "StructureError";
+      this.field = field;
     }
   }
   var has = (meta, key) => Object.prototype.hasOwnProperty.call(meta, key) && meta[key] !== undefined;
-  function check(problem) {
+  function check(field, problem) {
     if (problem !== null)
-      throw new StructureError(problem);
+      throw new StructureError(problem, field);
   }
   function clipDuration(s, loop, loops) {
     const loopBars = loop ? loop.end - loop.start : 0;
@@ -11666,23 +11667,23 @@
   }
   function withLoops(structure, loops) {
     const loop = authoredLoop(structure);
-    check(loopsProblem(loops, loop !== null));
+    check("loops", loopsProblem(loops, loop !== null));
     return { ...structure, loops, ...clipDuration(structure, loop, loops) };
   }
   function buildStructure(meta) {
     let bpm = DEFAULT_BPM;
     if (has(meta, "bpm")) {
-      check(bpmProblem(meta.bpm));
+      check("bpm", bpmProblem(meta.bpm));
       bpm = meta.bpm;
     }
     let meter = { ...DEFAULT_METER };
     if (has(meta, "meter")) {
-      check(meterProblem(meta.meter));
+      check("meter", meterProblem(meta.meter));
       meter = parseMeter(meta.meter);
     }
     const sections = [];
     if (has(meta, "sections")) {
-      check(sectionsProblem(meta.sections));
+      check("sections", sectionsProblem(meta.sections));
       let start = 0;
       for (const s of meta.sections) {
         const bars = s.bars;
@@ -11694,9 +11695,10 @@
     const index = sections.findIndex((s) => s.loop);
     let loopRange = null;
     if (has(meta, "loop")) {
-      check(loopRangeProblem(meta.loop, sections));
-      if (index !== -1)
-        throw new StructureError("meta.loop cannot be used with section loop: true");
+      check("loop", loopRangeProblem(meta.loop, sections));
+      if (index !== -1) {
+        throw new StructureError("meta.loop cannot be used with section loop: true", "loop");
+      }
       const { from, through } = meta.loop;
       loopRange = sectionRange({ sections }, sections.findIndex((s) => s.name === from), sections.findIndex((s) => s.name === through));
     }
@@ -11704,7 +11706,7 @@
     const loopIndex = loop?.first ?? null;
     let meterChanges;
     if (has(meta, "meterChanges")) {
-      check(meterChangesProblem(meta.meterChanges, totalBars));
+      check("meterChanges", meterChangesProblem(meta.meterChanges, totalBars));
       const changes = [];
       let previous = meter;
       for (const c of meta.meterChanges) {
@@ -11719,7 +11721,7 @@
     }
     let loops = 1;
     if (has(meta, "loops")) {
-      check(loopsProblem(meta.loops, loopIndex !== null));
+      check("loops", loopsProblem(meta.loops, loopIndex !== null));
       loops = meta.loops;
     }
     const cps = cpsFor(bpm, meter);
@@ -12217,26 +12219,6 @@
   function loggerMessage(args) {
     const [first, style] = args;
     return args.length === 2 && typeof first === "string" && first.startsWith("%c") && typeof style === "string" ? first.slice(2) : null;
-  }
-
-  // src/lib/project/evaluate-options.ts
-  var EMPTY_STRUCTURE = buildStructure({});
-  function staticStructure(meta) {
-    try {
-      return buildStructure(meta);
-    } catch {
-      return EMPTY_STRUCTURE;
-    }
-  }
-  function evaluateOptions(meta) {
-    const s = staticStructure(meta);
-    return {
-      cps: s.cps,
-      meter: s.meter,
-      seed: meta.seed,
-      engine: meta.engine === "rust" ? "rust" : "superdough",
-      expectedArrangement: s
-    };
   }
 
   // node_modules/acorn/dist/acorn.mjs
@@ -17632,7 +17614,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     return Parser.tokenizer(input, options);
   }
 
-  // src/lib/project/meta.ts
+  // src/lib/project/song-header.ts
   class MetaError extends Error {
     pos;
     line;
@@ -17644,7 +17626,14 @@ Defaulting to 2020, but this will stop working in the future.`);
       this.line = line;
       this.column = column;
     }
+    get located() {
+      return `${this.message} (${this.line}:${this.column + 1})`;
+    }
+    get reported() {
+      return `meta: ${this.located}`;
+    }
   }
+  var DEFAULT_STRUCTURE = buildStructure({});
   var PARSE_OPTIONS = {
     ecmaVersion: 2022,
     sourceType: "script",
@@ -17800,45 +17789,57 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (!header)
       return null;
     const loops = [];
-    const layoutFields = new Map;
+    const lastNode = new Map;
     const meta = toObject(header, "meta", (key, value, node) => {
       checkKnownField(key, value, node);
       if (key === "loops")
         loops.push({ value, node });
-      if (key === "loop" || key === "meterChanges")
-        layoutFields.set(key, { value, node });
+      lastNode.set(key, node);
     });
-    const loopSection = hasLoopSection(meta.sections);
-    const sections = Array.isArray(meta.sections) ? meta.sections : [];
-    const loop = layoutFields.get("loop");
-    if (loop) {
-      const problem = loopRangeProblem(loop.value, sections);
-      if (problem !== null)
-        throw errorAt(loop.node, problem);
-      if (loopSection)
-        throw errorAt(loop.node, "meta.loop cannot be used with section loop: true");
+    let structure;
+    try {
+      structure = buildStructure(meta);
+    } catch (e) {
+      if (!(e instanceof StructureError))
+        throw e;
+      if (e.field !== "loops")
+        throw errorAt(lastNode.get(e.field), e.message);
+      rangeCheckEarlierLoops(loops);
+      throw errorAt(lastNode.get("loops"), e.message);
     }
-    const changes = layoutFields.get("meterChanges");
-    if (changes) {
-      const problem = meterChangesProblem(changes.value, sections.reduce((sum, s) => sum + s.bars, 0));
-      if (problem !== null)
-        throw errorAt(changes.node, problem);
-    }
-    loops.forEach(({ value, node }, i2) => {
-      const problem = loopsProblem(value, i2 < loops.length - 1 || loopSection || isPlainObject(meta.loop));
+    rangeCheckEarlierLoops(loops);
+    return { header, meta, structure };
+  }
+  function rangeCheckEarlierLoops(loops) {
+    for (const { value, node } of loops.slice(0, -1)) {
+      const problem = loopsProblem(value, true);
       if (problem !== null)
         throw errorAt(node, problem);
-    });
-    return { header, meta };
+    }
   }
-  function parseMeta(code) {
+  function readSongHeader(code) {
+    let read = null;
     try {
-      return { meta: readHeader(code)?.meta ?? {}, error: null };
+      read = readHeader(code);
     } catch (e) {
       if (e instanceof MetaError)
-        return { meta: {}, error: e };
-      return { meta: {}, error: null };
+        return { ok: false, error: e, structure: DEFAULT_STRUCTURE };
     }
+    const meta = read?.meta ?? {};
+    const structure = read?.structure ?? DEFAULT_STRUCTURE;
+    return {
+      ok: true,
+      meta,
+      title: typeof meta.title === "string" ? meta.title : undefined,
+      structure,
+      options: {
+        cps: structure.cps,
+        meter: structure.meter,
+        seed: meta.seed,
+        engine: meta.engine === "rust" ? "rust" : "superdough",
+        expectedStructure: structure
+      }
+    };
   }
 
   // src/lib/render/lookback.ts
@@ -18499,24 +18500,23 @@ Defaulting to 2020, but this will stop working in the future.`);
       throw new PlanJobError("plan", errorMessage(e));
     }
   }
-  function parsedMeta(code) {
-    const { meta, error: metaError } = parseMeta(code);
-    if (metaError) {
-      throw new PlanJobError("meta", `meta: ${metaError.message} (${metaError.line}:${metaError.column + 1})`);
-    }
-    return meta;
+  function headerOrThrow(code) {
+    const header = readSongHeader(code);
+    if (!header.ok)
+      throw new PlanJobError("meta", header.error.reported);
+    return header;
   }
   async function evaluateState(rt, code, onPhase) {
     onPhase?.("evaluating");
-    const meta = parsedMeta(code);
-    if (!await rt.evaluate(code, evaluateOptions(meta))) {
+    const header = headerOrThrow(code);
+    if (!await rt.evaluate(code, header.options)) {
       throw new PlanJobError("eval", rt.evalError() ?? "evaluate failed");
     }
     onPhase?.("querying");
     return asPlanError(() => {
       const state = rt.state();
-      const structure = state.structure ?? staticStructure(meta);
-      return { meta, structure, cps: state.cps, seed: state.seed ?? 0 };
+      const structure = state.structure ?? header.structure;
+      return { meta: header.meta, structure, cps: state.cps, seed: state.seed ?? 0 };
     });
   }
   async function evaluateSong(rt, code, layout, onPhase) {
@@ -29739,7 +29739,7 @@ Please check with "npm ls @strudel/core".`);
       },
       editPattern: (pattern3) => {
         const structure = registeredStructure();
-        const expected = pending.expectedArrangement;
+        const expected = pending.expectedStructure;
         if (expected && (expected.loopRange || expected.meterChanges || structure?.loopRange || structure?.meterChanges)) {
           if (!structure)
             throw new Error("the authored loop or meter map requires song(meta, parts)");
@@ -29872,7 +29872,7 @@ Please check with "npm ls @strudel/core".`);
     r.scheduler.setCps = (cps2) => {
       if (codeRunning) {
         codeSetCps = true;
-        if (pending.expectedArrangement?.meterChanges)
+        if (pending.expectedStructure?.meterChanges)
           throw new Error(MIXED_CPS_ERROR);
       } else if (liveStructure?.meterChanges?.length) {
         patch({ outputError: MIXED_CPS_ERROR });

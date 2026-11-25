@@ -475,6 +475,37 @@ describe('code.set', () => {
 
 // ---------------------------------------------------------------- eval, play, stop
 
+describe('the evaluate wire shape', () => {
+  const WIRE_KEYS = ['audio', 'error', 'ok', 'song', 'started', 'title'];
+
+  test("a session's errorKind never reaches evaluate, play or code set's evaluated", async () => {
+    const h = await setup();
+    h.session.evaluateBuffer = async (path) => ({
+      ok: false,
+      song: path,
+      title: 'Alpha',
+      started: false,
+      audio: 'running',
+      error: 'boom',
+      errorKind: 'eval',
+    });
+    const e = (await h.handle('eval', {})) as any;
+    const p = (await h.handle('play', {})) as any;
+    const c = (await h.handle('code.set', { code: A + '// y', eval: 'always' })) as any;
+    for (const out of [e, p, c.evaluated]) {
+      expect(Object.keys(out).sort()).toEqual(WIRE_KEYS);
+      expect(out).toEqual({
+        ok: false,
+        song: PA,
+        title: 'Alpha',
+        started: false,
+        audio: 'running',
+        error: 'boom',
+      });
+    }
+  });
+});
+
 describe('eval and play', () => {
   test('evaluate the buffer without saving; both give the same outcome', async () => {
     const h = await setup();

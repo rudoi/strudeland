@@ -4,7 +4,7 @@
  * guess whenever the header is not plainly editable.
  */
 import type { Node, ObjectExpression, Property } from 'acorn';
-import { headerRanges, LINE_BREAK, parseMeta } from './meta';
+import { headerRanges, LINE_BREAK, readSongHeader } from './song-header';
 
 export type MetaPath = 'bpm' | 'meter' | 'loops' | `sections[${number}].bars`;
 
@@ -118,13 +118,13 @@ export function setMetaValue(
   path: MetaPath,
   value: number | string,
 ): MetaEdit | null {
-  if (parseMeta(code).error) return null;
+  if (!readSongHeader(code).ok) return null;
   const edit = editFor(code, path, printValue(value));
   if (!edit) return null;
   // The result must read back cleanly (e.g. no NaN, no out-of-range loops without a loop section).
   const next = code.slice(0, edit.from) + edit.insert + code.slice(edit.to);
-  const { meta, error } = parseMeta(next);
-  if (error || readBack(meta, path) !== value) return null;
+  const header = readSongHeader(next);
+  if (!header.ok || readBack(header.meta, path) !== value) return null;
   return edit;
 }
 

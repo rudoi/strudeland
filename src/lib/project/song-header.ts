@@ -8,22 +8,23 @@ import {
   type Node,
   type ObjectExpression,
 } from 'acorn';
+import type { EvaluateOptions } from '../strudel/runtime';
 import {
   bpmProblem,
+  buildStructure,
   engineProblem,
-  hasLoopSection,
-  isPlainObject,
   loopRangeProblem,
   loopsProblem,
   meterChangesProblem,
   meterProblem,
   sectionsProblem,
   seedProblem,
+  StructureError,
+  type SongStructure,
 } from '../strudel/structure';
 
 /** A value allowed in a song's `meta` header: JSON-like literals only. */
-export type MetaValue =
-  string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
+type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
 export interface Meta {
   title?: string;
@@ -55,7 +56,35 @@ export class MetaError extends Error {
     this.line = line;
     this.column = column;
   }
+
+  /** The message with its 1-based line and column: `msg (line:column)`. */
+  get located(): string {
+    return `${this.message} (${this.line}:${this.column + 1})`;
+  }
+
+  /** As a failed evaluate reports it: `meta: msg (line:column)`. */
+  get reported(): string {
+    return `meta: ${this.located}`;
+  }
 }
+
+/**
+ * A song's header as read from its text. On success, `options` is what `runtime.evaluate` takes
+ * and `title` is `meta.title` when it is a string. On error there are no options, so a song with
+ * a broken header cannot be evaluated, and `structure` is the default one.
+ */
+export type SongHeader =
+  | {
+      ok: true;
+      meta: Meta;
+      title: string | undefined;
+      structure: SongStructure;
+      options: EvaluateOptions;
+    }
+  | { ok: false; error: MetaError; structure: SongStructure };
+
+/** The structure of a song without a usable header. */
+const DEFAULT_STRUCTURE = buildStructure({});
 
 /** The transpiler's grammar, so anything that evaluates also parses. */
 const PARSE_OPTIONS = {
@@ -245,62 +274,75 @@ function findHeader(code: string): ObjectExpression | null {
 }
 
 /**
- * The header object and its checked value, or null when the file has no header. Throws acorn's
- * SyntaxError if the header does not parse and MetaError if it breaks a rule.
+ * The header object, its checked value and the structure built from it, or null when the file has
+ * no header. Throws acorn's SyntaxError if the header does not parse and MetaError if it breaks a
+ * rule.
  */
-function readHeader(code: string): { header: ObjectExpression; meta: Meta } | null {
+function readHeader(
+  code: string,
+): { header: ObjectExpression; meta: Meta; structure: SongStructure } | null {
   const header = findHeader(code);
   if (!header) return null;
   const loops: { value: MetaValue; node: Node }[] = [];
-  const layoutFields = new Map<string, { value: MetaValue; node: Node }>();
+  // The last occurrence of each key: the value `meta` keeps, so the one a cross-field error is about.
+  const lastNode = new Map<string, Node>();
   const meta: Meta = toObject(header, 'meta', (key, value, node) => {
     checkKnownField(key, value, node);
     if (key === 'loops') loops.push({ value, node });
-    if (key === 'loop' || key === 'meterChanges') layoutFields.set(key, { value, node });
+    lastNode.set(key, node);
   });
-  // Every occurrence is range-checked; the last one, the value that counts, also needs the
-  // (last) sections to have a loop section.
-  const loopSection = hasLoopSection(meta.sections);
-  const sections = Array.isArray(meta.sections)
-    ? (meta.sections as { name: string; bars: number }[])
-    : [];
-  const loop = layoutFields.get('loop');
-  if (loop) {
-    const problem = loopRangeProblem(loop.value, sections);
-    if (problem !== null) throw errorAt(loop.node, problem);
-    if (loopSection) throw errorAt(loop.node, 'meta.loop cannot be used with section loop: true');
+  // The per-field checks have passed, so `buildStructure` can only fail on a cross-field rule. It
+  // checks loop, then meter changes, then loops.
+  let structure: SongStructure;
+  try {
+    structure = buildStructure(meta);
+  } catch (e) {
+    if (!(e instanceof StructureError)) throw e;
+    if (e.field !== 'loops') throw errorAt(lastNode.get(e.field)!, e.message);
+    // Earlier duplicate `loops` keys are only range-checked, in source order, before the last.
+    rangeCheckEarlierLoops(loops);
+    throw errorAt(lastNode.get('loops')!, e.message);
   }
-  const changes = layoutFields.get('meterChanges');
-  if (changes) {
-    const problem = meterChangesProblem(
-      changes.value,
-      sections.reduce((sum, s) => sum + s.bars, 0),
-    );
-    if (problem !== null) throw errorAt(changes.node, problem);
-  }
-  loops.forEach(({ value, node }, i) => {
-    const problem = loopsProblem(
-      value,
-      i < loops.length - 1 || loopSection || isPlainObject(meta.loop),
-    );
+  rangeCheckEarlierLoops(loops);
+  return { header, meta, structure };
+}
+
+/** Every `loops` occurrence but the last (the value `buildStructure` checks) needs only a valid range. */
+function rangeCheckEarlierLoops(loops: readonly { value: MetaValue; node: Node }[]) {
+  for (const { value, node } of loops.slice(0, -1)) {
+    const problem = loopsProblem(value, true);
     if (problem !== null) throw errorAt(node, problem);
-  });
-  return { header, meta };
+  }
 }
 
 /**
  * Read the optional `const meta = {…}` header of a song without evaluating it. Never throws.
- * On error, `meta` is `{}`. A syntax error in the header is not a `MetaError`: evaluating reports
- * it, so the result is `{ meta: {}, error: null }`. A syntax error after the header does not
- * matter: the header is still read, so the title stays put while the body is mid-edit.
+ * A syntax error in the header is not a `MetaError`: evaluating reports it, so the result is ok
+ * with an empty `meta`. A syntax error after the header does not matter: the header is still
+ * read, so the title stays put while the body is mid-edit.
  */
-export function parseMeta(code: string): { meta: Meta; error: MetaError | null } {
+export function readSongHeader(code: string): SongHeader {
+  let read: ReturnType<typeof readHeader> = null;
   try {
-    return { meta: readHeader(code)?.meta ?? {}, error: null };
+    read = readHeader(code);
   } catch (e) {
-    if (e instanceof MetaError) return { meta: {}, error: e };
-    return { meta: {}, error: null };
+    if (e instanceof MetaError) return { ok: false, error: e, structure: DEFAULT_STRUCTURE };
   }
+  const meta: Meta = read?.meta ?? {};
+  const structure = read?.structure ?? DEFAULT_STRUCTURE;
+  return {
+    ok: true,
+    meta,
+    title: typeof meta.title === 'string' ? meta.title : undefined,
+    structure,
+    options: {
+      cps: structure.cps,
+      meter: structure.meter,
+      seed: meta.seed,
+      engine: meta.engine === 'rust' ? 'rust' : 'superdough',
+      expectedStructure: structure,
+    },
+  };
 }
 
 /**

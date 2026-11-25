@@ -1,6 +1,6 @@
 /**
  * A song's structure and tempo, from its `meta` header: sections, an optional loop range, bpm and
- * time signatures. Pure: no Strudel, Tauri, DOM or `project/` imports, so the static path (`meta.ts`), the
+ * time signatures. Pure: no Strudel, Tauri, DOM or `project/` imports, so the static path (`song-header.ts`), the
  * evaluated path (`song()`), the headless host and the renderer all share it.
  */
 
@@ -259,18 +259,25 @@ export function meterAtBar(s: SongStructure, bar: number): Meter {
 export const sameStructure = (a: SongStructure | null, b: SongStructure | null): boolean =>
   a === b || (a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b));
 
+/** The `meta` keys `buildStructure` reads. */
+export type StructureField = 'bpm' | 'meter' | 'sections' | 'loop' | 'meterChanges' | 'loops';
+
 export class StructureError extends Error {
-  constructor(message: string) {
+  /** The `meta` key at fault, so a reader of the parsed header can point at its value. */
+  readonly field: StructureField;
+
+  constructor(message: string, field: StructureField) {
     super(message);
     this.name = 'StructureError';
+    this.field = field;
   }
 }
 
 const has = (meta: Record<string, unknown>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(meta, key) && meta[key] !== undefined;
 
-function check(problem: string | null) {
-  if (problem !== null) throw new StructureError(problem);
+function check(field: StructureField, problem: string | null) {
+  if (problem !== null) throw new StructureError(problem, field);
 }
 
 /** intro + loops x loop + tail; with no loop section, totalBars. */
@@ -301,7 +308,7 @@ function clipDuration(
  */
 export function withLoops(structure: SongStructure, loops: number): SongStructure {
   const loop = authoredLoop(structure);
-  check(loopsProblem(loops, loop !== null));
+  check('loops', loopsProblem(loops, loop !== null));
   return { ...structure, loops, ...clipDuration(structure, loop, loops) };
 }
 
@@ -312,17 +319,17 @@ export function withLoops(structure: SongStructure, loops: number): SongStructur
 export function buildStructure(meta: Record<string, unknown>): SongStructure {
   let bpm = DEFAULT_BPM;
   if (has(meta, 'bpm')) {
-    check(bpmProblem(meta.bpm));
+    check('bpm', bpmProblem(meta.bpm));
     bpm = meta.bpm as number;
   }
   let meter: Meter = { ...DEFAULT_METER };
   if (has(meta, 'meter')) {
-    check(meterProblem(meta.meter));
+    check('meter', meterProblem(meta.meter));
     meter = parseMeter(meta.meter as string)!;
   }
   const sections: Section[] = [];
   if (has(meta, 'sections')) {
-    check(sectionsProblem(meta.sections));
+    check('sections', sectionsProblem(meta.sections));
     let start = 0;
     for (const s of meta.sections as Record<string, unknown>[]) {
       const bars = s.bars as number;
@@ -334,8 +341,10 @@ export function buildStructure(meta: Record<string, unknown>): SongStructure {
   const index = sections.findIndex((s) => s.loop);
   let loopRange: LoopRange | null = null;
   if (has(meta, 'loop')) {
-    check(loopRangeProblem(meta.loop, sections));
-    if (index !== -1) throw new StructureError('meta.loop cannot be used with section loop: true');
+    check('loop', loopRangeProblem(meta.loop, sections));
+    if (index !== -1) {
+      throw new StructureError('meta.loop cannot be used with section loop: true', 'loop');
+    }
     const { from, through } = meta.loop as { from: string; through: string };
     loopRange = sectionRange(
       { sections },
@@ -347,7 +356,7 @@ export function buildStructure(meta: Record<string, unknown>): SongStructure {
   const loopIndex = loop?.first ?? null;
   let meterChanges: MeterChange[] | undefined;
   if (has(meta, 'meterChanges')) {
-    check(meterChangesProblem(meta.meterChanges, totalBars));
+    check('meterChanges', meterChangesProblem(meta.meterChanges, totalBars));
     const changes: MeterChange[] = [];
     let previous = meter;
     for (const c of meta.meterChanges as { bar: number; meter: string }[]) {
@@ -360,7 +369,7 @@ export function buildStructure(meta: Record<string, unknown>): SongStructure {
   }
   let loops = 1;
   if (has(meta, 'loops')) {
-    check(loopsProblem(meta.loops, loopIndex !== null));
+    check('loops', loopsProblem(meta.loops, loopIndex !== null));
     loops = meta.loops as number;
   }
 

@@ -109,12 +109,13 @@ the V8 download the host brings.
   `src/lib/theme/` `resolveColor` (computed colours for canvas code) and the `Tone` type.
   `src/lib/scope/` the scope's pure maths (`trace.ts`, `draw.ts`) and the shared animation loop
   (`clock.ts`).
-- `src/lib/project/` projects: `meta.ts` (static `meta` header parse), `api.ts` (the only module
-  that calls Tauri for projects: commands, events, dialogs, window), `session.ts` (open project,
-  songs, dirty state, hot-reload and conflict rules; tested with the fake in
-  `tests/helpers/fake-project-api.ts`), `actions.ts` (shared open and create actions for the File
-  menu, keyboard shortcut, and welcome screen), `meta-write.ts` (minimal-diff edits of header values),
-  `timeline.ts` (pure helpers for `Timeline.svelte`).
+- `src/lib/project/` projects: `song-header.ts` (`readSongHeader`: the static song header read,
+  its structure and evaluate options), `api.ts` (the only module that calls Tauri for projects:
+  commands, events, dialogs, window), `session.ts` (open project, songs, dirty state, hot-reload
+  and conflict rules; tested with the fake in `tests/helpers/fake-project-api.ts`), `actions.ts`
+  (shared open and create actions for the File menu, keyboard shortcut, and welcome screen),
+  `meta-write.ts` (minimal-diff edits of header values), `timeline.ts` (pure helpers for
+  `Timeline.svelte`).
 - `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs) and
   `store.ts` (the prefs store, the one frontend copy of a pref).
 - `src-tauri/` the Rust app crate (`strudeland-app`): `project.rs` (commands, open-project state, and

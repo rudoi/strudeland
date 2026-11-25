@@ -1,20 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import { writable } from 'svelte/store';
 import type { MetronomeGrid } from '../src/lib/audio/metronome';
-import type { EvalOutcome } from '../src/lib/control/protocol';
+import type { SessionEvalOutcome } from '../src/lib/project/session';
 import { createBackingStarter } from '../src/lib/recording/backing';
 import { buildStructure } from '../src/lib/strudel/structure';
 import { stubRuntime } from './helpers/stub-runtime';
 
 /** A session with an open song (or none) whose evaluate answers `outcome`, and a metronome log. */
-function setup(opts: { active?: string | null; outcome?: Partial<EvalOutcome> } = {}) {
+function setup(opts: { active?: string | null; outcome?: Partial<SessionEvalOutcome> } = {}) {
   const rt = stubRuntime({ live: true, audio: 'running' });
   const store = writable({ active: opts.active === undefined ? 'songs/a.js' : opts.active });
   const evaluations: [string, { autostart?: boolean } | undefined][] = [];
-  let outcome: Partial<EvalOutcome> = opts.outcome ?? { ok: true };
+  let outcome: Partial<SessionEvalOutcome> = opts.outcome ?? { ok: true };
   const session = {
     store: { subscribe: store.subscribe },
-    async evaluateBuffer(path: string, o?: { autostart?: boolean }): Promise<EvalOutcome> {
+    async evaluateBuffer(path: string, o?: { autostart?: boolean }): Promise<SessionEvalOutcome> {
       evaluations.push([path, o]);
       // The real session evaluates through the runtime; the stub applies the tempo.
       if (outcome.ok) await rt.runtime.evaluate('s("x")', { cps: 0.75, ...o });
@@ -25,6 +25,7 @@ function setup(opts: { active?: string | null; outcome?: Partial<EvalOutcome> } 
         started: false,
         audio: 'running',
         error: null,
+        errorKind: null,
         ...outcome,
       };
     },
@@ -48,7 +49,7 @@ function setup(opts: { active?: string | null; outcome?: Partial<EvalOutcome> } 
     backing,
     evaluations,
     metronome,
-    setOutcome: (o: Partial<EvalOutcome>) => void (outcome = o),
+    setOutcome: (o: Partial<SessionEvalOutcome>) => void (outcome = o),
     setActive: (a: string | null) => store.set({ active: a }),
   };
 }
@@ -75,7 +76,7 @@ describe('prepareSong', () => {
   });
 
   test('an eval error', async () => {
-    const h = setup({ outcome: { ok: false, error: 'boom is not defined' } });
+    const h = setup({ outcome: { ok: false, error: 'boom is not defined', errorKind: 'eval' } });
     expect(await h.backing.prepareSong()).toEqual({
       ok: false,
       kind: 'eval',
@@ -84,7 +85,9 @@ describe('prepareSong', () => {
   });
 
   test('a meta error', async () => {
-    const h = setup({ outcome: { ok: false, error: 'meta: bpm must be a number (1:20)' } });
+    const h = setup({
+      outcome: { ok: false, error: 'meta: bpm must be a number (1:20)', errorKind: 'meta' },
+    });
     expect(await h.backing.prepareSong()).toEqual({
       ok: false,
       kind: 'meta',
@@ -92,8 +95,23 @@ describe('prepareSong', () => {
     });
   });
 
+  test('an instrument pin error is an eval failure', async () => {
+    const h = setup({
+      outcome: {
+        ok: false,
+        error: 'reading instruments failed: lead.json: invalid parameter',
+        errorKind: 'instruments',
+      },
+    });
+    expect(await h.backing.prepareSong()).toEqual({
+      ok: false,
+      kind: 'eval',
+      message: 'reading instruments failed: lead.json: invalid parameter',
+    });
+  });
+
   test('a failure without a message', async () => {
-    const h = setup({ outcome: { ok: false, error: null } });
+    const h = setup({ outcome: { ok: false, error: null, errorKind: 'eval' } });
     expect(await h.backing.prepareSong()).toEqual({
       ok: false,
       kind: 'eval',

@@ -11,8 +11,7 @@ import type { RollPatch, SourceSpan } from '../piano-roll/types';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
-import { EMPTY_STRUCTURE, evaluateOptions, staticStructure } from './evaluate-options';
-import { parseMeta } from './meta';
+import { readSongHeader, type MetaError } from './song-header';
 import { setMetaValue, type MetaPath } from './meta-write';
 import { stripSongExt } from './ui';
 import {
@@ -25,6 +24,12 @@ import {
   type UnsavedChoice,
 } from './api';
 import { errorMessage } from '../errors';
+
+/** Why a failed evaluate failed: the song header, the instrument pins, or the evaluate itself. */
+export type EvalErrorKind = 'meta' | 'instruments' | 'eval';
+
+/** The wire outcome plus its failure kind (null exactly when `ok`); never sent over the socket. */
+export type SessionEvalOutcome = EvalOutcome & { errorKind: EvalErrorKind | null };
 
 export interface SongItem {
   /** "songs/x.js" */
@@ -210,7 +215,7 @@ export interface Session {
    * Evaluate a song's current editor text without saving it. Never throws. `autostart: false`
    * installs the pattern without starting playback (`Runtime.start` starts it).
    */
-  evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<EvalOutcome>;
+  evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<SessionEvalOutcome>;
   /** Loads the song if needed (ensureLoaded) without showing it; its live text + dirty, or null if it cannot be read. */
   peekSong(path: string): Promise<{ text: string; dirty: boolean } | null>;
   /** Snapshot a usable selection before focus moves to the browser. */
@@ -251,7 +256,8 @@ interface Derived {
   doc: Text | null;
   title: string;
   dirty: boolean;
-  metaError: string | null;
+  /** The header's error, or null when it reads cleanly. */
+  headerError: MetaError | null;
   /** From the header; `buildStructure({})` when it has a MetaError. */
   structure: SongStructure;
 }
@@ -312,7 +318,8 @@ function settle(song: Song, text: string): void {
 
 /** meta.title, else the file name without ".js". */
 export function songTitle(path: string, code: string | null): string {
-  return titleFrom(path, code === null ? undefined : parseMeta(code).meta.title);
+  const header = code === null ? null : readSongHeader(code);
+  return titleFrom(path, header?.ok ? header.title : undefined);
 }
 
 /** The window title for a session state. */
@@ -606,7 +613,7 @@ export function createSession(deps: SessionDeps): Session {
     return st ? st.doc.toString() : (songs.get(path)?.diskText ?? null);
   }
 
-  /** Title, dirty and metaError of a song; recomputed only when its doc or disk text changed. */
+  /** Title, dirty and headerError of a song; recomputed only when its doc or disk text changed. */
   function derive(path: string): Derived {
     const song = songs.get(path)!;
     const doc = stateOf(path)?.doc ?? null;
@@ -621,19 +628,15 @@ export function createSession(deps: SessionDeps): Session {
     }
     // A clean doc reads as the disk text, so it needs no toString.
     const text = doc && dirty ? doc.toString() : song.diskText;
-    let title = fileStem(path);
-    let metaError: string | null = null;
-    let structure = EMPTY_STRUCTURE;
-    if (text !== null) {
-      const { meta, error: err } = parseMeta(text);
-      title = titleFrom(path, meta.title);
-      if (err) metaError = `${err.message} (${err.line}:${err.column + 1})`;
-      else structure = staticStructure(meta);
-    }
+    // No text reads as an empty file: the file name, no error and the default structure.
+    const header = readSongHeader(text ?? '');
+    const title = titleFrom(path, header.ok ? header.title : undefined);
+    const headerError = header.ok ? null : header.error;
+    let structure = header.structure;
     // Keep the previous object while the structure is unchanged, so typing does not republish it.
     const prev = song.derived?.structure;
     if (prev && sameStructure(prev, structure)) structure = prev;
-    song.derived = { doc, title, dirty, metaError, structure };
+    song.derived = { doc, title, dirty, headerError, structure };
     return song.derived;
   }
 
@@ -661,7 +664,7 @@ export function createSession(deps: SessionDeps): Session {
       songs: order.map(itemOf),
       active,
       error,
-      metaError: active ? derive(active).metaError : null,
+      metaError: active ? (derive(active).headerError?.located ?? null) : null,
       structure: active ? derive(active).structure : null,
       evaluated: evaluated?.song ?? null,
       notice: noticeOf(active),
@@ -1067,9 +1070,9 @@ export function createSession(deps: SessionDeps): Session {
    * the status bar) is not evaluated. True iff the runtime evaluated it.
    */
   async function evaluateSong(path: string, text: string, autostart = true): Promise<boolean> {
-    const { meta, error: err } = parseMeta(text);
+    const header = readSongHeader(text);
     const started = get(runtime.store).started;
-    if (err) {
+    if (!header.ok) {
       // Nothing will start, so a start armed while stopped must not linger as "will start at".
       if (!started) runtime.transport.reset();
       return false;
@@ -1085,13 +1088,13 @@ export function createSession(deps: SessionDeps): Session {
     // before Play is kept.
     if (started && evaluated?.song.path !== path) runtime.transport.reset();
     const gen = generation;
-    const opts = evaluateOptions(meta);
+    const opts = header.options;
     if (instruments !== undefined) opts.instruments = instruments;
     const ok = await runtime.evaluate(text, autostart ? opts : { ...opts, autostart: false });
     if (ok && gen === generation) {
       evaluated = {
-        song: { path, title: titleFrom(path, meta.title) },
-        metaTitle: meta.title,
+        song: { path, title: titleFrom(path, header.title) },
+        metaTitle: header.title,
         instruments: opts.instruments,
       };
       emit();
@@ -1534,7 +1537,8 @@ export function createSession(deps: SessionDeps): Session {
       const i = current.songs.findIndex((s) => s.path === active);
       if (i < 0) return emit();
       const item = itemOf(active);
-      const { metaError, structure } = derive(active);
+      const { headerError, structure } = derive(active);
+      const metaError = headerError?.located ?? null;
       const notice = noticeOf(active);
       if (
         sameItem(current.songs[i], item) &&
@@ -1656,7 +1660,7 @@ export function createSession(deps: SessionDeps): Session {
 
     async evaluateBuffer(path, opts) {
       const text = textOf(path);
-      // Title and metaError of the text being evaluated, read before the evaluate awaits.
+      // Title and headerError of the text being evaluated, read before the evaluate awaits.
       const d = songs.has(path) ? derive(path) : null;
       const pinsError = instrumentError;
       let ok = false;
@@ -1667,10 +1671,18 @@ export function createSession(deps: SessionDeps): Session {
       }
       const rs = get(runtime.store);
       let error: string | null = null;
+      let errorKind: EvalErrorKind | null = null;
       if (!ok) {
-        error = d?.metaError
-          ? `meta: ${d.metaError}`
-          : (pinsError ?? rs.evalError ?? 'evaluate failed');
+        if (d?.headerError) {
+          error = d.headerError.reported;
+          errorKind = 'meta';
+        } else if (pinsError) {
+          error = pinsError;
+          errorKind = 'instruments';
+        } else {
+          error = rs.evalError ?? 'evaluate failed';
+          errorKind = 'eval';
+        }
       }
       return {
         ok,
@@ -1679,6 +1691,7 @@ export function createSession(deps: SessionDeps): Session {
         started: rs.started,
         audio: rs.audio,
         error,
+        errorKind,
       };
     },
 

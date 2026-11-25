@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { evaluateOptions, staticStructure } from '../src/lib/project/evaluate-options';
-import { parseMeta } from '../src/lib/project/meta';
+import { headerError, okHeader } from './helpers/song-header';
 import { windowFrames, type RenderError, type RenderRequest } from '../src/lib/render/contract';
 import { planEngineJob, validateEngineJob, type EngineJob } from '../src/lib/render/engine-job';
 import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
@@ -130,11 +129,11 @@ describe('planJob success', () => {
     const request = req({ code: CODE, toBar: 3, overlapBars: 1, mode: 'stems' });
     const { rt, evaluated, queries } = fakeRuntime();
     const got = await planJob(rt, request, []);
-    const meta = parseMeta(CODE).meta;
-    const want = expected(request, 0.5, 7, staticStructure(meta));
+    const header = okHeader(CODE);
+    const want = expected(request, 0.5, 7, header.structure);
     expect(got.json).toBe(want.json);
     expect(got.info).toEqual(want.info);
-    expect(evaluated).toEqual([{ code: CODE, opts: evaluateOptions(meta) }]);
+    expect(evaluated).toEqual([{ code: CODE, opts: header.options }]);
     // The chunk window [0, 4) is the schedule's: queried once, its selection reused.
     expect(queries.map((q) => [q.from, q.to])).toEqual([[0, 4]]);
   });
@@ -143,7 +142,7 @@ describe('planJob success', () => {
     const request = req({ code: CODE, fromBar: 2, toBar: 4, lookbackSec: 'auto' });
     const { rt, queries } = fakeRuntime();
     const got = await planJob(rt, request, []);
-    const want = expected(request, 0.5, 7, staticStructure(parseMeta(CODE).meta));
+    const want = expected(request, 0.5, 7, okHeader(CODE).structure);
     expect(got.json).toBe(want.json);
     expect(got.info).toEqual(want.info);
     expect(queries[1]!.from).toBe(want.info.plan.c0);
@@ -208,7 +207,7 @@ describe('planJob success', () => {
 
   test('seed defaults to 0 when the state has none', async () => {
     const request = req({ code: CODE });
-    const structure = staticStructure(parseMeta(CODE).meta);
+    const structure = okHeader(CODE).structure;
     const none = await planJob(fakeRuntime({ seed: undefined }).rt, request, []);
     expect(none.json).toBe(expected(request, 0.5, 0, structure).json);
     expect(JSON.parse(none.json).seed).toBe(0);
@@ -257,7 +256,7 @@ describe('planJob success', () => {
   test('clip layout without a runtime structure uses the header structure', async () => {
     const code =
       "const meta = { bpm: 120, loops: 3, sections: [{ name: 'a', bars: 1 }, { name: 'b', bars: 2, loop: true }] };\nx";
-    const structure = staticStructure(parseMeta(code).meta);
+    const structure = okHeader(code).structure;
     expect(structure.loopIndex).toBe(1);
     const f = fakeRuntime();
     await planJob(f.rt, req({ code, layout: 'clip' }), []);
@@ -284,7 +283,7 @@ describe('planJob query reuse', () => {
     const captured: RenderError[] = [{ kind: 'worklet', message: 'w' }];
     const f = fakeRuntime();
     const got = await planJob(f.rt, request, captured);
-    const want = expected(request, 0.5, 7, staticStructure(parseMeta(CODE).meta), captured);
+    const want = expected(request, 0.5, 7, okHeader(CODE).structure, captured);
     expect(got.json).toBe(want.json);
     expect(got.info).toEqual(want.info);
     const c1 = request.toBar + request.overlapBars;
@@ -333,7 +332,7 @@ describe('planJob query reuse', () => {
 describe('planJob failures', () => {
   test("a meta error is kind 'meta' with the page's message; nothing is evaluated", async () => {
     const code = "const meta = { seed: 'a' };\nnote('c')";
-    const metaError = parseMeta(code).error!;
+    const metaError = headerError(code);
     expect(metaError).not.toBeNull();
     const phases: PlanJobPhase[] = [];
     const f = fakeRuntime();
@@ -450,18 +449,19 @@ describe('planJob failures', () => {
 describe('evaluateSong', () => {
   test('returns the static structure, cps, seed and the layout segments', async () => {
     const f = fakeRuntime({ cps: 0.75, seed: undefined });
-    const meta = parseMeta(CODE).meta;
+    const header = okHeader(CODE);
+    const { meta } = header;
     const linear = await evaluateSong(f.rt, CODE, 'linear');
     expect(linear).toEqual({
       meta,
-      structure: staticStructure(meta),
+      structure: header.structure,
       cps: 0.75,
       seed: 0,
       segments: LINEAR_SEGMENTS,
     });
     const clip = await evaluateSong(fakeRuntime().rt, CODE, 'clip');
-    expect(clip.segments).toEqual(clipSegments(staticStructure(meta)));
-    expect(f.evaluated[0].opts).toEqual(evaluateOptions(meta));
+    expect(clip.segments).toEqual(clipSegments(header.structure));
+    expect(f.evaluated[0].opts).toEqual(header.options);
   });
 
   test("reports 'evaluating' then 'querying', and a state failure as kind 'plan'", async () => {
@@ -513,7 +513,7 @@ function crossingHaps(from: number, to: number): any[] {
   return out;
 }
 
-const sectionsMeta = parseMeta(SECTIONS_CODE).meta;
+const sectionsMeta = okHeader(SECTIONS_CODE).meta;
 const LONG_SECTION_CODE =
   "const meta = { bpm: 120, sections: [{ name: 'intro', bars: 4 }, { name: 'main', bars: 20, loop: true }, { name: 'outro', bars: 4 }] };\nx";
 
@@ -566,7 +566,7 @@ describe('planRender length resolution', () => {
     const f = fakeRuntime();
     const got = await planRender(f.rt, code, renderReq(length as LengthRequest), []);
     expect(got.window).toEqual(window);
-    const structure = staticStructure(parseMeta(code).meta);
+    const structure = okHeader(code).structure;
     const segments = window.layout === 'clip' ? clipSegments(structure) : LINEAR_SEGMENTS;
     for (const q of f.queries) expect(q.segments).toEqual(segments);
     expect(f.queries[0]).toMatchObject({ from: 0, to: window.toBar });
@@ -588,7 +588,7 @@ describe('planRender length resolution', () => {
     expect(got.window).toEqual({ fromBar: 0, toBar: 32, layout: 'clip' });
     expect(got.structure).toEqual(overridden);
     expect(got.structure.loops).toBe(3);
-    expect(clipSegments(overridden)).not.toEqual(clipSegments(staticStructure(sectionsMeta)));
+    expect(clipSegments(overridden)).not.toEqual(clipSegments(okHeader(SECTIONS_CODE).structure));
     for (const q of f.queries) expect(q.segments).toEqual(clipSegments(overridden));
   });
 
@@ -715,7 +715,7 @@ describe('planRender length errors', () => {
 
   test('a header error is the plain meta error, without a flag', async () => {
     const code = "const meta = { seed: 'a' };\nnote('c')";
-    const metaError = parseMeta(code).error!;
+    const metaError = headerError(code);
     const f = fakeRuntime();
     const e = await planError(planRender(f.rt, code, renderReq({ kind: 'length', bars: 2 }), []));
     expect(e.kind).toBe('meta');

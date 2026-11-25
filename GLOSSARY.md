@@ -23,3 +23,26 @@ produce several occurrences.
 
 The written bar where a piano roll window takes its starting time signature. Subsequent bars
 take the time signatures of their corresponding written positions.
+
+## Song structure
+
+**Song**
+
+One plain Strudel script in a project, played and rendered as a whole piece.
+_Avoid_: pattern file, track
+
+**Song header**
+
+The `const meta = { … }` statement a song opens with: literal values naming its title, tempo,
+meter, sections, loop and seed, read without evaluating the song.
+_Avoid_: meta header, meta block, metadata
+
+**Structure**
+
+The bars, sections, loop and tempo a song header describes.
+_Avoid_: arrangement (the written order of patterns), layout (the transport's own term)
+
+**Section**
+
+A named run of whole bars in a song's structure, such as `intro` or `chorus`.
+_Avoid_: part (the pattern a section plays), block
