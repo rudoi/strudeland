@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { helpTarget } from '../lib/help/targets';
   import { tick, untrack } from 'svelte';
   import {
     adjacentStep,
@@ -303,6 +304,17 @@
     }
   }
 
+  function noteHelp(note: RollNote): string {
+    if (editable && note.timeEditable) {
+      return note.pitchEditable
+        ? 'Drag to move or retune. Drag the end to resize, or press Delete to remove.'
+        : 'Drag to move in time. Drag the end to resize, or press Delete to remove.';
+    }
+    if (editable && note.pitchEditable) return 'Drag up or down to change pitch.';
+    if (canShowSource(note)) return 'Audition the note. Press Shift+Enter to find its source.';
+    return 'Audition this note. The roll cannot edit it here.';
+  }
+
   function activateNote(event: MouseEvent, note: RollNote) {
     if (ignoreClick && event.detail !== 0) {
       ignoreClick = false;
@@ -508,7 +520,12 @@
       {:else if editable}
         <label class="snap">
           Snap
-          <select bind:value={subdivision} onchange={() => (cursor = undefined)} class="control">
+          <select
+            use:helpTarget={'Set the beat division used to place and move notes.'}
+            bind:value={subdivision}
+            onchange={() => (cursor = undefined)}
+            class="control"
+          >
             <option value={1}>Beat</option>
             <option value={2}>½ beat</option>
             <option value={3}>Beat triplet</option>
@@ -520,7 +537,7 @@
         <Button
           size="sm"
           variant="quiet"
-          title="Double-click an empty cell or press Enter at the placement cursor."
+          help="Focus the placement cursor. Move it with the arrow keys and press Enter to add a note."
           onclick={() => placeButton?.focus()}>Add note</Button
         >
       {/if}
@@ -537,6 +554,7 @@
           size="sm"
           variant="quiet"
           class="source-link"
+          help="Jump to the code for the selected note."
           onclick={() => onsource?.(selectedNote)}
         >
           Go to source
@@ -574,6 +592,7 @@
               class:black={isBlackKey(pitch)}
               class:octave={pitch % 12 === 0}
               type="button"
+              use:helpTarget={'Play this pitch as a preview. Use Up or Down to choose another.'}
               aria-label={'Audition ' + pitchLabel(pitch)}
               tabindex={pitch === keyboardPitch ? 0 : -1}
               onclick={() => onaudition(pitch)}
@@ -615,6 +634,7 @@
               class="placement"
               type="button"
               bind:this={placeButton}
+              use:helpTarget={'Double-click an empty cell to add a note at that pitch and beat.'}
               aria-label="Place a note. Arrows move the placement cursor. Enter adds."
               onfocus={showCursor}
               onclick={pointCursor}
@@ -642,6 +662,7 @@
               type="button"
               class="note"
               data-note-id={note.id}
+              use:helpTarget={noteHelp(note)}
               data-roll-edited={flashing ? '' : undefined}
               class:flashing
               class:editable={editable && (note.pitchEditable || note.timeEditable)}

@@ -42,6 +42,9 @@
         <ListRow
           active={song.path === state.active}
           onclick={() => void session.switchSong(song.path)}
+          help={song.path === state.active
+            ? 'This song is open in the editor.'
+            : 'Open this song in the editor.'}
           title={song.path}
         >
           {song.title}
@@ -51,7 +54,7 @@
             {#if song.conflict}
               <Chip
                 tone={song.conflict === 'deleted' ? 'danger' : 'warning'}
-                title="changed on disk"
+                title={song.conflict === 'deleted' ? 'deleted on disk' : 'changed on disk'}
               >
                 {song.conflict === 'deleted' ? 'deleted' : 'changed'}
               </Chip>
@@ -63,8 +66,10 @@
   </ul>
   <NewSong {session} bind:open={newSongOpen} showField={state.songs.length > 0} />
   <div class="instruments">
-    <Button onclick={(e) => oninstruments(e.currentTarget)} aria-haspopup="dialog"
-      >instruments</Button
+    <Button
+      onclick={(e) => oninstruments(e.currentTarget)}
+      aria-haspopup="dialog"
+      help="Browse instruments, audition sounds, and manage project pins.">instruments</Button
     >
   </div>
   {#if memos}<MemoList {memos} {recording} {song} />{/if}

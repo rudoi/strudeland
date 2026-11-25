@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getContext, onMount } from 'svelte';
+  import { helpTarget } from '../../lib/help/targets';
   import {
     createMasterMeter,
     type LevelFrame,
@@ -61,15 +62,23 @@
     variant="quiet"
     pressed={limiter}
     disabled={!available && !limiter}
-    title={available
-      ? 'safety limiter on the master output'
-      : 'the limiter is unavailable: the master worklet did not load'}
+    help={!available && !limiter
+      ? 'The limiter is unavailable because the master audio processor did not load.'
+      : limiter
+        ? 'Turn off peak protection for the master output.'
+        : 'Reduce peaks on the master output to prevent clipping.'}
     onclick={() => onlimiter(!limiter)}
   >
     {#if view.limiting}<Dot size="sm" tone="warning" />{/if}
     limit
   </Button>
-  <button type="button" class="bars" aria-label="clear clip" onclick={() => meter.clearClip()}>
+  <button
+    type="button"
+    class="bars"
+    aria-label="clear clip"
+    use:helpTarget={'Clear the clip warning on the master meter.'}
+    onclick={() => meter.clearClip()}
+  >
     {#each ['l', 'r'] as label, ch (label)}
       {@const c = view.channels[ch]!}
       <span class="label">{label}</span>

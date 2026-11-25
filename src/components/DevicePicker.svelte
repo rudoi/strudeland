@@ -28,6 +28,15 @@
   const disabled = $derived(pickerDisabled(rec, hasProject));
   const channels = $derived(channelChoices(rec));
   const devices = $derived(rec?.devices ?? []);
+  const armingHelp = 'Wait for microphone setup to finish before changing inputs.';
+  const help = $derived.by(() => {
+    if (!rec) return 'Microphone recording requires the desktop app.';
+    if (!hasProject) return 'Open a project to choose a recording input.';
+    if (disabled) return 'Finish the current take to change its input.';
+    if (open) return 'Close the input menu.';
+    if (rec.phase === 'arming') return armingHelp;
+    return 'Refresh the list of inputs and choose a device or channel for the next take.';
+  });
 
   // A take starting or the project closing shuts the menu.
   $effect(() => {
@@ -56,6 +65,7 @@
     size="sm"
     aria-label={label}
     title={label}
+    {help}
     aria-haspopup="menu"
     aria-expanded={open}
     {disabled}
@@ -76,6 +86,11 @@
         role="menuitemradio"
         aria-checked={on}
         title={d.isDefault ? 'system default' : undefined}
+        help={rec?.phase === 'arming'
+          ? armingHelp
+          : d.channels > 1
+            ? 'Use channel 1 of this device for the next take.'
+            : 'Use this microphone input for the next take.'}
         onclick={() => choose(d.id, 0)}
       >
         <span class="row">
@@ -85,7 +100,9 @@
         </span>
       </MenuItem>
     {:else}
-      <MenuItem disabled>no input devices</MenuItem>
+      <MenuItem disabled help="Connect an input device, then reopen the menu to refresh the list.">
+        no input devices
+      </MenuItem>
     {/each}
     {#if channels.length > 0 && rec?.input}
       {@const input = rec.input}
@@ -94,6 +111,9 @@
         <MenuItem
           role="menuitemradio"
           aria-checked={input.channel === ch}
+          help={rec.phase === 'arming'
+            ? armingHelp
+            : 'Record from this channel of the selected input device.'}
           onclick={() => choose(input.deviceId, ch)}
         >
           <span class="row">
