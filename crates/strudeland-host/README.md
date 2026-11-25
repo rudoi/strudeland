@@ -37,6 +37,19 @@ module state leaks from one song to the next.
 `render:check --engine rust --planner host` plans with this crate's binary (built with cargo, or
 `STRUDELAND_HOST_BIN`) instead of the render page and does not build the render page.
 
+## Piano roll inspection
+
+`Host::inspect` evaluates an editor snapshot in a fresh context with a required deadline.
+The desktop passes the project instrument pins and either a selected expression's UTF-16 source
+range or a written song window. Expression queries use local phase and can take the meter from
+a written bar. The result carries pitches, rational whole and visible spans and verified source
+contributors. The editor uses its separate authored phrase model to decide when it can write a
+source edit.
+
+Inspection uses whole-bar windows of up to 16 bars. The result limits the number of notes and
+marks truncation. The desktop coalesces selection changes and ignores replies for old editor
+snapshots.
+
 ## Batch planning
 
 `plan_render` (`plan-render`) plans a whole render in one call, for `strudeland render`, instead of

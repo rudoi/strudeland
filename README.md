@@ -6,6 +6,7 @@ patterns, arrange them into sections, and keep your songs in a regular folder.
 ![Strudeland playing a synth arrangement, with the code editor, section timeline, and live output meter visible](docs/strudeland.png)
 
 - Edit patterns with live note highlighting, an oscilloscope, and optional Vim keybindings.
+- Inspect and edit selected note patterns in a meter-aware piano roll.
 - Arrange songs with named sections, section-range loops, and meter changes.
 - Keep songs, reusable instruments, voice memos, and renders together in a project.
 - Export synth arrangements to WAV, MP3, Ogg Vorbis, or Opus, or export aligned WAV stems.
@@ -87,7 +88,28 @@ a pitch such as `g3` in a note pattern while the song is stopped. The preview us
 fixed built-in synth, for example `note("g3").s("supersaw")`, and works on unsaved edits. The
 note gets the playback outline while the preview sounds.
 A brief pause or a delimiter completes the note. The checkbox starts off and remembers your
-choice. Sample instruments and computed sounds are outside the preview's supported patterns.
+choice. Typed-note previews support fixed built-in synths.
+
+### Piano roll
+
+Click **Piano Roll** in the toolbar and select a pattern in the editor. **Expression** shows
+the selected pattern. **In song** is read-only and shows the arranged notes with each bar's meter.
+The dock fits the visible pitch range automatically and remembers whether it was open.
+Use **Preview expression** when a generated pattern in the current draft needs evaluation.
+
+For simple monophonic phrases, drag a note to change pitch or timing, drag its right edge to
+resize, and double-click an empty cell to insert. With a note focused, Up and Down change pitch,
+Left and Right change timing, Shift with Left or Right changes length, and Delete removes it.
+Rhythm edits fit within one authored bar. For a reused pattern, **Edit shared definition** shows
+the authored pitches and the known uses affected by the edit. When source locations are available,
+notes in **In song** link back to the editor. Each edit is one undo step. Use **Re-evaluate** to
+apply edits to a running song.
+
+While playback and recording are idle, click a note or piano key to audition its pitch. The roll
+uses the pattern's verified synth or a triangle preview. **Audition notes** also plays pitches
+as you add or retune notes.
+
+### Format on Save
 
 Turn on **Format on Save** in the status bar to put chained calls on separate, indented lines
 and lay out song metadata, named parts, and groups of patterns. Explicit 16- or 32-step 4/4

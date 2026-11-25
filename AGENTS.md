@@ -92,7 +92,12 @@ the V8 download the host brings.
   `visuals.ts` outlines the sounding audition token independently of evaluated highlights.
   `format-script.ts` computes token-gap edits for chains and song structures, and `format-song.ts`
   combines them with localized mini-notation edits. The project session applies both on save.
-  `src/components/`
+- Piano roll (`src/lib/piano-roll/`) resolves selections and aliases in `source.ts`, verifies
+  exact edits in `phrase.ts`, and maps meter to geometry in `grid.ts`. The dock uses session
+  selection snapshots and isolated range edits. See the [source contract](plans/0109-meter-aware-piano-roll/source.md)
+  for source capabilities and the [dock contract](plans/0109-meter-aware-piano-roll/dock.md)
+  for preview ownership and visibility preferences.
+- `src/components/`
   Svelte UI, built from the primitives in `src/components/ui/` (`Button`, `Chip`, `Dot`, `Notice`,
   `Field`, `ListRow`, `Link`, `Menu`, `MenuItem`, `MasterMeter`, `Scope`). `src/styles/` the global CSS:
   `tokens.css` (palette, roles, domain sets and scales; the only file with colour literals),
@@ -218,6 +223,9 @@ the V8 download the host brings.
   `query`, `bench`) and its committed bundle `js/host.js` with `js/host.inputs.json` (the hashes
   of every bundled file); its README has the runtime choice, the `Math` classification and the
   known differences. `scripts/host/build.ts` runs `host:build` with Bun's bundler.
+  For [piano roll inspection](plans/0109-meter-aware-piano-roll/inspection.md), `src/host/inspection.ts`
+  captures expressions and exact event spans. `src-tauri/src/piano_roll.rs` resolves project
+  pins and admits one preview. The frontend request queue and IPC live in `src/lib/piano-roll/`.
   `scripts/render/job-source.ts` (`JobSource`: where `RustRenderer` gets its jobs),
   `host-planner.ts` (runs the host binary), `host-parity.ts`
   (`host:parity`, pure parts in `src/lib/render/host-parity-lib.ts`).
