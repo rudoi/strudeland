@@ -118,8 +118,8 @@ export interface SongPlayback {
   /** `from` was renamed to `to`: the evaluated song follows, retitled. */
   renamed(from: string, to: string): void;
   /**
-   * `path` was removed (call after `activeChanged`). If it is the evaluated song: stop and forget
-   * it; `stopped` is whether it was playing.
+   * `path` was removed (call after `activeChanged`). If it is the evaluated song: stop it if it
+   * plays (or an evaluate of it is in flight) and forget it; `stopped` is whether it was playing.
    */
   removed(path: string): { stopped: boolean };
   /**
@@ -264,6 +264,8 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
    * header edit meanwhile must not move it.
    */
   let evaluating = 0;
+  /** The paths of the evaluates in flight, one entry each. */
+  const inFlight: string[] = [];
 
   function snapshot(): PlaybackState {
     const rs = get(runtime.store);
@@ -367,11 +369,13 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
         runtime.transport.reset();
       }
       evaluating++;
+      inFlight.push(path);
       let ok: boolean;
       try {
         ok = await runtime.evaluate(text, opts.options);
       } finally {
         evaluating--;
+        inFlight.splice(inFlight.indexOf(path), 1);
       }
       if (ok && gen === currentGen()) {
         evaluated = {
@@ -409,7 +413,10 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
     removed(path) {
       if (evaluated?.song.path !== path) return { stopped: false };
       const stopped = get(runtime.store).started;
-      runtime.stop();
+      // Every runtime stop rewinds the transport, so a stopped runtime is left alone: a start
+      // armed on the active song survives. An evaluate of `path` in flight is stopped too, so it
+      // cannot autostart the removed song.
+      if (stopped || inFlight.includes(path)) runtime.stop();
       evaluated = null;
       publish();
       return { stopped };

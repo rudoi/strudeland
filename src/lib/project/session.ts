@@ -1500,8 +1500,12 @@ export function createSession(deps: SessionDeps): Session {
 
     async closeDeleted() {
       if (!active || songs.get(active)?.conflict !== 'deleted') return;
-      dropSong(active);
+      const path = active;
+      dropSong(path);
       activateFirstLoadable();
+      // As `deleteTask`: the next song's transport, then the removed song stops if it played.
+      playback.activeChanged();
+      playback.removed(path);
       emit();
     },
 

@@ -230,6 +230,30 @@ describe('song lifecycle', () => {
     expect(h.pb.removed(PB)).toEqual({ stopped: false });
     expect(h.st().evaluated).toBeNull();
   });
+
+  test('removing the stopped evaluated song leaves the runtime and the armed start alone', async () => {
+    const h = setup();
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    h.pb.arm({ start: 'verse' });
+    const stops = h.rt.stops();
+    expect(h.pb.removed(PA)).toEqual({ stopped: false });
+    expect(h.rt.stops()).toBe(stops);
+    expect(h.st().evaluated).toBeNull();
+    expect(h.tp().armed).toBe('verse');
+  });
+
+  test('removing the evaluated song stops its evaluate in flight', async () => {
+    const h = setup();
+    await h.pb.evaluate(PA, 'a', opts(), 1);
+    const held = deferred();
+    h.rt.hold(held.promise);
+    const run = h.pb.evaluate(PA, 'a2', opts(), 1);
+    const stops = h.rt.stops();
+    expect(h.pb.removed(PA)).toEqual({ stopped: false });
+    expect(h.rt.stops()).toBe(stops + 1);
+    held.resolve();
+    await run;
+  });
 });
 
 describe('arm', () => {
@@ -625,9 +649,9 @@ $: s("x")
 const SA = sectioned('Alpha', 'intro', 'verse', 'chorus');
 const SB = sectioned('Beta', 'a', 'b');
 
-async function opened() {
+async function opened(files: Record<string, string> = { [PA]: SA, [PB]: SB }) {
   const { api, fake } = fakeProjectApi({
-    '/p': { name: 'Proj', files: { [PA]: SA, [PB]: SB } },
+    '/p': { name: 'Proj', files },
     '/q': { name: 'Other', files: { 'songs/q.js': SB } },
   });
   fake.last = '/p';
@@ -647,6 +671,7 @@ async function opened() {
   const pb = session.playback;
   return {
     rt,
+    fake,
     session,
     view,
     pb,
@@ -792,6 +817,51 @@ describe('the session', () => {
     await h.session.deleteSong(PA, { discard: false });
     expect(h.tp().loop).toEqual({ section: 'b', names: ['b'] });
     expect(get(h.pb.store).playing).toEqual({ path: PB, title: 'Beta' });
+  });
+
+  test('deleting the stopped evaluated song leaves the next song its armed start', async () => {
+    const h = await opened();
+    await h.session.saveAndEvaluate(); // A evaluated
+    h.rt.runtime.stop();
+    await h.session.switchSong(PB);
+    h.pb.arm({ start: 'b' });
+    const stops = h.rt.stops();
+    expect(await h.session.deleteSong(PA, { discard: false })).toEqual({
+      ok: true,
+      stopped: false,
+    });
+    expect(h.rt.stops()).toBe(stops);
+    expect(get(h.pb.store).evaluated).toBeNull();
+    expect(h.tp().armed).toBe('b');
+  });
+
+  /** A, active, deleted on disk; B also has a chorus. */
+  async function deletedOnDisk() {
+    const h = await opened({ [PA]: SA, [PB]: sectioned('Beta', 'intro', 'chorus') });
+    h.fake.files().delete(PA);
+    h.fake.emit({ removed: [PA] });
+    await flush();
+    expect(get(h.session.store).songs.find((s) => s.path === PA)?.conflict).toBe('deleted');
+    return h;
+  }
+
+  test('closing a song deleted on disk disarms for the next one', async () => {
+    const h = await deletedOnDisk();
+    h.pb.arm({ start: 'chorus' });
+    expect(h.tp().armed).toBe('chorus');
+    await h.session.closeDeleted();
+    expect(get(h.session.store).active).toBe(PB);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('closing the playing song deleted on disk stops it', async () => {
+    const h = await deletedOnDisk();
+    await h.play();
+    expect(get(h.pb.store).playing).toEqual({ path: PA, title: 'Alpha' });
+    const stops = h.rt.stops();
+    await h.session.closeDeleted();
+    expect(h.rt.stops()).toBe(stops + 1);
+    expect(get(h.pb.store)).toMatchObject({ evaluated: null, playing: null, started: false });
   });
 
   test('deleting an inactive song leaves the armed start alone', async () => {
