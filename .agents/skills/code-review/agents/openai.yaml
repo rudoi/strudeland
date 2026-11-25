@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Code Review'
+  short_description: 'Find actionable correctness regressions in changed code'
+  default_prompt: 'Use $code-review high to review the current task diff.'

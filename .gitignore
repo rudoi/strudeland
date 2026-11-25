@@ -1,6 +1,8 @@
-# Local agent settings
+# Local agent settings and state (shared skills live in .claude/commands and .agents/skills)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 /.codex/hooks.json
+/.codex/skills/
 
 # Workflow harness per-branch state
 WORKFLOW_STATE.json

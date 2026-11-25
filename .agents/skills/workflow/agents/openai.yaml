@@ -1,0 +1,6 @@
+interface:
+  display_name: 'Workflow'
+  short_description: 'Staged Strudeland delivery from plan to approved merge'
+  default_prompt: 'Use $workflow to inspect state and continue the current task.'
+policy:
+  allow_implicit_invocation: false
