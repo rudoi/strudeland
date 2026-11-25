@@ -3,7 +3,7 @@
 ## Goal
 
 Every module that reads a song header gets everything it needs from one call. Each rule about the
-header's values lives in one place. No error kind travels as a text prefix.
+header's values lives in one place. No code reads an error's kind back out of its text.
 
 This is a refactor. Nothing a user, the CLI or the control protocol sees changes, byte for byte.
 
@@ -16,8 +16,8 @@ The [re-verification](0113-song-header-module/reverify.md) records the evidence 
   each other: `meta.loop` against a loop section, `meterChanges` against the total bars, and `loops`
   against whether a loop exists. `readHeader` writes them out to attach source positions, and
   `buildStructure` writes them again. One error message is duplicated word for word.
-- **Six callers repeat the same steps.** They call `parseMeta`, then `staticStructure` or
-  `evaluateOptions`, then build the `"msg (l:c)"` and `"meta: …"` text by hand.
+- **Six modules repeat the same steps** (nine call sites). They call `parseMeta`, then
+  `staticStructure` or `evaluateOptions`, then build the `"msg (l:c)"` and `"meta: …"` text by hand.
 - **`backing.ts` reads the `"meta: "` prefix back** to decide whether a failed evaluate was a header
   error.
 - **The rules for single fields are already shared.** `meta.ts` imports `bpmProblem`,
@@ -33,7 +33,7 @@ In:
    the parsed header translates a failing field into its source node.
 2. **One song header module.** `src/lib/project/meta.ts` becomes
    `src/lib/project/song-header.ts`. It absorbs `evaluate-options.ts` and exposes
-   `readSongHeader(code)`. All six callers move to it.
+   `readSongHeader(code)`. Every caller moves to it.
 3. **A typed error kind for a failed evaluate.** The session's internal result names the kind:
    `meta`, `instruments` or `eval`. `backing.ts` reads the kind instead of the prefix. The control
    handler maps the result to the wire shape, which does not change.
@@ -41,7 +41,8 @@ In:
    planning.
 5. **Rename `EvaluateOptions.expectedArrangement` to `expectedStructure`.** It holds the song's
    structure; in the glossary, "arrangement" means the written order of patterns. The rename
-   touches `runtime.ts` (3 uses), the evaluate options and 3 test files, in its own commit.
+   touches `runtime.ts` (3 uses), `evaluate-options.ts` and 2 test files (`session.test.ts`,
+   `runtime-backends.test.ts`). It is the first commit, before `evaluate-options.ts` is folded in.
 
 Out:
 
@@ -83,10 +84,11 @@ Both end in `buildStructure`.
 
 ### `structure.ts`
 
-- **`StructureError` gains `field`.** It names the `meta` key at fault: `bpm`, `meter`, `sections`,
-  `loop`, `meterChanges` or `loops`.
-  - Each `check(...)` call in `buildStructure` passes its key.
+- **`StructureError` gains a required `field`.** It names the `meta` key at fault: `bpm`, `meter`,
+  `sections`, `loop`, `meterChanges` or `loops`.
+  - Each `check(...)` call passes its key, including the one in `withLoops` (`loops`).
   - The thrown `'meta.loop cannot be used with section loop: true'` passes `loop`.
+  - The one-argument `new StructureError(msg)` calls in `tests/structure.test.ts` are updated.
 - **Messages are unchanged.** `song()` still prefixes them with `song: `.
 
 ### `song-header.ts`
@@ -98,7 +100,8 @@ The renamed `meta.ts`.
 - `readSongHeader(code): SongHeader`.
 - `headerRanges(code)`, unchanged.
 - `LINE_BREAK`, which `meta-write.ts` uses.
-- The types `Meta`, `MetaValue`, `MetaError` and `SongHeader`.
+- The types `Meta`, `MetaValue`, `MetaError` and `SongHeader`. `Meta` stays the type of
+  `EvaluatedSong.meta` in `job-plan.ts`.
 
 The result carries the formatted error texts, so no caller builds them.
 
@@ -110,8 +113,11 @@ become internal or disappear.
 - On success: `{ ok: true, meta, title, structure, options }`. `options` is what
   `runtime.evaluate` takes today from `evaluateOptions`.
 - On error: `{ ok: false, error, structure }`.
-  - `error` is `{ message, line, column, pos }`, plus the two formatted texts: `"msg (l:c)"`, and
-    `"meta: msg (l:c)"` as the planner, the session and the corpus show it today.
+  - `error` is `{ message, line, column, pos }` plus two formatted texts, so it offers three forms:
+    - `message` alone, as `corpus.ts` shows it today (`meta: ${message}`, no position; pinned in
+      `tests/render-corpus.test.ts`);
+    - `"msg (l:c)"`, the session's `metaError`, which `StatusBar.svelte` prefixes with `meta: `;
+    - `"meta: msg (l:c)"`, as `evaluateBuffer` and the planner show it.
   - `structure` is the default structure.
   - There are no options, so a caller cannot evaluate a song whose header is broken.
   - There is no title, as today, so callers fall back to the file name.
@@ -127,11 +133,33 @@ become internal or disappear.
   - per-field checks on every occurrence of a key;
   - range checks on earlier duplicate `loops` keys.
 - **It drops its cross-field block.** Once the per-field checks pass, it calls `buildStructure`
-  once. A `StructureError` becomes a `MetaError` at the last occurrence of `error.field`. The error
-  order is preserved: per-field checks run first, as today, and `buildStructure` checks loop, then
-  meter changes, then loops, the same order `readHeader` uses.
+  once and resolves the first error in today's order:
+  1. A `StructureError` on `loop` or `meterChanges` becomes a `MetaError` at that key's last
+     occurrence.
+  2. Otherwise, the earlier duplicate `loops` occurrences are range-checked in source order
+     (`loopsProblem(value, true)`, as today); the first failure is reported at its node. This runs
+     whether `buildStructure` threw on `loops` or succeeded.
+  3. Otherwise, a `StructureError` on `loops` becomes a `MetaError` at the last `loops` occurrence.
+
+  The per-field checks still run first. `buildStructure` checks loop, then meter changes, then
+  loops, the order `readHeader` uses today. Its bpm, meter and sections checks cannot fire once
+  the per-field checks pass, and the `meta` it gets is the same last-wins object `readHeader`
+  returns today.
 - **The structure from that call is the result's `structure`.** That removes the second
   `buildStructure` call and `staticStructure`'s catch.
+
+### Names (singletonized)
+
+- `type SongHeader = { ok: true; meta: Meta; title: string | undefined; structure: SongStructure;
+  options: EvaluateOptions } | { ok: false; error: MetaError; structure: SongStructure }`.
+- `title` is `meta.title` when it is a string, else `undefined`; callers keep `titleFrom` for the
+  file-name fallback.
+- `MetaError` keeps `message`, `pos`, `line` (1-based) and `column` (0-based), and gains two
+  getters: `located` (`"msg (l:c+1)"`) and `reported` (`"meta: " + located`).
+- The default structure is `buildStructure({})`, built once inside `song-header.ts`.
+- The session result is `SessionEvalOutcome = EvalOutcome & { errorKind: EvalErrorKind | null }`,
+  with `type EvalErrorKind = 'meta' | 'instruments' | 'eval'`, both exported from `session.ts`.
+  `errorKind` is `null` exactly when `ok` is true.
 
 ### Callers
 
@@ -141,10 +169,10 @@ become internal or disappear.
 | `session.ts` `evaluateSong` | `parseMeta` again, then `evaluateOptions` | `readSongHeader`: `options`, title |
 | `session.ts` `evaluateBuffer` | `"meta: " + metaError`, `error: string` only | the kind plus the same text (below) |
 | `session.ts:315` title only | `parseMeta(code).meta.title` | `readSongHeader(code)` title |
-| `render/job-plan.ts` | `parsedMeta`, `evaluateOptions`, `staticStructure` fallback | `readSongHeader`; a `PlanJobError('meta', …)` with the same text |
+| `render/job-plan.ts` | `parsedMeta`, `evaluateOptions`, `staticStructure` fallback | `readSongHeader`; a `PlanJobError('meta', …)` with the same text; `EvaluatedSong.meta` stays |
 | `editor/format-song.ts` | `parseMeta`, `staticStructure(meta).meter` | `readSongHeader`: structure meter, `ok` |
-| `project/meta-write.ts` | `parseMeta(...).error`, `.meta` | `readSongHeader` |
-| `render/corpus.ts` | `parseMeta`, plus its own `buildStructure` try/catch | `readSongHeader` |
+| `project/meta-write.ts` | `parseMeta(...).error`, `.meta` (twice in `setMetaValue`) | `readSongHeader`, `ok` and `meta` |
+| `render/corpus.ts` | `parseMeta`, plus its own `buildStructure` try/catch | `readSongHeader`; the catch goes; text stays `meta: ${message}`, no position |
 | `scripts/bench/scheduler.ts` | `parseMeta`, `staticStructure`, `evaluateOptions` | `readSongHeader` |
 
 `job-plan.ts` is the riskiest caller to get wrong. The engine jobs it produces must stay
@@ -159,8 +187,13 @@ byte-identical.
     error, then the runtime's `evalError`, then `'evaluate failed'`.
 - **`backing.ts`** maps `errorKind === 'meta'` to its `meta` outcome. Instruments and eval stay
   `eval`, as today. `META_PREFIX` goes.
-- **The control handler** builds the wire `EvalOutcome` explicitly: `evaluate` and the `state`
-  result's `evaluated` field. `errorKind` never reaches the socket.
+- **The kind** comes from the same expression as the text: `meta` when the song has a meta error,
+  else `instruments` when an instrument pin error is set, else `eval`. When the song is unknown or
+  unreadable there is no meta error, so the kind is `instruments` or `eval`.
+- **The control handler** maps the session result to the wire `EvalOutcome` field by field in
+  `evaluateGuarded`, the single choke point for the `evaluate`, `code set` (`CodeSetResult.evaluated`)
+  and play paths. `errorKind` never reaches the socket. Nothing else forwards the session result;
+  `backing.ts` is the only other consumer.
 
 ### Tests (replace, don't layer)
 
@@ -174,18 +207,37 @@ byte-identical.
   into the table above.
 - **`tests/structure.test.ts`** keeps the cases on the evaluated object. It gains assertions on
   `StructureError.field`.
-- **Updated** for the new import and result shape: `tests/meta-write.test.ts`,
-  `render-corpus.test.ts`, `render-job-plan.test.ts`, `runtime-backends.test.ts`, the session and
-  backing tests, and `control-handler.test.ts` (no `errorKind` on the wire).
+- **Moved to `readSongHeader`:** `tests/meta-write.test.ts`, `render-corpus.test.ts`,
+  `render-job-plan.test.ts` and `runtime-backends.test.ts`, which call `parseMeta`,
+  `staticStructure` or `evaluateOptions` directly today.
+- **`tests/session.test.ts`** asserts `errorKind` from `evaluateBuffer` for each kind, and keeps
+  its text assertions.
+- **`tests/control-handler.test.ts`** asserts the exact key set of the `evaluate` and `code set`
+  results (`toEqual` or `Object.keys`), because its `toMatchObject` checks would not catch a leak.
+- **Unchanged, run as regression gates:** `tests/format-song*.test.ts`,
+  `tests/format-script*.test.ts`, `tests/host-entry.test.ts` (the host's `meta: ` text),
+  `tests/app.test.ts`, and `tests/recording-controller.test.ts` (its `meta` kind comes from a
+  controller-level fake).
 - **`recording-backing.test.ts`** asserts the outcome kind from `errorKind`, including an
   instrument-pin failure.
 
+### Docs
+
+`AGENTS.md` names `meta.ts` ("static `meta` header parse") in the layout section. Update it to
+`song-header.ts` and `readSongHeader`. No other doc names these files.
+
 ### Regeneration (AGENTS.md)
 
-- `job-plan.ts` is a planner file, and `meta.ts` and `evaluate-options.ts` are bundled into the
-  headless host. Run `bun run host:build`, `bun run engine:refs --write` and `bun run host:parity`.
-  - The provenance hashes change.
-  - The jobs must come out byte-identical. Any change to job bytes is a bug.
+- `job-plan.ts` is in `PLANNER_FILES` (`scripts/engine/provenance.ts`), and `meta.ts`,
+  `evaluate-options.ts`, `structure.ts` and `runtime.ts` are bundled into the headless host. The
+  host build hashes whatever it bundles, so the rename needs no config change. `song-header.ts` is
+  not added to `PLANNER_FILES` (`tests/engine-provenance.test.ts` pins that list).
+- **Every commit keeps `bun test` green.** The host-bundle staleness test fails as soon as a
+  bundled file changes, so each commit that touches a bundled file runs `bun run host:build` and
+  commits the regenerated `host.js` and `host.inputs.json` with it. The commit that edits
+  `job-plan.ts` also runs `bun run engine:refs --write`, because the refs hash that file.
+- **Testing stage:** `bun run host:parity` and `bun run host:parity --batch` (required after a
+  `job-plan.ts` edit). The jobs must come out byte-identical; any change to job bytes is a bug.
 - **Full gate:** `bun test`, `bun run check`, `bun run lint`, `bun run build`, and
   `cargo test --workspace` (the refs staleness test).
 
@@ -199,14 +251,17 @@ byte-identical.
 
 - **Error order or position drift.** The parsed path now gets its cross-field errors from
   `buildStructure`. A header with several problems must still report the same first one, at the
-  same node. The table tests pin first-error cases with combined faults, and the pairing test pins
-  the messages.
+  same node. The table tests pin first-error cases with combined faults, including these two:
+  `{ sections: [{ name: 'a', bars: 1 }], loop: { from: 'x', through: 'a' }, loops: 0, loops: 2 }`
+  (the loop error wins) and `{ loops: 0, loops: 2 }` (the first `loops` range error wins). The
+  pairing test pins the messages.
 - **The duplicate `loops` key semantics.** Earlier occurrences are only range-checked; the last one
   is checked against the loop. `buildStructure` sees only the last value, so the
   earlier-occurrence check stays in the reader. Pin it with a test.
 - **Planner byte drift.** Guarded by `host:parity` and the engine refs.
-- **Hot path.** `derive` runs on every keystroke. The new path calls `buildStructure` once instead
-  of twice, so it costs no more.
+- **Hot path.** `derive` runs on every keystroke. It now calls `buildStructure` once instead of
+  twice. `evaluateSong` and `setMetaValue` cost the same or less: one `readSongHeader` where they
+  used `parseMeta` plus one or two `buildStructure` calls.
 
 ## Complexity
 
@@ -216,8 +271,8 @@ and the Loss check is light.
 
 ## Decisions from planning Q&A
 
-1. **Scope:** cross-field rules, the song header module and the typed error kind, in three commits
-   in that order, plus the rename in decision 10.
+1. **Scope:** the rename (decision 10), then cross-field rules, the song header module and the
+   typed error kind: four commits in that order.
 2. **Visible behaviour:** every message, position and wire text stays byte-identical.
 3. **Regeneration:** `host:build`, `engine:refs --write` and `host:parity` are accepted. A change
    to job bytes is a bug.
