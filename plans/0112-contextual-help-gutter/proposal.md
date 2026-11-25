@@ -1,5 +1,7 @@
 # Contextual help for Strudeland controls
 
+Implemented for [PR #27](https://github.com/rudoi/strudeland/pull/27). The [implementation log](implementation-log.md) records the delivered behavior and verification.
+
 ## Goal
 
 Make the consequence of an action legible before the user takes it. A single Help area for the active view answers what the control does, what it affects, and, when relevant, why it is unavailable. Hover and keyboard focus surface the same explanation. Start with the piano roll, where a user can edit a single use of a pattern or switch to the definition that other uses share.
