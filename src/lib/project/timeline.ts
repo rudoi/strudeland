@@ -1,4 +1,5 @@
-/** Pure helpers behind `Timeline.svelte`: layout and input validation. */
+/** Pure helpers behind `Timeline.svelte`: layout, section-item help and input validation. */
+import type { StopTarget } from '../play-arbiter';
 import {
   authoredLoop,
   barsProblem,
@@ -221,4 +222,42 @@ export function commitInput(
   if (now !== seen) return { outcome: { kind: 'stale' }, seen: now };
   if (!editor.applyMeta(r.path, r.value, seen)) return { outcome: { kind: 'refused' }, seen };
   return { outcome: { kind: 'applied' }, seen: editor.activeText() ?? '' };
+}
+
+/** A section item's help for each case: see `sectionItemHelp`. */
+export interface SectionItemTexts {
+  /** The choice does not resolve against the evaluated song. */
+  stale: string;
+  /** The song plays: a click arms for the next bar line. */
+  started: string;
+  /** A take runs without song backing: a click arms for the next play. */
+  taking: string;
+  /** Stopped: a click arms and plays. */
+  stopped: string;
+}
+
+/** What a section item's help reads from the play arbiter and the runtime. */
+export interface SectionItemPlay {
+  canPlayFrom: boolean;
+  stopTarget: StopTarget | null;
+  /** The runtime is started. */
+  started: boolean;
+  /** A take runs. */
+  taking: boolean;
+}
+
+/**
+ * A section item's help: re-evaluate when the choice does not resolve, else wait for the take's or
+ * the memo's song backing (`!canPlayFrom`), else what a click does now.
+ */
+export function sectionItemHelp(
+  resolves: boolean,
+  play: SectionItemPlay,
+  text: SectionItemTexts,
+): string {
+  if (!resolves) return text.stale;
+  if (!play.canPlayFrom) {
+    return play.stopTarget === 'take' ? 'Stop the take first.' : 'Stop the memo first.';
+  }
+  return play.started ? text.started : play.taking ? text.taking : text.stopped;
 }

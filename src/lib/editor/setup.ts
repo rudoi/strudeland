@@ -22,21 +22,25 @@ export const SETTINGS = {
   isFlashEnabled: true,
 } as const;
 
-/** Cmd-Enter: run `evaluate`, then flash. Not awaited: CodeMirror commands are sync. */
-export const evaluateCommand = (evaluate: (view: EditorView) => void) => (view: EditorView) => {
-  evaluate(view);
-  flash(view);
-  return true;
-};
+/**
+ * Cmd-Enter: run `evaluate`, then flash unless it returned exactly `false` (it did not run). Not
+ * awaited: CodeMirror commands are sync.
+ */
+export const evaluateCommand =
+  (evaluate: (view: EditorView) => boolean | void) => (view: EditorView) => {
+    if (evaluate(view) !== false) flash(view);
+    return true;
+  };
 
 /** Evaluate the whole document through the runtime and start playing. */
 export const runtimeEvaluate = (runtime: Runtime) => (view: EditorView) => {
   void runtime.evaluate(view.state.doc.toString());
 };
 
-/** Cmd-.: stop. */
-export const stopCommand = (runtime: Runtime) => () => {
-  runtime.stop();
+/** Cmd-.: `onStop` when given, else stop the runtime. */
+export const stopCommand = (runtime: Runtime, onStop?: () => void) => () => {
+  if (onStop) onStop();
+  else runtime.stop();
   return true;
 };
 
@@ -44,8 +48,13 @@ export const stopCommand = (runtime: Runtime) => () => {
 export interface EditorHooks {
   /** Mod-s. */
   onSave?: () => void;
-  /** Mod-Enter / Ctrl-Enter, in place of evaluating the document directly. */
-  onEvaluate?: () => void;
+  /**
+   * Mod-Enter / Ctrl-Enter, in place of evaluating the document directly. The editor flashes
+   * unless it returns exactly `false` (the evaluate did not run).
+   */
+  onEvaluate?: () => boolean | void;
+  /** Mod-. / Ctrl-., in place of stopping the runtime directly. */
+  onStop?: () => void;
   /** Any transaction that changes the document. */
   onDocChange?: () => void;
   /** The active editor's document or selection changed. */
@@ -92,7 +101,7 @@ export function setKeymap(view: EditorView, vim: boolean): boolean {
 export function strudelKeymap(runtime: Runtime, hooks?: EditorHooks): Extension {
   const onEvaluate = hooks?.onEvaluate;
   const evaluate = evaluateCommand(onEvaluate ? () => onEvaluate() : runtimeEvaluate(runtime));
-  const stop = stopCommand(runtime);
+  const stop = stopCommand(runtime, hooks?.onStop);
   const onSave = hooks?.onSave;
   return Prec.highest(
     keymap.of([

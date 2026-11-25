@@ -12,8 +12,8 @@
     type ToggleKey,
   } from '../lib/recording/memo-ui';
   import type { RecordingUiState } from '../lib/recording/types';
+  import type { PlayArbiter } from '../lib/play-arbiter';
   import type { Session } from '../lib/project/session';
-  import type { Memos } from '../lib/recording/memos';
   import Button from './ui/Button.svelte';
   import Dot from './ui/Dot.svelte';
   import DevicePicker from './DevicePicker.svelte';
@@ -21,12 +21,12 @@
   let {
     recording,
     session,
-    memos,
+    arbiter,
   }: {
     recording: RecordingController | undefined;
     session: Session;
-    /** A playing memo stops before a take starts. */
-    memos?: Memos;
+    /** Starts a take: a playing memo stops first. */
+    arbiter: PlayArbiter;
   } = $props();
 
   // Both are constant for the window's lifetime, so reading them once is correct.
@@ -69,9 +69,8 @@
   function click() {
     if (!recording) return;
     if (btn.action === 'record') {
-      memos?.stopPlayback();
-      void recording.record(effectiveBacking($choice, hasSong));
-    } else if (btn.action === 'stop') void recording.stop();
+      void arbiter.record(effectiveBacking($choice, hasSong));
+    } else if (btn.action === 'stop') void arbiter.stop();
   }
 
   function flip(key: ToggleKey) {

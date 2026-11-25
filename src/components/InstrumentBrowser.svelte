@@ -1,10 +1,8 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { readable } from 'svelte/store';
   import type { App } from '../lib/app';
   import { errorMessage } from '../lib/errors';
   import { createInstrumentBrowser } from '../lib/project/instrument-browser';
-  import { takeRunning } from '../lib/recording/memo-ui';
   import Button from './ui/Button.svelte';
   import Field from './ui/Field.svelte';
   import Help from './ui/Help.svelte';
@@ -26,15 +24,11 @@
     createInstrumentBrowser(app.instruments, root, app.instrumentPreview.stop),
   );
   const catalog = browser.store;
-  const { instrumentPreview, runtime, recording, memos } = untrack(() => app);
+  const { instrumentPreview, arbiter } = untrack(() => app);
   const audio = instrumentPreview.store;
-  const rt = runtime.store;
-  const rec = recording?.store ?? readable(null);
-  const memo = memos?.player ?? readable(null);
-  const playing = $derived(
-    $rt.started || $memo?.status === 'playing' || $memo?.status === 'loading',
-  );
-  const taking = $derived(takeRunning($rec?.phase ?? null));
+  const play = arbiter.store;
+  const playing = $derived($play.started || $play.memoAudible);
+  const taking = $derived($play.taking);
   const busy = $derived(playing || taking);
   const busyHelp = $derived(
     playing && taking

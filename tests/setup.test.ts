@@ -6,7 +6,9 @@ afterAll(() => GlobalRegistrator.unregister());
 
 const { createEditor, evaluateCommand, runtimeEvaluate, stopCommand } =
   await import('../src/lib/editor/setup');
+const { keymap } = await import('@codemirror/view');
 import type { Runtime } from '../src/lib/strudel/runtime';
+import { countDispatches } from './helpers/dispatches';
 
 function fakeRuntime() {
   const calls: string[] = [];
@@ -56,6 +58,33 @@ test('evaluateCommand runs the given action, then reports handled', () => {
   const ran: string[] = [];
   expect(evaluateCommand((v) => void ran.push(v.state.doc.toString()))(view)).toBe(true);
   expect(ran).toEqual(['x']);
+  view.destroy();
+});
+
+test('evaluateCommand flashes unless the action returns exactly false', () => {
+  const { runtime } = fakeRuntime();
+  const view = createEditor(document.body, 'x', runtime);
+  // `flash` dispatches the highlight at once.
+  expect(countDispatches(view, () => evaluateCommand(() => false)(view))).toBe(0);
+  expect(countDispatches(view, () => evaluateCommand(() => true)(view))).toBe(1);
+  expect(countDispatches(view, () => evaluateCommand(() => {})(view))).toBe(1);
+  expect(evaluateCommand(() => false)(view)).toBe(true);
+  view.destroy();
+});
+
+test('Mod-. and Ctrl-. call onStop when given, in place of the runtime', () => {
+  const { calls, runtime } = fakeRuntime();
+  const stops: string[] = [];
+  const view = createEditor(document.body, 'x', runtime, { onStop: () => void stops.push('s') });
+  const keys = view.state.facet(keymap).flat();
+  for (const key of ['Mod-.', 'Ctrl-.']) {
+    expect(keys.find((b) => b.key === key)!.run!(view)).toBe(true);
+  }
+  expect(stops).toEqual(['s', 's']);
+  expect(calls).toEqual([]);
+  expect(stopCommand(runtime, () => void stops.push('t'))()).toBe(true);
+  expect(stops).toEqual(['s', 's', 't']);
+  expect(calls).toEqual([]);
   view.destroy();
 });
 

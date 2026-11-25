@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { readable } from 'svelte/store';
   import type { App } from '../lib/app';
+  import type { ArmChoice } from '../lib/project/song-playback';
   import {
     blockPlayhead,
     commitInput,
@@ -14,10 +14,10 @@
     playheadPct,
     rulerBars,
     rulerMarks,
+    sectionItemHelp,
     type InputField,
+    type SectionItemTexts,
   } from '../lib/project/timeline';
-  import { takeRunning } from '../lib/recording/memo-ui';
-  import type { RecordingUiState } from '../lib/recording/types';
   import { authoredLoop, meterString } from '../lib/strudel/structure';
   import { canPlayEnding, type Located } from '../lib/strudel/transport';
   import { catOf } from '../lib/theme/tones';
@@ -31,14 +31,26 @@
   let { app }: { app: App } = $props();
   // `app` is constant for the window's lifetime, so reading it once is correct.
   // svelte-ignore state_referenced_locally
-  const { runtime, session, recording } = app;
+  const { runtime, session, arbiter } = app;
   const rt = runtime.store;
   const ss = session.store;
   const playback = session.playback;
   const pb = playback.store;
   const canArm = playback.canArm;
-  const rec = recording?.store ?? readable<RecordingUiState | null>(null);
-  const taking = $derived(takeRunning($rec?.phase ?? null));
+  const play = arbiter.store;
+  /** A section item's help: re-evaluate, else wait for the backing, else what a click does now. */
+  function itemHelp(resolves: boolean, text: SectionItemTexts): string {
+    return sectionItemHelp(
+      resolves,
+      {
+        canPlayFrom: $play.canPlayFrom,
+        stopTarget: $play.stopTarget,
+        started: $rt.started,
+        taking: $play.taking,
+      },
+      text,
+    );
+  }
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
   const structure = $derived(editableStructure($ss));
@@ -108,9 +120,9 @@
     choosingEnd = false;
   }
   /** Start here or loop (through a later section); while stopped, also evaluate so it starts. */
-  function playFrom(choice: Parameters<App['playFrom']>[0]) {
+  function playFrom(choice: ArmChoice) {
     menuFor = null;
-    app.playFrom(choice);
+    arbiter.playFrom(choice);
   }
   function stopLooping() {
     menuFor = null;
@@ -212,14 +224,15 @@
                         {@const range = $canArm({ loop: sec.name, through: end.name })}
                         <MenuItem
                           data-range-focus=""
-                          disabled={!range}
-                          help={!range
-                            ? 'Re-evaluate the song to use this section range.'
-                            : $rt.started
-                              ? 'Repeat through the selected end, starting at the next available bar line.'
-                              : taking
-                                ? 'Set this section range to repeat the next time the song plays.'
-                                : 'Start playback and repeat through the selected end.'}
+                          disabled={!range || !$play.canPlayFrom}
+                          help={itemHelp(range, {
+                            stale: 'Re-evaluate the song to use this section range.',
+                            started:
+                              'Repeat through the selected end, starting at the next available bar line.',
+                            taking:
+                              'Set this section range to repeat the next time the song plays.',
+                            stopped: 'Start playback and repeat through the selected end.',
+                          })}
                           onclick={() => playFrom({ loop: sec.name, through: end.name })}
                         >
                           through {end.name}
@@ -228,27 +241,25 @@
                     {:else}
                       {@const target = $canArm({ start: sec.name })}
                       <MenuItem
-                        disabled={!target}
-                        help={!target
-                          ? 'Re-evaluate the song to play this section.'
-                          : $rt.started
-                            ? 'Jump to this section at the next available bar line.'
-                            : taking
-                              ? 'Set this section as the starting point for the next play.'
-                              : 'Start song playback at the first bar of this section.'}
+                        disabled={!target || !$play.canPlayFrom}
+                        help={itemHelp(target, {
+                          stale: 'Re-evaluate the song to play this section.',
+                          started: 'Jump to this section at the next available bar line.',
+                          taking: 'Set this section as the starting point for the next play.',
+                          stopped: 'Start song playback at the first bar of this section.',
+                        })}
                         onclick={() => playFrom({ start: sec.name })}
                       >
                         start here
                       </MenuItem>
                       <MenuItem
-                        disabled={!$canArm({ loop: sec.name })}
-                        help={!$canArm({ loop: sec.name })
-                          ? 'Re-evaluate the song to loop this section.'
-                          : $rt.started
-                            ? 'Repeat this section starting at the next available bar line.'
-                            : taking
-                              ? 'Set this section to repeat the next time the song plays.'
-                              : 'Start playback and repeat this section.'}
+                        disabled={!$canArm({ loop: sec.name }) || !$play.canPlayFrom}
+                        help={itemHelp($canArm({ loop: sec.name }), {
+                          stale: 'Re-evaluate the song to loop this section.',
+                          started: 'Repeat this section starting at the next available bar line.',
+                          taking: 'Set this section to repeat the next time the song plays.',
+                          stopped: 'Start playback and repeat this section.',
+                        })}
                         onclick={() => playFrom({ loop: sec.name })}
                       >
                         loop this section

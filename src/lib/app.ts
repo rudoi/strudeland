@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { EditorView } from '@codemirror/view';
-import { get, writable, type Readable, type Writable } from 'svelte/store';
+import { writable, type Readable, type Writable } from 'svelte/store';
 import type { AudioGraph } from './audio/backend';
 import { createInstrumentPreview } from './audio/instrument-preview';
 import { createMemoPlayer } from './audio/memo-player';
@@ -21,15 +21,14 @@ import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
 import { createPrefs, type PrefsStore } from './prefs/store';
 import { createTauriProjectApi, type InstrumentBrowserApi, type ProjectApi } from './project/api';
 import { createSession, errorMessage, windowTitle, type Session } from './project/session';
-import type { ArmChoice } from './project/song-playback';
 import { createTauriRecordingApi, type RecordingApi } from './recording/api';
 import { createBackingStarter } from './recording/backing';
 import { createRecordingController, type RecordingController } from './recording/controller';
-import { takeRunning } from './recording/memo-ui';
 import { captureAuditionSynths, createNoteAuditionPlayer } from './audio/note-audition';
 import { createAuditionQueue } from './editor/note-audition-queue';
 import { createMemos, type Memos } from './recording/memos';
 import { loadLimiter, saveLimiter } from './audio/limiter-pref';
+import { createPlayArbiter, type PlayArbiter } from './play-arbiter';
 import { createScopeClock, type ScopeClock } from './scope/clock';
 import { prebake } from './strudel/prebake';
 import { createRuntime, type Runtime } from './strudel/runtime';
@@ -60,6 +59,8 @@ export interface App {
   recording?: RecordingController;
   /** The open project's memos and their playback; unset like `recording`. */
   memos?: Memos;
+  /** What play, stop, section arming and record mean while a song, memo, take or audition sounds. */
+  arbiter: PlayArbiter;
   /** App preferences; the one frontend copy of each pref. */
   prefs: PrefsStore;
   /** The shown view's vim mode; `null` while vim is off. */
@@ -72,17 +73,6 @@ export interface App {
   attachView(view: EditorView | undefined): void;
   /** Unlock preview audio on a gesture in the editor. */
   prepareNoteAudition(target: EventTarget | null): boolean;
-  /**
-   * Save and evaluate the active song (the toolbar's play and Cmd-Enter); stops a playing memo
-   * first. Does nothing while a take runs: play and stop belong to it.
-   */
-  evaluateDoc(): void;
-  /**
-   * Arm a section of the active song (start there or loop it) and, while stopped, evaluate so it
-   * starts there (as `evaluateDoc`: nothing more during a take). Nothing when the choice does not
-   * resolve. Call from the user gesture: nothing awaits before the evaluate.
-   */
-  playFrom(choice: ArmChoice): void;
   /**
    * Restore vim's `:w`, stop listening for control requests and prefs, dispose of the scope clock, stop memo playback and the
    * recording controller (the component is destroyed, or HMR replaced it). Idempotent.
@@ -135,11 +125,9 @@ export function createApp(
   });
   let recording: RecordingController | undefined;
   let memos: Memos | undefined;
-  let playRequests = 0;
-  let takeActive = false;
-  let memoActive = false;
-  const auditionsAvailable = () =>
-    playRequests === 0 && runtime.canAudition() && !takeActive && !memoActive;
+  // Built once the session and the recording exist; nothing reads it before.
+  let arbiter!: PlayArbiter;
+  const auditionsAvailable = () => arbiter.auditionsAvailable();
   const canAudition = () => Boolean(view) && prefs.auditionNotes() && auditionsAvailable();
   const auditionGraph = () => superdough.graph?.() ?? null;
   const player = createNoteAuditionPlayer({ graph: auditionGraph });
@@ -175,20 +163,10 @@ export function createApp(
     audition.stop();
     instrumentPreview.stop();
   }
-  function evaluateDoc(): void {
-    if (takeActive) return;
-    stopAuditions();
-    playRequests++;
-    memos?.stopPlayback();
-    void session.saveAndEvaluate().finally(() => playRequests--);
-  }
-  function playFrom(choice: ArmChoice): void {
-    const { started } = get(session.playback.store);
-    if (session.playback.arm(choice) && !started) evaluateDoc();
-  }
   const hooks: EditorHooks = {
     onSave: () => void session.save(),
-    onEvaluate: evaluateDoc,
+    onEvaluate: () => arbiter.play(),
+    onStop: () => void arbiter.stop(),
     onDocChange: () => session.docChanged(),
     onSelectionChange(selected) {
       stopPianoRollAudition();
@@ -229,14 +207,7 @@ export function createApp(
   if (recordingApi) {
     ({ recording, memos } = createRecording(recordingApi, superdough, runtime, session, api));
   }
-  const unrecording = recording?.store.subscribe(({ phase }) => {
-    takeActive = takeRunning(phase);
-    if (takeActive) stopAuditions();
-  });
-  const unmemo = memos?.player.subscribe(({ status }) => {
-    memoActive = status === 'loading' || status === 'playing';
-    if (memoActive) stopAuditions();
-  });
+  arbiter = createPlayArbiter({ session, runtime, recording, memos, stopAuditions });
   if (inTauri()) syncWindowTitle(session, api);
   const control = writable<ControlInfo>({ status: 'off', path: null, detail: null });
   const detach = controlApi
@@ -246,11 +217,7 @@ export function createApp(
           session,
           runtime,
           vim: prefs.vim,
-          playback: {
-            taking: () => takeActive,
-            stopMemo: () => memos?.stopPlayback(),
-            stopTake: () => recording?.stop() ?? Promise.resolve(),
-          },
+          arbiter,
         }),
         control,
       )
@@ -305,16 +272,14 @@ export function createApp(
       void runtime.prepareAudition();
       return true;
     },
-    evaluateDoc,
-    playFrom,
     scopeClock,
     recording,
     memos,
+    arbiter,
     destroy() {
       rollInspection.request(null);
       stopAuditions();
-      unrecording?.();
-      unmemo?.();
+      arbiter.destroy();
       if (unprefs) {
         restoreVimWrite();
         unprefs();

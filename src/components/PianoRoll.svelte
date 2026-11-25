@@ -1,10 +1,8 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
-  import { readable } from 'svelte/store';
   import { helpTarget, resetHelp } from '../lib/help/targets';
   import type { App } from '../lib/app';
   import type { PianoRollSnapshot } from '../lib/project/session';
-  import { takeRunning } from '../lib/recording/memo-ui';
   import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
   import {
     planRollEdit,
@@ -33,13 +31,13 @@
 
   let { app }: { app: App } = $props();
   // svelte-ignore state_referenced_locally
-  const { session, runtime, rollInspection, scopeClock, recording } = app;
+  const { session, runtime, rollInspection, scopeClock, arbiter } = app;
   const song = session.store;
   const playback = session.playback.store;
   const transport = runtime.store;
   const revisions = session.pianoRollRevision;
   const inspected = rollInspection.store;
-  const recorder = recording?.store ?? readable(null);
+  const play = arbiter.store;
   const windowBars = 4;
   const emptyNotes: readonly RollNote[] = [];
   const activePath = $derived($song.active);
@@ -267,7 +265,7 @@
     if (mode !== 'song' || !matchesLive || !$playback.started) return;
     const arranged = Boolean($transport.structure?.sections.length);
     // The recorder's unsectioned backing can start one cycle after the transport.
-    if (!arranged && takeRunning($recorder?.phase ?? null)) return;
+    if (!arranged && $play.taking) return;
     return scopeClock.subscribe((_, running) => {
       if (!running) {
         playhead = undefined;
