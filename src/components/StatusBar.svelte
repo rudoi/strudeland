@@ -170,12 +170,16 @@
 <style>
   footer {
     display: flex;
-    gap: var(--space-3);
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
     align-items: center;
     min-height: var(--statusbar-h);
     padding: var(--space-2) var(--space-3);
     background-color: var(--surface);
     border-top: 1px solid var(--border);
+  }
+  .hint {
+    white-space: nowrap;
   }
   .audition {
     display: inline-flex;

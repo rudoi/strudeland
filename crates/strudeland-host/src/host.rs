@@ -7,8 +7,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
+use strudeland_project::InstrumentSnapshot;
 
 use crate::engine::{self, Arg, Session};
+use crate::inspection::{InspectionRequest, InspectionResult, MAX_ERROR_BYTES, MAX_RESULT_BYTES};
 use crate::{HostError, Layout, PlannedRender, RenderPlanRequest, RenderRequest, natives};
 
 /// The worker thread's stack: deep enough for the transpiler on large songs.
@@ -58,6 +60,12 @@ enum Work {
         to: f64,
         layout: Layout,
         reply: Reply<String>,
+    },
+    Inspect {
+        code: String,
+        request_json: String,
+        timeout: Duration,
+        reply: Reply<InspectionResult>,
     },
     Eval {
         source: String,
@@ -170,6 +178,24 @@ impl Host {
             from,
             to,
             layout,
+            reply,
+        })
+    }
+
+    /// Observes pitched notes with exact spans and source locations. Inspection always runs
+    /// with a deadline in a fresh isolate and leaves the normal render query unchanged.
+    pub fn inspect(
+        &self,
+        code: &str,
+        request: &InspectionRequest,
+        instruments: &InstrumentSnapshot,
+        timeout: Duration,
+    ) -> Result<InspectionResult, HostError> {
+        let request_json = request.json(code, instruments)?;
+        self.send(|reply| Work::Inspect {
+            code: code.to_string(),
+            request_json,
+            timeout,
             reply,
         })
     }
@@ -347,6 +373,33 @@ fn serve(work: Work) {
                 )?;
                 engine.drain_microtasks()?;
                 read_slot(&engine.eval_script(READ_SLOT)?)
+            });
+            let _ = reply.send(result);
+        }
+        Work::Inspect {
+            code,
+            request_json,
+            timeout,
+            reply,
+        } => {
+            // Preview errors are returned to the editor. Keep native console logging off
+            // so a song's logs also avoid large strings crossing the isolate boundary.
+            let result = engine::with_context(false, false, Some(timeout), |engine| {
+                engine.limit_text(MAX_ERROR_BYTES, MAX_ERROR_BYTES);
+                load_bundle(engine, start)?;
+                engine.call_global(
+                    "strudelandHost",
+                    "inspect",
+                    &[Arg::Str(&code), Arg::Str(&request_json)],
+                )?;
+                engine.drain_microtasks()?;
+                read_slot(&engine.eval_script(READ_SLOT)?)?;
+                engine.limit_text(MAX_RESULT_BYTES, MAX_ERROR_BYTES);
+                let result = engine
+                    .read_global_string("__strudelandInspection")?
+                    .ok_or_else(|| HostError::Runtime("inspection settled without notes".into()))?;
+                serde_json::from_str(&result)
+                    .map_err(|_| HostError::Runtime("malformed piano roll result".into()))
             });
             let _ = reply.send(result);
         }

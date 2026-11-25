@@ -5,6 +5,19 @@ import { fakePrefsApi } from './helpers/fake-prefs-api';
 import { flush } from './helpers/fake-project-api';
 
 describe('prefs store', () => {
+  it('keeps a piano roll toggle made before saved preferences arrive', async () => {
+    const api = fakePrefsApi({ vim: true });
+    const gate = api.deferGet();
+    const prefs = createPrefs(api);
+    const loaded = prefs.load();
+    const saved = prefs.setPianoRollOpen(true);
+    expect(get(prefs.store).pianoRollOpen).toBe(true);
+    gate.resolve();
+    await Promise.all([loaded, saved]);
+    expect(get(prefs.store)).toMatchObject({ pianoRollOpen: true, vim: true });
+    expect(api.saved[0]).toMatchObject({ pianoRollOpen: true, vim: true });
+  });
+
   it('starts with the defaults', () => {
     const p = createPrefs(fakePrefsApi());
     expect(p.vim()).toBe(false);
@@ -14,12 +27,15 @@ describe('prefs store', () => {
       vim: false,
       auditionNotes: false,
       formatOnSave: false,
+      pianoRollOpen: false,
       error: null,
     });
   });
 
   it('loads from the api', async () => {
-    const p = createPrefs(fakePrefsApi({ vim: true, auditionNotes: true, formatOnSave: true }));
+    const p = createPrefs(
+      fakePrefsApi({ vim: true, auditionNotes: true, formatOnSave: true, pianoRollOpen: false }),
+    );
     await p.load();
     expect(p.vim()).toBe(true);
     expect(p.auditionNotes()).toBe(true);
@@ -28,6 +44,7 @@ describe('prefs store', () => {
       vim: true,
       auditionNotes: true,
       formatOnSave: true,
+      pianoRollOpen: false,
       error: null,
     });
   });
@@ -60,7 +77,9 @@ describe('prefs store', () => {
     api.failGet = false;
     await p.setAuditionNotes(true);
     expect(p.vim()).toBe(true);
-    expect(api.saved).toEqual([{ vim: true, auditionNotes: true, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+    ]);
   });
 
   it('retries a failed startup load that a pending save was waiting on', async () => {
@@ -84,7 +103,9 @@ describe('prefs store', () => {
     } finally {
       log.mockRestore();
     }
-    expect(api.saved).toEqual([{ vim: true, auditionNotes: true, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+    ]);
     expect(get(p.store).error).toBeNull();
   });
 
@@ -100,16 +121,20 @@ describe('prefs store', () => {
       vim: false,
       auditionNotes: true,
       formatOnSave: false,
+      pianoRollOpen: false,
       error: 'read failed',
     });
 
     api.failGet = false;
     await p.setVim(false);
-    expect(api.saved).toEqual([{ vim: false, auditionNotes: true, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: false, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+    ]);
     expect(get(p.store)).toEqual({
       vim: false,
       auditionNotes: true,
       formatOnSave: false,
+      pianoRollOpen: false,
       error: null,
     });
   });
@@ -120,7 +145,9 @@ describe('prefs store', () => {
     const done = p.setVim(true);
     expect(p.vim()).toBe(true);
     await done;
-    expect(api.saved).toEqual([{ vim: true, auditionNotes: false, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+    ]);
   });
 
   it('setting audition before an explicit load retains the saved Vim preference', async () => {
@@ -130,7 +157,9 @@ describe('prefs store', () => {
     expect(p.auditionNotes()).toBe(true);
     await done;
     expect(p.vim()).toBe(true);
-    expect(api.saved).toEqual([{ vim: true, auditionNotes: true, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+    ]);
     const reopened = createPrefs(api);
     await reopened.load();
     expect(reopened.auditionNotes()).toBe(true);
@@ -146,11 +175,18 @@ describe('prefs store', () => {
     api.failSet = false;
     await p.setVim(false);
     expect(get(p.store).error).toBeNull();
-    expect(api.saved).toEqual([{ vim: false, auditionNotes: false, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: false, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+    ]);
   });
 
   it('keeps both edits while loading and writes them in order once the saved prefs are known', async () => {
-    const api = fakePrefsApi({ vim: true, auditionNotes: true, formatOnSave: false });
+    const api = fakePrefsApi({
+      vim: true,
+      auditionNotes: true,
+      formatOnSave: false,
+      pianoRollOpen: false,
+    });
     const gate = api.deferGet();
     const p = createPrefs(api);
     const loading = p.load();
@@ -164,12 +200,13 @@ describe('prefs store', () => {
       vim: false,
       auditionNotes: false,
       formatOnSave: false,
+      pianoRollOpen: false,
       error: null,
     });
     await Promise.all([vimSave, auditionSave]);
     expect(api.saved).toEqual([
-      { vim: false, auditionNotes: true, formatOnSave: false },
-      { vim: false, auditionNotes: false, formatOnSave: false },
+      { vim: false, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      { vim: false, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
     ]);
   });
 
@@ -188,7 +225,12 @@ describe('prefs store', () => {
     const b = p.setVim(false);
     await Promise.all([a, b]);
     expect(order).toEqual([true, false]);
-    expect(api.saved.at(-1)).toEqual({ vim: false, auditionNotes: false, formatOnSave: false });
+    expect(api.saved.at(-1)).toEqual({
+      vim: false,
+      auditionNotes: false,
+      formatOnSave: false,
+      pianoRollOpen: false,
+    });
   });
 
   it('saves alternating toggles as complete ordered snapshots after hydration', async () => {
@@ -211,14 +253,15 @@ describe('prefs store', () => {
     gate.resolve();
     await Promise.all([loading, enableFormat, disableVim, disableFormat]);
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: true, formatOnSave: true },
-      { vim: false, auditionNotes: true, formatOnSave: true },
-      { vim: false, auditionNotes: true, formatOnSave: false },
+      { vim: true, auditionNotes: true, formatOnSave: true, pianoRollOpen: false },
+      { vim: false, auditionNotes: true, formatOnSave: true, pianoRollOpen: false },
+      { vim: false, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
     ]);
     expect(get(p.store)).toEqual({
       vim: false,
       auditionNotes: true,
       formatOnSave: false,
+      pianoRollOpen: false,
       error: null,
     });
   });
@@ -231,6 +274,8 @@ describe('prefs store', () => {
     const a = p.setVim(true);
     const b = p.setAuditionNotes(true);
     await Promise.all([a, b]);
-    expect(api.saved).toEqual([{ vim: true, auditionNotes: true, formatOnSave: false }]);
+    expect(api.saved).toEqual([
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+    ]);
   });
 });

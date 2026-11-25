@@ -4441,6 +4441,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strudeland-ctl",
+ "strudeland-host",
  "strudeland-live",
  "strudeland-project",
  "strudeland-record",

@@ -1,5 +1,5 @@
 /**
- * The headless host's entry: `globalThis.strudelandHost = { planJob, planRender, query }`,
+ * The headless host's entry: `globalThis.strudelandHost = { planJob, planRender, query, inspect }`,
  * bundled into `crates/strudeland-host/js/host.js` by `bun run host:build` and evaluated in an
  * embedded JS runtime with no DOM. The functions return at once and report through the result
  * slot (`globalThis.__strudelandResult`; for `planJob` the job text in
@@ -32,6 +32,13 @@ import { eventsFromValues } from '../lib/render/schedule';
 import type { InstrumentSnapshot } from '../lib/strudel/instruments';
 import { createRuntime } from '../lib/strudel/runtime';
 import { createHostBackend } from './backend';
+import {
+  inspectExpression,
+  inspectHaps,
+  inspectionWindow,
+  queryExpression,
+  type InspectionWindow,
+} from './inspection';
 import { hostPrebake } from './prebake';
 
 export type HostResult =
@@ -44,10 +51,14 @@ export interface StrudelandHost {
   planJob(code: string, requestJson: string): void;
   planRender(code: string, requestJson: string): void;
   query(code: string, from: number, to: number, layout: Layout): void;
+  inspect(code: string, requestJson: string): void;
 }
 
 /** The widest `query` window, in layout cycles. */
 export const MAX_QUERY_CYCLES = 4096;
+
+// Leave room for JSON escaping in the native 4 KiB status readout.
+const MAX_INSPECTION_ERROR = 512;
 
 const g = globalThis as any;
 
@@ -70,7 +81,7 @@ const setResult = (r: HostResult): void => {
   mark('settled');
 };
 
-const failure = (e: unknown): HostResult =>
+const failure = (e: unknown): Extract<HostResult, { ok: false }> =>
   e instanceof PlanJobError
     ? {
         ok: false,
@@ -146,15 +157,15 @@ export function captureConsole(captured: RenderError[]): () => void {
 }
 
 /** Runs `body` and stores its settled result; never throws synchronously. */
-function settle(body: () => Promise<string>): void {
+function settle(body: () => Promise<string>, onError = failure): void {
   g.__strudelandResult = undefined;
   try {
     body().then(
       (value) => setResult({ ok: true, value }),
-      (e) => setResult(failure(e)),
+      (e) => setResult(onError(e)),
     );
   } catch (e) {
-    setResult(failure(e));
+    setResult(onError(e));
   }
 }
 
@@ -232,6 +243,31 @@ async function runQuery(code: string, from: number, to: number, layout: Layout):
   return JSON.stringify(eventsFromValues(eventSources(selected), cps, timing));
 }
 
+async function runInspection(code: string, requestJson: string): Promise<string> {
+  const request = parseRequest(requestJson) as InspectionWindow & {
+    instruments?: InstrumentSnapshot;
+  };
+  if (!inspectionWindow(request)) throw new PlanJobError('plan', 'Invalid piano roll window.');
+  const rt = hostAdapter(hostRuntime(), request.instruments);
+  if (request.view === 'song') {
+    const { segments } = await evaluateSong(rt, code, 'linear');
+    return JSON.stringify(
+      inspectHaps(querySong(rt, segments)(request.from, request.to), code, request),
+    );
+  }
+  if (!request.expression) throw new PlanJobError('plan', 'Select a pattern expression.');
+  return JSON.stringify(
+    await inspectExpression(code, request.expression, async (selected) => {
+      const { structure, cps } = await evaluateSong(rt, code, 'linear');
+      return inspectHaps(
+        queryExpression(selected(), structure, cps, rt.state().seed, request),
+        code,
+        request,
+      );
+    }),
+  );
+}
+
 export const strudelandHost: StrudelandHost = {
   planJob(code, requestJson) {
     settle(() => runPlanJob(code, requestJson));
@@ -241,6 +277,23 @@ export const strudelandHost: StrudelandHost = {
   },
   query(code, from, to, layout) {
     settle(() => runQuery(code, from, to, layout));
+  },
+  inspect(code, requestJson) {
+    g.__strudelandInspection = undefined;
+    settle(
+      async () => {
+        g.__strudelandInspection = await runInspection(code, requestJson);
+        return 'ok';
+      },
+      (e) => {
+        const { error, ...result } = failure(e);
+        const message = error.slice(0, MAX_INSPECTION_ERROR).replace(/[\uD800-\uDFFF]/gu, '\uFFFD');
+        return {
+          ...result,
+          error: error.length > MAX_INSPECTION_ERROR ? message + '…' : message,
+        };
+      },
+    );
   },
 };
 

@@ -6,6 +6,7 @@ afterAll(() => GlobalRegistrator.unregister());
 
 const { createApp } = await import('../src/lib/app');
 const { createEditor } = await import('../src/lib/editor/setup');
+const { undo } = await import('@codemirror/commands');
 const { get } = await import('svelte/store');
 const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
@@ -37,6 +38,72 @@ async function setup(opts: { last?: string | null; tauri?: boolean } = {}) {
 }
 
 describe('createApp', () => {
+  test('a roll edit changes only the buffer and is one isolated undo step', async () => {
+    const { app, view, fake, evaluated } = await setup();
+    view.dispatch({ selection: { anchor: 3, head: 9 } });
+    const snapshot = app.session.pianoRollSnapshot()!;
+    expect(snapshot.selection).toEqual({ from: 3, to: 9 });
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'b' }])).toBe(true);
+    expect(view.state.doc.toString()).toBe('$: s("b")\n');
+    expect(get(app.session.store).songs[0].dirty).toBe(true);
+    expect(fake.files().get(MAIN)).toBe('$: s("a")\n');
+    expect(evaluated).toEqual([]);
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(snapshot.code);
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBe(false);
+    app.destroy();
+  });
+
+  test('a roll snapshot is invalid after switching away and back', async () => {
+    const { app, view } = await setup();
+    view.dispatch({ selection: { anchor: 3, head: 9 } });
+    const snapshot = app.session.pianoRollSnapshot()!;
+    await app.session.switchSong('songs/x.js');
+    await app.session.switchSong(MAIN);
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual(snapshot.selection);
+    expect(app.session.editPianoRoll(snapshot, [{ from: 6, to: 7, insert: 'c' }])).toBe(false);
+    app.destroy();
+  });
+
+  test('rewriting a bar retains a resolvable selection when it consumes the selected atom', async () => {
+    const { app, view } = await setup();
+    const code = 'note("c4 e4 ~@2")';
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: code },
+      selection: { anchor: 9, head: 11 },
+    });
+    const snapshot = app.session.pianoRollSnapshot()!;
+    expect(
+      app.session.editPianoRoll(snapshot, [{ from: 6, to: 15, insert: 'c4 ~ e4 ~' }], {
+        from: 0,
+        to: code.length,
+      }),
+    ).toBe(true);
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 0, to: code.length });
+    expect(undo(view)).toBe(true);
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 9, to: 11 });
+    app.destroy();
+  });
+
+  test('a changed instrument snapshot invalidates live piano roll parity', async () => {
+    const { app, fake } = await setup();
+    await app.session.evaluateBuffer(MAIN, { autostart: false });
+    expect(app.session.pianoRollMatchesLivePins()).toBe(true);
+    fake.instrumentSnapshots.set('/p', {
+      lead: {
+        schema: 1,
+        parameters: {},
+        voices: [{ name: 'voice', chain: [{ control: 's', value: 'triangle' }] }],
+      },
+    });
+    fake.emit({ instruments: true });
+    await flush();
+    expect(app.session.pianoRollMatchesLivePins()).toBe(false);
+    await app.session.evaluateBuffer(MAIN, { autostart: false });
+    expect(app.session.pianoRollMatchesLivePins()).toBe(true);
+    app.destroy();
+  });
+
   test('init reopens the last project into the attached view and registers the close guard', async () => {
     const { app, view, fake } = await setup();
     expect(get(app.session.store).project?.name).toBe('p');
@@ -572,7 +639,9 @@ describe('vim keybindings', () => {
     prefs.failSet = false;
     await app.prefs.setVim(true);
     expect(get(app.prefs.store).error).toBeNull();
-    expect(prefs.saved).toEqual([{ vim: true, auditionNotes: false, formatOnSave: false }]);
+    expect(prefs.saved).toEqual([
+      { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+    ]);
     // Only the user's toggle focuses; a pref change by itself does not.
     expect(focused).toEqual([]);
     app.destroy();

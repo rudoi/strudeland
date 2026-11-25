@@ -6964,7 +6964,7 @@
       symbols: () => symbols
     });
     module.exports = __toCommonJS2(chord_type_exports);
-    var import_core10 = require_dist18();
+    var import_core11 = require_dist18();
     var import_pcset = require_dist11();
     var CHORDS = [
       ["1P 3M 5P", "major", "M ^  maj"],
@@ -7103,7 +7103,7 @@
     function get(type) {
       return index[type] || NoChordType;
     }
-    var chordType = (0, import_core10.deprecate)("ChordType.chordType", "ChordType.get", get);
+    var chordType = (0, import_core11.deprecate)("ChordType.chordType", "ChordType.get", get);
     function names() {
       return dictionary2.map((chord2) => chord2.name).filter((x2) => x2);
     }
@@ -7116,7 +7116,7 @@
     function all() {
       return dictionary2.slice();
     }
-    var entries = (0, import_core10.deprecate)("ChordType.entries", "ChordType.all", all);
+    var entries = (0, import_core11.deprecate)("ChordType.entries", "ChordType.all", all);
     function removeAll() {
       dictionary2 = [];
       index = {};
@@ -7478,7 +7478,7 @@
     module.exports = __toCommonJS2(chord_exports);
     var import_chord_detect = require_dist13();
     var import_chord_type = require_dist19();
-    var import_core10 = require_dist18();
+    var import_core11 = require_dist18();
     var import_core22 = require_dist18();
     var import_pcset = require_dist11();
     var import_scale_type = require_dist20();
@@ -7582,12 +7582,12 @@
     }
     function degrees(chordName) {
       const { intervals, tonic } = get(chordName);
-      const transpose2 = (0, import_core10.tonicIntervalsTransposer)(intervals, tonic);
+      const transpose2 = (0, import_core11.tonicIntervalsTransposer)(intervals, tonic);
       return (degree2) => degree2 ? transpose2(degree2 > 0 ? degree2 - 1 : degree2) : "";
     }
     function steps2(chordName) {
       const { intervals, tonic } = get(chordName);
-      return (0, import_core10.tonicIntervalsTransposer)(intervals, tonic);
+      return (0, import_core11.tonicIntervalsTransposer)(intervals, tonic);
     }
     var chord_default = {
       getChord,
@@ -29850,6 +29850,279 @@ Please check with "npm ls @strudel/core".`);
     };
   }
 
+  // src/host/inspection.ts
+  var MAX_INSPECTION_BARS = 16;
+  var MAX_BAR = 1e6;
+  var MAX_NOTES = 1024;
+  var MAX_CONTRIBUTORS = 8;
+  var MAX_HAPS_TO_SCAN = 16384;
+  var EDGE = /^-?\d{1,24}(?:\/[1-9]\d{0,23})?$/;
+  function inspectionWindow(request) {
+    const { view, from, to, anchorBar } = request;
+    const bar = (n2) => Number.isSafeInteger(n2) && n2 >= 0 && n2 <= MAX_BAR;
+    return (view === "song" || view === "expression") && bar(from) && bar(to) && from < to && to - from <= MAX_INSPECTION_BARS && (anchorBar === undefined || bar(anchorBar));
+  }
+  var activeCapture;
+  registerTranspilerPlugin({
+    walk({ input }) {
+      const capture = activeCapture;
+      if (!capture || capture.code !== input)
+        return;
+      return {
+        leave(node) {
+          if (node.type !== capture.type || node.start !== capture.span.from || node.end !== capture.span.to)
+            return;
+          capture.rewritten = true;
+          return this.replace({
+            type: "CallExpression",
+            callee: { type: "Identifier", name: capture.name },
+            arguments: [node],
+            optional: false
+          });
+        }
+      };
+    }
+  });
+  function valueSlot(node, parent, key) {
+    switch (parent.type) {
+      case "VariableDeclarator":
+        return key === "init";
+      case "ExpressionStatement":
+        return key === "expression" && !("directive" in parent);
+      case "ReturnStatement":
+      case "AwaitExpression":
+        return key === "argument";
+      case "CallExpression":
+        return key === "arguments";
+      case "MemberExpression":
+        return key === "object" && !parent.optional;
+      case "ArrayExpression":
+        return key === "elements";
+      case "ArrowFunctionExpression":
+        return key === "body" && node.type !== "BlockStatement";
+      case "ConditionalExpression":
+        return key === "consequent" || key === "alternate";
+      case "LogicalExpression":
+      case "SequenceExpression":
+        return true;
+      case "Property":
+        return key === "value" && parent.kind === "init" && !parent.shorthand && !parent.method;
+      default:
+        return false;
+    }
+  }
+  var captureTypes = new Set([
+    "Identifier",
+    "CallExpression",
+    "NewExpression",
+    "TaggedTemplateExpression",
+    "MemberExpression",
+    "ChainExpression",
+    "ConditionalExpression",
+    "LogicalExpression",
+    "SequenceExpression",
+    "AwaitExpression"
+  ]);
+  function captureSite(code, span) {
+    const ast = parse3(code, { ecmaVersion: 2022, allowAwaitOutsideFunction: true });
+    const names = new Set;
+    const stack2 = [{ node: ast }];
+    let type;
+    let dynamicScope = false;
+    for (let entry = stack2.pop();entry; entry = stack2.pop()) {
+      const { node, parent, key } = entry;
+      const chain = entry.chain || node.type === "ChainExpression";
+      const pattern3 = entry.pattern || node.type === "ObjectPattern" || node.type === "ArrayPattern";
+      if (node.type === "Identifier")
+        names.add(node.name);
+      if (node.type === "WithStatement")
+        dynamicScope = true;
+      if (node.start === span.from && node.end === span.to && parent && key && !entry.chain && !pattern3 && captureTypes.has(node.type) && valueSlot(node, parent, key)) {
+        type = node.type;
+      }
+      for (const [childKey, children] of Object.entries(node)) {
+        for (const child of Array.isArray(children) ? children : [children]) {
+          if (child && typeof child.type === "string") {
+            stack2.push({ node: child, parent: node, key: childKey, chain, pattern: pattern3 });
+          }
+        }
+      }
+    }
+    if (!type || dynamicScope)
+      throw new PlanJobError("plan", "This expression cannot be observed in place.");
+    let name = "__strudelandInspectPattern";
+    while (names.has(name) || code.includes(name) || Object.hasOwn(globalThis, name))
+      name += "_";
+    return { name, type };
+  }
+  async function inspectExpression(code, span, run2) {
+    const { name, type } = captureSite(code, span);
+    const capture = { code, span, name, type, rewritten: false, patterns: new Set };
+    activeCapture = capture;
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      value(value) {
+        if (value instanceof Pattern && capture.patterns.size < 2)
+          capture.patterns.add(value);
+        return value;
+      }
+    });
+    try {
+      return await run2(() => {
+        if (!capture.rewritten)
+          throw new PlanJobError("plan", "This expression changed shape during transpilation.");
+        if (capture.patterns.size === 0) {
+          throw new PlanJobError("plan", "The expression produced no pattern during evaluation.");
+        }
+        if (capture.patterns.size > 1) {
+          throw new PlanJobError("plan", "The expression produced multiple pattern instances.");
+        }
+        return capture.patterns.values().next().value;
+      });
+    } finally {
+      activeCapture = undefined;
+      Reflect.deleteProperty(globalThis, name);
+    }
+  }
+  function queryExpression(pattern3, structure, cps2, seed2, request) {
+    const { from, to, anchorBar } = request;
+    const state2 = new State(new TimeSpan(from, to), {
+      _cps: cps2,
+      cyclist: "cyclist",
+      _segments: LINEAR_SEGMENTS
+    });
+    const seeded = applySeed(pattern3, seed2);
+    if (!structure.meterChanges?.length)
+      return seeded.query(state2);
+    const written = layoutClock(structure, LINEAR_SEGMENTS);
+    const local = {
+      ...written,
+      meterAt: (cycle) => anchorBar === undefined ? structure.meter : written.meterAt(anchorBar + cycle),
+      nextMeterBoundary: (cycle) => anchorBar === undefined ? Infinity : written.nextMeterBoundary(anchorBar + cycle) - anchorBar
+    };
+    return queryMetered(seeded, state2, structure, local, cps2);
+  }
+  function pitchOf(value, allowPrimitive) {
+    if (allowPrimitive && typeof value === "string" && isNote(value)) {
+      const pitch2 = noteToMidi(value);
+      return Number.isFinite(pitch2) ? { pitch: pitch2 } : null;
+    }
+    if (value === null || typeof value !== "object")
+      return null;
+    const { note: note2, freq: freq2, octave: octave2, s: s2 } = value;
+    let pitch;
+    if ((typeof freq2 === "number" || typeof freq2 === "string") && freq2)
+      pitch = freqToMidi(Number(freq2));
+    else if (typeof note2 === "number")
+      pitch = note2;
+    else if (typeof note2 === "string" && isNote(note2))
+      pitch = noteToMidi(note2);
+    else
+      return null;
+    if (typeof octave2 === "number" || typeof octave2 === "string")
+      pitch += 12 * Number(octave2);
+    return Number.isFinite(pitch) ? { pitch, ...typeof s2 === "string" && s2.length <= 64 ? { sound: s2 } : {} } : null;
+  }
+  function uncertainSpans(code) {
+    if (!/[\\\r]/.test(code))
+      return [];
+    const lex = tokenizer2(code, { ecmaVersion: 2022 });
+    const spans = [];
+    for (let token = lex.getToken();token.type !== types$1.eof; token = lex.getToken()) {
+      if (token.type === types$1.string || token.type === types$1.template) {
+        if (/[\\\r]/.test(code.slice(token.start, token.end))) {
+          spans.push({ from: token.start, to: token.end });
+        }
+      }
+    }
+    return spans;
+  }
+  function intersectsUncertain(spans, from, to) {
+    let low = 0;
+    let high = spans.length;
+    while (low < high) {
+      const mid = low + high >>> 1;
+      if (spans[mid].to <= from)
+        low = mid + 1;
+      else
+        high = mid;
+    }
+    return low < spans.length && spans[low].from < to;
+  }
+  function contributors(hap2, code, uncertain) {
+    const output = [];
+    const locations = hap2.context?.locations;
+    if (!Array.isArray(locations))
+      return output;
+    for (const location of locations.slice(0, MAX_CONTRIBUTORS)) {
+      const { start, end: end2 } = location ?? {};
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end2) || start < 0 || start >= end2 || end2 > code.length || intersectsUncertain(uncertain, start, end2)) {
+        continue;
+      }
+      const raw = code.slice(start, end2);
+      const from = start + raw.length - raw.trimStart().length;
+      const to = start + raw.trimEnd().length;
+      if (from < to && !output.some((span) => span.from === from && span.to === to)) {
+        output.push({ from, to });
+      }
+    }
+    return output;
+  }
+  function directOrigin(code, request) {
+    const { expression: expression2, view } = request;
+    if (!expression2 || view === "expression")
+      return expression2;
+    const { body } = parse3(code, { ecmaVersion: 2022, allowAwaitOutsideFunction: true });
+    if (body.length !== 1)
+      return;
+    const statement = body[0]?.type === "LabeledStatement" ? body[0].body : body[0];
+    if (statement?.type === "ExpressionStatement" && statement.expression.start === expression2.from && statement.expression.end === expression2.to) {
+      return expression2;
+    }
+  }
+  function inspectHaps(haps, code, request) {
+    const uncertain = uncertainSpans(code);
+    const fallbackOrigin = directOrigin(code, request);
+    const notes = [];
+    let truncated = haps.length > MAX_HAPS_TO_SCAN;
+    for (let i3 = 0;i3 < Math.min(haps.length, MAX_HAPS_TO_SCAN); i3++) {
+      const hap2 = haps[i3];
+      const data2 = pitchOf(hap2.value, request.view === "expression");
+      if (!data2)
+        continue;
+      const { begin: begin2, end: end2 } = hap2.whole ?? hap2.part;
+      const start = begin2.toFraction();
+      const finish = end2.toFraction();
+      const visibleStart = hap2.part.begin.toFraction();
+      const visibleEnd = hap2.part.end.toFraction();
+      if (![start, finish, visibleStart, visibleEnd].every((edge) => EDGE.test(edge))) {
+        truncated = true;
+        continue;
+      }
+      if (notes.length === MAX_NOTES) {
+        truncated = true;
+        break;
+      }
+      const locations = contributors(hap2, code, uncertain);
+      const origin = locations.length === 1 ? locations[0] : locations.length === 0 ? fallbackOrigin : undefined;
+      notes.push({
+        order: Number(hap2.part.begin),
+        note: {
+          id: String(i3),
+          start,
+          end: finish,
+          ...data2,
+          visibleStart,
+          visibleEnd,
+          ...locations.length ? { contributors: locations } : {},
+          ...origin ? { origin } : {}
+        }
+      });
+    }
+    notes.sort((a, b) => a.order - b.order);
+    return { notes: notes.map(({ note: note2 }) => note2), truncated };
+  }
+
   // vendor/strudel/packages/draw/index.mjs
   var exports_draw = {};
   __export(exports_draw, {
@@ -31949,6 +32222,7 @@ Please check with "npm ls @strudel/core".`);
 
   // src/host/main.ts
   var MAX_QUERY_CYCLES = 4096;
+  var MAX_INSPECTION_ERROR = 512;
   var g = globalThis;
   function current2(store) {
     let value;
@@ -32021,12 +32295,12 @@ Please check with "npm ls @strudel/core".`);
       console.log = log;
     };
   }
-  function settle(body) {
+  function settle(body, onError = failure) {
     g.__strudelandResult = undefined;
     try {
-      body().then((value) => setResult({ ok: true, value }), (e) => setResult(failure(e)));
+      body().then((value) => setResult({ ok: true, value }), (e) => setResult(onError(e)));
     } catch (e) {
-      setResult(failure(e));
+      setResult(onError(e));
     }
   }
   function parseRequest(requestJson) {
@@ -32079,6 +32353,22 @@ Please check with "npm ls @strudel/core".`);
     const { selected } = selectHaps(querySong(rt, segments)(from, to));
     return JSON.stringify(eventsFromValues(eventSources(selected), cps2, timing));
   }
+  async function runInspection(code, requestJson) {
+    const request = parseRequest(requestJson);
+    if (!inspectionWindow(request))
+      throw new PlanJobError("plan", "Invalid piano roll window.");
+    const rt = hostAdapter(hostRuntime(), request.instruments);
+    if (request.view === "song") {
+      const { segments } = await evaluateSong(rt, code, "linear");
+      return JSON.stringify(inspectHaps(querySong(rt, segments)(request.from, request.to), code, request));
+    }
+    if (!request.expression)
+      throw new PlanJobError("plan", "Select a pattern expression.");
+    return JSON.stringify(await inspectExpression(code, request.expression, async (selected) => {
+      const { structure, cps: cps2 } = await evaluateSong(rt, code, "linear");
+      return inspectHaps(queryExpression(selected(), structure, cps2, rt.state().seed, request), code, request);
+    }));
+  }
   var strudelandHost = {
     planJob(code, requestJson) {
       settle(() => runPlanJob(code, requestJson));
@@ -32088,6 +32378,20 @@ Please check with "npm ls @strudel/core".`);
     },
     query(code, from, to, layout) {
       settle(() => runQuery(code, from, to, layout));
+    },
+    inspect(code, requestJson) {
+      g.__strudelandInspection = undefined;
+      settle(async () => {
+        g.__strudelandInspection = await runInspection(code, requestJson);
+        return "ok";
+      }, (e) => {
+        const { error, ...result } = failure(e);
+        const message = error.slice(0, MAX_INSPECTION_ERROR).replace(/[\uD800-\uDFFF]/gu, "�");
+        return {
+          ...result,
+          error: error.length > MAX_INSPECTION_ERROR ? message + "…" : message
+        };
+      });
     }
   };
   g.strudelandHost = strudelandHost;

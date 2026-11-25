@@ -5,8 +5,14 @@ export interface Prefs {
   vim: boolean;
   auditionNotes: boolean;
   formatOnSave: boolean;
+  pianoRollOpen: boolean;
 }
-export const DEFAULT_PREFS: Prefs = { vim: false, auditionNotes: false, formatOnSave: false };
+export const DEFAULT_PREFS: Prefs = {
+  vim: false,
+  auditionNotes: false,
+  formatOnSave: false,
+  pianoRollOpen: false,
+};
 
 export interface PrefsApi {
   /** Best effort on the Rust side: a missing or corrupt file gives the defaults. */

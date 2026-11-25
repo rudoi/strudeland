@@ -47,6 +47,8 @@ export interface EditorHooks {
   onEvaluate?: () => void;
   /** Any transaction that changes the document. */
   onDocChange?: () => void;
+  /** The active editor's document or selection changed. */
+  onSelectionChange?: (selected: boolean) => void;
   /** Whether to inspect editor updates for an audition; read before parsing. */
   auditionEnabled?: () => boolean;
   /** A typed pitch or delimiter, or null when the edit invalidates a pending pitch. */
@@ -123,7 +125,16 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
     drawSelection({ cursorBlinkRate: 0 }),
     strudelKeymap(runtime, hooks),
     auditionHighlight,
-    ...(hooks?.onDocChange ? [docChangeListener(hooks.onDocChange)] : []),
+    ...(hooks?.onDocChange || hooks?.onSelectionChange
+      ? [
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) hooks.onDocChange?.();
+            if (update.docChanged || update.selectionSet) {
+              hooks.onSelectionChange?.(update.selectionSet && !update.docChanged);
+            }
+          }),
+        ]
+      : []),
     ...(hooks?.onAuditionEdit
       ? [
           EditorView.updateListener.of((update) => {
@@ -139,12 +150,6 @@ export function createExtensions(runtime: Runtime, hooks?: EditorHooks): Extensi
       : []),
     claudeMark,
   ];
-}
-
-function docChangeListener(onDocChange: () => void): Extension {
-  return EditorView.updateListener.of((update) => {
-    if (update.docChanged) onDocChange();
-  });
 }
 
 /** A state with the Strudel extensions, so songs can be swapped into one view with `setState`. */

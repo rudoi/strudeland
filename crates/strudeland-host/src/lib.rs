@@ -14,6 +14,7 @@ pub mod bundle;
 mod engine;
 mod error;
 mod host;
+mod inspection;
 pub mod math;
 #[allow(unsafe_code)]
 pub mod natives;
@@ -23,6 +24,9 @@ mod request;
 pub use engine::v8_version;
 pub use error::HostError;
 pub use host::{Host, PlannedJob};
+pub use inspection::{
+    InspectedNote, InspectionRequest, InspectionResult, InspectionView, SourceSpan,
+};
 pub use planned::{
     ChunkWindow, LoopRange, Meter, MeterChange, PlanError, PlannedChunk, PlannedExport,
     PlannedRender, PlannedRepeat, PlannedWindow, Section, Structure,

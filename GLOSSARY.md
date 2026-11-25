@@ -1,0 +1,25 @@
+# Strudeland
+
+Language for writing, arranging, and inspecting Strudel songs.
+
+## Pattern editing
+
+**Shared definition**
+
+A named pattern in a song's source whose notes can be reused at multiple use sites. Editing the
+definition changes every use that reads it.
+
+**Use site**
+
+A place in the song's source where a defined pattern is referenced, either directly or through a
+transformation.
+
+**Pattern occurrence**
+
+One instance of a pattern at a particular written position in the arrangement. A use site can
+produce several occurrences.
+
+**Meter anchor**
+
+The written bar where a piano roll window takes its starting time signature. Subsequent bars
+take the time signatures of their corresponding written positions.

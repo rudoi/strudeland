@@ -5,6 +5,7 @@ mod commands;
 mod control;
 mod export_audio;
 mod instruments;
+mod piano_roll;
 mod playback;
 mod project;
 mod project_menu;
@@ -29,6 +30,7 @@ pub fn run() {
         .manage(app_quit::QuitState::default())
         .manage(export_audio::ExportState::default())
         .manage(playback::PlaybackState::default())
+        .manage(piano_roll::PianoRollState::default())
         .manage(Arc::clone(&bridge))
         // A reload or HMR of the main webview: requests answer `not ready` until it attaches again.
         .on_page_load(|webview, payload| {
@@ -72,6 +74,7 @@ pub fn run() {
             instruments::project_instrument_entries,
             instruments::instrument_definition,
             instruments::instrument_preview,
+            piano_roll::piano_roll_inspect,
             instruments::project_write_instrument_pin,
             project::project_last,
             project::recent_list,
