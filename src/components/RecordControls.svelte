@@ -7,11 +7,9 @@
     backingChoice,
     effectiveBacking,
     recordButton,
-    takeRunning,
     toggle,
     toggleViews,
     type ToggleKey,
-    type ToggleView,
   } from '../lib/recording/memo-ui';
   import type { RecordingUiState } from '../lib/recording/types';
   import type { Session } from '../lib/project/session';
@@ -79,23 +77,6 @@
   function flip(key: ToggleKey) {
     choice.update((c) => toggle(c, key, hasSong));
   }
-
-  function backingHelp(view: ToggleView): string {
-    if (!rec) return 'Microphone recording requires the desktop app.';
-    if (!hasProject) return 'Open a project to choose recording backing.';
-    if (takeRunning(rec.phase)) return 'Finish the current take before changing its backing.';
-    if (view.key === 'song') {
-      return view.disabled
-        ? 'Open a song to hear it while recording.'
-        : 'Hear the open song while recording.';
-    }
-    if (view.key === 'metronome') {
-      return 'Hear a click while recording. Use headphones to keep it out of the take.';
-    }
-    return view.disabled
-      ? 'Enable song or metronome backing to use a count-in.'
-      : 'Hear one bar of clicks before the first downbeat.';
-  }
 </script>
 
 <span class="group">
@@ -103,13 +84,7 @@
     variant={btn.variant}
     tone={btn.tone}
     disabled={btn.disabled}
-    help={rec === null
-      ? 'Microphone recording requires the desktop app.'
-      : btn.action === 'record'
-        ? 'Start a microphone take in this project with your selected backing.'
-        : btn.action === 'stop'
-          ? 'End the take and save the memo in this project.'
-          : `${btn.title.charAt(0).toUpperCase()}${btn.title.slice(1)}.`}
+    help={btn.help}
     aria-label={btn.ariaLabel}
     onclick={click}
   >
@@ -126,7 +101,7 @@
       size="sm"
       pressed={t.pressed}
       disabled={t.disabled}
-      help={backingHelp(t)}
+      help={t.help}
       onclick={() => flip(t.key)}
     >
       {t.label}

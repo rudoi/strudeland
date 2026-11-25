@@ -198,11 +198,7 @@
                 active={row.active}
                 disabled={row.disabled}
                 title={m.stem}
-                help={row.disabled
-                  ? 'Finish recording before playing a memo.'
-                  : row.action === 'stop'
-                    ? 'Stop this memo and any backing it started.'
-                    : 'Play this recording on its own, stopping any song already playing.'}
+                help={row.help}
                 onclick={() => clickRow(m)}
               >
                 {m.stem}
@@ -236,13 +232,7 @@
               {#each memoPlayItems(m, song, phase) as item (item.how)}
                 <MenuItem
                   disabled={item.disabled}
-                  help={item.title
-                    ? `${item.title.charAt(0).toUpperCase()}${item.title.slice(1)}.`
-                    : item.how === 'metronome'
-                      ? 'Play the memo against clicks at the recorded tempo and time signature.'
-                      : item.how === 'song'
-                        ? 'Align the memo’s saved downbeat to the open song.'
-                        : 'Align the memo’s saved downbeat to the open song and a click track.'}
+                  help={item.help}
                   onclick={() => playWith(m.stem, item.how)}
                 >
                   {item.label}

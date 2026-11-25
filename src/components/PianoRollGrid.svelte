@@ -311,8 +311,8 @@
         : 'Drag to move in time. Drag the end to resize, or press Delete to remove.';
     }
     if (editable && note.pitchEditable) return 'Drag up or down to change pitch.';
-    if (canShowSource(note)) return 'Audition the note. Press Shift+Enter to find its source.';
-    return 'Audition this note. The roll cannot edit it here.';
+    if (canShowSource(note)) return 'Press Shift+Enter to find this note’s source in the editor.';
+    return 'Preview this note while playback and recording are idle. This note is read-only.';
   }
 
   function activateNote(event: MouseEvent, note: RollNote) {
@@ -592,7 +592,7 @@
               class:black={isBlackKey(pitch)}
               class:octave={pitch % 12 === 0}
               type="button"
-              use:helpTarget={'Play this pitch as a preview. Use Up or Down to choose another.'}
+              use:helpTarget={'Preview this pitch while playback and recording are idle. Use Up or Down to choose a key.'}
               aria-label={'Audition ' + pitchLabel(pitch)}
               tabindex={pitch === keyboardPitch ? 0 : -1}
               onclick={() => onaudition(pitch)}

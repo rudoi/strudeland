@@ -320,17 +320,10 @@
     resetHelp();
   }
 
-  async function switchDefinition(event: MouseEvent & { currentTarget: HTMLButtonElement }) {
-    const button = event.currentTarget;
-    const row = button.parentElement;
-    const doc = button.ownerDocument;
-    const heldFocus = doc.activeElement === button;
+  async function switchDefinition() {
     if (definitionMode) shared = null;
     else openDefinition();
     await tick();
-    if (heldFocus && !button.isConnected && doc.activeElement === doc.body) {
-      row?.querySelector<HTMLButtonElement>('[data-definition-switch]')?.focus();
-    }
     resetHelp();
   }
 
@@ -499,19 +492,14 @@
   </div>
   {#if mode === 'expression' && definition && (definition.uses.length || definition.incomplete) && snapshot}
     <div class="shared">
-      {#if !definitionMode && !inDefinition}
+      {#if definitionMode || !inDefinition}
         <Button
           size="sm"
-          data-definition-switch
-          help="Show the original pattern. Edits can affect every use of it."
-          onclick={switchDefinition}>Edit shared definition</Button
-        >
-      {:else if definitionMode}
-        <Button
-          size="sm"
-          data-definition-switch
-          help="Return to the pattern or occurrence you were viewing."
-          onclick={switchDefinition}>Back to selection</Button
+          help={definitionMode
+            ? 'Return to the pattern or occurrence you were viewing.'
+            : 'Show the original pattern. Edits can affect every use of it.'}
+          onclick={switchDefinition}
+          >{definitionMode ? 'Back to selection' : 'Edit shared definition'}</Button
         >
       {/if}
       <span

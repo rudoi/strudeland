@@ -6,7 +6,6 @@ import {
   createBackingChoice,
   DEFAULT_CHOICE,
   effectiveBacking,
-  BUSY_TITLE,
   formatDuration,
   formatElapsed,
   hasTiming,
@@ -17,7 +16,6 @@ import {
   memoRow,
   sortMemos,
   tempoChanged,
-  tempoChangedTitle,
   tempoNotice,
   tempoText,
   MIC_SETTINGS_URL,
@@ -129,7 +127,7 @@ describe('recordButton', () => {
     tone: b.tone,
     variant: b.variant,
     disabled: b.disabled,
-    title: b.title,
+    help: b.help,
     action: b.action,
   });
   const off = { glyph: 'dot', ariaLabel: 'record', tone: 'neutral', variant: 'default' } as const;
@@ -138,38 +136,44 @@ describe('recordButton', () => {
     expect(look(recordButton(state(), false))).toEqual({
       ...off,
       disabled: true,
-      title: 'open a project to record',
+      help: 'Open a project to record.',
       action: null,
     });
   });
 
-  test('no controller reads as no project', () => {
-    expect(recordButton(null, true).title).toBe('open a project to record');
-    expect(recordButton(null, true).disabled).toBe(true);
+  test('no controller requires the desktop app, with or without a project', () => {
+    for (const hasProject of [true, false]) {
+      expect(look(recordButton(null, hasProject))).toEqual({
+        ...off,
+        disabled: true,
+        help: 'Microphone recording requires the desktop app.',
+        action: null,
+      });
+    }
   });
 
   test.each([
-    ['noDevice', 'no input device found'],
-    ['permissionDenied', 'microphone access denied'],
-    ['deviceLost', 'input device lost'],
-  ] as const)('idle with %p', (kind, title) => {
+    ['noDevice', 'No input device found.'],
+    ['permissionDenied', 'Microphone access denied.'],
+    ['deviceLost', 'Input device lost.'],
+  ] as const)('idle with %p', (kind, help) => {
     expect(look(recordButton(state({ phase: 'idle', error: err(kind) }), true))).toEqual({
       ...off,
       disabled: true,
-      title,
+      help,
       action: null,
     });
   });
 
   test('idle without an error', () => {
-    expect(recordButton(state({ phase: 'idle' }), true).title).toBe('the microphone is not ready');
+    expect(recordButton(state({ phase: 'idle' }), true).help).toBe('The microphone is not ready.');
   });
 
   test('arming', () => {
     expect(look(recordButton(state({ phase: 'arming' }), true))).toEqual({
       ...off,
       disabled: true,
-      title: 'waiting for microphone access',
+      help: 'Waiting for microphone access.',
       action: null,
     });
   });
@@ -181,7 +185,7 @@ describe('recordButton', () => {
       tone: 'danger',
       variant: 'default',
       disabled: false,
-      title: 'record a memo',
+      help: 'Start a microphone take in this project with your selected backing.',
       action: 'record',
     });
   });
@@ -197,7 +201,7 @@ describe('recordButton', () => {
       tone: 'danger',
       variant: 'default',
       disabled: true,
-      title: 'starting the recording',
+      help: 'Starting the recording.',
       action: null,
     });
   });
@@ -211,7 +215,7 @@ describe('recordButton', () => {
       tone: 'danger',
       variant: 'default',
       disabled: false,
-      title: 'stop recording',
+      help: 'End the take and save the memo in this project.',
       action: 'stop',
     });
   });
@@ -231,7 +235,7 @@ describe('recordButton', () => {
       tone: 'danger',
       variant: 'primary',
       disabled: false,
-      title: 'stop recording',
+      help: 'End the take and save the memo in this project.',
       action: 'stop',
     });
   });
@@ -243,7 +247,7 @@ describe('recordButton', () => {
       tone: 'danger',
       variant: 'primary',
       disabled: true,
-      title: 'saving the memo',
+      help: 'Saving the memo.',
       action: null,
     });
   });
@@ -252,7 +256,7 @@ describe('recordButton', () => {
     for (const phase of PHASES) {
       const b = recordButton(state({ phase }), false);
       expect(b.disabled).toBe(true);
-      expect(b.title).toBe('open a project to record');
+      expect(b.help).toBe('Open a project to record.');
     }
   });
 });
@@ -333,28 +337,32 @@ describe('the backing choice', () => {
 describe('toggleViews', () => {
   const byKey = (v: ReturnType<typeof toggleViews>) => Object.fromEntries(v.map((t) => [t.key, t]));
 
-  test('order, labels and enabled titles', () => {
+  test('order, labels and enabled help', () => {
     const v = toggleViews(DEFAULT_CHOICE, 'armed', true, true);
-    expect(v.map((t) => [t.key, t.label, t.pressed, t.disabled, t.title])).toEqual([
-      ['song', 'song', true, false, 'play the song while recording'],
+    expect(v.map((t) => [t.key, t.label, t.pressed, t.disabled, t.help])).toEqual([
+      ['song', 'song', true, false, 'Hear the open song while recording.'],
       [
         'metronome',
         'metronome',
         false,
         false,
-        'play a click while recording; wear headphones so it is not recorded',
+        'Hear a click while recording. Use headphones to keep it out of the take.',
       ],
-      ['countIn', 'count-in', true, false, 'one bar of clicks before the take'],
+      ['countIn', 'count-in', true, false, 'Hear one bar of clicks before the first downbeat.'],
     ]);
   });
 
   test('no song open: song off and disabled, count-in needs a source', () => {
     const v = byKey(toggleViews(DEFAULT_CHOICE, 'armed', true, false));
-    expect(v.song).toMatchObject({ pressed: false, disabled: true, title: 'no song open' });
+    expect(v.song).toMatchObject({
+      pressed: false,
+      disabled: true,
+      help: 'Open a song to hear it while recording.',
+    });
     expect(v.countIn).toMatchObject({
       pressed: true,
       disabled: true,
-      title: 'needs the song or the metronome',
+      help: 'Enable song or metronome backing to use a count-in.',
     });
     expect(v.metronome.disabled).toBe(false);
   });
@@ -363,24 +371,34 @@ describe('toggleViews', () => {
     const v = byKey(toggleViews({ ...DEFAULT_CHOICE, metronome: true }, 'armed', true, false));
     expect(v.countIn).toMatchObject({
       disabled: false,
-      title: 'one bar of clicks before the take',
+      help: 'Hear one bar of clicks before the first downbeat.',
     });
     expect(v.metronome.pressed).toBe(true);
   });
 
   test('all disabled without a project or a controller', () => {
-    for (const v of [
-      toggleViews(DEFAULT_CHOICE, 'armed', false, true),
-      toggleViews(DEFAULT_CHOICE, null, true, true),
-    ]) {
-      expect(v.map((t) => t.disabled)).toEqual([true, true, true]);
+    for (const [phase, hasProject, help] of [
+      ['armed', false, 'Open a project to choose recording backing.'],
+      [null, true, 'Microphone recording requires the desktop app.'],
+      [null, false, 'Microphone recording requires the desktop app.'],
+    ] as const) {
+      const v = toggleViews(DEFAULT_CHOICE, phase, hasProject, true);
+      expect(v.map((t) => [t.disabled, t.help])).toEqual([
+        [true, help],
+        [true, help],
+        [true, help],
+      ]);
     }
   });
 
   test('all disabled during a take, enabled in idle and arming', () => {
     for (const phase of PHASES) {
-      const disabled = toggleViews(DEFAULT_CHOICE, phase, true, true).map((t) => t.disabled);
-      expect(disabled).toEqual(takeRunning(phase) ? [true, true, true] : [false, false, false]);
+      for (const view of toggleViews(DEFAULT_CHOICE, phase, true, true)) {
+        expect(view.disabled).toBe(takeRunning(phase));
+        if (view.disabled) {
+          expect(view.help).toBe('Finish the current take before changing its backing.');
+        }
+      }
     }
   });
 });
@@ -679,10 +697,7 @@ describe('tempo', () => {
     expect(tempoChanged(memo, { cps: NaN, meter: { num: 4, den: 4 } })).toBe(true);
   });
 
-  test('the disabled title and the notice', () => {
-    expect(tempoChangedTitle(memo, song(100))).toBe(
-      "the song's tempo changed since this memo (120 · 4/4 → 100 · 4/4)",
-    );
+  test('the tempo notice compares recorded and current timing', () => {
     expect(tempoNotice(memo, song(90, 3, 4))).toBe(
       'memo was recorded at 120 · 4/4; the song is now 90 · 3/4',
     );
@@ -728,7 +743,7 @@ describe('memo rows', () => {
     expect(memoRow('a', idle, 'armed')).toEqual({
       active: false,
       disabled: false,
-      title: 'play a',
+      help: 'Play this recording on its own, stopping any song already playing.',
       action: 'play',
     });
     expect(memoRow('a', idle, null)).toMatchObject({ disabled: false });
@@ -736,7 +751,7 @@ describe('memo rows', () => {
       expect(memoRow('a', { status, stem: 'a', how: 'alone' }, 'armed')).toEqual({
         active: true,
         disabled: false,
-        title: 'stop a',
+        help: 'Stop this memo and any backing it started.',
         action: 'stop',
       });
       expect(memoRow('b', { status, stem: 'a', how: 'alone' }, 'armed')).toMatchObject({
@@ -748,7 +763,9 @@ describe('memo rows', () => {
       const busy = takeRunning(phase);
       expect(memoRow('a', idle, phase)).toMatchObject({
         disabled: busy,
-        title: busy ? BUSY_TITLE : 'play a',
+        help: busy
+          ? 'Finish recording before playing a memo.'
+          : 'Play this recording on its own, stopping any song already playing.',
       });
     }
   });
@@ -758,58 +775,64 @@ describe('memo rows', () => {
       sidecar: { ...sc(), tempo: { ...sc().tempo, bpm: 120, meter: '4/4', cps: 0.5 } },
     });
     const song = { cps: 0.5, meter: { num: 4, den: 4 } };
+    const metronomeHelp = 'Play the memo against clicks at the recorded tempo and time signature.';
     const view = (e: RecordingEntry, s: typeof song | null, phase: RecordingPhase | null) =>
-      memoPlayItems(e, s, phase).map((i) => [i.how, i.label, i.disabled, i.title]);
+      memoPlayItems(e, s, phase).map((i) => [i.how, i.label, i.disabled, i.help]);
 
     test('all enabled with timing and a matching song', () => {
       expect(view(timed, song, 'armed')).toEqual([
-        ['metronome', 'play with metronome', false, undefined],
-        ['song', 'play with song', false, undefined],
-        ['song+metronome', 'play with song and metronome', false, undefined],
+        ['metronome', 'play with metronome', false, metronomeHelp],
+        ['song', 'play with song', false, 'Align the memo’s saved downbeat to the open song.'],
+        [
+          'song+metronome',
+          'play with song and metronome',
+          false,
+          'Align the memo’s saved downbeat to the open song and a click track.',
+        ],
       ]);
     });
 
     test('no timing disables all three', () => {
       for (const e of [entry('a'), entry('a', { sidecar: sc({ bar1Frame: null }) })]) {
-        expect(memoPlayItems(e, song, 'armed').map((i) => [i.disabled, i.title])).toEqual([
-          [true, 'no bar position saved'],
-          [true, 'no bar position saved'],
-          [true, 'no bar position saved'],
+        expect(memoPlayItems(e, song, 'armed').map((i) => [i.disabled, i.help])).toEqual([
+          [true, 'This memo has no saved bar position.'],
+          [true, 'This memo has no saved bar position.'],
+          [true, 'This memo has no saved bar position.'],
         ]);
       }
     });
 
     test('no song disables the song items', () => {
-      expect(memoPlayItems(timed, null, 'armed').map((i) => [i.disabled, i.title])).toEqual([
-        [false, undefined],
-        [true, 'no song open'],
-        [true, 'no song open'],
+      expect(memoPlayItems(timed, null, 'armed').map((i) => [i.disabled, i.help])).toEqual([
+        [false, metronomeHelp],
+        [true, 'Open a song to play it with this memo.'],
+        [true, 'Open a song to play it with this memo.'],
       ]);
     });
 
     test('a matching starting meter does not enable mixed-meter song backing', () => {
-      const message = 'song backing requires a fixed time signature';
+      const message = 'Song backing requires a fixed time signature.';
       expect(
         memoPlayItems(timed, { ...song, mixedMeter: true }, 'armed').map((i) => [
           i.disabled,
-          i.title,
+          i.help,
         ]),
       ).toEqual([
-        [false, undefined],
+        [false, metronomeHelp],
         [true, message],
         [true, message],
       ]);
     });
 
-    test('a changed tempo disables the song items with the tempo title', () => {
-      const t = "the song's tempo changed since this memo (120 · 4/4 → 100 · 4/4)";
+    test('a changed tempo blocks song backing and describes the tempo difference', () => {
+      const t = 'The song’s tempo changed since this memo (120 · 4/4 → 100 · 4/4).';
       expect(
         memoPlayItems(timed, { cps: 100 / 240, meter: { num: 4, den: 4 } }, 'armed').map((i) => [
           i.disabled,
-          i.title,
+          i.help,
         ]),
       ).toEqual([
-        [false, undefined],
+        [false, metronomeHelp],
         [true, t],
         [true, t],
       ]);
@@ -833,7 +856,8 @@ describe('memo rows', () => {
       for (const phase of PHASES) {
         const busy = takeRunning(phase);
         for (const i of memoPlayItems(timed, song, phase)) {
-          expect([i.disabled, i.title]).toEqual(busy ? [true, BUSY_TITLE] : [false, undefined]);
+          expect(i.disabled).toBe(busy);
+          if (busy) expect(i.help).toBe('Finish recording before playing a memo.');
         }
       }
     });

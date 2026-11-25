@@ -79,13 +79,16 @@
     if (nativeMenuReady) void setExportMenuAvailable(exportAvailable).catch(console.error);
   });
 
+  function actionBlocked() {
+    return quitting || Boolean(exportDialog || instruments || settings);
+  }
+
   function runProjectAction(action: ProjectAction) {
-    if (projectsReady && !quitting && !exportDialog && !instruments && !settings)
-      void projectActions.run(action);
+    if (projectsReady && !actionBlocked()) void projectActions.run(action);
   }
 
   function openSettings(opener = document.activeElement) {
-    if (settings || quitting || instruments || exportDialog || projectActions.isBusy()) return;
+    if (actionBlocked() || projectActions.isBusy()) return;
     settings = { opener: opener instanceof HTMLElement ? opener : null };
   }
 
@@ -101,14 +104,7 @@
       openSettings();
     } else if (action !== 'exportAudio') {
       runProjectAction(action);
-    } else if (
-      exportAvailable &&
-      !quitting &&
-      !instruments &&
-      !settings &&
-      !exportDialog &&
-      !projectActions.isBusy()
-    ) {
+    } else if (exportAvailable && !actionBlocked() && !projectActions.isBusy()) {
       const song = captureExportSong($store, session.activeText());
       if (song) exportDialog = { song, controller: createExportDialog(song, exportApi) };
     }
@@ -195,7 +191,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (quitting || exportDialog || instruments || settings) return;
+    if (actionBlocked()) return;
     if (shortcut === 'openProject') runProjectAction(shortcut);
     else if ($store.project && $newProjectFolder === null) newSongOpen = true;
   }

@@ -3,6 +3,7 @@ import { writable } from 'svelte/store';
 interface Target {
   element: HTMLElement;
   text: string;
+  description?: HTMLElement;
 }
 
 interface Message {
@@ -11,7 +12,6 @@ interface Message {
 }
 
 const targets = new WeakMap<Element, Target>();
-const descriptions = new WeakMap<Element, HTMLElement>();
 const message = writable<Message | null>(null);
 export const helpMessage = { subscribe: message.subscribe };
 
@@ -64,30 +64,29 @@ function descriptionIds(element: Element, id: string, include: boolean): void {
 export function registerHelpTarget(element: HTMLElement, text: string | undefined) {
   const { ownerDocument } = element;
   const target: Target = { element, text: '' };
-  let description: HTMLElement | undefined;
   let id: string | undefined;
 
   function update(next: string | undefined) {
     const text = next?.trim() ?? '';
     if (text === target.text) return;
     target.text = text;
+    let description = target.description;
     if (text) {
       if (!description) {
         description = ownerDocument.createElement('span');
         description.id = id ??= `strudeland-help-${++nextId}`;
         description.hidden = true;
         (dialogFor(element) ?? ownerDocument.body).append(description);
-        descriptions.set(element, description);
+        target.description = description;
       }
       description.textContent = text;
       descriptionIds(element, description.id, true);
       targets.set(element, target);
     } else if (description) {
       targets.delete(element);
-      descriptions.delete(element);
       descriptionIds(element, description.id, false);
       description.remove();
-      description = undefined;
+      target.description = undefined;
     }
     windowHelp?.update(target);
   }
@@ -119,7 +118,7 @@ function findTarget(element: Element | null, focus: boolean): Target | undefined
 
 function listen(doc: Document) {
   const win = doc.defaultView!;
-  let scope = activeDialog();
+  let scope: HTMLDialogElement | null = null;
   let hover: Target | undefined;
   let focus: Target | undefined;
   let pointer: { x: number; y: number; element: Element | null } | undefined;
@@ -165,9 +164,9 @@ function listen(doc: Document) {
     publish();
   }
 
-  function reset() {
+  function reset(nextScope = activeDialog()) {
     cancelExit();
-    scope = activeDialog();
+    scope = nextScope;
     pointer = undefined;
     hover = undefined;
     hoverWins = false;
@@ -176,8 +175,9 @@ function listen(doc: Document) {
   }
 
   function updateScope(): boolean {
-    if (activeDialog() === scope) return false;
-    reset();
+    const nextScope = activeDialog();
+    if (nextScope === scope) return false;
+    reset(nextScope);
     return true;
   }
 
@@ -276,7 +276,7 @@ function listen(doc: Document) {
     for (const record of records) {
       if (record.attributeName === 'aria-describedby') {
         const element = record.target as Element;
-        const description = descriptions.get(element);
+        const description = targets.get(element)?.description;
         if (description) descriptionIds(element, description.id, true);
       } else if (
         record.attributeName === 'aria-activedescendant' &&
