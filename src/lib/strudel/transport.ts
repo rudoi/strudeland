@@ -1,6 +1,6 @@
 /**
- * The transport: which song bar plays at each global cycle. Plain data plus pure functions; the
- * runtime owns the one mutable segment list and the `Transport` object around it.
+ * The transport: which song bar plays at each global cycle. Plain data plus pure functions, and
+ * `createTransportModel`, the `Transport` over the runtime's one mutable segment list.
  *
  * Global cycle = the scheduler's cycle (0 at every start). Song bar = a position on the song's own
  * timeline (`section.start + localCycle`). One cycle is one bar.
@@ -287,4 +287,160 @@ export interface Transport {
    * While playing, the song plays on in `song` view from the global cycle (like a first evaluate).
    */
   reset(): void;
+}
+
+/** The scheduler side of the transport, which the runtime owns. */
+export interface TransportBoundary {
+  /**
+   * The scheduler's query horizon as a layout cycle (the runtime's `toCycle(lastEnd)`, which
+   * includes mixed-meter timing): what was queried up to it stays, so a change while playing lands
+   * at the next safe boundary at or after it.
+   */
+  horizon(): number;
+  /** The live segment list. */
+  segments(): readonly Segment[];
+  /**
+   * Makes `next` the live list. `started`: it takes over at the horizon, the timing anchored
+   * there. Stopped: it plays from cycle 0 and the timing starts afresh.
+   */
+  install(next: readonly Segment[], started: boolean): void;
+  /** Drops segments that stopped governing well before `cycle` (the runtime keeps a look-behind). */
+  prune(cycle: number): void;
+}
+
+export interface TransportModelOptions {
+  /**
+   * Whether the scheduler plays. Every notification after the first (also one that repeats the
+   * value, as each scheduler stop does) re-applies the transport: a stop rewinds it to
+   * `INITIAL_SEGMENTS`, a start keeps what was armed. Reads take its current value.
+   */
+  started: Readable<boolean>;
+  /** The evaluated structure (null without `song()`); changes while playing go against it. */
+  structure: () => SongStructure | null;
+  boundary: TransportBoundary;
+  /** The audible global cycle. */
+  now: () => number;
+}
+
+const isInitial = (seg: readonly Segment[]): boolean =>
+  seg.length === 1 && seg[0]!.at === 0 && seg[0]!.songBar === 0 && seg[0]!.view.kind === 'song';
+
+const sameView = (a: View, b: View): boolean =>
+  a.kind === b.kind &&
+  (a.kind !== 'loop' ||
+    (a.section === (b as typeof a).section && a.through === (b as typeof a).through));
+
+const current = <T>(store: Readable<T>): T => {
+  let value!: T;
+  store.subscribe((v) => (value = v))();
+  return value;
+};
+
+/**
+ * The `Transport` over a runtime's segment list: what the transport verbs arm while stopped, what
+ * they append at the next safe boundary while playing, the rewind on every stop, and the
+ * `TransportState` it publishes.
+ *
+ * The segment list itself stays behind `boundary`, not in the model: the runtime also installs
+ * lists the transport state does not show (a count-in, an engine switch's list, a failed start's
+ * rollback), and installing one re-anchors its mixed-meter timing.
+ */
+export function createTransportModel(opts: TransportModelOptions): Transport {
+  const { boundary, now, structure: evaluated } = opts;
+  let state: TransportState = { view: { kind: 'song' }, pendingStart: false, armedSection: null };
+  const subscribers = new Set<(s: TransportState) => void>();
+
+  /** `structure` is the one the change was made against; it names the armed section. */
+  function setSegments(
+    next: readonly Segment[],
+    started = current(opts.started),
+    structure: SongStructure | null = null,
+  ): void {
+    const last = next[next.length - 1]!;
+    const view = last.view;
+    // Only the runtime's `start()` installs a count-in, always followed by the real segments.
+    if (view.kind === 'count-in') throw new Error('transport: a count-in cannot be last');
+    if (next !== boundary.segments() || !started) boundary.install(next, started);
+    const pendingStart = !started && !isInitial(next);
+    const armedSection =
+      pendingStart && structure ? (locate(last.at, structure, next)?.section ?? null) : null;
+    if (
+      sameView(view, state.view) &&
+      pendingStart === state.pendingStart &&
+      armedSection === state.armedSection
+    ) {
+      return;
+    }
+    state = { view, pendingStart, armedSection };
+    subscribers.forEach((fn) => fn(state));
+  }
+
+  /**
+   * While stopped: the change at cycle 0 against the click's `structure` (it replaces the list).
+   * While playing: append at the next safe bar boundary, against the evaluated structure (a no-op
+   * without `song()`).
+   */
+  function change(
+    structure: SongStructure,
+    apply: (seg: readonly Segment[], s: SongStructure, at: number) => Segment[],
+  ): void {
+    if (!current(opts.started)) {
+      setSegments(apply(boundary.segments(), structure, 0), false, structure);
+      return;
+    }
+    const s = evaluated();
+    if (!s) return;
+    boundary.prune(now());
+    const seg = boundary.segments();
+    setSegments(apply(seg, s, nextSafeBoundary(boundary.horizon(), s, seg, 'bar')!));
+  }
+
+  let first = true;
+  opts.started.subscribe((started) => {
+    if (first) {
+      first = false;
+      return;
+    }
+    // Every stop (Stop, auto-stop, the scheduler's own) rewinds the transport; a start keeps
+    // what was armed while stopped.
+    setSegments(started ? boundary.segments() : INITIAL_SEGMENTS, started);
+  });
+
+  const transport: Transport = {
+    store: {
+      subscribe(run) {
+        subscribers.add(run);
+        run(state);
+        return () => subscribers.delete(run);
+      },
+    },
+    startFrom(section, structure) {
+      change(structure, (seg, s, at) => withStartFrom(seg, s, section, at));
+    },
+    loopSection(section, structure) {
+      if (section === null && !current(opts.started)) {
+        transport.reset();
+        return;
+      }
+      change(structure, (seg, s, at) => withLoop(seg, s, section, at));
+    },
+    loopRange(first, last, structure) {
+      change(structure, (seg, s, at) => withLoop(seg, s, first, at, last));
+    },
+    playEnding() {
+      const s = evaluated();
+      const started = current(opts.started);
+      const cycle = now();
+      boundary.prune(cycle);
+      const located = s ? locate(cycle, s, boundary.segments()) : null;
+      if (!canPlayEnding(started, s, state.view, located)) return;
+      const at = nextSafeBoundary(boundary.horizon(), s!, boundary.segments(), 'loopPass');
+      if (at === null) return;
+      setSegments(withRelease(boundary.segments(), s!, at));
+    },
+    reset() {
+      setSegments(INITIAL_SEGMENTS);
+    },
+  };
+  return transport;
 }

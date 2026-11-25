@@ -81,16 +81,16 @@
         return ret;
       }
       function upperBound(array, func2) {
-        var diff, len, i3, current2;
+        var diff, len, i3, current3;
         len = array.length;
         i3 = 0;
         while (len) {
           diff = len >>> 1;
-          current2 = i3 + diff;
-          if (func2(array[current2])) {
+          current3 = i3 + diff;
+          if (func2(array[current3])) {
             len = diff;
           } else {
-            i3 = current2 + 1;
+            i3 = current3 + 1;
             len -= diff + 1;
           }
         }
@@ -315,7 +315,7 @@
         }
         return result;
       };
-      Controller.prototype.current = function current2() {
+      Controller.prototype.current = function current3() {
         return this.__current.node;
       };
       Controller.prototype.__execute = function __execute(callback, element) {
@@ -378,7 +378,7 @@
         return false;
       }
       Controller.prototype.traverse = function traverse2(root, visitor) {
-        var worklist, leavelist, element, node, nodeType, ret, key, current2, current22, candidates, candidate, sentinel;
+        var worklist, leavelist, element, node, nodeType, ret, key, current3, current22, candidates, candidate, sentinel;
         this.__initialize(root, visitor);
         sentinel = {};
         worklist = this.__worklist;
@@ -415,9 +415,9 @@
                 throw new Error("Unknown node type " + nodeType + ".");
               }
             }
-            current2 = candidates.length;
-            while ((current2 -= 1) >= 0) {
-              key = candidates[current2];
+            current3 = candidates.length;
+            while ((current3 -= 1) >= 0) {
+              key = candidates[current3];
               candidate = node[key];
               if (!candidate) {
                 continue;
@@ -431,7 +431,7 @@
                   if (candidateExistsInLeaveList(leavelist, candidate[current22])) {
                     continue;
                   }
-                  if (isProperty(nodeType, candidates[current2])) {
+                  if (isProperty(nodeType, candidates[current3])) {
                     element = new Element(candidate[current22], [key, current22], "Property", null);
                   } else if (isNode(candidate[current22])) {
                     element = new Element(candidate[current22], [key, current22], null, null);
@@ -451,7 +451,7 @@
         }
       };
       Controller.prototype.replace = function replace2(root, visitor) {
-        var worklist, leavelist, node, nodeType, target, element, current2, current22, candidates, candidate, sentinel, outer, key;
+        var worklist, leavelist, node, nodeType, target, element, current3, current22, candidates, candidate, sentinel, outer, key;
         function removeElem(element2) {
           var i3, key2, nextElem, parent;
           if (element2.ref.remove()) {
@@ -525,9 +525,9 @@
               throw new Error("Unknown node type " + nodeType + ".");
             }
           }
-          current2 = candidates.length;
-          while ((current2 -= 1) >= 0) {
-            key = candidates[current2];
+          current3 = candidates.length;
+          while ((current3 -= 1) >= 0) {
+            key = candidates[current3];
             candidate = node[key];
             if (!candidate) {
               continue;
@@ -538,7 +538,7 @@
                 if (!candidate[current22]) {
                   continue;
                 }
-                if (isProperty(nodeType, candidates[current2])) {
+                if (isProperty(nodeType, candidates[current3])) {
                   element = new Element(candidate[current22], [key, current22], "Property", new Reference(candidate, current22));
                 } else if (isNode(candidate[current22])) {
                   element = new Element(candidate[current22], [key, current22], null, new Reference(candidate, current22));
@@ -754,22 +754,22 @@
         return null;
       }
       function isProblematicIfStatement(node) {
-        var current2;
+        var current3;
         if (node.type !== "IfStatement") {
           return false;
         }
         if (node.alternate == null) {
           return false;
         }
-        current2 = node.consequent;
+        current3 = node.consequent;
         do {
-          if (current2.type === "IfStatement") {
-            if (current2.alternate == null) {
+          if (current3.type === "IfStatement") {
+            if (current3.alternate == null) {
               return true;
             }
           }
-          current2 = trailingStatement(current2);
-        } while (current2);
+          current3 = trailingStatement(current3);
+        } while (current3);
         return false;
       }
       module.exports = {
@@ -3318,8 +3318,8 @@
           result.push(newline);
         }
       }
-      function parenthesize(text, current2, should) {
-        if (current2 < should) {
+      function parenthesize(text, current3, should) {
+        if (current3 < should) {
           return ["(", text, ")"];
         }
         return text;
@@ -11417,8 +11417,8 @@
       var diff = function(voicing) {
         return Math.abs(tonal_1.Note.midi(lastVoicing[lastVoicing.length - 1]) - tonal_1.Note.midi(voicing[voicing.length - 1]));
       };
-      return voicings.reduce(function(best, current2) {
-        return diff(current2) < diff(best) ? current2 : best;
+      return voicings.reduce(function(best, current3) {
+        return diff(current3) < diff(best) ? current3 : best;
       }, voicings[0]);
     }
     exports.minTopNoteDiff = minTopNoteDiff;
@@ -11449,7 +11449,7 @@
     strudelandHost: () => strudelandHost,
     isQueryWindow: () => isQueryWindow,
     hostAdapter: () => hostAdapter,
-    current: () => current2,
+    current: () => current3,
     captureConsole: () => captureConsole,
     MAX_QUERY_CYCLES: () => MAX_QUERY_CYCLES
   });
@@ -11884,6 +11884,92 @@
   }
   function canPlayEnding(started, s, view, located) {
     return started && s !== null && located !== null && isLoopPass(s, view, located);
+  }
+  var isInitial = (seg) => seg.length === 1 && seg[0].at === 0 && seg[0].songBar === 0 && seg[0].view.kind === "song";
+  var sameView = (a, b) => a.kind === b.kind && (a.kind !== "loop" || a.section === b.section && a.through === b.through);
+  var current = (store) => {
+    let value;
+    store.subscribe((v) => value = v)();
+    return value;
+  };
+  function createTransportModel(opts) {
+    const { boundary, now, structure: evaluated } = opts;
+    let state = { view: { kind: "song" }, pendingStart: false, armedSection: null };
+    const subscribers = new Set;
+    function setSegments(next, started = current(opts.started), structure = null) {
+      const last = next[next.length - 1];
+      const view = last.view;
+      if (view.kind === "count-in")
+        throw new Error("transport: a count-in cannot be last");
+      if (next !== boundary.segments() || !started)
+        boundary.install(next, started);
+      const pendingStart = !started && !isInitial(next);
+      const armedSection = pendingStart && structure ? locate(last.at, structure, next)?.section ?? null : null;
+      if (sameView(view, state.view) && pendingStart === state.pendingStart && armedSection === state.armedSection) {
+        return;
+      }
+      state = { view, pendingStart, armedSection };
+      subscribers.forEach((fn) => fn(state));
+    }
+    function change(structure, apply) {
+      if (!current(opts.started)) {
+        setSegments(apply(boundary.segments(), structure, 0), false, structure);
+        return;
+      }
+      const s = evaluated();
+      if (!s)
+        return;
+      boundary.prune(now());
+      const seg = boundary.segments();
+      setSegments(apply(seg, s, nextSafeBoundary(boundary.horizon(), s, seg, "bar")));
+    }
+    let first = true;
+    opts.started.subscribe((started) => {
+      if (first) {
+        first = false;
+        return;
+      }
+      setSegments(started ? boundary.segments() : INITIAL_SEGMENTS, started);
+    });
+    const transport = {
+      store: {
+        subscribe(run) {
+          subscribers.add(run);
+          run(state);
+          return () => subscribers.delete(run);
+        }
+      },
+      startFrom(section, structure) {
+        change(structure, (seg, s, at) => withStartFrom(seg, s, section, at));
+      },
+      loopSection(section, structure) {
+        if (section === null && !current(opts.started)) {
+          transport.reset();
+          return;
+        }
+        change(structure, (seg, s, at) => withLoop(seg, s, section, at));
+      },
+      loopRange(first2, last, structure) {
+        change(structure, (seg, s, at) => withLoop(seg, s, first2, at, last));
+      },
+      playEnding() {
+        const s = evaluated();
+        const started = current(opts.started);
+        const cycle = now();
+        boundary.prune(cycle);
+        const located = s ? locate(cycle, s, boundary.segments()) : null;
+        if (!canPlayEnding(started, s, state.view, located))
+          return;
+        const at = nextSafeBoundary(boundary.horizon(), s, boundary.segments(), "loopPass");
+        if (at === null)
+          return;
+        setSegments(withRelease(boundary.segments(), s, at));
+      },
+      reset() {
+        setSegments(INITIAL_SEGMENTS);
+      }
+    };
+    return transport;
   }
 
   // src/lib/strudel/timing.ts
@@ -15766,7 +15852,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
     return i2 + 2;
   };
-  RegExpValidationState.prototype.current = function current(forceU) {
+  RegExpValidationState.prototype.current = function current2(forceU) {
     if (forceU === undefined)
       forceU = false;
     return this.at(this.pos, forceU);
@@ -15796,8 +15882,8 @@ Defaulting to 2020, but this will stop working in the future.`);
     var pos = this.pos;
     for (var i2 = 0, list2 = chs;i2 < list2.length; i2 += 1) {
       var ch = list2[i2];
-      var current2 = this.at(pos, forceU);
-      if (current2 === -1 || current2 !== ch) {
+      var current3 = this.at(pos, forceU);
+      if (current3 === -1 || current3 !== ch) {
         return false;
       }
       pos = this.nextIndex(pos, forceU);
@@ -29562,8 +29648,6 @@ Please check with "npm ls @strudel/core".`);
   var DRAIN_RELEASE_SEC = 1;
   var DRAIN_MAX_SEC = 16;
   var HAP_LATENCY_SEC = 0.1;
-  var isInitial = (seg2) => seg2.length === 1 && seg2[0].at === 0 && seg2[0].songBar === 0 && seg2[0].view.kind === "song";
-  var sameView = (a, b) => a.kind === b.kind && (a.kind !== "loop" || a.section === b.section && a.through === b.through);
   function createRuntime(opts) {
     const { backends, hooks } = opts;
     let activeId = "superdough";
@@ -29656,9 +29740,9 @@ Please check with "npm ls @strudel/core".`);
     function audibleReference() {
       const sch = r.scheduler;
       const latest = audibleHistory.at(-1);
-      const current2 = sch.now();
-      if (!sch.started || !latest || sch.lastBegin >= latest.end.clock && current2 >= latest.end.clock) {
-        return current2;
+      const current3 = sch.now();
+      if (!sch.started || !latest || sch.lastBegin >= latest.end.clock && current3 >= latest.end.clock) {
+        return current3;
       }
       let reference = Number(sch.lastEnd);
       let seconds2 = sch.lastTick + 2 * sch.clock.duration - sch.getTime();
@@ -29694,32 +29778,14 @@ Please check with "npm ls @strudel/core".`);
       const reference = Number(r.scheduler.lastEnd);
       return { cycle: toCycle(reference), clock: reference };
     }
-    let transportState = {
-      view: { kind: "song" },
-      pendingStart: false,
-      armedSection: null
+    const startedSubscribers = new Set;
+    const startedToggles = {
+      subscribe(run2) {
+        startedSubscribers.add(run2);
+        run2(state2.started);
+        return () => startedSubscribers.delete(run2);
+      }
     };
-    const transportSubscribers = new Set;
-    function setSegments(next, started = state2.started, structure = null) {
-      const last = next[next.length - 1];
-      const view = last.view;
-      if (view.kind === "count-in")
-        throw new Error("transport: a count-in cannot be last");
-      if (next !== segments || !started) {
-        setLiveLayout(next, started ? scheduledAnchor() : undefined);
-        if (!started) {
-          phaseOffsetSec = 0;
-          audibleHistory = [];
-        }
-      }
-      const pendingStart = !started && !isInitial(next);
-      const armedSection = pendingStart && structure ? locate(last.at, structure, next)?.section ?? null : null;
-      if (sameView(view, transportState.view) && pendingStart === transportState.pendingStart && armedSection === transportState.armedSection) {
-        return;
-      }
-      transportState = { view, pendingStart, armedSection };
-      transportSubscribers.forEach((fn) => fn(transportState));
-    }
     let evaluatedPattern = null;
     let unseededPattern = null;
     let playbackPattern = null;
@@ -29857,7 +29923,7 @@ Please check with "npm ls @strudel/core".`);
         patch(started ? { started, engineWarnings: [] } : { started });
         if (started && !swapping)
           restartLevels();
-        setSegments(started ? segments : INITIAL_SEGMENTS, started);
+        startedSubscribers.forEach((fn) => fn(started));
         hooks?.onToggle?.(started);
       }
     });
@@ -30012,51 +30078,23 @@ Please check with "npm ls @strudel/core".`);
       const s2 = state2.structure;
       return { cycle, located: s2 ? locate(cycle, s2, segments) : null };
     }
-    function change(structure, apply2) {
-      if (!state2.started) {
-        setSegments(apply2(segments, structure, 0), false, structure);
-        return;
-      }
-      const s2 = state2.structure;
-      if (!s2)
-        return;
-      pruneAt(now());
-      setSegments(apply2(segments, s2, nextSafeBoundary(toCycle(r.scheduler.lastEnd), s2, segments, "bar")));
-    }
-    const transport = {
-      store: {
-        subscribe(run2) {
-          transportSubscribers.add(run2);
-          run2(transportState);
-          return () => transportSubscribers.delete(run2);
-        }
+    const transport = createTransportModel({
+      started: startedToggles,
+      structure: () => state2.structure,
+      boundary: {
+        horizon: () => toCycle(r.scheduler.lastEnd),
+        segments: () => segments,
+        install(next, started) {
+          setLiveLayout(next, started ? scheduledAnchor() : undefined);
+          if (!started) {
+            phaseOffsetSec = 0;
+            audibleHistory = [];
+          }
+        },
+        prune: pruneAt
       },
-      startFrom(section, structure) {
-        change(structure, (seg2, s2, at2) => withStartFrom(seg2, s2, section, at2));
-      },
-      loopSection(section, structure) {
-        if (section === null && !state2.started) {
-          transport.reset();
-          return;
-        }
-        change(structure, (seg2, s2, at2) => withLoop(seg2, s2, section, at2));
-      },
-      loopRange(first, last, structure) {
-        change(structure, (seg2, s2, at2) => withLoop(seg2, s2, first, at2, last));
-      },
-      playEnding() {
-        const s2 = state2.structure;
-        if (!canPlayEnding(state2.started, s2, transportState.view, position().located))
-          return;
-        const at2 = nextSafeBoundary(toCycle(r.scheduler.lastEnd), s2, segments, "loopPass");
-        if (at2 === null)
-          return;
-        setSegments(withRelease(segments, s2, at2));
-      },
-      reset() {
-        setSegments(INITIAL_SEGMENTS);
-      }
-    };
+      now
+    });
     function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS, seedOverride) {
       if (evaluatedPattern === null)
         return null;
@@ -32840,7 +32878,7 @@ Please check with "npm ls @strudel/core".`);
   var MAX_QUERY_CYCLES = 4096;
   var MAX_INSPECTION_ERROR = 512;
   var g = globalThis;
-  function current2(store) {
+  function current3(store) {
     let value;
     store.subscribe((v2) => value = v2)();
     return value;
@@ -32879,9 +32917,9 @@ Please check with "npm ls @strudel/core".`);
           return false;
         }
       },
-      evalError: () => rejected ?? current2(runtime.store).evalError,
+      evalError: () => rejected ?? current3(runtime.store).evalError,
       state: () => {
-        const s2 = current2(runtime.store);
+        const s2 = current3(runtime.store);
         return { structure: s2.structure, cps: s2.cps, seed: s2.seed };
       },
       query: (from, to, segments) => runtime.query(from, to, segments)

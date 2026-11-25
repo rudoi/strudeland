@@ -1,18 +1,27 @@
 /**
- * A hand-rolled `Runtime` stub (no Strudel, no audio) recording what the session asks of it.
+ * A hand-rolled `Runtime` stub (no Strudel, no audio) recording what the session asks of it. Its
+ * transport is the runtime's own model (`createTransportModel`) over a plain segment list, with a
+ * horizon and an audible cycle the test sets.
  * `live: true` makes a successful evaluate start it and apply its tempo and `activeCode`, and a
  * failed one set `evalError`; otherwise evaluate and stop leave the store alone and tests drive it
  * directly.
  */
 import type { LevelHoldSnapshot } from '../../src/lib/levels/levels';
-import { get, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import type {
   EvaluateOptions,
   Runtime,
   RuntimeState,
   StartOptions,
 } from '../../src/lib/strudel/runtime';
-import type { Located, TransportState } from '../../src/lib/strudel/transport';
+import {
+  createTransportModel,
+  INITIAL_SEGMENTS,
+  prune,
+  type Located,
+  type Segment,
+  type TransportState,
+} from '../../src/lib/strudel/transport';
 
 /** What `query` answers: fixed haps (null: nothing evaluated) or a function that may throw. */
 type QueryAnswer = any[] | null | ((from: number, to: number) => any[] | null);
@@ -54,11 +63,23 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
   let startResult: () => boolean | Promise<boolean> = () => true;
   let cycleTimeOf: (cycle: number) => number | null = () => null;
   const cycleTimes: number[] = [];
-  const transportStore = writable<TransportState>({
-    view: { kind: 'song' },
-    pendingStart: false,
-    armedSection: null,
+  let segments: readonly Segment[] = INITIAL_SEGMENTS;
+  let horizon = 0;
+  const model = createTransportModel({
+    started: derived(store, (s) => s.started),
+    structure: () => get(store).structure,
+    boundary: {
+      horizon: () => horizon,
+      segments: () => segments,
+      install: (next) => void (segments = next),
+      // No look-behind: nothing in the stub queries behind the playhead.
+      prune: (cycle) => void (segments = prune(segments, cycle)),
+    },
+    now: () => pos.cycle,
   });
+  /** The model's state, until `setTransport` overrides it (up to the model's next change). */
+  const transportStore = writable<TransportState>(get(model.store));
+  model.store.subscribe((s) => transportStore.set(s));
   const runtime: Runtime = {
     scheduler: {},
     drawingScheduler: {},
@@ -104,13 +125,23 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     },
     transport: {
       store: { subscribe: transportStore.subscribe },
-      startFrom: (i) => void transportCalls.push(`startFrom ${i}`),
-      loopSection: (i) => void transportCalls.push(`loopSection ${i}`),
-      loopRange: (first, last) => void transportCalls.push(`loopRange ${first} ${last}`),
-      playEnding: () => {},
-      reset: () => {
+      startFrom(i, structure) {
+        transportCalls.push(`startFrom ${i}`);
+        model.startFrom(i, structure);
+      },
+      loopSection(i, structure) {
+        transportCalls.push(`loopSection ${i}`);
+        model.loopSection(i, structure);
+      },
+      loopRange(first, last, structure) {
+        transportCalls.push(`loopRange ${first} ${last}`);
+        model.loopRange(first, last, structure);
+      },
+      playEnding: () => model.playEnding(),
+      reset() {
         resets.push(evaluated.length);
         transportCalls.push('reset');
+        model.reset();
       },
     },
     position: () => pos,
@@ -150,7 +181,11 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     setQuery: (a: QueryAnswer) => void (answer = a),
     /** Every `query(from, to)` call, in order. */
     queries: () => queries,
-    /** What `position()` returns from now on. */
+    /** The transport's live segment list. */
+    segments: () => segments,
+    /** The scheduler's query horizon (a layout cycle) from now on: 0 by default. */
+    setHorizon: (cycle: number) => void (horizon = cycle),
+    /** What `position()` returns from now on; its cycle is the transport's audible cycle. */
     setPosition: (p: { cycle: number; located: Located | null }) => void (pos = p),
     /** Every `start(opts)` call's options, in order. */
     starts: () => starts,
@@ -160,7 +195,7 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     cycleTimes: () => cycleTimes,
     /** What `cycleTime` answers from now on (null by default). */
     setCycleTime: (fn: (cycle: number) => number | null) => void (cycleTimeOf = fn),
-    /** What `transport.store` holds from now on. */
+    /** What `transport.store` holds until the transport model next changes it. */
     setTransport: (t: TransportState) => transportStore.set(t),
   };
 }

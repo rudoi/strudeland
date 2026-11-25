@@ -39,22 +39,16 @@ import {
   type SongStructure,
 } from './structure';
 import {
-  canPlayEnding,
+  createTransportModel,
   inCountIn,
   INITIAL_SEGMENTS,
   LINEAR_SEGMENTS,
   locate,
-  nextSafeBoundary,
   prune,
-  withLoop,
-  withRelease,
   withCountIn,
-  withStartFrom,
   type Located,
   type Segment,
   type Transport,
-  type TransportState,
-  type View,
 } from './transport';
 import { errorMessage } from '../errors';
 
@@ -241,14 +235,6 @@ export interface RuntimeOptions {
   limiter?: boolean;
 }
 
-const isInitial = (seg: readonly Segment[]): boolean =>
-  seg.length === 1 && seg[0]!.at === 0 && seg[0]!.songBar === 0 && seg[0]!.view.kind === 'song';
-
-const sameView = (a: View, b: View): boolean =>
-  a.kind === b.kind &&
-  (a.kind !== 'loop' ||
-    (a.section === (b as typeof a).section && a.through === (b as typeof a).through));
-
 export function createRuntime(opts: RuntimeOptions): Runtime {
   const { backends, hooks } = opts;
   /** The backend haps, the clock, the seed and the scope go to. */
@@ -416,43 +402,15 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     const reference = Number(r.scheduler.lastEnd);
     return { cycle: toCycle(reference), clock: reference };
   }
-  let transportState: TransportState = {
-    view: { kind: 'song' },
-    pendingStart: false,
-    armedSection: null,
+  /** `state.started`; notified where `onToggle` re-applies the transport, after `patch`. */
+  const startedSubscribers = new Set<(started: boolean) => void>();
+  const startedToggles: Readable<boolean> = {
+    subscribe(run) {
+      startedSubscribers.add(run);
+      run(state.started);
+      return () => startedSubscribers.delete(run);
+    },
   };
-  const transportSubscribers = new Set<(s: TransportState) => void>();
-
-  /** `structure` is the one the change was made against; it names the armed section. */
-  function setSegments(
-    next: readonly Segment[],
-    started = state.started,
-    structure: SongStructure | null = null,
-  ): void {
-    const last = next[next.length - 1]!;
-    const view = last.view;
-    // Only `start()` installs a count-in, always followed by the real segments.
-    if (view.kind === 'count-in') throw new Error('transport: a count-in cannot be last');
-    if (next !== segments || !started) {
-      setLiveLayout(next, started ? scheduledAnchor() : undefined);
-      if (!started) {
-        phaseOffsetSec = 0;
-        audibleHistory = [];
-      }
-    }
-    const pendingStart = !started && !isInitial(next);
-    const armedSection =
-      pendingStart && structure ? (locate(last.at, structure, next)?.section ?? null) : null;
-    if (
-      sameView(view, transportState.view) &&
-      pendingStart === transportState.pendingStart &&
-      armedSection === transportState.armedSection
-    ) {
-      return;
-    }
-    transportState = { view, pendingStart, armedSection };
-    transportSubscribers.forEach((fn) => fn(transportState));
-  }
 
   /** The last successfully evaluated pattern (a failed evaluate leaves it); never exposed. */
   let evaluatedPattern: any = null;
@@ -637,9 +595,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       patch(started ? { started, engineWarnings: [] } : { started });
       // A play from stopped is a new hold; an engine switch (swapping) and a stop are not.
       if (started && !swapping) restartLevels();
-      // Every stop (Stop, auto-stop, the scheduler's own) rewinds the transport; a start keeps
-      // what was armed while stopped.
-      setSegments(started ? segments : INITIAL_SEGMENTS, started);
+      // The transport model rewinds on every stop and keeps what was armed on a start.
+      startedSubscribers.forEach((fn) => fn(started));
       hooks?.onToggle?.(started);
     },
   });
@@ -837,59 +794,23 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     return { cycle, located: s ? locate(cycle, s, segments) : null };
   }
 
-  /**
-   * While stopped: the change at cycle 0 against the click's `structure` (it replaces the list).
-   * While playing: append at the next safe bar boundary, against the evaluated structure (a no-op
-   * without `song()`).
-   */
-  function change(
-    structure: SongStructure,
-    apply: (seg: readonly Segment[], s: SongStructure, at: number) => Segment[],
-  ): void {
-    if (!state.started) {
-      setSegments(apply(segments, structure, 0), false, structure);
-      return;
-    }
-    const s = state.structure;
-    if (!s) return;
-    pruneAt(now());
-    setSegments(
-      apply(segments, s, nextSafeBoundary(toCycle(r.scheduler.lastEnd), s, segments, 'bar')!),
-    );
-  }
-
-  const transport: Transport = {
-    store: {
-      subscribe(run) {
-        transportSubscribers.add(run);
-        run(transportState);
-        return () => transportSubscribers.delete(run);
+  const transport: Transport = createTransportModel({
+    started: startedToggles,
+    structure: () => state.structure,
+    boundary: {
+      horizon: () => toCycle(r.scheduler.lastEnd),
+      segments: () => segments,
+      install(next, started) {
+        setLiveLayout(next, started ? scheduledAnchor() : undefined);
+        if (!started) {
+          phaseOffsetSec = 0;
+          audibleHistory = [];
+        }
       },
+      prune: pruneAt,
     },
-    startFrom(section, structure) {
-      change(structure, (seg, s, at) => withStartFrom(seg, s, section, at));
-    },
-    loopSection(section, structure) {
-      if (section === null && !state.started) {
-        transport.reset();
-        return;
-      }
-      change(structure, (seg, s, at) => withLoop(seg, s, section, at));
-    },
-    loopRange(first, last, structure) {
-      change(structure, (seg, s, at) => withLoop(seg, s, first, at, last));
-    },
-    playEnding() {
-      const s = state.structure;
-      if (!canPlayEnding(state.started, s, transportState.view, position().located)) return;
-      const at = nextSafeBoundary(toCycle(r.scheduler.lastEnd), s!, segments, 'loopPass');
-      if (at === null) return;
-      setSegments(withRelease(segments, s!, at));
-    },
-    reset() {
-      setSegments(INITIAL_SEGMENTS);
-    },
-  };
+    now,
+  });
 
   function query(
     fromCycle: number,
@@ -1020,7 +941,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         pattern = pattern.filterHaps((h: any) => (h.whole ?? h.part).begin.gte(onsetsFrom));
       }
       if (r.scheduler.pattern !== pattern) await r.scheduler.setPattern(pattern, false);
-      // Directly, not through setSegments: the transport state is the same with a count-in.
+      // Directly, not through the transport model: its state is the same with a count-in.
       if (countIn && state.structure !== null) setLiveLayout(withCountIn(segments));
       if (from) {
         setLiveLayout(from.segments, from.anchor);
