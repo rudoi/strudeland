@@ -34,7 +34,10 @@ export interface PlayArbiterState {
   started: boolean;
   /** What a stop would stop now; null when nothing sounds. */
   stopTarget: StopTarget | null;
-  /** Section items may arm: not while a take's or a memo's song backing plays. */
+  /**
+   * Section items may arm: not while a take's or a memo's song backing plays, nor while a take is
+   * starting (the controller has read what is armed for the sidecar).
+   */
   canPlayFrom: boolean;
 }
 
@@ -57,7 +60,8 @@ export interface PlayArbiter {
   play(): boolean;
   /**
    * The Timeline: arm a section and, while the song is stopped, play. True iff the choice armed;
-   * false, doing nothing, while a take's or a memo's song backing plays (`!canPlayFrom`).
+   * false, doing nothing, while a take's or a memo's song backing plays or a take is starting
+   * (`!canPlayFrom`).
    */
   playFrom(choice: ArmChoice): boolean;
   /**
@@ -105,7 +109,7 @@ function derive(
     memoAudible,
     started,
     stopTarget: taking ? 'take' : memoAudible ? 'memo' : started ? 'song' : null,
-    canPlayFrom: !(busy && started),
+    canPlayFrom: !(busy && started) && takePhase !== 'starting',
   };
 }
 

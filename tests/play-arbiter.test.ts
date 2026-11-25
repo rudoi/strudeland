@@ -394,9 +394,9 @@ const TABLE: Record<keyof typeof run, Row[]> = {
     },
     {
       state: 'take starting',
-      why: 'arm; play is refused',
-      returns: true,
-      log: [`arm ${JSON.stringify(VERSE)}`],
+      why: 'refused: the take has read what is armed',
+      returns: false,
+      log: [],
     },
     {
       state: 'take with metronome',
@@ -526,7 +526,7 @@ describe('the store', () => {
         memoAudible: F,
         started: F,
         stopTarget: 'take',
-        canPlayFrom: T,
+        canPlayFrom: F,
       },
     ],
     [
@@ -706,6 +706,15 @@ describe('the verbs', () => {
     w.rt.setStarted(false);
     expect(w.arbiter.playFrom(VERSE)).toBe(true);
     expect(w.log).toEqual([`arm ${JSON.stringify(VERSE)}`]);
+  });
+
+  test('playFrom is refused while a take starts, and arms again once it ends', () => {
+    const w = world('take starting');
+    expect(w.arbiter.playFrom(VERSE)).toBe(false);
+    expect(w.log).toEqual([]);
+    w.recStore.set({ phase: 'armed' });
+    expect(w.arbiter.playFrom(VERSE)).toBe(true);
+    expect(w.log).toEqual([`arm ${JSON.stringify(VERSE)}`, ...PLAY]);
   });
 
   test('playFrom reads started before it arms', () => {
