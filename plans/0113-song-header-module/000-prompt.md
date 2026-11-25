@@ -1,7 +1,7 @@
 # 0113 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0113-song-header-module`.
-- **Proposal:** [../0113-song-header-module.md](../0113-song-header-module.md). Read it first; it
+- **Proposal:** [proposal.md](proposal.md). Read it first; it
   is the contract.
 - **Evidence:** [reverify.md](reverify.md).
 

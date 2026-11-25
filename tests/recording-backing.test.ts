@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { MetronomeGrid } from '../src/lib/audio/metronome';
 import type { SessionEvalOutcome } from '../src/lib/project/session';
+import { createSongPlayback } from '../src/lib/project/song-playback';
 import { createBackingStarter } from '../src/lib/recording/backing';
 import { buildStructure } from '../src/lib/strudel/structure';
 import { stubRuntime } from './helpers/stub-runtime';
@@ -43,9 +44,16 @@ function setup(opts: { active?: string | null; outcome?: Partial<SessionEvalOutc
       this.log.push('stop');
     },
   };
-  const backing = createBackingStarter({ runtime: rt.runtime, session, metronome });
+  // The header never arms here: the section is the evaluated song's.
+  const playback = createSongPlayback({
+    runtime: rt.runtime,
+    getHeader: () => null,
+    currentGen: () => 0,
+  });
+  const backing = createBackingStarter({ runtime: rt.runtime, playback, session, metronome });
   return {
     rt,
+    playback,
     backing,
     evaluations,
     metronome,
@@ -207,19 +215,14 @@ describe('startSong with a section', () => {
     ],
   });
 
-  test('arms the section by name after the stop, then starts', async () => {
+  test('starts from the section of the evaluated song, or loops it', async () => {
     const h = setup();
     h.rt.patch({ structure });
     h.rt.setStarted(true);
     h.rt.setCycleTime(() => 3);
-    const order: string[] = [];
-    const stop = h.rt.runtime.stop;
-    h.rt.runtime.stop = () => {
-      order.push('stop');
-      stop();
-    };
+    let armed = null as string | null;
     h.rt.setStart(() => {
-      order.push(...h.rt.transportCalls(), 'start');
+      armed = get(h.playback.store).transport.armed;
       return true;
     });
     const r = await h.backing.startSong({
@@ -227,12 +230,18 @@ describe('startSong with a section', () => {
       section: { name: 'verse', loop: false },
     });
     expect(r).toEqual({ T: 3, cps: 0.5 });
-    expect(order).toEqual(['stop', 'startFrom 1', 'start']);
-    h.rt.setStarted(false);
+    // The playing song stopped first; the start found the section armed.
+    expect(h.rt.stops()).toBe(1);
+    expect(armed).toBe('verse');
+    expect(started(h)).toBe(true);
+    h.rt.runtime.stop();
     expect(
       await h.backing.startSong({ prepared: true, section: { name: 'verse', loop: true } }),
     ).toEqual({ T: 3, cps: 0.5 });
-    expect(h.rt.transportCalls().at(-1)).toBe('loopSection 1');
+    expect(get(h.playback.store).transport).toMatchObject({
+      view: { kind: 'loop', section: 1 },
+      loop: { section: 'verse', names: ['verse'] },
+    });
   });
 
   test('a section the evaluated song lacks starts nothing', async () => {
@@ -247,7 +256,12 @@ describe('startSong with a section', () => {
       await h.backing.startSong({ prepared: true, section: { name: 'verse', loop: true } }),
     ).toEqual({ missingSection: 'verse' });
     expect(h.rt.starts()).toEqual([]);
-    expect(h.rt.transportCalls()).toEqual([]);
+    expect(started(h)).toBe(false);
+    expect(get(h.playback.store).transport).toEqual({
+      view: { kind: 'song' },
+      loop: null,
+      armed: null,
+    });
   });
 
   test('a failed start disarms the section', async () => {
@@ -255,9 +269,10 @@ describe('startSong with a section', () => {
     h.rt.patch({ structure });
     h.rt.setStart(() => false);
     expect(
-      await h.backing.startSong({ prepared: true, section: { name: 'intro', loop: false } }),
+      await h.backing.startSong({ prepared: true, section: { name: 'verse', loop: false } }),
     ).toBeNull();
-    expect(h.rt.transportCalls()).toEqual(['startFrom 0', 'reset']);
+    expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+    expect(get(h.playback.store).transport.armed).toBeNull();
   });
 });
 

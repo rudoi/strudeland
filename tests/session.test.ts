@@ -109,6 +109,7 @@ function setup(
   });
   session.attachView(view);
   const st = () => get(session.store);
+  const pb = () => get(session.playback.store);
   const title = () => windowTitle(st());
   const v = () => view!;
   const doc = () => v().state.doc.toString();
@@ -137,6 +138,7 @@ function setup(
     view,
     session,
     st,
+    pb,
     doc,
     item,
     type,
@@ -198,7 +200,6 @@ describe('pure helpers', () => {
       error: null,
       metaError: null,
       structure: null,
-      evaluated: null,
       notice: null,
     };
     const project = { root: '/p', name: 'Proj', songs: [] };
@@ -1853,14 +1854,14 @@ describe('renameSong', () => {
     const h = await opened();
     await h.session.switchSong(PB);
     await h.session.saveAndEvaluate();
-    expect(h.st().evaluated).toEqual({ path: PB, title: 'b' });
+    expect(h.pb().evaluated).toEqual({ path: PB, title: 'b' });
     await h.session.renameSong(PB, 'n');
-    expect(h.st().evaluated).toEqual({ path: 'songs/n.js', title: 'n' });
+    expect(h.pb().evaluated).toEqual({ path: 'songs/n.js', title: 'n' });
     expect(h.st().active).toBe('songs/n.js');
     await h.session.switchSong(PA);
     await h.session.saveAndEvaluate();
     await h.session.renameSong(PA, 'x');
-    expect(h.st().evaluated).toEqual({ path: 'songs/x.js', title: 'Alpha' });
+    expect(h.pb().evaluated).toEqual({ path: 'songs/x.js', title: 'Alpha' });
   });
 
   test('a changed conflict and its disk text move with the song', async () => {
@@ -2076,7 +2077,7 @@ describe('deleteSong', () => {
     const stops = h.rt.stops();
     expect(await h.session.deleteSong(PA, { discard: false })).toEqual({ ok: true, stopped: true });
     expect(h.rt.stops()).toBe(stops + 1);
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
   });
 
   test('deleting the evaluated song while stopped reports stopped false', async () => {
@@ -2086,7 +2087,7 @@ describe('deleteSong', () => {
       ok: true,
       stopped: false,
     });
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
   });
 
   test('deleting another song leaves playback alone', async () => {
@@ -2099,7 +2100,7 @@ describe('deleteSong', () => {
       stopped: false,
     });
     expect(h.rt.stops()).toBe(stops);
-    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    expect(h.pb().evaluated).toEqual({ path: PA, title: 'Alpha' });
   });
 
   test('deleting the last song leaves no active song', async () => {
@@ -2178,33 +2179,7 @@ describe('deleteSong', () => {
     });
     expect(h.st().songs.map((s) => s.path)).toEqual([PB, PC]);
     expect(h.st().active).toBe(PB);
-    expect(h.st().evaluated).toBeNull();
-  });
-
-  test('deleting the active song while stopped resets the transport for the next one', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    await h.session.deleteSong(PA, { discard: false });
-    expect(h.st().active).toBe(PB);
-    expect(h.rt.resets()).toEqual([0]);
-  });
-
-  test('deleting the active song while another plays leaves the transport alone', async () => {
-    const h = await opened();
-    await h.session.switchSong(PB);
-    await h.session.saveAndEvaluate(); // B plays
-    h.rt.setStarted(true);
-    await h.session.switchSong(PA);
-    h.rt.resets().length = 0;
-    await h.session.deleteSong(PA, { discard: false });
-    expect(h.rt.resets()).toEqual([]);
-  });
-
-  test('deleting an inactive song leaves the transport alone', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    await h.session.deleteSong(PB, { discard: false });
-    expect(h.rt.resets()).toEqual([]);
+    expect(h.pb().evaluated).toBeNull();
   });
 
   test('a project-changed rejection gives projectChanged and keeps the song', async () => {
@@ -2322,7 +2297,7 @@ describe('openPath', () => {
     expect(h.st().project?.root).toBe('/q');
     expect(h.st().active).toBe('songs/q.js');
     expect(h.doc()).toBe(Q);
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
     expect(h.rt.stops()).toBe(stops + 1);
     expect(h.st().recents).toEqual([{ path: '/q', name: 'Other' }]);
     expect(h.fake.confirmCounts).toEqual([]);
@@ -2854,7 +2829,7 @@ describe('evaluateSong', () => {
     await flush();
     expect(h.rt.evaluated).toEqual([SECTIONED]);
     expect(h.rt.options[0]!.meter).toEqual(SIXEIGHT.meter);
-    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    expect(h.pb().evaluated).toEqual({ path: PA, title: 'Alpha' });
   });
 
   test('hot reload captures updated pins from the same watcher batch', async () => {
@@ -2878,7 +2853,7 @@ describe('evaluateSong', () => {
     await h.session.saveAndEvaluate();
     expect(h.fake.files().get(PA)).toBe(bad);
     expect(h.rt.evaluated).toEqual([]);
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
     expect(h.st().metaError).toContain('meta.bpm');
   });
 
@@ -2894,81 +2869,16 @@ describe('evaluateSong', () => {
   });
 });
 
-describe('transport reset', () => {
-  test('switching songs while stopped resets the transport', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    expect(h.rt.resets()).toEqual([]);
-    await h.session.switchSong(PB);
-    expect(h.rt.resets()).toEqual([0]);
-  });
-
-  test('switching songs while playing leaves the playing song its transport', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    h.rt.setStarted(true);
-    await h.session.switchSong(PB);
-    expect(h.rt.resets()).toEqual([]);
-  });
-
-  test('a project change resets the transport', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    await h.session.openRecent('/q');
-    expect(h.rt.resets()).toEqual([0]);
-  });
-
-  test('a different song taking over playback resets before it evaluates', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    await h.session.saveAndEvaluate(); // A
-    h.rt.setStarted(true);
-    await h.session.switchSong(PB);
-    await h.session.saveAndEvaluate(); // B takes over
-    expect(h.rt.evaluated).toEqual([A, B]);
-    expect(h.rt.resets()).toEqual([1]); // after A's evaluate, before B's
-  });
-
-  test('re-evaluating the playing song keeps its transport', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    await h.session.saveAndEvaluate();
-    h.rt.setStarted(true);
-    await h.session.saveAndEvaluate();
-    expect(h.rt.resets()).toEqual([]);
-  });
-
-  test('Play after arming while stopped keeps the armed start, also after a switch', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    await h.session.saveAndEvaluate(); // first Play of A: nothing to reset
-    expect(h.rt.resets()).toEqual([]);
-    await h.session.switchSong(PB); // stopped: reset here, then the user arms on B
-    const n = h.rt.resets().length;
-    await h.session.saveAndEvaluate(); // Play B: evaluated was A, but B is not taking over
-    expect(h.rt.resets().length).toBe(n);
-  });
-
-  test('a start armed while stopped is cleared when a meta error refuses the evaluate', async () => {
-    const h = await opened();
-    h.rt.resets().length = 0; // the open's own reset
-    replaceAll(h, A.replace("title: 'Alpha'", "title: 'Alpha', bpm: 'fast'"));
-    await h.session.saveAndEvaluate();
-    expect(h.rt.evaluated).toEqual([]);
-    expect(h.rt.resets()).toEqual([0]);
-  });
-});
-
 describe('evaluated', () => {
   test('set after a successful evaluate, with the title at that time', async () => {
     const h = await opened();
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
     await h.session.saveAndEvaluate();
-    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    expect(h.pb().evaluated).toEqual({ path: PA, title: 'Alpha' });
     await h.session.switchSong(PB);
-    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' }); // switching is not playing
+    expect(h.pb().evaluated).toEqual({ path: PA, title: 'Alpha' }); // switching is not playing
     await h.session.saveAndEvaluate();
-    expect(h.st().evaluated).toEqual({ path: PB, title: 'b' });
+    expect(h.pb().evaluated).toEqual({ path: PB, title: 'b' });
   });
 
   test('a failed evaluate leaves it as it was', async () => {
@@ -2977,7 +2887,7 @@ describe('evaluated', () => {
     await h.session.switchSong(PB);
     h.rt.setResult(false);
     await h.session.saveAndEvaluate();
-    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    expect(h.pb().evaluated).toEqual({ path: PA, title: 'Alpha' });
   });
 
   test('cleared when the project changes', async () => {
@@ -2985,7 +2895,7 @@ describe('evaluated', () => {
     await h.session.saveAndEvaluate();
     await h.session.openRecent('/q');
     expect(h.st().project?.name).toBe('Other');
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
   });
 
   test('an evaluate that resolves after the project changed does not set it', async () => {
@@ -2996,7 +2906,7 @@ describe('evaluated', () => {
     await h.session.openRecent('/q');
     gate.resolve();
     await pressed;
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
   });
 });
 
@@ -3304,7 +3214,7 @@ describe('evaluateBuffer', () => {
     expect(h.rt.evaluated).toEqual([A2]);
     expect(h.fake.calls).toEqual([]);
     expect(h.item(PA)?.dirty).toBe(true);
-    expect(h.st().evaluated).toEqual({ path: PA, title: 'Alpha' });
+    expect(h.pb().evaluated).toEqual({ path: PA, title: 'Alpha' });
   });
 
   test("autostart false reaches the runtime with meta's tempo; the default passes none", async () => {
@@ -3390,7 +3300,7 @@ describe('evaluateBuffer', () => {
       error: 'Unexpected token',
       errorKind: 'eval',
     });
-    expect(h.st().evaluated).toBeNull();
+    expect(h.pb().evaluated).toBeNull();
   });
 
   test("a failure without an evalError says 'evaluate failed'", async () => {

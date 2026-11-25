@@ -46,3 +46,14 @@ _Avoid_: arrangement (the written order of patterns), layout (the transport's ow
 
 A named run of whole bars in a song's structure, such as `intro` or `chorus`.
 _Avoid_: part (the pattern a section plays), block
+
+**Playing song**
+
+The song whose last successful evaluate is sounding, while playback is started.
+_Avoid_: evaluated song (in UI copy), current song
+
+**Armed section**
+
+A section a stopped transport will start from or loop when playback starts, named on the song it
+was armed for.
+_Avoid_: armed index, pending start

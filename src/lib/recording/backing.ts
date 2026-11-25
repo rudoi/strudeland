@@ -6,6 +6,7 @@
 import { get, type Readable } from 'svelte/store';
 import type { Metronome, MetronomeGrid } from '../audio/metronome';
 import type { SessionEvalOutcome } from '../project/session';
+import type { ArmChoice, PlaybackStartResult, SongPlayback } from '../project/song-playback';
 import type { Runtime } from '../strudel/runtime';
 import type { Meter } from '../strudel/structure';
 import { FIXED_METER_BACKING_MESSAGE } from './types';
@@ -24,7 +25,7 @@ export interface SectionChoice {
  * Where the song started (`T`, `cps`); `missingSection` when the armed section is not in the
  * evaluated song (nothing is left playing); null when it could not start.
  */
-export type StartSongResult = { T: number; cps: number } | { missingSection: string } | null;
+export type StartSongResult = PlaybackStartResult;
 
 export interface BackingStarter {
   /**
@@ -49,7 +50,9 @@ export interface BackingStarter {
 }
 
 export interface BackingDeps {
-  runtime: Pick<Runtime, 'store' | 'start' | 'stop' | 'cycleTime' | 'transport'>;
+  runtime: Pick<Runtime, 'store' | 'stop'>;
+  /** The song playback: it arms the section and starts the song. */
+  playback: Pick<SongPlayback, 'start'>;
   session: {
     readonly store: Readable<{ active: string | null }>;
     evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<SessionEvalOutcome>;
@@ -69,8 +72,12 @@ export const BACKING_MESSAGES = {
   mixedMeter: FIXED_METER_BACKING_MESSAGE,
 } as const;
 
+/** A section choice as the song playback arms it. */
+const armChoice = (c: SectionChoice | null): ArmChoice | null =>
+  c === null ? null : c.loop ? { loop: c.name } : { start: c.name };
+
 export function createBackingStarter(deps: BackingDeps): BackingStarter {
-  const { runtime, session, metronome } = deps;
+  const { runtime, playback, session, metronome } = deps;
   let startedSong = false;
 
   async function prepareSong(): Promise<PrepareOutcome> {
@@ -93,30 +100,15 @@ export function createBackingStarter(deps: BackingDeps): BackingStarter {
     async startSong(opts = {}) {
       if (!opts.prepared && !(await prepareSong()).ok) return null;
       if (get(runtime.store).structure?.meterChanges) return null;
-      if (get(runtime.store).started) runtime.stop();
-      const section = opts.section ?? null;
-      if (section !== null) {
-        // After the stop: a stop rewinds the transport.
-        const structure = get(runtime.store).structure;
-        const index = structure?.sections.findIndex((s) => s.name === section.name) ?? -1;
-        if (!structure || index < 0) return { missingSection: section.name };
-        if (section.loop) runtime.transport.loopSection(index, structure);
-        else runtime.transport.startFrom(index, structure);
-      }
-      const countIn = opts.countIn ?? false;
       // A take's backing plays on superdough whatever the song's engine (its clock is the one
       // recording syncs to); the next stop returns to the song's.
-      if (!(await runtime.start({ countIn, backend: 'superdough' }))) {
-        if (section !== null && !get(runtime.store).started) runtime.transport.reset();
-        return null;
-      }
-      const T = runtime.cycleTime(countIn ? 1 : 0);
-      if (T === null) {
-        runtime.stop();
-        return null;
-      }
-      startedSong = true;
-      return { T, cps: get(runtime.store).cps };
+      const r = await playback.start({
+        section: armChoice(opts.section ?? null),
+        countIn: opts.countIn ?? false,
+        backend: 'superdough',
+      });
+      if (r !== null && 'T' in r) startedSong = true;
+      return r;
     },
     startMetronome: (grid) => metronome.start(grid),
     stopAll() {

@@ -14,6 +14,7 @@ import {
   type SessionState,
 } from '../project/session';
 import { ProjectError } from '../project/api';
+import type { PlaybackTransport } from '../project/song-playback';
 import { songPath, stripSongExt } from '../project/ui';
 import { peakDb, roundDb, type LevelHoldSnapshot } from '../levels/levels';
 import type { Runtime } from '../strudel/runtime';
@@ -310,6 +311,7 @@ export function createControlHandler({
   function state(): AppStateSummary {
     const ss = get(session.store);
     const rs = get(runtime.store);
+    const pb = get(session.playback.store);
     const open = ss.project !== null;
     const position = rs.started ? runtime.position() : null;
     const meter =
@@ -327,11 +329,8 @@ export function createControlHandler({
           }))
         : [],
       active: open ? ss.active : null,
-      playing:
-        open && rs.started && ss.evaluated
-          ? { path: ss.evaluated.path, title: ss.evaluated.title }
-          : null,
-      started: rs.started,
+      playing: open && pb.playing ? { path: pb.playing.path, title: pb.playing.title } : null,
+      started: pb.started,
       cps: cpsAtMeter(rs.cps, rs.meter, meter),
       bpm: Math.round(bpmFromCps(rs.cps, rs.meter)),
       meter: meterString(meter),
@@ -341,7 +340,7 @@ export function createControlHandler({
       tempoOverride: rs.tempoOverride,
       ...(rs.seed === undefined ? {} : { seed: rs.seed }),
       playhead: playhead(position, rs.structure),
-      transport: transport(rs.structure),
+      transport: transport(pb.transport),
       outputError: rs.outputError,
       engine: rs.engine,
       live: rs.live,
@@ -360,15 +359,14 @@ export function createControlHandler({
     return pos ? { cycle, ...pos } : { cycle, songBar: null, section: null };
   }
 
-  function transport(structure: SongStructure | null): TransportSummary {
-    const { view, armedSection } = get(runtime.transport.store);
-    const name = (i: number | null) => (i === null ? null : (structure?.sections[i]?.name ?? null));
-    const through = view.kind === 'loop' && view.through !== undefined ? name(view.through) : null;
+  /** The transport by section name: the loop and armed section as the module names them. */
+  function transport({ view, loop, armed }: PlaybackTransport): TransportSummary {
+    const through = view.kind === 'loop' ? (loop?.through ?? null) : null;
     return {
       view: view.kind,
-      loopSection: view.kind === 'loop' ? name(view.section) : null,
+      loopSection: view.kind === 'loop' ? (loop?.section ?? null) : null,
       ...(through !== null && { loopThrough: through }),
-      armedSection: name(armedSection),
+      armedSection: armed,
     };
   }
 
@@ -376,7 +374,7 @@ export function createControlHandler({
     const p = eventsParams(params);
     const rs = get(runtime.store);
     const ss = get(session.store);
-    const evaluated = ss.evaluated;
+    const evaluated = get(session.playback.store).evaluated;
     const code = rs.activeCode;
     if (evaluated === null || code === null) throw nothingEvaluated();
     const { from, to } = eventsRange(rs.structure, p.bars, p.section);
@@ -456,11 +454,11 @@ export function createControlHandler({
     if (r === 'stale') {
       throw songChanged();
     }
-    const started = get(runtime.store).started;
-    const playingPath = get(session.store).evaluated?.path ?? null;
+    const pb = get(session.playback.store);
+    const playingPath = pb.evaluated?.path ?? null;
     const run =
       mode === 'always' ||
-      (mode === 'auto' && r.changed && shouldAutoEval(started, playingPath, target));
+      (mode === 'auto' && r.changed && shouldAutoEval(pb.started, playingPath, target));
     const evaluated = run ? await evaluateGuarded(target) : null;
     return { song: target, changed: r.changed, dirty: r.dirty, conflict: r.conflict, evaluated };
   }

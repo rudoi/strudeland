@@ -35,6 +35,7 @@
   // svelte-ignore state_referenced_locally
   const { session, runtime, rollInspection, scopeClock, recording } = app;
   const song = session.store;
+  const playback = session.playback.store;
   const transport = runtime.store;
   const revisions = session.pianoRollRevision;
   const inspected = rollInspection.store;
@@ -178,7 +179,7 @@
   });
   const matchesLive = $derived(
     snapshot &&
-      $song.evaluated?.path === snapshot.path &&
+      $playback.evaluated?.path === snapshot.path &&
       $transport.activeCode === snapshot.code &&
       session.pianoRollMatchesLivePins(),
   );
@@ -263,7 +264,7 @@
   $effect(() => rollInspection.request(request));
   $effect(() => {
     playhead = undefined;
-    if (mode !== 'song' || !matchesLive || !$transport.started) return;
+    if (mode !== 'song' || !matchesLive || !$playback.started) return;
     const arranged = Boolean($transport.structure?.sections.length);
     // The recorder's unsectioned backing can start one cycle after the transport.
     if (!arranged && takeRunning($recorder?.phase ?? null)) return;
