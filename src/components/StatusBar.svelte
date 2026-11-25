@@ -211,7 +211,8 @@
   }
   .help-slot {
     min-width: 0;
-    flex: 1 1 16ch;
+    /* Let Help take a whole row before the controls squeeze the message too tightly. */
+    flex: 1 1 17rem;
   }
   .tools {
     justify-content: flex-end;

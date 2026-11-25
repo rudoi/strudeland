@@ -55,6 +55,21 @@ test('the latest focus or control entry owns help, and an existing hover yields 
   expect(await rendered()).toBe('First action.');
 });
 
+test('re-entering a control during the pointer exit delay regains hover precedence', async () => {
+  document.body.innerHTML = '<button>one</button><button>two</button><div class="blank"></div>';
+  const one = element('button:first-child');
+  const two = element('button:nth-child(2)');
+  registerHelpTarget(one, 'First action.');
+  registerHelpTarget(two, 'Second action.');
+
+  hover(one);
+  two.focus();
+  expect(await rendered()).toBe('Second action.');
+  hover(element('.blank'));
+  hover(one);
+  expect(await rendered()).toBe('First action.');
+});
+
 test('disabled controls and native labels can show help while nested controls own their own help', async () => {
   document.body.innerHTML = `
     <button id="previous" disabled>previous</button>

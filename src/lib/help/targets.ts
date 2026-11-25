@@ -189,8 +189,8 @@ function listen(doc: Document) {
 
     const target = findTarget(element, false);
     if (valid(target)) {
+      if (target !== hover || timer !== undefined) hoverWins = true;
       cancelExit();
-      if (target !== hover) hoverWins = true;
       hover = target;
       publish();
     } else if (element?.closest(interactive) || !valid(hover)) {
