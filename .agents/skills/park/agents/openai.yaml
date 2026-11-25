@@ -1,0 +1,6 @@
+interface:
+  display_name: 'Park'
+  short_description: 'Safely park this worktree at the latest main'
+  default_prompt: 'Use $park to check for unfinished work and park this checkout at latest main.'
+policy:
+  allow_implicit_invocation: false
