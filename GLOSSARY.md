@@ -60,8 +60,8 @@ _Avoid_: armed index, pending start
 
 **Take**
 
-One recording of a voice memo, from count-in until it is stopped and saved, possibly with the song
-or a metronome playing as backing.
+One recording of a voice memo, from the record click (starting) until it is stopped and saved,
+possibly with the song or a metronome playing as backing.
 _Avoid_: recording (for the act), session
 
 **Audible memo**
