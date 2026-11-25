@@ -247,8 +247,11 @@ interface RawHap {
   context?: { locations?: { start: number; end: number }[] };
 }
 
-function pitchOf(value: unknown): { pitch: number; sound?: string } | null {
-  if (typeof value === 'string' && isNote(value)) {
+function pitchOf(
+  value: unknown,
+  allowPrimitive: boolean,
+): { pitch: number; sound?: string } | null {
+  if (allowPrimitive && typeof value === 'string' && isNote(value)) {
     const pitch = noteToMidi(value);
     return Number.isFinite(pitch) ? { pitch } : null;
   }
@@ -324,15 +327,37 @@ function contributors(hap: RawHap, code: string, uncertain: readonly SourceSpan[
   return output;
 }
 
+/** A sole top-level expression has no competing scheduled pattern in a fresh isolate.
+ * An exact source match gives otherwise unlocated notes a link without wrapping their haps. */
+function directOrigin(code: string, request: InspectionWindow): SourceSpan | undefined {
+  const { expression, view } = request;
+  if (!expression || view === 'expression') return expression;
+  const { body } = parse(code, { ecmaVersion: 2022, allowAwaitOutsideFunction: true });
+  if (body.length !== 1) return;
+  const statement = body[0]?.type === 'LabeledStatement' ? body[0].body : body[0];
+  if (
+    statement?.type === 'ExpressionStatement' &&
+    statement.expression.start === expression.from &&
+    statement.expression.end === expression.to
+  ) {
+    return expression;
+  }
+}
+
 /** Retain individual haps and visible fragments. A note's pitch and whole span are not an identity
  * for overlapping voices. The command applies a deadline before entering the isolate. */
-export function inspectHaps(haps: RawHap[], code: string): InspectionResult {
+export function inspectHaps(
+  haps: RawHap[],
+  code: string,
+  request: InspectionWindow,
+): InspectionResult {
   const uncertain = uncertainSpans(code);
+  const fallbackOrigin = directOrigin(code, request);
   const notes: { note: RollNote; order: number }[] = [];
   let truncated = haps.length > MAX_HAPS_TO_SCAN;
   for (let i = 0; i < Math.min(haps.length, MAX_HAPS_TO_SCAN); i++) {
     const hap = haps[i]!;
-    const data = pitchOf(hap.value);
+    const data = pitchOf(hap.value, request.view === 'expression');
     if (!data) continue;
     const { begin, end } = hap.whole ?? hap.part;
     const start = begin.toFraction();
@@ -348,6 +373,8 @@ export function inspectHaps(haps: RawHap[], code: string): InspectionResult {
       break;
     }
     const locations = contributors(hap, code, uncertain);
+    const origin =
+      locations.length === 1 ? locations[0] : locations.length === 0 ? fallbackOrigin : undefined;
     notes.push({
       order: Number(hap.part.begin),
       note: {
@@ -358,7 +385,7 @@ export function inspectHaps(haps: RawHap[], code: string): InspectionResult {
         visibleStart,
         visibleEnd,
         ...(locations.length ? { contributors: locations } : {}),
-        ...(locations.length === 1 ? { origin: locations[0] } : {}),
+        ...(origin ? { origin } : {}),
       },
     });
   }

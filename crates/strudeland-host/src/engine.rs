@@ -139,6 +139,8 @@ extern "C" fn near_heap_limit(data: *mut c_void, current: usize, _initial: usize
 pub(crate) struct Session<'a, 's, 'i> {
     scope: &'a mut v8::PinScope<'s, 'i>,
     heap: &'a HeapGuard,
+    text_limit: Option<usize>,
+    error_limit: Option<usize>,
 }
 
 /// Runs `body` in a fresh isolate and context with the natives installed; `log` lets
@@ -199,11 +201,22 @@ fn run_in_context<R>(
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     natives::install(scope, log)?;
-    let mut session = Session { scope, heap };
+    let mut session = Session {
+        scope,
+        heap,
+        text_limit: None,
+        error_limit: None,
+    };
     body(&mut session)
 }
 
 impl Session<'_, '_, '_> {
+    /// Bound the requested strings and any exception text before making Rust-owned copies.
+    pub(crate) fn limit_text(&mut self, result_bytes: usize, error_bytes: usize) {
+        self.text_limit = Some(result_bytes);
+        self.error_limit = Some(error_bytes);
+    }
+
     fn terminated(&self) -> Option<HostError> {
         self.heap.termination()
     }
@@ -219,8 +232,8 @@ impl Session<'_, '_, '_> {
             .and_then(|script| script.run(tc))
             .and_then(|value| value.to_string(tc));
         match result {
-            Some(text) => Ok(text.to_rust_string_lossy(tc)),
-            None => Err(caught(tc, heap)),
+            Some(text) => copy_text(tc, text, self.text_limit),
+            None => Err(caught(tc, heap, self.error_limit)),
         }
     }
 
@@ -241,7 +254,7 @@ impl Session<'_, '_, '_> {
             .and_then(|v| v.to_object(tc));
         let Some(target) = target else {
             return Err(if tc.has_caught() {
-                caught(tc, heap)
+                caught(tc, heap, self.error_limit)
             } else {
                 HostError::Runtime(format!("globalThis.{object} is not an object"))
             });
@@ -251,7 +264,7 @@ impl Session<'_, '_, '_> {
             .and_then(|v| v8::Local::<v8::Function>::try_from(v).ok());
         let Some(func) = func else {
             return Err(if tc.has_caught() {
-                caught(tc, heap)
+                caught(tc, heap, self.error_limit)
             } else {
                 HostError::Runtime(format!("{object}.{method} is not a function"))
             });
@@ -269,7 +282,7 @@ impl Session<'_, '_, '_> {
         }
         match func.call(tc, target.into(), &values) {
             Some(_) => Ok(()),
-            None => Err(caught(tc, heap)),
+            None => Err(caught(tc, heap, self.error_limit)),
         }
     }
 
@@ -299,9 +312,11 @@ impl Session<'_, '_, '_> {
         let context = tc.get_current_context();
         let global = context.global(tc);
         match key(tc, name).and_then(|k| global.get(tc, k)) {
-            Some(value) if value.is_string() => Ok(Some(value.to_rust_string_lossy(tc))),
-            Some(_) => Ok(None),
-            None => Err(caught(tc, heap)),
+            Some(value) => match v8::Local::<v8::String>::try_from(value) {
+                Ok(text) => copy_text(tc, text, self.text_limit).map(Some),
+                Err(_) => Ok(None),
+            },
+            None => Err(caught(tc, heap, self.error_limit)),
         }
     }
 }
@@ -348,11 +363,27 @@ fn key<'s>(scope: &v8::PinScope<'s, '_>, name: &str) -> Option<v8::Local<'s, v8:
     v8::String::new(scope, name).map(Into::into)
 }
 
+/// Check UTF-8 byte size before allocating Rust storage. The UTF-16 length is a cheap
+/// early rejection for large strings and leaves the UTF-8 length pass bounded.
+fn copy_text(
+    scope: &v8::Isolate,
+    text: v8::Local<'_, v8::String>,
+    limit: Option<usize>,
+) -> Result<String, HostError> {
+    if limit.is_some_and(|limit| text.length() > limit || text.utf8_length(scope) > limit) {
+        return Err(HostError::Runtime(
+            "JavaScript text exceeded the inspection size limit".into(),
+        ));
+    }
+    Ok(text.to_rust_string_lossy(scope))
+}
+
 /// The error for a failed V8 call: the termination (the watchdog's timeout, then the heap
 /// limit), or the caught exception as text (`String(e)`, so an `Error` gives `Name: message`).
 fn caught(
     tc: &mut v8::PinnedRef<'_, v8::TryCatch<v8::HandleScope>>,
     heap: &HeapGuard,
+    limit: Option<usize>,
 ) -> HostError {
     if let Some(e) = heap.termination() {
         return e;
@@ -366,7 +397,10 @@ fn caught(
     tc.reset();
     v8::tc_scope!(let inner, tc);
     match exception.to_string(inner) {
-        Some(text) => HostError::Runtime(text.to_rust_string_lossy(inner)),
+        Some(text) => match copy_text(inner, text, limit) {
+            Ok(message) => HostError::Runtime(message),
+            Err(error) => error,
+        },
         None => HostError::Runtime("an exception that cannot be converted to a string".into()),
     }
 }
@@ -383,5 +417,28 @@ mod tests {
         assert_eq!(millis_ceil(Duration::ZERO), 0);
         assert_eq!(millis_ceil(Duration::from_secs(86_400)), 86_400_000);
         assert_eq!(millis_ceil(Duration::MAX), u64::MAX);
+    }
+
+    #[test]
+    fn readout_bounds_completion_global_and_exception_bytes() {
+        let result = with_context(false, false, None, |session| {
+            session.limit_text(16, 16);
+            let too_large =
+                HostError::Runtime("JavaScript text exceeded the inspection size limit".into());
+            // A code-unit length check alone would accept this string.
+            assert_eq!(
+                session.eval_script("'é'.repeat(12)"),
+                Err(too_large.clone())
+            );
+            session.eval_script("globalThis.testOut = 'é'.repeat(12); null")?;
+            assert_eq!(
+                session.read_global_string("testOut"),
+                Err(too_large.clone())
+            );
+            assert_eq!(session.eval_script("throw 'é'.repeat(12)"), Err(too_large));
+            assert_eq!(session.eval_script("'é'.repeat(8)")?, "é".repeat(8));
+            Ok(())
+        });
+        assert_eq!(result, Ok(()));
     }
 }

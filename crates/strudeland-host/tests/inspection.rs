@@ -148,3 +148,30 @@ fn inspection_rejects_wide_requests_and_recovers_after_a_query_timeout() {
         60.0
     );
 }
+
+#[test]
+fn inspection_bounds_reported_eval_and_query_errors() {
+    let host = Host::new().unwrap();
+    let pins = InstrumentSnapshot::new();
+    for (code, query) in [
+        (
+            "throw new Error('eval error ' + 'é'.repeat(1024 * 1024)); note(60)",
+            false,
+        ),
+        (
+            "note(60).withHap(() => { throw new Error('query error ' + 'é'.repeat(1024 * 1024)); })",
+            true,
+        ),
+    ] {
+        let error = host
+            .inspect(code, &song_window(0, 1), &pins, TIMEOUT)
+            .unwrap_err();
+        let message = match (query, error) {
+            (false, HostError::Eval(message)) | (true, HostError::Plan(message)) => message,
+            (_, actual) => panic!("unexpected error: {actual}"),
+        };
+        assert!(message.len() <= 4_096);
+        assert!(message.starts_with(if query { "query error " } else { "eval error " }));
+        assert!(message.ends_with('…'));
+    }
+}

@@ -615,8 +615,13 @@ test('importing the entry installs globalThis.strudelandHost', () => {
   expect((globalThis as any).strudelandHost).toBe(entry.strudelandHost);
 });
 
-function inspection(host: Host, code: string, options: object): ReturnType<Host['call']> {
-  return host.call('inspect', code, JSON.stringify({ view: 'song', from: 0, to: 1, ...options }));
+async function inspection(host: Host, code: string, options: object): ReturnType<Host['call']> {
+  const status = await host.call(
+    'inspect',
+    code,
+    JSON.stringify({ view: 'song', from: 0, to: 1, ...options }),
+  );
+  return status.ok ? { ...status, value: host.get('__strudelandInspection') } : status;
 }
 
 function selection(code: string, expression: string) {
@@ -740,4 +745,43 @@ test('inspect: pinned instruments supply the current sounding voice', async () =
   });
   expect(r.ok).toBe(true);
   expect(JSON.parse(r.value).notes).toMatchObject([{ pitch: 60, sound: 'pulse' }]);
+});
+
+test('inspect: arranged primitive haps do not acquire a pitch', async () => {
+  const code = "stack(pure(60), pure('c4'), note(64))";
+  const r = await inspection(host(), code, {});
+  expect(r.ok).toBe(true);
+  expect(JSON.parse(r.value).notes.map(({ pitch }: any) => pitch)).toEqual([64]);
+});
+
+test('inspect: exact sole arranged expression can reveal otherwise unlocated notes', async () => {
+  const expression = 'note(60)';
+  const code = `// 🎵
+lead: ${expression}`;
+  const span = selection(code, expression);
+  const without = await inspection(host(), code, {});
+  const withSource = await inspection(host(), code, { expression: span });
+  expect(without.ok).toBe(true);
+  expect(withSource.ok).toBe(true);
+  const { notes: plain } = JSON.parse(without.value);
+  const { notes: attributed } = JSON.parse(withSource.value);
+  expect(attributed).toEqual(plain.map((note: any) => ({ ...note, origin: span })));
+
+  const ambiguous = `stack(${expression}, note(72))`;
+  const r = await inspection(host(), ambiguous, { expression: selection(ambiguous, expression) });
+  expect(r.ok).toBe(true);
+  expect(JSON.parse(r.value).notes.every(({ origin }: any) => origin === undefined)).toBe(true);
+});
+
+test('inspect: bound errors before returning the status', async () => {
+  const expressions = [
+    `throw new Error('eval error ' + 'é'.repeat(1024 * 1024)); note(60)`,
+    `note(60).withHap(() => { throw new Error('query error ' + 'é'.repeat(1024 * 1024)); })`,
+  ];
+  for (const code of expressions) {
+    const r = await inspection(host(), code, {});
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('error éé');
+    expect(r.error.length).toBeLessThanOrEqual(513);
+  }
 });

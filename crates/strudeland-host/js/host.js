@@ -30002,8 +30002,8 @@ Please check with "npm ls @strudel/core".`);
     };
     return queryMetered(seeded, state2, structure, local, cps2);
   }
-  function pitchOf(value) {
-    if (typeof value === "string" && isNote(value)) {
+  function pitchOf(value, allowPrimitive) {
+    if (allowPrimitive && typeof value === "string" && isNote(value)) {
       const pitch2 = noteToMidi(value);
       return Number.isFinite(pitch2) ? { pitch: pitch2 } : null;
     }
@@ -30068,13 +30068,26 @@ Please check with "npm ls @strudel/core".`);
     }
     return output;
   }
-  function inspectHaps(haps, code) {
+  function directOrigin(code, request) {
+    const { expression: expression2, view } = request;
+    if (!expression2 || view === "expression")
+      return expression2;
+    const { body } = parse3(code, { ecmaVersion: 2022, allowAwaitOutsideFunction: true });
+    if (body.length !== 1)
+      return;
+    const statement = body[0]?.type === "LabeledStatement" ? body[0].body : body[0];
+    if (statement?.type === "ExpressionStatement" && statement.expression.start === expression2.from && statement.expression.end === expression2.to) {
+      return expression2;
+    }
+  }
+  function inspectHaps(haps, code, request) {
     const uncertain = uncertainSpans(code);
+    const fallbackOrigin = directOrigin(code, request);
     const notes = [];
     let truncated = haps.length > MAX_HAPS_TO_SCAN;
     for (let i3 = 0;i3 < Math.min(haps.length, MAX_HAPS_TO_SCAN); i3++) {
       const hap2 = haps[i3];
-      const data2 = pitchOf(hap2.value);
+      const data2 = pitchOf(hap2.value, request.view === "expression");
       if (!data2)
         continue;
       const { begin: begin2, end: end2 } = hap2.whole ?? hap2.part;
@@ -30091,6 +30104,7 @@ Please check with "npm ls @strudel/core".`);
         break;
       }
       const locations = contributors(hap2, code, uncertain);
+      const origin = locations.length === 1 ? locations[0] : locations.length === 0 ? fallbackOrigin : undefined;
       notes.push({
         order: Number(hap2.part.begin),
         note: {
@@ -30101,7 +30115,7 @@ Please check with "npm ls @strudel/core".`);
           visibleStart,
           visibleEnd,
           ...locations.length ? { contributors: locations } : {},
-          ...locations.length === 1 ? { origin: locations[0] } : {}
+          ...origin ? { origin } : {}
         }
       });
     }
@@ -32208,6 +32222,7 @@ Please check with "npm ls @strudel/core".`);
 
   // src/host/main.ts
   var MAX_QUERY_CYCLES = 4096;
+  var MAX_INSPECTION_ERROR = 512;
   var g = globalThis;
   function current2(store) {
     let value;
@@ -32280,12 +32295,12 @@ Please check with "npm ls @strudel/core".`);
       console.log = log;
     };
   }
-  function settle(body) {
+  function settle(body, onError = failure) {
     g.__strudelandResult = undefined;
     try {
-      body().then((value) => setResult({ ok: true, value }), (e) => setResult(failure(e)));
+      body().then((value) => setResult({ ok: true, value }), (e) => setResult(onError(e)));
     } catch (e) {
-      setResult(failure(e));
+      setResult(onError(e));
     }
   }
   function parseRequest(requestJson) {
@@ -32345,13 +32360,13 @@ Please check with "npm ls @strudel/core".`);
     const rt = hostAdapter(hostRuntime(), request.instruments);
     if (request.view === "song") {
       const { segments } = await evaluateSong(rt, code, "linear");
-      return JSON.stringify(inspectHaps(querySong(rt, segments)(request.from, request.to), code));
+      return JSON.stringify(inspectHaps(querySong(rt, segments)(request.from, request.to), code, request));
     }
     if (!request.expression)
       throw new PlanJobError("plan", "Select a pattern expression.");
     return JSON.stringify(await inspectExpression(code, request.expression, async (selected) => {
       const { structure, cps: cps2 } = await evaluateSong(rt, code, "linear");
-      return inspectHaps(queryExpression(selected(), structure, cps2, rt.state().seed, request), code);
+      return inspectHaps(queryExpression(selected(), structure, cps2, rt.state().seed, request), code, request);
     }));
   }
   var strudelandHost = {
@@ -32365,7 +32380,17 @@ Please check with "npm ls @strudel/core".`);
       settle(() => runQuery(code, from, to, layout));
     },
     inspect(code, requestJson) {
-      settle(() => runInspection(code, requestJson));
+      g.__strudelandInspection = undefined;
+      settle(async () => {
+        g.__strudelandInspection = await runInspection(code, requestJson);
+        return "ok";
+      }, (e) => {
+        const { error, ...result } = failure(e);
+        return {
+          ...result,
+          error: error.length > MAX_INSPECTION_ERROR ? error.slice(0, MAX_INSPECTION_ERROR) + "…" : error
+        };
+      });
     }
   };
   g.strudelandHost = strudelandHost;

@@ -7,6 +7,7 @@ const MAX_CODE_BYTES: usize = 256 * 1024;
 const MAX_BAR: u32 = 1_000_000;
 const MAX_WINDOW_BARS: u32 = 16;
 pub(crate) const MAX_RESULT_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_ERROR_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
