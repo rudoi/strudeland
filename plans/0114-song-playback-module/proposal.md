@@ -17,7 +17,7 @@ CLI and control-protocol output is unchanged.
 
 ## Background
 
-The [re-verification](0114-song-playback-module/reverify.md) has the evidence. In summary:
+The [re-verification](reverify.md) has the evidence. In summary:
 
 - **"The playing song" is rebuilt in five places** from `runtime.started` and `session.evaluated`:
   `App.svelte`, `Timeline.svelte`, the control handler (twice) and `PianoRoll.svelte`.

@@ -1,7 +1,7 @@
 # 0114 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0114-song-playback-module`.
-- **Proposal:** [../0114-song-playback-module.md](../0114-song-playback-module.md). It is the
+- **Proposal:** [proposal.md](proposal.md). It is the
   contract.
 - **Evidence:** [reverify.md](reverify.md).
 
