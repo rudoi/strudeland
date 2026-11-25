@@ -363,14 +363,38 @@ const TABLE: Record<keyof typeof run, Row[]> = {
       log: [`arm ${JSON.stringify(VERSE)}`, ...PLAY],
     },
     {
-      state: 'memo with song',
-      why: 'arm only: it jumps the backing',
+      state: 'memo loading with song',
+      why: 'the song has not started yet: arm, then play stops the memo',
       returns: true,
-      log: [`arm ${JSON.stringify(VERSE)}`],
+      log: [`arm ${JSON.stringify(VERSE)}`, ...PLAY],
+    },
+    {
+      state: 'memo with song',
+      why: 'refused: the memo’s backing does not jump',
+      returns: false,
+      log: [],
     },
     {
       state: 'take with song',
-      why: 'arm only: it jumps the backing mid-take',
+      why: 'refused: the take’s backing does not jump',
+      returns: false,
+      log: [],
+    },
+    {
+      state: 'take count-in with song',
+      why: 'refused: the backing is playing',
+      returns: false,
+      log: [],
+    },
+    {
+      state: 'take stopping',
+      why: 'refused: the backing still plays',
+      returns: false,
+      log: [],
+    },
+    {
+      state: 'take starting',
+      why: 'arm; play is refused',
       returns: true,
       log: [`arm ${JSON.stringify(VERSE)}`],
     },
@@ -379,6 +403,12 @@ const TABLE: Record<keyof typeof run, Row[]> = {
       why: 'arm; play is refused',
       returns: true,
       log: [`arm ${JSON.stringify(VERSE)}`],
+    },
+    {
+      state: 'audition',
+      why: 'arm, then play silences the audition',
+      returns: true,
+      log: [`arm ${JSON.stringify(VERSE)}`, ...PLAY],
     },
   ],
   record: [
@@ -698,6 +728,14 @@ describe('the verbs', () => {
   test('playFrom with a choice that does not resolve arms nothing and does not play', () => {
     const w = world('idle', { armOk: false });
     expect(w.arbiter.playFrom(VERSE)).toBe(false);
+    expect(w.log).toEqual([`arm ${JSON.stringify(VERSE)}`]);
+  });
+
+  test('playFrom arms again once the backing stops', () => {
+    const w = world('take with song');
+    expect(w.arbiter.playFrom(VERSE)).toBe(false);
+    w.rt.setStarted(false);
+    expect(w.arbiter.playFrom(VERSE)).toBe(true);
     expect(w.log).toEqual([`arm ${JSON.stringify(VERSE)}`]);
   });
 

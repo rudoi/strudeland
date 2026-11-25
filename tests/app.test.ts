@@ -8,7 +8,7 @@ const { createApp } = await import('../src/lib/app');
 const { createEditor } = await import('../src/lib/editor/setup');
 const { redo, undo } = await import('@codemirror/commands');
 const { EditorSelection, EditorState, StateEffect } = await import('@codemirror/state');
-const { EditorView: EditorViewExtension } = await import('@codemirror/view');
+const { EditorView: EditorViewExtension, keymap } = await import('@codemirror/view');
 const { pianoRollEditHighlight, pianoRollEditLocation } = await import('../src/lib/editor/visuals');
 const { planEventEdit, preparePhraseEvents } = await import('../src/lib/piano-roll/event-source');
 const { resolvePostEditTarget } = await import('../src/lib/piano-roll/feedback');
@@ -20,6 +20,7 @@ const { vimAdapter } = await import('../src/lib/editor/vim-mode');
 
 import type { EditorView } from '@codemirror/view';
 import type { Prefs } from '../src/lib/prefs/api';
+import type { Sidecar } from '../src/lib/recording/types';
 import { fakePrefsApi } from './helpers/fake-prefs-api';
 import { fakeControlApi } from './helpers/fake-control-api';
 import { fakeProjectApi, flush, tick } from './helpers/fake-project-api';
@@ -28,6 +29,35 @@ import { entry, fakeRecordingApi } from './helpers/fake-recording-api';
 const MAIN = 'songs/main.js';
 const A = `const meta = { title: 'Alpha' };\n$: s("a")\n`;
 const SECTIONED = `const meta = { sections: [{ name: 'intro', bars: 2 }, { name: 'verse', bars: 2 }] };\n$: s("a")\n`;
+
+/** A sidecar a memo plays with its song from; `tempoOverride` skips the static tempo check. */
+function songSidecar(): Sidecar {
+  return {
+    schema: 1,
+    createdAt: '2026-01-01T00:00:00Z',
+    app: { version: '0.1.0' },
+    input: { deviceId: 'mic', deviceName: 'Mic', channel: 0, channels: 1, sampleRate: 48000 },
+    output: { baseLatency: 0.01, outputLatency: null },
+    tempo: { bpm: 120, meter: '4/4', cps: 0.5, beatsPerBar: 4, tempoOverride: true },
+    backing: {
+      song: true,
+      metronome: false,
+      countIn: false,
+      songPath: MAIN,
+      startSection: null,
+      loopSection: null,
+    },
+    timing: {
+      bar1Frame: 0,
+      bar1HostNs: '1',
+      clockOffsetNs: { start: null, end: null },
+      anchors: [],
+      outputStamps: [],
+    },
+    xruns: 0,
+    recovered: false,
+  };
+}
 
 async function setup(opts: { last?: string | null; tauri?: boolean } = {}) {
   const { api, fake } = fakeProjectApi({
@@ -643,6 +673,120 @@ describe('recording and memos', () => {
     await flush();
     app.hooks.onEvaluate!();
     expect(calls).toEqual(['stopPlayback', 'saveAndEvaluate']);
+  });
+
+  /** Run the editor's binding for `key`; returns how many dispatches it made (a flash is one). */
+  function press(view: EditorView, key: string): number {
+    const run = view.state
+      .facet(keymap)
+      .flat()
+      .find((b) => b.key === key)!.run!;
+    const dispatch = view.dispatch;
+    let count = 0;
+    view.dispatch = ((...a: unknown[]) => {
+      count++;
+      (dispatch as (...a: unknown[]) => void).apply(view, a);
+    }) as EditorView['dispatch'];
+    try {
+      expect(run(view)).toBe(true);
+    } finally {
+      view.dispatch = dispatch;
+    }
+    return count;
+  }
+
+  /**
+   * Start and stop the scheduler as a start and stop drive it. The drawer it also toggles
+   * queries the pattern and clears a canvas, which happy-dom has no 2D context for.
+   */
+  function schedulerStarted(app: Awaited<ReturnType<typeof withRecording>>['app'], on: boolean) {
+    const proto = HTMLCanvasElement.prototype as any;
+    const getContext = proto.getContext;
+    proto.getContext = () => ({ clearRect: () => {}, canvas: { width: 0, height: 0 } });
+    try {
+      app.runtime.scheduler.pattern = { queryArc: () => [] };
+      app.runtime.scheduler.setStarted(on);
+    } finally {
+      proto.getContext = getContext;
+    }
+  }
+
+  test('during a take Cmd-Enter neither flashes nor evaluates', async () => {
+    const { app } = await withRecording();
+    const view = createEditor(document.body, '', app.runtime, app.hooks);
+    const calls: string[] = [];
+    app.session.saveAndEvaluate = async () => void calls.push('saveAndEvaluate');
+    app.runtime.resumeAudio = async () => true;
+    await app.recording!.record({ song: false, metronome: false, countIn: false });
+    await flush();
+    expect(get(app.recording!.store).phase).toBe('recording');
+    expect(press(view, 'Mod-Enter')).toBe(0);
+    expect(calls).toEqual([]);
+    await app.recording!.stop();
+    await flush();
+    expect(press(view, 'Mod-Enter')).toBe(1);
+    expect(calls).toEqual(['saveAndEvaluate']);
+    view.destroy();
+  });
+
+  test('during a take with song backing Cmd-. ends the take, which then stops the song', async () => {
+    const { app } = await withRecording();
+    const view = createEditor(document.body, '', app.runtime, app.hooks);
+    const calls: string[] = [];
+    app.runtime.resumeAudio = async () => true;
+    app.session.playback.start = async () => {
+      schedulerStarted(app, true);
+      return { T: 0, cps: 0.5 };
+    };
+    app.runtime.stop = () => {
+      calls.push('runtime.stop');
+      schedulerStarted(app, false);
+    };
+    const stop = app.recording!.stop;
+    await app.recording!.record({ song: true, metronome: false, countIn: false });
+    await flush();
+    expect(get(app.recording!.store).phase).toBe('recording');
+    expect(get(app.runtime.store).started).toBe(true);
+    // The take owns the stop: the arbiter stops neither the memo nor the song; the take's own
+    // stop silences its backing.
+    app.recording!.stop = () => {
+      calls.push('recording.stop');
+      expect(get(app.runtime.store).started).toBe(true);
+      return stop();
+    };
+    press(view, 'Mod-.');
+    expect(calls).toEqual(['recording.stop', 'runtime.stop']);
+    expect(get(app.runtime.store).started).toBe(false);
+    await flush();
+    expect(get(app.recording!.store).phase).not.toBe('recording');
+    expect(calls).toEqual(['recording.stop', 'runtime.stop']);
+    view.destroy();
+  });
+
+  test('during a memo with song backing Cmd-. stops the memo and the song', async () => {
+    const { app, rec } = await withRecording();
+    rec.fake.memos.set('/p', [
+      entry('take-02', { hasSidecar: true, sidecar: songSidecar() }),
+      entry('take-01'),
+    ]);
+    await app.memos!.refresh();
+    const view = createEditor(document.body, '', app.runtime, app.hooks);
+    const calls: string[] = [];
+    // The memo loads until the audio resumes; the song backing is already playing.
+    app.runtime.resumeAudio = () => new Promise<boolean>(() => {});
+    app.runtime.stop = () => {
+      calls.push('runtime.stop');
+      schedulerStarted(app, false);
+    };
+    void app.memos!.play('take-02', 'song');
+    schedulerStarted(app, true);
+    expect(get(app.memos!.player).status).toBe('loading');
+    expect(get(app.arbiter.store)).toMatchObject({ stopTarget: 'memo', canPlayFrom: false });
+    press(view, 'Mod-.');
+    expect(get(app.memos!.player).status).toBe('idle');
+    expect(calls).toEqual(['runtime.stop']);
+    expect(get(app.runtime.store).started).toBe(false);
+    view.destroy();
   });
 
   test('a take with song backing saves the section armed through the song playback', async () => {

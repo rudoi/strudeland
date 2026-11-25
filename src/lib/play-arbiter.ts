@@ -61,7 +61,8 @@ export interface PlayArbiter {
    */
   play(): boolean;
   /**
-   * The Timeline: arm a section and, while the song is stopped, play. True iff the choice armed.
+   * The Timeline: arm a section and, while the song is stopped, play. True iff the choice armed;
+   * false, doing nothing, while a take's or a memo's song backing plays (`!canPlayFrom`).
    */
   playFrom(choice: ArmChoice): boolean;
   /**
@@ -186,6 +187,7 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
       playRequests === 0 && runtime.canAudition() && !taking() && !memoAudible,
     play,
     playFrom(choice) {
+      if (!state.canPlayFrom) return false;
       const wasStarted = get(session.playback.store).started;
       const armed = session.playback.arm(choice);
       if (armed && !wasStarted) play();

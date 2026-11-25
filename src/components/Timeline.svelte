@@ -37,6 +37,14 @@
   const canArm = playback.canArm;
   const play = arbiter.store;
   const taking = $derived($play.taking);
+  // A take's or a memo's song backing is playing: the section items wait for it to stop.
+  const busyHelp = $derived(
+    $play.canPlayFrom
+      ? null
+      : $play.stopTarget === 'take'
+        ? 'Stop the take first.'
+        : 'Stop the memo first.',
+  );
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
   const structure = $derived(editableStructure($ss));
@@ -210,14 +218,16 @@
                         {@const range = $canArm({ loop: sec.name, through: end.name })}
                         <MenuItem
                           data-range-focus=""
-                          disabled={!range}
+                          disabled={!range || busyHelp !== null}
                           help={!range
                             ? 'Re-evaluate the song to use this section range.'
-                            : $rt.started
-                              ? 'Repeat through the selected end, starting at the next available bar line.'
-                              : taking
-                                ? 'Set this section range to repeat the next time the song plays.'
-                                : 'Start playback and repeat through the selected end.'}
+                            : busyHelp
+                              ? busyHelp
+                              : $rt.started
+                                ? 'Repeat through the selected end, starting at the next available bar line.'
+                                : taking
+                                  ? 'Set this section range to repeat the next time the song plays.'
+                                  : 'Start playback and repeat through the selected end.'}
                           onclick={() => playFrom({ loop: sec.name, through: end.name })}
                         >
                           through {end.name}
@@ -226,27 +236,31 @@
                     {:else}
                       {@const target = $canArm({ start: sec.name })}
                       <MenuItem
-                        disabled={!target}
+                        disabled={!target || busyHelp !== null}
                         help={!target
                           ? 'Re-evaluate the song to play this section.'
-                          : $rt.started
-                            ? 'Jump to this section at the next available bar line.'
-                            : taking
-                              ? 'Set this section as the starting point for the next play.'
-                              : 'Start song playback at the first bar of this section.'}
+                          : busyHelp
+                            ? busyHelp
+                            : $rt.started
+                              ? 'Jump to this section at the next available bar line.'
+                              : taking
+                                ? 'Set this section as the starting point for the next play.'
+                                : 'Start song playback at the first bar of this section.'}
                         onclick={() => playFrom({ start: sec.name })}
                       >
                         start here
                       </MenuItem>
                       <MenuItem
-                        disabled={!$canArm({ loop: sec.name })}
+                        disabled={!$canArm({ loop: sec.name }) || busyHelp !== null}
                         help={!$canArm({ loop: sec.name })
                           ? 'Re-evaluate the song to loop this section.'
-                          : $rt.started
-                            ? 'Repeat this section starting at the next available bar line.'
-                            : taking
-                              ? 'Set this section to repeat the next time the song plays.'
-                              : 'Start playback and repeat this section.'}
+                          : busyHelp
+                            ? busyHelp
+                            : $rt.started
+                              ? 'Repeat this section starting at the next available bar line.'
+                              : taking
+                                ? 'Set this section to repeat the next time the song plays.'
+                                : 'Start playback and repeat this section.'}
                         onclick={() => playFrom({ loop: sec.name })}
                       >
                         loop this section

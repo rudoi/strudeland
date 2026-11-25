@@ -176,7 +176,8 @@ export function createApp(
   }
   const hooks: EditorHooks = {
     onSave: () => void session.save(),
-    onEvaluate: evaluateDoc,
+    onEvaluate: () => arbiter.play(),
+    onStop: () => void arbiter.stop(),
     onDocChange: () => session.docChanged(),
     onSelectionChange(selected) {
       stopPianoRollAudition();
