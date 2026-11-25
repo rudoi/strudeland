@@ -65,6 +65,26 @@ describe('createApp', () => {
     app.destroy();
   });
 
+  test('rewriting a bar retains a resolvable selection when it consumes the selected atom', async () => {
+    const { app, view } = await setup();
+    const code = 'note("c4 e4 ~@2")';
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: code },
+      selection: { anchor: 9, head: 11 },
+    });
+    const snapshot = app.session.pianoRollSnapshot()!;
+    expect(
+      app.session.editPianoRoll(snapshot, [{ from: 6, to: 15, insert: 'c4 ~ e4 ~' }], {
+        from: 0,
+        to: code.length,
+      }),
+    ).toBe(true);
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 0, to: code.length });
+    expect(undo(view)).toBe(true);
+    expect(app.session.pianoRollSnapshot()?.selection).toEqual({ from: 9, to: 11 });
+    app.destroy();
+  });
+
   test('a changed instrument snapshot invalidates live piano roll parity', async () => {
     const { app, fake } = await setup();
     await app.session.evaluateBuffer(MAIN, { autostart: false });

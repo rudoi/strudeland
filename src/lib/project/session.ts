@@ -124,7 +124,11 @@ export interface Session {
   pianoRollChanged(selected?: boolean): void;
   pianoRollSnapshot(): PianoRollSnapshot | null;
   pianoRollMatchesLivePins(): boolean;
-  editPianoRoll(snapshot: PianoRollSnapshot, patches: readonly RollPatch[]): boolean;
+  editPianoRoll(
+    snapshot: PianoRollSnapshot,
+    patches: readonly RollPatch[],
+    target?: SourceSpan,
+  ): boolean;
   revealPianoRoll(snapshot: PianoRollSnapshot, span: SourceSpan): void;
   /** Reopens the last project and installs the window close guard. */
   init(canCloseWindow?: () => boolean): Promise<void>;
@@ -1362,13 +1366,21 @@ export function createSession(deps: SessionDeps): Session {
         evaluated !== null && instrumentError === null && evaluated.instruments === instruments
       );
     },
-    editPianoRoll(snapshot, patches) {
+    editPianoRoll(snapshot, patches, target) {
       if (!view || !matchesPianoRoll(snapshot) || view.state.doc.toString() !== snapshot.code) {
         return false;
       }
       if (!patches.length) return false;
+      const changes = view.state.changes(patches);
+      const selected = view.state.selection.main.map(changes);
+      // Rhythm edits can replace a whole bar around the selected atom.
+      const selection =
+        target && selected.from >= selected.to
+          ? { anchor: changes.mapPos(target.from, -1), head: changes.mapPos(target.to, 1) }
+          : undefined;
       apply(snapshot.path, {
-        changes: patches,
+        changes,
+        selection,
         userEvent: 'input.pianoRoll',
         annotations: isolateHistory.of('full'),
       });

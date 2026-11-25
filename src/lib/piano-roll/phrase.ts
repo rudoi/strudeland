@@ -201,6 +201,21 @@ function measureBars(root: MiniNode): readonly MiniNode[] | null {
     : null;
 }
 
+/** The local projection can only cover periods proved by the syntax. */
+function singleCycle(node: MiniNode): boolean {
+  switch (node.type_) {
+    case 'atom':
+      return true;
+    case 'element':
+      return (
+        !node.options_.ops.some((op) => op.type_ === 'stretch' && op.arguments_.type === 'slow') &&
+        singleCycle(node.source_)
+      );
+    case 'pattern':
+      return node.arguments_.alignment !== 'polymeter_slowcat' && node.source_.every(singleCycle);
+  }
+}
+
 function editableBars(
   root: MiniNode,
   explicitBars: readonly MiniNode[] | null,
@@ -240,6 +255,7 @@ interface MiniHap {
 
 export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
   if (input.kind !== 'mini') {
+    if (input.kind === 'plain' && !PITCH.test(input.body)) return;
     const pitch = atomPitch(input.body);
     if (pitch === undefined) return;
     const inset = input.kind === 'plain' ? 1 : 0;
@@ -258,6 +274,7 @@ export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
         },
       ],
       bars: 1,
+      sound: input.sound,
       insertable: false,
       editableBars: [],
     };
@@ -269,6 +286,16 @@ export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
     const root: MiniNode = mini2ast(quoted);
     if (queryCost(root, 0) > MAX_CELLS) return;
     const explicitBars = measureBars(root);
+    if (explicitBars) {
+      if (
+        explicitBars.some(
+          (bar) => !unchangedElement(bar) || bar.options_.weight !== 1 || !singleCycle(bar),
+        )
+      )
+        return;
+    } else if (!singleCycle(root)) {
+      return;
+    }
     const bars = explicitBars?.length ?? 1;
     if (bars > MAX_BARS) return;
     const editBars = editableBars(root, explicitBars, quoted, input.span.from);
@@ -302,7 +329,7 @@ export function readPhrase(input: PhraseInput): AuthoredPhrase | undefined {
       });
     }
     notes.sort((a, b) => fraction(a.start).compare(fraction(b.start)) || a.pitch - b.pitch);
-    return { input, notes, bars, editableBars: editBars, insertable };
+    return { input, notes, bars, sound: input.sound, editableBars: editBars, insertable };
   } catch {
     return;
   }

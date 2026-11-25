@@ -59,6 +59,47 @@ export function adjacentStep(bar: GridBar, cycle: number, subdivision: number, d
 
 export const keyPitch = (pitch: number): number => Math.max(0, Math.min(127, pitch));
 
+/** Split overlapping visible notes within a pitch lane. Touching intervals can reuse a track. */
+export function layoutNoteTracks(notes: readonly RollNote[], from: number, to: number) {
+  type Interval = { note: RollNote; start: number; end: number };
+  type Assignment = { note: RollNote; track: number };
+  const lanes = new Map<number, Interval[]>();
+  for (const note of notes) {
+    const pitch = keyPitch(note.pitch);
+    const lane = lanes.get(pitch) ?? [];
+    lane.push({
+      note,
+      start: Math.max(from, cycleNumber(note.visibleStart ?? note.start)),
+      end: Math.min(to, cycleNumber(note.visibleEnd ?? note.end)),
+    });
+    lanes.set(pitch, lane);
+  }
+
+  const result: (Assignment & { tracks: number })[] = [];
+  for (const lane of lanes.values()) {
+    lane.sort((a, b) => a.start - b.start || b.end - a.end);
+    let group: Assignment[] = [];
+    let occupied: Interval[] = [];
+    function flush() {
+      for (const assignment of group) result.push({ ...assignment, tracks: occupied.length });
+      group = [];
+      occupied = [];
+    }
+
+    for (const interval of lane) {
+      const free = ({ start, end }: Interval) =>
+        end < interval.start || (end === interval.start && start < end);
+      if (occupied.every(free)) flush();
+      let track = occupied.findIndex(free);
+      if (track === -1) track = occupied.length;
+      occupied[track] = interval;
+      group.push({ note: interval.note, track });
+    }
+    flush();
+  }
+  return result;
+}
+
 export function fitPitchRange(notes: readonly RollNote[]): PitchRange {
   if (notes.length === 0) return { low: 57, high: 65 };
   let low = 127;

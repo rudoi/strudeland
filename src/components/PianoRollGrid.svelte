@@ -8,6 +8,7 @@
     gridPoint,
     isBlackKey,
     keyPitch,
+    layoutNoteTracks,
     pitchLabel,
     rollGeometry,
     rollOffset,
@@ -87,24 +88,20 @@
     Array.from({ length: pitchRange.high - pitchRange.low + 1 }, (_, i) => pitchRange.high - i),
   );
   const selectedNote = $derived(visible.find((note) => note.id === selected));
+  const sourceKey = (note: RollNote | undefined) =>
+    note?.origin ? `${note.origin.from}:${note.origin.to}` : undefined;
+  const selectedSource = $derived(sourceKey(selectedNote));
+  const sourceCounts = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const note of notes) {
+      const key = sourceKey(note);
+      if (key !== undefined && note.pitchEditable) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  });
   const canShowSource = (note: RollNote) =>
     Boolean(onsource && (note.origin || note.contributors?.length));
-  const markers = $derived.by(() => {
-    const groups = new Map<string, RollNote[]>();
-    for (const note of visible) {
-      const key = [
-        note.visibleStart ?? note.start,
-        note.visibleEnd ?? note.end,
-        keyPitch(note.pitch),
-      ].join(':');
-      const voices = groups.get(key) ?? [];
-      voices.push(note);
-      groups.set(key, voices);
-    }
-    return [...groups.values()].flatMap((voices) =>
-      voices.map((note, track) => ({ note, track, tracks: voices.length })),
-    );
-  });
+  const markers = $derived(layoutNoteTracks(visible, windowStart, windowEnd));
 
   const percent = (offset: number) => (offset / geometry.width) * 100;
   const timePercent = (cycle: number) => percent(rollOffset(geometry.bars, cycle));
@@ -280,7 +277,7 @@
       return;
     }
     if (!editable || event.metaKey || event.ctrlKey || event.altKey) return;
-    let edit: RollEdit | undefined;
+    let edit: Exclude<RollEdit, { kind: 'insert' }> | undefined;
     if (note.pitchEditable && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       const pitch = keyPitch(note.pitch + (event.key === 'ArrowUp' ? 1 : -1));
       if (pitch !== note.pitch) edit = { kind: 'pitch', id: note.id, pitch };
@@ -584,6 +581,9 @@
           {#each markers as { note, track, tracks } (note.id)}
             {@const mark = markerPosition(note)}
             {@const height = (ROW - 4) / tracks}
+            {@const origin = sourceKey(note)}
+            {@const linked = origin === undefined ? 0 : (sourceCounts.get(origin) ?? 0)}
+            {@const details = linked > 1 ? ` · pitch shared by ${linked} notes` : ''}
             <button
               type="button"
               class="note"
@@ -593,14 +593,22 @@
                 (note.visibleStart != null && note.visibleStart !== note.start)}
               class:cropped={cycleNumber(note.end) > windowEnd ||
                 (note.visibleEnd != null && note.visibleEnd !== note.end)}
-              class:linked={selected === note.id}
+              class:linked={selected === note.id ||
+                (origin !== undefined && origin === selectedSource)}
+              class:source-match={note.sourceMatch}
               class:pending={gesture?.axis !== undefined && gesture?.note === note}
               style:left={mark.left + '%'}
               style:width={mark.width + '%'}
               style:top={laneY(note.pitch) + 2 + track * height + 'px'}
               style:height={height + 'px'}
-              title={pitchLabel(note.pitch) + ' · ' + note.start + ' to ' + note.end}
-              aria-label={pitchLabel(note.pitch) + ', cycle ' + note.start + ' to ' + note.end}
+              title={pitchLabel(note.pitch) + ' · ' + note.start + ' to ' + note.end + details}
+              aria-label={pitchLabel(note.pitch) +
+                ', cycle ' +
+                note.start +
+                ' to ' +
+                note.end +
+                details +
+                (note.sourceMatch ? ' · matches selection source' : '')}
               onclick={(event) => activateNote(event, note)}
               onfocus={() => (selected = note.id)}
               onkeydown={(event) => noteKeys(event, note)}
@@ -915,6 +923,7 @@
   }
 
   .note.linked,
+  .note.source-match,
   .note:focus-visible {
     z-index: var(--z-playhead);
     outline-offset: 0;

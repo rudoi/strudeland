@@ -146,6 +146,53 @@ describe('piano roll source projection', () => {
       expect(target?.phrase).toBeUndefined();
     }
   });
+
+  test('queries receiver timing, numeric strings and periods that local syntax cannot prove', () => {
+    for (const source of [
+      's("sine").note("c4 ~ e4 ~")',
+      "note('60')",
+      'note("<c4@2 d4>")',
+      'note("[<c4 d4> e4]")',
+      'note("c4/2")',
+    ]) {
+      const target = resolveRollTarget(source, span(source, source));
+      expect(target?.expression).toEqual(span(source, source));
+      expect(target?.phrase).toBeUndefined();
+    }
+  });
+
+  test('lifts dynamic literal and numeric sequence selections to the pitch-producing call', () => {
+    for (const [source, selection] of [
+      ['note(seq("c4|e4", "g4"))', '"c4|e4"'],
+      ['note(seq(60, 62))', 'seq(60, 62)'],
+      ['s("sine").note("c4 ~ e4 ~")', '"c4 ~ e4 ~"'],
+    ]) {
+      const target = resolveRollTarget(source, span(source, selection));
+      expect(target?.expression).toEqual(span(source, source));
+      expect(target?.phrase).toBeUndefined();
+    }
+  });
+
+  test('disables source edits when an authored expression escapes a resolvable definition', () => {
+    const expression = 'note("c4 e4")';
+    for (const source of [
+      `let motif = ${expression}; stack(motif, motif)`,
+      `const parts = { motif: ${expression} }; stack(parts.motif, parts.motif)`,
+      `unknown(${expression})`,
+    ]) {
+      const target = resolveRollTarget(source, span(source, expression));
+      expect(target?.expression).toEqual(span(source, expression));
+      expect(target?.phrase).toBeUndefined();
+      expect(
+        planRollEdit(source, span(source, expression), {
+          kind: 'insert',
+          start: '0',
+          end: '1/8',
+          pitch: 60,
+        }),
+      ).toBeNull();
+    }
+  });
 });
 
 describe('piano roll exact phrase edits', () => {
@@ -181,6 +228,7 @@ describe('piano roll exact phrase edits', () => {
     const deleted = edit(inserted, { kind: 'delete', id: note.id });
     expect(deleted).toBe(source);
     expect(editable(deleted).phrase.insertable).toBe(true);
+    expect(editable('note("~").s("square")').phrase.sound).toBe('square');
     expect(
       planRollEdit(source, span(source, source), {
         kind: 'insert',

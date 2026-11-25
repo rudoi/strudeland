@@ -289,7 +289,7 @@ function soundName(node: AnyNode | undefined, script: Script, source: string): s
 function authoredInput(node: AnyNode, script: Script, source: string): PhraseInput | undefined {
   if (!script.staticSafe) return;
   if (node.type === 'Literal' || node.type === 'TemplateLiteral') {
-    if (pitchedSequenceOperand(node, script)) return literal(node, script, source);
+    if (pitchProducer(node, script)?.nested) return literal(node, script, source);
     return;
   }
   if (node.type !== 'CallExpression' || node.arguments.length !== 1) return;
@@ -297,20 +297,8 @@ function authoredInput(node: AnyNode, script: Script, source: string): PhraseInp
   const chain = method(node);
   if (callName(node, script) === 'note') return literal(argument, script, source);
   if (!chain) return;
-  if (chain.name === 'note') {
-    const receiver = chain.receiver;
-    const receiverName = callName(receiver, script);
-    if (
-      receiver.type !== 'CallExpression' ||
-      (receiverName !== 's' && receiverName !== 'sound') ||
-      receiver.arguments.length !== 1
-    ) {
-      return;
-    }
-    const sound = soundName(ungroup(receiver.arguments[0]), script, source);
-    const input = literal(argument, script, source);
-    if (input && sound) return { ...input, sound };
-  } else if (chain.name === 's' || chain.name === 'sound') {
+  // Receiver-based note setters inherit timing from their receiver. Query them in the host.
+  if (chain.name === 's' || chain.name === 'sound') {
     const sound = soundName(argument, script, source);
     const input = sound && authoredInput(chain.receiver, script, source);
     if (input) return { ...input, sound };
@@ -324,6 +312,7 @@ function authoredInput(node: AnyNode, script: Script, source: string): PhraseInp
 }
 
 function phraseAt(node: AnyNode, script: Script, source: string): AuthoredPhrase | undefined {
+  if (destination(script.visits.get(node)!, script).incomplete) return;
   const input = authoredInput(node, script, source);
   return input && readPhrase(input);
 }
@@ -355,18 +344,20 @@ function receiverBinding(node: AnyNode, script: Script, knownOnly = false): Bind
 const valueContainers = new Set(['stack', 'cat', 'seq', 'sequence', 'fastcat', 'slowcat']);
 
 /** A sequence may contain direct pitches before the surrounding note call tags the values. */
-function pitchedSequenceOperand(node: AnyNode, script: Script): boolean {
+function pitchProducer(node: AnyNode, script: Script) {
   let nested = false;
   for (let at = script.visits.get(node); at?.parent; at = at.parent) {
     const parent = at.parent.node;
     if (parent.type === 'ParenthesizedExpression') continue;
-    if (parent.type !== 'CallExpression' || at.key !== 'arguments') return false;
+    if (parent.type !== 'CallExpression' || at.key !== 'arguments') return;
     const name = callName(parent, script);
-    if (name === 'note') return nested && parent.arguments.length === 1;
-    if (!name || !valueContainers.has(name)) return false;
+    if (name === 'note' && parent.arguments.length === 1) return { owner: parent, nested };
+    if (method(parent)?.name === 'note' && parent.arguments.length === 1) {
+      return { owner: parent, nested: false };
+    }
+    if (!name || !valueContainers.has(name)) return;
     nested = true;
   }
-  return false;
 }
 const knownTransforms = new Set([
   ...neutralControls,
@@ -505,11 +496,9 @@ function expressionIsValue(visit: Visit, script: Script): boolean {
   return node.type !== 'Identifier' || isReference(visit, script);
 }
 
-function liftLiteral(script: Script, literalNode: AnyNode) {
-  if (pitchedSequenceOperand(literalNode, script)) return literalNode;
-  let link = script.visits.get(literalNode)?.parent;
-  while (link?.node.type === 'ParenthesizedExpression') link = link.parent;
-  return link?.node.type === 'CallExpression' ? link.node : literalNode;
+function liftLiteral(script: Script, literalNode: AnyNode, source: string): AnyNode | undefined {
+  if (phraseAt(literalNode, script, source)) return literalNode;
+  return pitchProducer(literalNode, script)?.owner;
 }
 
 const inspectedExpressions = new Set([
@@ -541,23 +530,25 @@ function selectedNode(source: string, selection: SourceSpan, script: Script): An
       if (definition) return definition.initializer;
     }
     if (candidate.type === 'Literal' || candidate.type === 'TemplateLiteral') {
-      const enclosing = liftLiteral(script, candidate);
-      const input = authoredInput(enclosing, script, source);
-      if (!input || !exact(candidate, input.span)) continue;
+      const enclosing = liftLiteral(script, candidate, source);
+      if (!enclosing) continue;
       if (enclosing === candidate) return candidate;
       candidate = enclosing;
     }
     if (
       inspectedExpressions.has(candidate.type) &&
       expressionIsValue(script.visits.get(candidate)!, script)
-    )
-      return candidate;
+    ) {
+      // A numeric sequence has no pitch tags until its enclosing note call is applied.
+      return pitchProducer(candidate, script)?.owner ?? candidate;
+    }
   }
   // Narrow selection within a mini literal must start and end on complete pitch atoms.
   for (const { node } of script.visits.values()) {
     if ((node.type !== 'Literal' && node.type !== 'TemplateLiteral') || !within(node, selection))
       continue;
-    const expression = liftLiteral(script, node);
+    const expression = liftLiteral(script, node, source);
+    if (!expression) continue;
     const phrase = phraseAt(expression, script, source);
     const origins = phrase?.notes
       .map(({ origin }) => origin)

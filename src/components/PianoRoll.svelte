@@ -4,6 +4,7 @@
   import type { PianoRollSnapshot } from '../lib/project/session';
   import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
   import { planRollEdit, resolveRollTarget } from '../lib/piano-roll/source';
+  import { cycleNumber } from '../lib/piano-roll/grid';
   import type {
     InspectionRequest,
     RollBar,
@@ -31,7 +32,7 @@
   let shared = $state.raw<{ selection: number; path: string; name: string } | null>(null);
   let approvedRevision = $state<number>();
   let notice = $state('');
-  let contributors = $state.raw<readonly SourceSpan[]>([]);
+  let contributors = $state.raw<{ spans: readonly SourceSpan[]; section?: Section } | null>(null);
   let playhead = $state<number>();
 
   const snapshot = $derived.by(() => {
@@ -57,6 +58,9 @@
     const names = new Set(target?.sections);
     for (const use of definition?.uses ?? []) {
       for (const name of use.sections) names.add(name);
+    }
+    if (anchorChoice?.selection === snapshot?.selectionRevision && anchorChoice) {
+      names.add(anchorChoice.name);
     }
     return structure?.sections.filter((section) => names.has(section.name)) ?? [];
   });
@@ -129,23 +133,45 @@
     };
   });
   const response = $derived($inspected?.request === request ? $inspected : null);
-  const notes = $derived(
-    phrase?.notes ?? (response?.phase === 'ready' ? response.result.notes : emptyNotes),
-  );
+  const notes = $derived.by(() => {
+    if (phrase) return phrase.notes;
+    if (response?.phase !== 'ready' || !target) return emptyNotes;
+    const { from, to } = target.expression;
+    return mode === 'song'
+      ? response.result.notes.map((note) => ({
+          ...note,
+          sourceMatch: [note.origin, ...(note.contributors ?? [])].some(
+            (span) => span && span.from >= from && span.to <= to,
+          ),
+        }))
+      : response.result.notes;
+  });
+  const sourceMatches = $derived(mode === 'song' && notes.some((note) => note.sourceMatch));
+  const auditionSound = $derived.by(() => {
+    if (phrase?.sound) return phrase.sound;
+    const sounds = new Set(notes.map((note) => note.sound));
+    return sounds.size === 1 ? sounds.values().next().value : undefined;
+  });
 
   $effect(() => rollInspection.request(request));
   $effect(() => {
     playhead = undefined;
-    if (mode !== 'song' || !matchesLive || !$transport.started || !$transport.structure) return;
+    if (mode !== 'song' || !matchesLive || !$transport.started) return;
+    const arranged = Boolean($transport.structure?.sections.length);
     return scopeClock.subscribe((_, running) => {
-      playhead = running ? runtime.position().located?.songBar : undefined;
+      if (!running) {
+        playhead = undefined;
+        return;
+      }
+      const position = runtime.position();
+      playhead = arranged ? position.located?.songBar : position.cycle;
     });
   });
   $effect(() => {
     // Clear feedback when the source selection changes, but retain successful edit feedback.
     if (selectionRevision !== undefined) {
       notice = '';
-      contributors = [];
+      contributors = null;
     }
   });
 
@@ -172,15 +198,23 @@
     page = null;
   }
 
-  function reveal(context: PianoRollSnapshot, span: SourceSpan) {
+  function reveal(context: PianoRollSnapshot, span: SourceSpan, section?: Section) {
     mode = 'expression';
     session.revealPianoRoll(context, span);
+    const current = session.pianoRollSnapshot();
+    if (current && section) {
+      anchorChoice = { selection: current.selectionRevision, name: section.name };
+    }
   }
 
   function goToNote(note: RollNote) {
     if (!snapshot) return;
-    if (note.origin) reveal(snapshot, note.origin);
-    else contributors = note.contributors ?? [];
+    const cycle = cycleNumber(note.visibleStart ?? note.start);
+    const section = structure?.sections.find(
+      ({ start, bars }) => cycle >= start && cycle < start + bars,
+    );
+    if (note.origin) reveal(snapshot, note.origin, section);
+    else contributors = { spans: note.contributors ?? [], section };
   }
 
   async function audition(pitch: number, sound?: string, automatic = false) {
@@ -195,13 +229,13 @@
     if (!snapshot || !editTarget) return false;
     const note = 'id' in change ? notes.find((item) => item.id === change.id) : undefined;
     const patches = planRollEdit(snapshot.code, editTarget, change);
-    if (!patches || !session.editPianoRoll(snapshot, patches)) {
+    if (!patches || !session.editPianoRoll(snapshot, patches, target?.expression)) {
       notice = 'This edit does not fit the source phrase.';
       return false;
     }
     notice = '';
     if (change.kind === 'pitch' || change.kind === 'insert') {
-      void audition(change.pitch, note?.sound ?? phrase?.notes[0]?.sound, true);
+      void audition(change.pitch, note?.sound ?? auditionSound, true);
     }
     return true;
   }
@@ -304,19 +338,24 @@
     {#if !phrase}
       <p class="roll-status compact" role="status">
         {mode === 'song'
-          ? 'Arranged notes · view only'
+          ? sourceMatches
+            ? 'Arranged notes · source matches outlined'
+            : 'Arranged notes · selection source unavailable'
           : 'Evaluated expression · view only'}{response?.phase === 'ready' &&
         response.result.truncated
           ? ' · results limited'
           : ''}{notes.length === 0 ? ' · no pitched notes in this window' : ''}
       </p>
     {/if}
-    {#if snapshot && contributors.length}
+    {#if snapshot && contributors?.spans.length}
       <div class="shared">
         <span>Source contributors</span>
-        {#each contributors as span (`${span.from}:${span.to}`)}
+        {#each contributors.spans as span (`${span.from}:${span.to}`)}
           {@const context = snapshot}
-          <Button size="sm" variant="quiet" onclick={() => reveal(context, span)}
+          <Button
+            size="sm"
+            variant="quiet"
+            onclick={() => reveal(context, span, contributors?.section)}
             >{context.code.slice(span.from, span.to)}</Button
           >
         {/each}
@@ -330,7 +369,7 @@
       insertable={editTarget !== undefined && phrase?.insertable === true}
       {playhead}
       onedit={edit}
-      onaudition={(pitch, note) => void audition(pitch, note?.sound)}
+      onaudition={(pitch, note) => void audition(pitch, note ? note.sound : auditionSound)}
       onsource={mode === 'song' ? goToNote : undefined}
     />
   {/if}

@@ -15,6 +15,7 @@ export interface RollNote {
   origin?: SourceSpan;
   contributors?: readonly SourceSpan[];
   sound?: string;
+  sourceMatch?: boolean;
   pitchEditable?: boolean;
   timeEditable?: boolean;
 }
@@ -22,6 +23,7 @@ export interface RollNote {
 export interface RollPhrase {
   notes: readonly RollNote[];
   bars: number;
+  sound?: string;
   /** True when the authoring grammar can insert notes into this phrase. */
   insertable: boolean;
 }

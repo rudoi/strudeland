@@ -4,6 +4,7 @@ import {
   barAtOffset,
   fitPitchRange,
   gridPoint,
+  layoutNoteTracks,
   pitchLabel,
   rollGeometry,
   rollOffset,
@@ -54,5 +55,41 @@ describe('piano roll geometry', () => {
     expect(fitPitchRange([note(60), note(76.5)])).toEqual({ low: 58, high: 79 });
     expect(pitchLabel(0)).toBe('C-1');
     expect(pitchLabel(76.5)).toBe('MIDI 76.5');
+  });
+
+  test('separates sustained voices and duplicates, while touching notes reuse a track', () => {
+    const voice = (id: string, start: string, end: string): RollNote => ({
+      ...note(60),
+      id,
+      start,
+      end,
+    });
+    const result = layoutNoteTracks(
+      [
+        voice('first', '0', '1/2'),
+        voice('sustain', '0', '1'),
+        voice('duplicate', '0', '1/2'),
+        voice('second', '1/2', '1'),
+        voice('later', '1', '2'),
+      ],
+      0,
+      2,
+    );
+    expect(result.map(({ note, track, tracks }) => [note.id, track, tracks])).toEqual([
+      ['sustain', 0, 3],
+      ['first', 1, 3],
+      ['duplicate', 2, 3],
+      ['second', 1, 3],
+      ['later', 0, 1],
+    ]);
+  });
+
+  test('assigns tracks using clipped fragments rather than whole spans', () => {
+    const sustained = { ...note(60), id: 'sustain', end: '1', visibleEnd: '1/2' };
+    const next = { ...note(60), id: 'next', start: '1/2', end: '1' };
+    expect(layoutNoteTracks([sustained, next], 0, 1)).toEqual([
+      { note: sustained, track: 0, tracks: 1 },
+      { note: next, track: 0, tracks: 1 },
+    ]);
   });
 });
