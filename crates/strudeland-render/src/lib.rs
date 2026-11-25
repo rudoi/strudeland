@@ -21,9 +21,10 @@
 pub mod bench;
 pub mod encode;
 mod error;
-mod export;
+pub mod export;
 pub mod join;
 pub mod level;
+mod loop_export;
 mod options;
 pub mod output;
 mod plan;
@@ -37,7 +38,7 @@ use strudeland_engine::{EngineJob, Rendered, StemLayout};
 use strudeland_host::{ChunkWindow, PlannedRender, PlannedWindow, SAMPLE_RATE};
 
 pub use error::{ExitClass, RenderError, Unsupported};
-pub use export::{ExportFile, ExportRole, LoopPoints, render_export};
+pub use loop_export::{ExportFile, ExportRole, LoopPoints, render_export};
 pub use options::{
     BitDepth, DEFAULT_MAX_JOBS, DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, Format,
     Loudness, Mp3Mode, OnOff, OutputOptions, RenderOptions,
@@ -54,6 +55,12 @@ pub use strudeland_host::{
     ExportPreset, HostError, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC, timeout_from_secs,
 };
 pub use summary::{Progress, RenderOutput, RenderedAudio, Summary, Timings};
+
+/// The fake pipeline, for this crate's tests and the CLI's.
+#[doc(hidden)]
+pub mod testing {
+    pub use crate::export::fake::FakePipeline;
+}
 
 /// Plans, renders, joins, levels and encodes. Equivalent to `finish(&render_audio(..)?, ..)`.
 pub fn render(

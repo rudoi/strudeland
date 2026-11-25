@@ -126,6 +126,11 @@ pub fn export_suffix(
     preset: ExportPreset,
     role: ExportRole,
 ) -> Result<String, RenderError> {
+    if !crate::export::roles(Some(preset)).contains(&role) {
+        return Err(RenderError::Render(
+            "invalid output role for export preset".into(),
+        ));
+    }
     let suffix = match (preset, role) {
         (ExportPreset::IntroLoop, ExportRole::Intro) => "intro",
         (ExportPreset::IntroLoop, ExportRole::Loop) => "loop",

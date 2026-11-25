@@ -185,7 +185,7 @@ fn set_name(stem: &str, length: &LengthRequest) -> Result<String, RenderError> {
         .into_owned())
 }
 
-fn project_target(
+pub(crate) fn project_target(
     project: &Project,
     stem: &str,
     length: &LengthRequest,
