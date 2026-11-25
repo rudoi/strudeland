@@ -61,8 +61,8 @@ import { errorMessage } from '../errors';
 /** Tempo for one evaluate. Omitted values use the defaults (120 quarter-note bpm, 4/4). */
 export interface EvaluateOptions {
   cps?: number;
-  /** The editor's static header, checked when either arrangement uses a meter map or loop range. */
-  expectedArrangement?: SongStructure;
+  /** The editor's static header, checked when either structure uses a meter map or loop range. */
+  expectedStructure?: SongStructure;
   meter?: Meter;
   /** Seeds the whole pattern (an inner `.seed()` still wins); omitted: unseeded. */
   seed?: number;
@@ -351,7 +351,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   let liveStructure: SongStructure | null = null;
   let clock: LayoutClock | null = null;
   // A hot edit starts at Cyclist's query horizon. Audio between the audible
-  // playhead and that horizon still follows the previous arrangement.
+  // playhead and that horizon still follows the previous structure.
   type ClockHistory = {
     end: { cycle: number; clock: number };
     map: LayoutClock | null;
@@ -482,7 +482,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     // set here. Every successful evaluate sets it; a song without one gets 0.
     editPattern: (pattern: any) => {
       const structure = registeredStructure();
-      const expected = pending.expectedArrangement;
+      const expected = pending.expectedStructure;
       if (
         expected &&
         (expected.loopRange ||
@@ -661,7 +661,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   r.scheduler.setCps = (cps: number) => {
     if (codeRunning) {
       codeSetCps = true;
-      if (pending.expectedArrangement?.meterChanges) throw new Error(MIXED_CPS_ERROR);
+      if (pending.expectedStructure?.meterChanges) throw new Error(MIXED_CPS_ERROR);
     } else if (liveStructure?.meterChanges?.length) {
       patch({ outputError: MIXED_CPS_ERROR });
       throw new Error(MIXED_CPS_ERROR);

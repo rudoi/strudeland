@@ -21,6 +21,6 @@ export function evaluateOptions(meta: Meta): EvaluateOptions {
     meter: s.meter,
     seed: meta.seed,
     engine: meta.engine === 'rust' ? 'rust' : 'superdough',
-    expectedArrangement: s,
+    expectedStructure: s,
   };
 }

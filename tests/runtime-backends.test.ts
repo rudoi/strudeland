@@ -495,7 +495,7 @@ test('mixed-meter CPS changes produce a diagnostic and preserve the reference cl
   );
   expect(snap(rt).evalError).toContain('cannot change CPS');
   expect(rt.query(0, 1)!.some((h) => h.value.s === 'held')).toBe(true);
-  expect(await rt.evaluate('s("bd")', { expectedArrangement: snap(rt).structure! })).toBe(false);
+  expect(await rt.evaluate('s("bd")', { expectedStructure: snap(rt).structure! })).toBe(false);
   expect(snap(rt).evalError).toContain('requires song(');
   expect(await rt.evaluate(`${MIXED_HEADER}\nsong(meta, {phrase:s('click').cps(3)})`)).toBe(true);
   expect(snap(rt).outputError).toContain('cannot change CPS');

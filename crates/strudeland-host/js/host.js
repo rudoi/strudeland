@@ -12235,7 +12235,7 @@
       meter: s.meter,
       seed: meta.seed,
       engine: meta.engine === "rust" ? "rust" : "superdough",
-      expectedArrangement: s
+      expectedStructure: s
     };
   }
 
@@ -29739,7 +29739,7 @@ Please check with "npm ls @strudel/core".`);
       },
       editPattern: (pattern3) => {
         const structure = registeredStructure();
-        const expected = pending.expectedArrangement;
+        const expected = pending.expectedStructure;
         if (expected && (expected.loopRange || expected.meterChanges || structure?.loopRange || structure?.meterChanges)) {
           if (!structure)
             throw new Error("the authored loop or meter map requires song(meta, parts)");
@@ -29872,7 +29872,7 @@ Please check with "npm ls @strudel/core".`);
     r.scheduler.setCps = (cps2) => {
       if (codeRunning) {
         codeSetCps = true;
-        if (pending.expectedArrangement?.meterChanges)
+        if (pending.expectedStructure?.meterChanges)
           throw new Error(MIXED_CPS_ERROR);
       } else if (liveStructure?.meterChanges?.length) {
         patch({ outputError: MIXED_CPS_ERROR });

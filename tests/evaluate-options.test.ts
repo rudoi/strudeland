@@ -13,7 +13,7 @@ test('no header gives the default tempo and no seed', () => {
     meter: DEFAULT_METER,
     seed: undefined,
     engine: 'superdough',
-    expectedArrangement: EMPTY_STRUCTURE,
+    expectedStructure: EMPTY_STRUCTURE,
   });
 });
 
@@ -32,7 +32,7 @@ test('an invalid header falls back to the empty structure and never throws', () 
     meter: DEFAULT_METER,
     seed: undefined,
     engine: 'superdough',
-    expectedArrangement: EMPTY_STRUCTURE,
+    expectedStructure: EMPTY_STRUCTURE,
   });
 });
 

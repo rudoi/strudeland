@@ -2757,7 +2757,7 @@ const DEFAULT_TEMPO = {
   cps: 0.5,
   meter: { num: 4, den: 4 },
   engine: 'superdough' as const,
-  expectedArrangement: buildStructure({}),
+  expectedStructure: buildStructure({}),
 };
 
 /** Replace the whole doc of the shown song, as typing would. */

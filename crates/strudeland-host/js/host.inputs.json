@@ -83,7 +83,7 @@
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
     "src/lib/errors.ts": "e9f80c51df62e192fe8d0ca2a463bf2c2208c08dc7e8f7d80531d7243ff8de5a",
     "src/lib/levels/levels.ts": "0bea7f385e6be6a3c3b5bd7f05183b59cd944aceb4d6b0afa407cad65aee89ae",
-    "src/lib/project/evaluate-options.ts": "94b3d3ed2d8bf54aaa0a36216e93d59a4c131d185814228c534c3d7c695fe2cb",
+    "src/lib/project/evaluate-options.ts": "099b17d99c60e6a8123cfaef5cbcfbca6fe092e4c7ef793b9a455a1aa26d22bf",
     "src/lib/project/meta.ts": "338f74b0267457b29fe4c97d064782bebe3b595a5e5b60d42156c213a3292c91",
     "src/lib/render/chunks.ts": "abf5d3ecc4a68458832948c2fe051a524d8a730f82e5c379d12481d197e7cf6a",
     "src/lib/render/contract.ts": "e822bf42d1806f80c011ed87c4212f724ba002519b7b4851484b08c6c4648a20",
@@ -105,7 +105,7 @@
     "src/lib/strudel/metered-pattern.ts": "98dfc133580639c70f9c4016141bbd2a833a8f9185f37143148dc082473b706b",
     "src/lib/strudel/note-grid.ts": "88aa7ba98aaf98f515b29138c36dde29ce854efdf7a2fb270c31c831b58129f2",
     "src/lib/strudel/note-name.ts": "ee99615eb8be5130d8a587e009ac87bb264d100da203869cf44df66a31b661d2",
-    "src/lib/strudel/runtime.ts": "5f8b3b6075b7965ea281b8c1cdfc38cb7e42bdc04a14662889073694fa2fa347",
+    "src/lib/strudel/runtime.ts": "481357bfaf51e5bc8df944650354e3044c5532b8a395bb5c8841ccde88f8dd28",
     "src/lib/strudel/seed.ts": "d2453dfd92566e735aa67e36efffa3c0cafd17924134be001527024b760edc06",
     "src/lib/strudel/song.ts": "743adc4ae2cc5ca1f303169ac52fae74a9eb4476e811982b659b65507fa25c83",
     "src/lib/strudel/structure.ts": "126fd0b95bf8c2bff1be03eb19a03ab051dcf2b9a5d329de7501af6212bae6a2",
@@ -156,5 +156,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "4d4a4f3057097f9967a8236391288f0d31069d8cfab086060e4342f112242610"
+  "combined": "e3e9d5b810e36bf368a26a00dc25c34fc95b1a2b56c0ee0d0b5f4a4ceb1855ba"
 }
