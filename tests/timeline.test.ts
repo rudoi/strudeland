@@ -13,6 +13,8 @@ import {
   rulerBars,
   rulerMarks,
   rulerStride,
+  sectionItemHelp,
+  type SectionItemPlay,
 } from '../src/lib/project/timeline';
 import { buildStructure, type Meter } from '../src/lib/strudel/structure';
 import { catOf } from '../src/lib/theme/tones';
@@ -257,4 +259,61 @@ describe('parseInput', () => {
     expect(bad).toEqual({ ok: false, error: 'bars must be an integer from 1 to 10000' });
     expect(parseInput('bars', '2.5').ok).toBe(false);
   });
+});
+
+describe('sectionItemHelp', () => {
+  const TEXT = { stale: 'stale', started: 'started', taking: 'taking', stopped: 'stopped' };
+  const IDLE: SectionItemPlay = {
+    canPlayFrom: true,
+    stopTarget: null,
+    started: false,
+    taking: false,
+  };
+  const TAKE_BACKING: SectionItemPlay = {
+    canPlayFrom: false,
+    stopTarget: 'take',
+    started: true,
+    taking: true,
+  };
+  const MEMO_BACKING: SectionItemPlay = {
+    canPlayFrom: false,
+    stopTarget: 'memo',
+    started: true,
+    taking: false,
+  };
+  const rows: [string, boolean, SectionItemPlay, string][] = [
+    ['an unresolved choice is stale, even while busy', false, TAKE_BACKING, 'stale'],
+    ['an unresolved choice is stale while stopped', false, IDLE, 'stale'],
+    ['a take’s backing waits for the take', true, TAKE_BACKING, 'Stop the take first.'],
+    ['a memo’s backing waits for the memo', true, MEMO_BACKING, 'Stop the memo first.'],
+    [
+      'a starting take (not started) waits for the take',
+      true,
+      { canPlayFrom: false, stopTarget: 'take', started: false, taking: true },
+      'Stop the take first.',
+    ],
+    [
+      'busy without a take or memo target reads as the memo',
+      true,
+      { ...IDLE, canPlayFrom: false, stopTarget: 'song', started: true },
+      'Stop the memo first.',
+    ],
+    ['the song plays', true, { ...IDLE, stopTarget: 'song', started: true }, 'started'],
+    [
+      'started wins over taking',
+      true,
+      { canPlayFrom: true, stopTarget: 'take', started: true, taking: true },
+      'started',
+    ],
+    [
+      'a metronome-only take arms for the next play',
+      true,
+      { canPlayFrom: true, stopTarget: 'take', started: false, taking: true },
+      'taking',
+    ],
+    ['stopped', true, IDLE, 'stopped'],
+  ];
+  for (const [why, resolves, play, expected] of rows) {
+    test(why, () => expect(sectionItemHelp(resolves, play, TEXT)).toBe(expected));
+  }
 });

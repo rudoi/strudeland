@@ -14,7 +14,9 @@
     playheadPct,
     rulerBars,
     rulerMarks,
+    sectionItemHelp,
     type InputField,
+    type SectionItemTexts,
   } from '../lib/project/timeline';
   import { authoredLoop, meterString } from '../lib/strudel/structure';
   import { canPlayEnding, type Located } from '../lib/strudel/transport';
@@ -36,22 +38,18 @@
   const pb = playback.store;
   const canArm = playback.canArm;
   const play = arbiter.store;
-  const taking = $derived($play.taking);
-  // A take's or a memo's song backing is playing: the section items wait for it to stop.
-  const busyHelp = $derived(
-    $play.canPlayFrom
-      ? null
-      : $play.stopTarget === 'take'
-        ? 'Stop the take first.'
-        : 'Stop the memo first.',
-  );
   /** A section item's help: re-evaluate, else wait for the backing, else what a click does now. */
-  function itemHelp(
-    resolves: boolean,
-    text: { stale: string; started: string; taking: string; stopped: string },
-  ): string {
-    if (!resolves) return text.stale;
-    return busyHelp ?? ($rt.started ? text.started : taking ? text.taking : text.stopped);
+  function itemHelp(resolves: boolean, text: SectionItemTexts): string {
+    return sectionItemHelp(
+      resolves,
+      {
+        canPlayFrom: $play.canPlayFrom,
+        stopTarget: $play.stopTarget,
+        started: $rt.started,
+        taking: $play.taking,
+      },
+      text,
+    );
   }
 
   // None while the header has a meta error: no blocks, menu or inputs (see the note below).
