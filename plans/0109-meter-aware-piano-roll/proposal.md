@@ -10,20 +10,21 @@ material and has a persistent, easy-to-reach **Piano Roll** toggle in the editor
 ## Scope
 
 - The expanded dock follows a single CodeMirror selection. The default view is **Expression**.
-  **In song** shows verified uses in arrangement context, including transformations. Both views
-  work while playback is stopped. A collapsed dock takes up no editor space and suspends
+  **In song** shows arranged notes in context, including transformations, and links to source when
+  known. Visual edits are available from **Expression**. Both views work while playback is
+  stopped. A collapsed dock takes up no editor space and suspends
   inspection. The toggle stays visible with an empty selection or while the panel is collapsed.
 - The first usable release supports pitch, timing, length, insertion and deletion for simple
-  phrases. It also supports direct pitch edits in safely attributable compound notation. Expand
-  viewing coverage independently of write-back coverage.
+  monophonic phrases. Simultaneous authored notes support individual pitch edits when source
+  attribution is verified. Expand viewing coverage independently of write-back coverage.
 - A reference to a shared binding offers **Edit shared definition**, with source links to affected
   uses and an explanation when the list is incomplete. Selecting an invocation or repetition
   alone never makes it a private copy.
 - The first release excludes per-use forks, flattening generated music into replacement source,
   free-form inverses for effects and transformations, velocity and automation editing, and
-  changing actual envelopes or sample playback length from the piano roll. By default edits
-  update the editor buffer. The existing save and evaluation commands apply them to disk and
-  playback.
+  changing actual envelopes or sample playback length from the piano roll. Edits update the editor
+  buffer. While a song is playing, **Re-evaluate** applies the changes to playback through the
+  existing save-and-evaluate flow.
 
 ## Architecture
 
@@ -78,13 +79,16 @@ named `note` or a dynamic method call does not inherit the builtin's edit capabi
 
 Follow immutable local `const` aliases, respecting scope and shadowing, including a pattern
 passed through known section/voice combinators. Retain the definition and the selected use as
-separate spans. Collect direct and transitive lexical use sites, including aliases, labels, and
-`song(meta, parts)` section references when provable. Mark escapes through callbacks, computed
+separate spans. Use the distinctions in the [glossary](../../GLOSSARY.md) for source use sites
+and written pattern occurrences. Collect direct and transitive lexical use sites, including
+aliases, labels, and `song(meta, parts)` section references when provable. Mark escapes through callbacks, computed
 properties, mutable aliases, object indirection and unclassified calls as potentially affecting
 additional uses. Permit edits to an independently verified definition with the uncertainty
 displayed. When the definition itself is uncertain, retain inspection and omit write-back. Show
 affected known uses before the first shared edit in a selection context, then let successive
-gestures use that target until the context changes.
+gestures use that target until the context changes. When a selected expression transforms a
+shared pattern, show the result of that expression. **Edit shared definition** takes the user to
+the authored pitches in Expression and retains the selected occurrence as the meter anchor.
 
 ### Meter, window and pitch
 
@@ -98,7 +102,8 @@ definition without a known use, label the base meter as the preview meter. Edits
 bar-relative fractions even if other uses display them against a different beat grid.
 
 Use the written beat as the base horizontal unit of the ruler, measured in quarter-note
-equivalents so a 7/8 bar is physically shorter than a 4/4 bar. A bar in meter N/D has N denominator
+equivalents. An eighth note takes the same horizontal space in 4/4 and 7/8 at a given zoom, so
+the 7/8 bar is seven-eighths as wide. A bar in meter N/D has N denominator
 beat marks spaced 1/N of a cycle apart. In the viewport, favor nearby musical subdivisions
 including triplets and offer snap bypass. Treat compound grouping as visual emphasis (for example
 two dotted beats in 6/8). Use denominator beats for coordinates. Preserve existing off-grid
@@ -138,7 +143,7 @@ inspectable only.
 | Strudel form | Expression / in-song inspection | Write-back |
 | --- | --- | --- |
 | `note("c4 ~ e4")`, MIDI numbers, static backticks, weighted atoms, simple slow sequences for multiple bars | Authored pitch, rests, timing and meter. Compare with Strudel query. | All five operations within the supported phrase grammar. |
-| `[c4,e4]`, nested subdivision, `<c4 d4>`, `!`, `*`, `/`, Euclidean suffix, ranges, random choice | Use real mini timing and a bounded evaluation window. Distinguish group, alternate, repeat and generated instances. | Direct pitch replacement of a uniquely verified source leaf where supported. Whole shared source atom updates together. Timing of arbitrary nesting, generated hits or one alternate instance stays view-only. |
+| `[c4,e4]`, nested subdivision, `<c4 d4>`, `!`, `*`, `/`, Euclidean suffix, ranges, random choice | Use real mini timing and a bounded evaluation window. Distinguish group, alternate, repeat and generated instances. | Direct pitch replacement of a uniquely verified source leaf, including an individual note in an authored chord. All occurrences of a shared atom update together. Timing of simultaneous notes, arbitrary nesting, generated hits and individual alternate instances stays view-only. |
 | `note(60)`, `note(seq('c4','e4'))`, `cat`, `stack`, `timeCat`, explicit pitches in constructors | Query the actual composition. Use AST source ranges even when the runtime has no locations. | Verified direct pitch literals and individually selected supported mini operands. General JS composition rhythm is view-only. |
 | `const motif = note(...)`; `motif`; `motif.transpose(12)`; aliases, labels, section reuse | Show the expression or a verified use. Show direct and transformed uses separately when their identities are known. | Edit the shared authored target. Inspect transformed notes in context. Per-use timing or pitch inverse can be added only for an established operation. |
 | `n("0 2 4").scale("C4:minor")`, `chord("C^7").voicing()`, arpeggiators | Query degrees, scale-produced pitches and voicings. Link generated events back to their source when known. | Generated pitches stay view-only. Degree- or chord-aware edits require explicit rules. |
@@ -189,7 +194,9 @@ output.
 For In song, query the final pattern in the selected written window. Static proven paths and
 a separately tested per-use marker can attribute haps to a particular occurrence when note
 locations are shared. Probe the marker through `stack`, labels, constructors, value and time
-transforms, and the section wrapper. Keep ambiguous events as context with a clear label. When
+transforms, and the section wrapper. A source link leads back to the specific source expression,
+or offers verified contributors when several source ranges explain the event. Any edit starts
+from a supported target in Expression. Keep ambiguous events as context with a clear label. When
 selection-specific attribution is unavailable, offer the full in-song view with any known
 highlights and an attribution status. Do not infer that two identical notes came from the same
 use. Compare output with the uninstrumented host for parity. Host slider movement, DOM APIs,
@@ -279,8 +286,14 @@ queries and errors, same seed, pins and output parity. Rebuild the committed hos
 its inputs and run the relevant host/desktop parity and Rust checks. Exercise the panel with
 keyboard, minimum-size windows, selection changes during capture, failed/stale results, shared
 motifs, play/stop, undo and mixed meter. Release scenarios should cover 4/4 → 7/8 → 6/8, meter
-anchoring a reused motif, overlapping chord voices, blank/frequency/dynamic patterns, and a
-4/4 to 7/8 drag with exact snap and no unrelated source diffs.
+anchoring a reused motif, overlapping chord voices, and blank/frequency/dynamic patterns.
+In the shared-motif scenario, `const motif = note("c4 e4")` appears directly in 4/4 and as
+`motif.transpose(12)` in 7/8. Selecting the transformed use displays C5 and E5 in Expression.
+**Edit shared definition** opens C4 and E4 on the retained 7/8 grid and identifies both uses.
+Changing E4 to F4 updates the buffer and the inspected projections. The running song picks up
+the change on **Re-evaluate**, sounding F4 in the direct use and F5 in the transposed use.
+The cross-bar drag prototype must check exact snapping and unrelated source diffs before
+cross-bar dragging becomes a release requirement.
 
 ## Risks
 
@@ -298,11 +311,13 @@ anchoring a reused motif, overlapping chord voices, blank/frequency/dynamic patt
 
 ## Product decisions and open implementation questions
 
-Confirmed in planning: Expression first with In song available, shared-definition edits with
-affected uses, all five edits for simple phrases, and an easy-to-access collapse toggle.
+Confirmed in planning and the first refinement round: Expression first, source navigation from
+In song, transformed pitches in Expression with an explicit action to edit the shared definition,
+affected uses shown before editing, beat-proportional ruler, all five edits for simple monophonic
+phrases, pitch edits for individually attributable simultaneous notes, a toolbar toggle, and
+explicit **Re-evaluate** for playback changes.
 
-Proposed defaults for refinement: beat-proportional horizontal ruler, collapsed on a fresh
-window, edit the buffer using normal save/play commands, and start with nonempty selections.
+Proposed defaults for refinement: collapsed on a fresh window and start with nonempty selections.
 The capture prototype must determine the minimal safe instrumentation seam, quantify attribution
 coverage, and set measured worker and rendering limits. The rhythm prototype must establish
 which weights and subdivisions can be serialized with localized, bounded changes. Once both
