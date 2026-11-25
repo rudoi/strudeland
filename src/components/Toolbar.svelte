@@ -62,7 +62,7 @@
   <Button
     variant="primary"
     onclick={() => arbiter.play()}
-    disabled={!$play.canPlay}
+    disabled={taking}
     help={taking
       ? 'Finish the recording before evaluating the song.'
       : $sessionState.active === null
@@ -73,7 +73,7 @@
   >
     {$rt.started ? 're-evaluate' : 'play'}
   </Button>
-  <Button onclick={stop} disabled={!$play.stopEnabled} help={stopHelp}>stop</Button>
+  <Button onclick={stop} disabled={$play.stopTarget === null} help={stopHelp}>stop</Button>
   <Button
     data-piano-roll
     aria-controls="piano-roll-dock"

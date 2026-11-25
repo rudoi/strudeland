@@ -13,7 +13,7 @@ const { pianoRollEditHighlight, pianoRollEditLocation } = await import('../src/l
 const { planEventEdit, preparePhraseEvents } = await import('../src/lib/piano-roll/event-source');
 const { resolvePostEditTarget } = await import('../src/lib/piano-roll/feedback');
 const { resolveRollTarget } = await import('../src/lib/piano-roll/source');
-const { get, writable } = await import('svelte/store');
+const { get } = await import('svelte/store');
 const { ErrorCode } = await import('../src/lib/control/protocol');
 const { getCM, Vim } = await import('@replit/codemirror-vim');
 const { vimAdapter } = await import('../src/lib/editor/vim-mode');
@@ -21,6 +21,7 @@ const { vimAdapter } = await import('../src/lib/editor/vim-mode');
 import type { EditorView } from '@codemirror/view';
 import type { Prefs } from '../src/lib/prefs/api';
 import type { Sidecar } from '../src/lib/recording/types';
+import { countDispatches } from './helpers/dispatches';
 import { fakePrefsApi } from './helpers/fake-prefs-api';
 import { fakeControlApi } from './helpers/fake-control-api';
 import { fakeProjectApi, flush, tick } from './helpers/fake-project-api';
@@ -279,7 +280,7 @@ describe('createApp', () => {
     expect(get(app.session.store).songs[0].dirty).toBe(false);
   });
 
-  test('onEvaluate and evaluateDoc go through saveAndEvaluate', async () => {
+  test('onEvaluate and arbiter.play go through saveAndEvaluate', async () => {
     const { app, view, fake, evaluated } = await setup();
     const saves = () => fake.calls.filter((c) => c.startsWith('save:'));
     view.dispatch({ changes: { from: 0, insert: '// x\n' } });
@@ -288,18 +289,34 @@ describe('createApp', () => {
     expect(saves()).toHaveLength(1);
     expect(evaluated).toEqual(['// x\n$: s("a")\n']);
     view.dispatch({ changes: { from: 0, insert: '// y\n' } });
-    app.evaluateDoc();
+    app.arbiter.play();
     await tick();
     expect(saves()).toHaveLength(2);
     expect(evaluated[1]).toBe('// y\n// x\n$: s("a")\n');
   });
 });
 
+/**
+ * Start and stop the scheduler as a start and stop drive it. The drawer it also toggles
+ * queries the pattern and clears a canvas, which happy-dom has no 2D context for.
+ */
+function schedulerStarted(app: Awaited<ReturnType<typeof setup>>['app'], on: boolean) {
+  const proto = HTMLCanvasElement.prototype as any;
+  const getContext = proto.getContext;
+  proto.getContext = () => ({ clearRect: () => {}, canvas: { width: 0, height: 0 } });
+  try {
+    app.runtime.scheduler.pattern = { queryArc: () => [] };
+    app.runtime.scheduler.setStarted(on);
+  } finally {
+    proto.getContext = getContext;
+  }
+}
+
 /** The app with the song playback swapped for one that logs, playing or not. */
 function logged(app: Awaited<ReturnType<typeof setup>>['app'], started: boolean, arms = true) {
   const calls: string[] = [];
+  if (started) schedulerStarted(app, true);
   (app.session as any).playback = {
-    store: writable({ started }),
     arm: (choice: unknown) => (calls.push(`arm ${JSON.stringify(choice)}`), arms),
   };
   app.session.saveAndEvaluate = async () => void calls.push('evaluate');
@@ -310,28 +327,28 @@ describe('playFrom', () => {
   test('while stopped it arms, then evaluates in the same call', async () => {
     const { app } = await setup();
     const calls = logged(app, false);
-    app.playFrom({ start: 'verse' });
+    app.arbiter.playFrom({ start: 'verse' });
     expect(calls).toEqual(['arm {"start":"verse"}', 'evaluate']);
   });
 
   test('while stopped a choice that does not resolve evaluates nothing', async () => {
     const { app } = await setup();
     const calls = logged(app, false, false);
-    app.playFrom({ loop: 'nope' });
+    app.arbiter.playFrom({ loop: 'nope' });
     expect(calls).toEqual(['arm {"loop":"nope"}']);
   });
 
   test('while playing it arms only', async () => {
     const { app } = await setup();
     const calls = logged(app, true);
-    app.playFrom({ loop: 'verse', through: 'chorus' });
+    app.arbiter.playFrom({ loop: 'verse', through: 'chorus' });
     expect(calls).toEqual(['arm {"loop":"verse","through":"chorus"}']);
   });
 
   test('the real song playback arms the header section, then the evaluate runs', async () => {
     const { app, evaluated } = await setup();
     app.session.externalEdit(MAIN, SECTIONED);
-    app.playFrom({ start: 'verse' });
+    app.arbiter.playFrom({ start: 'verse' });
     expect(get(app.session.playback.store).transport.armed).toBe('verse');
     await tick();
     expect(evaluated).toEqual([SECTIONED]);
@@ -643,7 +660,7 @@ describe('recording and memos', () => {
       stops++;
       stop();
     };
-    app.evaluateDoc();
+    app.arbiter.play();
     expect(stops).toBeGreaterThan(0);
     stops = 0;
     const recording = app.recording!.record({ song: false, metronome: false, countIn: false });
@@ -657,7 +674,7 @@ describe('recording and memos', () => {
     app.destroy();
   });
 
-  test('during a take Cmd-Enter and evaluateDoc do nothing, as the disabled play button', async () => {
+  test('during a take Cmd-Enter and arbiter.play do nothing, as the disabled play button', async () => {
     const { app } = await withRecording();
     const calls: string[] = [];
     app.session.saveAndEvaluate = async () => void calls.push('saveAndEvaluate');
@@ -667,7 +684,7 @@ describe('recording and memos', () => {
     await flush();
     expect(get(app.recording!.store).phase).toBe('recording');
     app.hooks.onEvaluate!();
-    app.evaluateDoc();
+    app.arbiter.play();
     expect(calls).toEqual([]);
     await app.recording!.stop();
     await flush();
@@ -681,34 +698,10 @@ describe('recording and memos', () => {
       .facet(keymap)
       .flat()
       .find((b) => b.key === key)!.run!;
-    const dispatch = view.dispatch;
-    let count = 0;
-    view.dispatch = ((...a: unknown[]) => {
-      count++;
-      (dispatch as (...a: unknown[]) => void).apply(view, a);
-    }) as EditorView['dispatch'];
-    try {
-      expect(run(view)).toBe(true);
-    } finally {
-      view.dispatch = dispatch;
-    }
+    let handled = false;
+    const count = countDispatches(view, () => (handled = run(view)));
+    expect(handled).toBe(true);
     return count;
-  }
-
-  /**
-   * Start and stop the scheduler as a start and stop drive it. The drawer it also toggles
-   * queries the pattern and clears a canvas, which happy-dom has no 2D context for.
-   */
-  function schedulerStarted(app: Awaited<ReturnType<typeof withRecording>>['app'], on: boolean) {
-    const proto = HTMLCanvasElement.prototype as any;
-    const getContext = proto.getContext;
-    proto.getContext = () => ({ clearRect: () => {}, canvas: { width: 0, height: 0 } });
-    try {
-      app.runtime.scheduler.pattern = { queryArc: () => [] };
-      app.runtime.scheduler.setStarted(on);
-    } finally {
-      proto.getContext = getContext;
-    }
   }
 
   test('during a take Cmd-Enter neither flashes nor evaluates', async () => {

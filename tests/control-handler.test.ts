@@ -7,6 +7,7 @@ afterAll(() => GlobalRegistrator.unregister());
 const { createSession } = await import('../src/lib/project/session');
 const { createEditorState } = await import('../src/lib/editor/setup');
 const { createControlHandler, replyTo } = await import('../src/lib/control/handler');
+const { createPlayArbiter } = await import('../src/lib/play-arbiter');
 const { ControlError, ErrorCode } = await import('../src/lib/control/protocol');
 const { EditorView } = await import('@codemirror/view');
 const { undo } = await import('@codemirror/commands');
@@ -14,8 +15,13 @@ const { get } = await import('svelte/store');
 import type { ControlHandler } from '../src/lib/control/handler';
 import type { PlayArbiter } from '../src/lib/play-arbiter';
 import type { Session } from '../src/lib/project/session';
+import type { Runtime } from '../src/lib/strudel/runtime';
 import { deferred, fakeProjectApi, flush } from './helpers/fake-project-api';
 import { stubRuntime } from './helpers/stub-runtime';
+
+/** The app's arbiter without a take or a memo. */
+const plainArbiter = (session: Session, runtime: Runtime) =>
+  createPlayArbiter({ session, runtime, stopAuditions: () => {} });
 
 const A = `const meta = { title: 'Alpha', bpm: 120 };\n$: s("a")\n`;
 const B = `$: s("b")\n`; // no header: title is the file name
@@ -57,7 +63,7 @@ async function setup(
   const handle = createControlHandler({
     session,
     runtime: rt.runtime,
-    arbiter: opts.arbiter?.(session),
+    arbiter: opts.arbiter?.(session) ?? plainArbiter(session, rt.runtime),
     vim: opts.vim,
   });
   const st = () => get(session.store);
@@ -332,7 +338,11 @@ describe('song resolution', () => {
   test('a song gone right before the edit is -32005', async () => {
     const h = await setup();
     const session: Session = { ...h.session, externalEdit: () => 'missing' };
-    const handle = createControlHandler({ session, runtime: h.rt.runtime });
+    const handle = createControlHandler({
+      session,
+      runtime: h.rt.runtime,
+      arbiter: plainArbiter(session, h.rt.runtime),
+    });
     const reply = await replyTo(handle, { id: 1, method: 'code.set', params: { code: 'x' } });
     expect(reply).toEqual({
       error: { code: ErrorCode.NO_SUCH_SONG, message: `no such song '${PA}' (it was removed)` },
@@ -668,6 +678,7 @@ describe('requests', () => {
     const handle = createControlHandler({
       session: h.session,
       runtime: h.rt.runtime,
+      arbiter: plainArbiter(h.session, h.rt.runtime),
       now: () => t,
     });
     const gate = deferred();

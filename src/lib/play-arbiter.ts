@@ -11,12 +11,13 @@
  * `play`, `playFrom`, `stop` and `record` call through synchronously: nothing awaits before
  * `runtime.evaluate`, `runtime.start` or `resumeAudio`, which stay inside the user gesture.
  */
-import { get, writable, type Readable } from 'svelte/store';
-import type { MemoPlayerState } from './audio/memo-player';
-import type { SessionEvalOutcome } from './project/session';
-import type { ArmChoice } from './project/song-playback';
-import { takeRunning } from './recording/memo-ui';
-import type { BackingChoice, RecordingPhase } from './recording/types';
+import { writable, type Readable } from 'svelte/store';
+import type { Session, SessionEvalOutcome } from './project/session';
+import type { ArmChoice, SongPlayback } from './project/song-playback';
+import type { RecordingController } from './recording/controller';
+import { memoAudible, takeRunning } from './recording/memo-ui';
+import type { Memos } from './recording/memos';
+import type { BackingChoice, RecordingPhase, RecordingUiState } from './recording/types';
 import type { Runtime } from './strudel/runtime';
 
 /** What a stop stops: the take, else the audible memo, else the song. */
@@ -31,14 +32,8 @@ export interface PlayArbiterState {
   memoAudible: boolean;
   /** The runtime is started. */
   started: boolean;
-  /** Play is offered: not during a take. */
-  canPlay: boolean;
   /** What a stop would stop now; null when nothing sounds. */
   stopTarget: StopTarget | null;
-  /** The toolbar's stop is offered. */
-  stopEnabled: boolean;
-  /** A take runs or a memo is audible. */
-  busy: boolean;
   /** Section items may arm: not while a take's or a memo's song backing plays. */
   canPlayFrom: boolean;
 }
@@ -83,26 +78,16 @@ export interface PlayArbiter {
 }
 
 export interface PlayArbiterDeps {
-  session: {
-    readonly playback: {
-      readonly store: Readable<{ started: boolean }>;
-      arm(choice: ArmChoice): boolean;
-    };
-    saveAndEvaluate(): Promise<void>;
-    evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<SessionEvalOutcome>;
+  session: Pick<Session, 'saveAndEvaluate' | 'evaluateBuffer'> & {
+    playback: Pick<SongPlayback, 'arm'>;
   };
   runtime: Pick<Runtime, 'store' | 'stop' | 'canAudition'>;
   /** The recording controller; absent outside Tauri. */
-  recording?: {
-    readonly store: Readable<{ phase: RecordingPhase }>;
-    record(choice: BackingChoice): Promise<void>;
-    stop(): Promise<void>;
+  recording?: Pick<RecordingController, 'record' | 'stop'> & {
+    store: Readable<Pick<RecordingUiState, 'phase'>>;
   };
   /** The memo library; absent outside Tauri. */
-  memos?: {
-    readonly player: Readable<MemoPlayerState>;
-    stopPlayback(): void;
-  };
+  memos?: Pick<Memos, 'player' | 'stopPlayback'>;
   /** Silence every audition (the runtime's `onPlaybackRequest`). */
   stopAuditions(): void;
 }
@@ -119,61 +104,49 @@ function derive(
     takePhase,
     memoAudible,
     started,
-    canPlay: !taking,
     stopTarget: taking ? 'take' : memoAudible ? 'memo' : started ? 'song' : null,
-    stopEnabled: started || taking || memoAudible,
-    busy,
     canPlayFrom: !(busy && started),
   };
 }
 
 export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
   const { session, runtime, recording, memos } = deps;
-  let takePhase: RecordingPhase | null = null;
-  let memoAudible = false;
-  let started = false;
   let playRequests = 0;
-  let state = derive(takePhase, memoAudible, started);
+  let state = derive(null, false, false);
   const store = writable(state);
-  let ready = false;
-  const publish = () => {
-    if (!ready) return;
-    state = derive(takePhase, memoAudible, started);
+  /** Publish only a real change (`runtime.store` fires on every stats tick). */
+  const update = (takePhase: RecordingPhase | null, audible: boolean, started: boolean) => {
+    if (
+      takePhase === state.takePhase &&
+      audible === state.memoAudible &&
+      started === state.started
+    ) {
+      return;
+    }
+    const prev = state;
+    state = derive(takePhase, audible, started);
     store.set(state);
+    // Auditions cannot start during a take or an audible memo, so silencing them on entry is enough.
+    if ((state.taking && !prev.taking) || (state.memoAudible && !prev.memoAudible)) {
+      deps.stopAuditions();
+    }
   };
 
   const offs: (() => void)[] = [];
-  offs.push(
-    runtime.store.subscribe((s) => {
-      started = s.started;
-      publish();
-    }),
-  );
+  offs.push(runtime.store.subscribe((s) => update(state.takePhase, state.memoAudible, s.started)));
   if (recording) {
     offs.push(
-      recording.store.subscribe(({ phase }) => {
-        takePhase = phase;
-        publish();
-        if (takeRunning(phase)) deps.stopAuditions();
-      }),
+      recording.store.subscribe(({ phase }) => update(phase, state.memoAudible, state.started)),
     );
   }
   if (memos) {
     offs.push(
-      memos.player.subscribe(({ status }) => {
-        memoAudible = status === 'loading' || status === 'playing';
-        publish();
-        if (memoAudible) deps.stopAuditions();
-      }),
+      memos.player.subscribe((p) => update(state.takePhase, memoAudible(p), state.started)),
     );
   }
-  ready = true;
-  publish();
-
-  const taking = () => takeRunning(takePhase);
 
   function play(): boolean {
-    if (taking()) return false;
+    if (state.taking) return false;
     deps.stopAuditions();
     playRequests++;
     memos?.stopPlayback();
@@ -184,28 +157,27 @@ export function createPlayArbiter(deps: PlayArbiterDeps): PlayArbiter {
   return {
     store: { subscribe: store.subscribe },
     auditionsAvailable: () =>
-      playRequests === 0 && runtime.canAudition() && !taking() && !memoAudible,
+      playRequests === 0 && runtime.canAudition() && !state.taking && !state.memoAudible,
     play,
     playFrom(choice) {
       if (!state.canPlayFrom) return false;
-      const wasStarted = get(session.playback.store).started;
+      const wasStarted = state.started;
       const armed = session.playback.arm(choice);
       if (armed && !wasStarted) play();
       return armed;
     },
     stop() {
-      const wasPlaying = get(runtime.store).started;
-      if (taking() && recording) {
-        return { stopped: 'take', wasPlaying, done: recording.stop() };
+      const { stopTarget: stopped, started: wasPlaying } = state;
+      if (stopped === 'take' && recording) {
+        return { stopped, wasPlaying, done: recording.stop() };
       }
-      const stopped: StopTarget | null = memoAudible ? 'memo' : wasPlaying ? 'song' : null;
       memos?.stopPlayback();
       runtime.stop();
       return { stopped, wasPlaying, done: Promise.resolve() };
     },
     evaluate(path) {
       memos?.stopPlayback();
-      return session.evaluateBuffer(path, taking() ? { autostart: false } : undefined);
+      return session.evaluateBuffer(path, state.taking ? { autostart: false } : undefined);
     },
     record(choice) {
       memos?.stopPlayback();

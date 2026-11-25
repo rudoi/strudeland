@@ -14,7 +14,7 @@ import {
   type SessionState,
 } from '../project/session';
 import { ProjectError } from '../project/api';
-import { createPlayArbiter, type PlayArbiter } from '../play-arbiter';
+import type { PlayArbiter } from '../play-arbiter';
 import type { PlaybackTransport } from '../project/song-playback';
 import { songPath, stripSongExt } from '../project/ui';
 import { peakDb, roundDb, type LevelHoldSnapshot } from '../levels/levels';
@@ -255,14 +255,14 @@ function resolve(session: Session, ref: string | undefined): string {
 export function createControlHandler({
   session,
   runtime,
-  arbiter = createPlayArbiter({ session, runtime, stopAuditions: () => {} }),
+  arbiter,
   now = () => performance.now(),
   vim = () => false,
 }: {
   session: Session;
   runtime: Runtime;
-  /** Evaluate and stop as the toolbar does; without one, an arbiter with no take or memo. */
-  arbiter?: Pick<PlayArbiter, 'evaluate' | 'stop'>;
+  /** Evaluate and stop as the toolbar does. */
+  arbiter: Pick<PlayArbiter, 'evaluate' | 'stop'>;
   /** Milliseconds, for request deadlines; a test seam. */
   now?: () => number;
   /** Whether the editor has vim keybindings on. */

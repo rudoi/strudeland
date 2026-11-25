@@ -21,7 +21,6 @@ import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
 import { createPrefs, type PrefsStore } from './prefs/store';
 import { createTauriProjectApi, type InstrumentBrowserApi, type ProjectApi } from './project/api';
 import { createSession, errorMessage, windowTitle, type Session } from './project/session';
-import type { ArmChoice } from './project/song-playback';
 import { createTauriRecordingApi, type RecordingApi } from './recording/api';
 import { createBackingStarter } from './recording/backing';
 import { createRecordingController, type RecordingController } from './recording/controller';
@@ -74,10 +73,6 @@ export interface App {
   attachView(view: EditorView | undefined): void;
   /** Unlock preview audio on a gesture in the editor. */
   prepareNoteAudition(target: EventTarget | null): boolean;
-  /** The arbiter's `play` (the toolbar's play and Cmd-Enter). */
-  evaluateDoc(): void;
-  /** The arbiter's `playFrom`. Call from the user gesture: nothing awaits before the evaluate. */
-  playFrom(choice: ArmChoice): void;
   /**
    * Restore vim's `:w`, stop listening for control requests and prefs, dispose of the scope clock, stop memo playback and the
    * recording controller (the component is destroyed, or HMR replaced it). Idempotent.
@@ -167,12 +162,6 @@ export function createApp(
     rollAudition = null;
     audition.stop();
     instrumentPreview.stop();
-  }
-  function evaluateDoc(): void {
-    arbiter.play();
-  }
-  function playFrom(choice: ArmChoice): void {
-    arbiter.playFrom(choice);
   }
   const hooks: EditorHooks = {
     onSave: () => void session.save(),
@@ -283,8 +272,6 @@ export function createApp(
       void runtime.prepareAudition();
       return true;
     },
-    evaluateDoc,
-    playFrom,
     scopeClock,
     recording,
     memos,

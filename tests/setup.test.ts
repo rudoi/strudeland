@@ -8,6 +8,7 @@ const { createEditor, evaluateCommand, runtimeEvaluate, stopCommand } =
   await import('../src/lib/editor/setup');
 const { keymap } = await import('@codemirror/view');
 import type { Runtime } from '../src/lib/strudel/runtime';
+import { countDispatches } from './helpers/dispatches';
 
 function fakeRuntime() {
   const calls: string[] = [];
@@ -60,28 +61,13 @@ test('evaluateCommand runs the given action, then reports handled', () => {
   view.destroy();
 });
 
-/** Count the dispatches `run` makes: `flash` dispatches the highlight at once. */
-function dispatches(view: { dispatch: (...a: never[]) => void }, run: () => void): number {
-  const original = view.dispatch;
-  let count = 0;
-  view.dispatch = (...a: never[]) => {
-    count++;
-    original.apply(view, a);
-  };
-  try {
-    run();
-  } finally {
-    view.dispatch = original;
-  }
-  return count;
-}
-
 test('evaluateCommand flashes unless the action returns exactly false', () => {
   const { runtime } = fakeRuntime();
   const view = createEditor(document.body, 'x', runtime);
-  expect(dispatches(view, () => evaluateCommand(() => false)(view))).toBe(0);
-  expect(dispatches(view, () => evaluateCommand(() => true)(view))).toBe(1);
-  expect(dispatches(view, () => evaluateCommand(() => {})(view))).toBe(1);
+  // `flash` dispatches the highlight at once.
+  expect(countDispatches(view, () => evaluateCommand(() => false)(view))).toBe(0);
+  expect(countDispatches(view, () => evaluateCommand(() => true)(view))).toBe(1);
+  expect(countDispatches(view, () => evaluateCommand(() => {})(view))).toBe(1);
   expect(evaluateCommand(() => false)(view)).toBe(true);
   view.destroy();
 });

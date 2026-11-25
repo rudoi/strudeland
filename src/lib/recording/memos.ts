@@ -10,7 +10,7 @@ import type { ProjectChange } from '../project/api';
 import { errorMessage } from '../errors';
 import type { SongStructure } from '../strudel/structure';
 import type { RecordingApi } from './api';
-import { songTempoOf, sortMemos, takeRunning, type SongTempo } from './memo-ui';
+import { memoAudible, songTempoOf, sortMemos, takeRunning, type SongTempo } from './memo-ui';
 import type { RecordingEntry, RecordingPhase, RecordingUiState } from './types';
 
 export interface MemosState {
@@ -132,7 +132,7 @@ export function createMemos(deps: MemosDeps): Memos {
   /** Stops playback when `stem` is the memo loading or playing. */
   function stopIfPlaying(stem: string): void {
     const p = get(player.store);
-    if ((p.status === 'loading' || p.status === 'playing') && p.stem === stem) player.stop();
+    if (memoAudible(p) && p.stem === stem) player.stop();
   }
 
   let subscribed = false;

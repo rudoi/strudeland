@@ -70,7 +70,7 @@
     if (!recording) return;
     if (btn.action === 'record') {
       void arbiter.record(effectiveBacking($choice, hasSong));
-    } else if (btn.action === 'stop') void recording.stop();
+    } else if (btn.action === 'stop') void arbiter.stop();
   }
 
   function flip(key: ToggleKey) {

@@ -30,6 +30,13 @@ export function takeRunning(phase: RecordingPhase | null): boolean {
   );
 }
 
+/** A memo is audible: loading or playing. */
+export function memoAudible(
+  p: MemoPlayerState,
+): p is Extract<MemoPlayerState, { status: 'loading' | 'playing' }> {
+  return p.status === 'loading' || p.status === 'playing';
+}
+
 /** Milliseconds to `m:ss`, or `h:mm:ss` from one hour. Negative or non-finite input is 0:00. */
 export function formatElapsed(ms: number): string {
   const total = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
@@ -495,8 +502,7 @@ export function memoRow(
   player: MemoPlayerState,
   phase: RecordingPhase | null,
 ): MemoRowView {
-  const active =
-    (player.status === 'loading' || player.status === 'playing') && player.stem === stem;
+  const active = memoAudible(player) && player.stem === stem;
   if (active) {
     return {
       active,
