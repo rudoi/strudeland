@@ -496,9 +496,21 @@ export function createControlHandler({
    * As the toolbar's play: a playing memo stops first, and during a take the evaluate never
    * starts the song (a song the take plays takes the new code, as a re-evaluate does).
    */
-  function evaluateGuarded(target: string): Promise<EvalOutcome> {
+  async function evaluateGuarded(target: string): Promise<EvalOutcome> {
     playback.stopMemo();
-    return session.evaluateBuffer(target, playback.taking() ? { autostart: false } : undefined);
+    const r = await session.evaluateBuffer(
+      target,
+      playback.taking() ? { autostart: false } : undefined,
+    );
+    // Field by field: the session's errorKind stays off the wire.
+    return {
+      ok: r.ok,
+      song: r.song,
+      title: r.title,
+      started: r.started,
+      audio: r.audio,
+      error: r.error,
+    };
   }
 
   async function evaluate(params: unknown): Promise<EvalOutcome> {

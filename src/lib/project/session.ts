@@ -3,6 +3,12 @@ import { Text, type ChangeSpec, type EditorState, type TransactionSpec } from '@
 import { EditorView } from '@codemirror/view';
 import { get, writable, type Readable } from 'svelte/store';
 import type { EvalOutcome } from '../control/protocol';
+
+/** Why a failed evaluate failed: the song header, the instrument pins, or the evaluate itself. */
+export type EvalErrorKind = 'meta' | 'instruments' | 'eval';
+
+/** The wire outcome plus its failure kind (null exactly when `ok`); never sent over the socket. */
+export type SessionEvalOutcome = EvalOutcome & { errorKind: EvalErrorKind | null };
 import { instrumentApplication } from '../editor/apply-instrument';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
@@ -209,7 +215,7 @@ export interface Session {
    * Evaluate a song's current editor text without saving it. Never throws. `autostart: false`
    * installs the pattern without starting playback (`Runtime.start` starts it).
    */
-  evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<EvalOutcome>;
+  evaluateBuffer(path: string, opts?: { autostart?: boolean }): Promise<SessionEvalOutcome>;
   /** Loads the song if needed (ensureLoaded) without showing it; its live text + dirty, or null if it cannot be read. */
   peekSong(path: string): Promise<{ text: string; dirty: boolean } | null>;
   /** Snapshot a usable selection before focus moves to the browser. */
@@ -1663,10 +1669,18 @@ export function createSession(deps: SessionDeps): Session {
       }
       const rs = get(runtime.store);
       let error: string | null = null;
+      let errorKind: EvalErrorKind | null = null;
       if (!ok) {
-        error = d?.metaError
-          ? `meta: ${d.metaError}`
-          : (pinsError ?? rs.evalError ?? 'evaluate failed');
+        if (d?.metaError) {
+          error = `meta: ${d.metaError}`;
+          errorKind = 'meta';
+        } else if (pinsError) {
+          error = pinsError;
+          errorKind = 'instruments';
+        } else {
+          error = rs.evalError ?? 'evaluate failed';
+          errorKind = 'eval';
+        }
       }
       return {
         ok,
@@ -1675,6 +1689,7 @@ export function createSession(deps: SessionDeps): Session {
         started: rs.started,
         audio: rs.audio,
         error,
+        errorKind,
       };
     },
 

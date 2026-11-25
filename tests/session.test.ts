@@ -3299,6 +3299,7 @@ describe('evaluateBuffer', () => {
       started: true,
       audio: 'running',
       error: null,
+      errorKind: null,
     });
     expect(h.rt.evaluated).toEqual([A2]);
     expect(h.fake.calls).toEqual([]);
@@ -3338,6 +3339,7 @@ describe('evaluateBuffer', () => {
     expect(await h.session.evaluateBuffer(PA)).toMatchObject({
       ok: false,
       error: 'reading instruments failed: lead.json: invalid parameter',
+      errorKind: 'instruments',
     });
     expect(h.rt.options).toHaveLength(2);
 
@@ -3368,7 +3370,13 @@ describe('evaluateBuffer', () => {
   test('ok with audio suspended reports started false', async () => {
     const h = await opened();
     const out = await h.session.evaluateBuffer(PA);
-    expect(out).toMatchObject({ ok: true, started: false, audio: 'suspended', error: null });
+    expect(out).toMatchObject({
+      ok: true,
+      started: false,
+      audio: 'suspended',
+      error: null,
+      errorKind: null,
+    });
   });
 
   test("a runtime error carries the runtime's evalError", async () => {
@@ -3380,6 +3388,7 @@ describe('evaluateBuffer', () => {
       song: PA,
       title: 'Alpha',
       error: 'Unexpected token',
+      errorKind: 'eval',
     });
     expect(h.st().evaluated).toBeNull();
   });
@@ -3398,6 +3407,7 @@ describe('evaluateBuffer', () => {
     expect(out.ok).toBe(false);
     expect(out.error).toBe(`meta: ${h.st().metaError}`);
     expect(out.error).toContain('meta.bpm');
+    expect(out.errorKind).toBe('meta');
   });
 
   test('never throws: a throwing runtime and an unknown path', async () => {
