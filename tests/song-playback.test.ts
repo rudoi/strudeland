@@ -177,6 +177,19 @@ describe('disarming', () => {
     h.rt.runtime.transport.reset();
     expect(h.tp()).toEqual(NOT_ARMED);
   });
+
+  test('a runtime stop while already stopped rewinds an armed start, as the runtime does', () => {
+    const h = setup();
+    h.pb.arm({ start: 'chorus' });
+    expect(h.tp().armed).toBe('chorus');
+    h.rt.runtime.stop();
+    expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+    expect(h.tp()).toEqual(NOT_ARMED);
+    // A repeated toggle to stopped rewinds too.
+    h.pb.arm({ start: 'chorus' });
+    h.rt.setStarted(false);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
 });
 
 describe('song lifecycle', () => {
