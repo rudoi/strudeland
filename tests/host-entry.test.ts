@@ -28,7 +28,7 @@ const SONG = 'note("c e").s("sine")';
 
 interface Host {
   console: { level: string; text: string }[];
-  call(fn: 'planJob' | 'planRender' | 'query', ...args: unknown[]): Promise<any>;
+  call(fn: 'planJob' | 'planRender' | 'query' | 'inspect', ...args: unknown[]): Promise<any>;
   get(name: string): any;
 }
 
@@ -78,6 +78,7 @@ test('the bundle loads with no DOM and installs the entry only', () => {
   expect(typeof h.get('strudelandHost').planJob).toBe('function');
   expect(typeof h.get('strudelandHost').planRender).toBe('function');
   expect(typeof h.get('strudelandHost').query).toBe('function');
+  expect(typeof h.get('strudelandHost').inspect).toBe('function');
   expect(h.get('__strudelandResult')).toBeUndefined();
 });
 
@@ -612,4 +613,123 @@ test("loggerMessage reads core's logger calls and nothing else", () => {
 
 test('importing the entry installs globalThis.strudelandHost', () => {
   expect((globalThis as any).strudelandHost).toBe(entry.strudelandHost);
+});
+
+function inspection(host: Host, code: string, options: object): ReturnType<Host['call']> {
+  return host.call('inspect', code, JSON.stringify({ view: 'song', from: 0, to: 1, ...options }));
+}
+
+function selection(code: string, expression: string) {
+  const from = code.indexOf(expression);
+  return { from, to: from + expression.length };
+}
+
+test('inspect: capture a reused transformed expression once with exact source contributors', async () => {
+  const expression = 'motif.transpose(12).s("sine")';
+  const code = `// 🎹
+const motif = note("c4 e4 f4");
+const transformed = ${expression};
+s("bd")`;
+  const r = await inspection(host(), code, {
+    view: 'expression',
+    expression: selection(code, expression),
+  });
+  expect(r.ok).toBe(true);
+  const { notes, truncated } = JSON.parse(r.value);
+  expect(truncated).toBe(false);
+  expect(notes.map(({ pitch, start, end, sound }: any) => [pitch, start, end, sound])).toEqual([
+    [72, '0', '1/3', 'sine'],
+    [76, '1/3', '2/3', 'sine'],
+    [77, '2/3', '1', 'sine'],
+  ]);
+  expect(notes[0].contributors).toContainEqual(selection(code, 'c4'));
+  expect(notes[0].contributors).toContainEqual(selection(code, 'sine'));
+});
+
+test('inspect: label capture and arranged mode agree on explicit seeded pitches', async () => {
+  const expression = 'note("c4 e4 f4").degradeBy(0.2)';
+  const code = `const meta = { seed: 42 };
+lead: ${expression}`;
+  const selected = await inspection(host(), code, {
+    view: 'expression',
+    to: 4,
+    expression: selection(code, expression),
+  });
+  const song = await inspection(host(), code, { to: 4 });
+  expect(selected.ok).toBe(true);
+  expect(song.ok).toBe(true);
+  const events = (r: any) =>
+    JSON.parse(r.value).notes.map(({ pitch, start, end }: any) => [pitch, start, end]);
+  expect(events(selected)).toEqual(events(song));
+  expect(events(song).length).toBeGreaterThan(0);
+});
+
+test('inspect: preserve continuations and duplicate voices without inventing pitch from sample indices', async () => {
+  const code = 'stack(note("c4").slow(2), note("c4").slow(2), s("bd").n(3))';
+  const r = await inspection(host(), code, { from: 1, to: 2 });
+  expect(r.ok).toBe(true);
+  const { notes } = JSON.parse(r.value);
+  expect(notes).toHaveLength(2);
+  expect(notes[0].id).not.toBe(notes[1].id);
+  expect(
+    notes.map(({ pitch, start, end, visibleStart, visibleEnd }: any) => [
+      pitch,
+      start,
+      end,
+      visibleStart,
+      visibleEnd,
+    ]),
+  ).toEqual([
+    [60, '0', '2', '1', '2'],
+    [60, '0', '2', '1', '2'],
+  ]);
+});
+
+test('inspect: distinguish unavailable or skipped expressions from an empty pitched window', async () => {
+  const expression = 'note("c4")';
+  const code = `null?.play(${expression}); s("bd")`;
+  const r = await inspection(host(), code, {
+    view: 'expression',
+    expression: selection(code, expression),
+  });
+  expect(r).toMatchObject({ ok: false, kind: 'plan' });
+  const silent = await inspection(host(), code, {});
+  expect(silent.ok).toBe(true);
+  expect(JSON.parse(silent.value)).toEqual({ notes: [], truncated: false });
+});
+
+test('inspect: reject a wide window and report dense note truncation', async () => {
+  const code = 'note("c4*2000")';
+  expect(await inspection(host(), code, { to: 17 })).toMatchObject({ ok: false, kind: 'plan' });
+  const r = await inspection(host(), code, {});
+  expect(r.ok).toBe(true);
+  const { notes, truncated } = JSON.parse(r.value);
+  expect(truncated).toBe(true);
+  expect(notes).toHaveLength(1024);
+});
+
+test('inspect: cooked mini offsets retain pitches but omit uncertain raw source links', async () => {
+  const code = String.raw`note("c4\ne4")`;
+  const r = await inspection(host(), code, {});
+  expect(r.ok).toBe(true);
+  const { notes } = JSON.parse(r.value);
+  expect(notes.map(({ pitch }: any) => pitch)).toEqual([60, 64]);
+  expect(notes.every(({ contributors }: any) => contributors === undefined)).toBe(true);
+});
+
+test('inspect: pinned instruments supply the current sounding voice', async () => {
+  const expr = 'note("c4").apply(instruments.lead())';
+  const r = await inspection(host(), expr, {
+    view: 'expression',
+    expression: selection(expr, expr),
+    instruments: {
+      lead: {
+        schema: 1,
+        parameters: {},
+        voices: [{ name: 'melody', chain: [{ control: 's', value: 'pulse' }] }],
+      },
+    },
+  });
+  expect(r.ok).toBe(true);
+  expect(JSON.parse(r.value).notes).toMatchObject([{ pitch: 60, sound: 'pulse' }]);
 });

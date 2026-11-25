@@ -7,8 +7,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
+use strudeland_project::InstrumentSnapshot;
 
 use crate::engine::{self, Arg, Session};
+use crate::inspection::{InspectionRequest, InspectionResult, MAX_RESULT_BYTES};
 use crate::{HostError, Layout, PlannedRender, RenderPlanRequest, RenderRequest, natives};
 
 /// The worker thread's stack: deep enough for the transpiler on large songs.
@@ -58,6 +60,12 @@ enum Work {
         to: f64,
         layout: Layout,
         reply: Reply<String>,
+    },
+    Inspect {
+        code: String,
+        request_json: String,
+        timeout: Duration,
+        reply: Reply<InspectionResult>,
     },
     Eval {
         source: String,
@@ -170,6 +178,24 @@ impl Host {
             from,
             to,
             layout,
+            reply,
+        })
+    }
+
+    /// Observes pitched notes with exact spans and source locations. Inspection always runs
+    /// with a deadline in a fresh isolate and leaves the normal render query unchanged.
+    pub fn inspect(
+        &self,
+        code: &str,
+        request: &InspectionRequest,
+        instruments: &InstrumentSnapshot,
+        timeout: Duration,
+    ) -> Result<InspectionResult, HostError> {
+        let request_json = request.json(code, instruments)?;
+        self.send(|reply| Work::Inspect {
+            code: code.to_string(),
+            request_json,
+            timeout,
             reply,
         })
     }
@@ -347,6 +373,31 @@ fn serve(work: Work) {
                 )?;
                 engine.drain_microtasks()?;
                 read_slot(&engine.eval_script(READ_SLOT)?)
+            });
+            let _ = reply.send(result);
+        }
+        Work::Inspect {
+            code,
+            request_json,
+            timeout,
+            reply,
+        } => {
+            let result = engine::with_context(log, false, Some(timeout), |engine| {
+                load_bundle(engine, start)?;
+                engine.call_global(
+                    "strudelandHost",
+                    "inspect",
+                    &[Arg::Str(&code), Arg::Str(&request_json)],
+                )?;
+                engine.drain_microtasks()?;
+                let result = read_slot(&engine.eval_script(READ_SLOT)?)?;
+                if result.len() > MAX_RESULT_BYTES {
+                    return Err(HostError::Plan(
+                        "The piano roll result is too large.".into(),
+                    ));
+                }
+                serde_json::from_str(&result)
+                    .map_err(|e| HostError::Runtime(format!("malformed piano roll result: {e}")))
             });
             let _ = reply.send(result);
         }

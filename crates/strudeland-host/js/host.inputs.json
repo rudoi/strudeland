@@ -76,7 +76,8 @@
     "node_modules/source-map/lib/util.js": "c83bf8e825fc7366ff511da21c58dde4c4a032308a51c0a71865760c3b43a401",
     "node_modules/source-map/source-map.js": "dc098456c2d9ab90a4c0a17cca9be16665b9813df20906553a98b0088a157be7",
     "src/host/backend.ts": "25b2d9391bcfa7cc3cab8912460f9dbffaeb0d21d2a0d6e8804deadf784af7ab",
-    "src/host/main.ts": "4f59ed4088b25650e4f4ab57fb8a59e0f2e2276e36435d6dbbde4be81270fc89",
+    "src/host/inspection.ts": "cddff847e88e126d6e1e9aaddeb1c24e5d96d16d852f892244c1b9deb643536e",
+    "src/host/main.ts": "78c96da3a896a219b255b627527584b86f0d7e2f8061720e4e52c902271a6805",
     "src/host/prebake.ts": "0a55dd01f4bb7a246d19abc24f9e947908ba02af5a0b3d657d562ae70692e9c0",
     "src/host/shims.ts": "6af1da421ab0fdcf8a38fde7f7dbbd514b550d55204dfdee694b26f88b6039a3",
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
@@ -151,5 +152,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "c91fd7401eb1f6627ca2fb062b81d1de51063a95380a0c8e561af8fed0072137"
+  "combined": "688ff6b0b8c9a48a148b6f22ec6992922eb099069877207c4022d73024b5b051"
 }
