@@ -48,10 +48,12 @@ enum Exit {
 impl From<HostError> for Exit {
     /// The bundle's `bad request: …` plan error is bad input; every other error is a host error.
     fn from(e: HostError) -> Self {
-        match e {
-            HostError::Plan(m) if m.starts_with("bad request:") => Exit::BadInput(m),
-            e => Exit::Host(e),
+        if e.is_bad_request()
+            && let HostError::Plan(m) = e
+        {
+            return Exit::BadInput(m);
         }
+        Exit::Host(e)
     }
 }
 

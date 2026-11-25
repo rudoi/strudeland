@@ -37,8 +37,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use serde::Serialize;
 use strudeland_host::{
-    ChunkWindow, HostError, Layout, LengthRequest, PlanError, PlannedWindow, Structure,
-    timeout_from_secs,
+    ChunkWindow, Layout, LengthRequest, PlanError, PlannedWindow, Structure, timeout_from_secs,
 };
 use strudeland_render::{
     BitDepth, EncoderOptions, ExitClass, Format, Loudness, OnOff, OutputOptions, OutputTarget,
@@ -201,9 +200,7 @@ impl From<RenderError> for Failure {
     /// The shared exit class, except that the bundle's `bad request: …` plan error (a bad
     /// length flag) is bad input here too.
     fn from(e: RenderError) -> Self {
-        if let RenderError::Plan(HostError::Plan(m)) = &e
-            && m.starts_with("bad request:")
-        {
+        if matches!(&e, RenderError::Plan(h) if h.is_bad_request()) {
             return Failure::BadInput(e.to_string());
         }
         match e.exit_class() {
