@@ -108,7 +108,9 @@ export interface SongPlayback {
   /**
    * The active song's header may have changed (the session calls it on every publish). While
    * stopped, a pending arm follows its names: re-armed where they now resolve in the header,
-   * disarmed when they no longer do (or the header has an error). Nothing while playing.
+   * disarmed when they no longer do (or the header has an error). Nothing while playing, nor
+   * while an evaluate or a start is pending: the runtime may start from what is armed then (an
+   * evaluate catches up once it resolves stopped).
    */
   headerChanged(): void;
   /** The project changed: stop, reset the transport and forget the evaluated song. */
@@ -257,6 +259,11 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
   let armed: Resolved | null = null;
   /** While `start` awaits `runtime.start`: its arm is against the evaluated song, not the header. */
   let starting = 0;
+  /**
+   * While `evaluate` awaits `runtime.evaluate`: an autostart starts from what is armed now, so a
+   * header edit meanwhile must not move it.
+   */
+  let evaluating = 0;
 
   function snapshot(): PlaybackState {
     const rs = get(runtime.store);
@@ -328,7 +335,7 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
   function headerChanged(): void {
     // `armed` is only ever set while a start is pending, and dropped on the notification that
     // ends it, so a start is pending here.
-    if (!armed || starting > 0 || get(runtime.store).started) return;
+    if (!armed || starting > 0 || evaluating > 0 || get(runtime.store).started) return;
     const r = resolve(choiceOf(armed));
     // Disarm when the names no longer resolve, or the header's run from `loop` through `through`
     // changed.
@@ -359,7 +366,13 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
       if (get(runtime.store).started && evaluated?.song.path !== path) {
         runtime.transport.reset();
       }
-      const ok = await runtime.evaluate(text, opts.options);
+      evaluating++;
+      let ok: boolean;
+      try {
+        ok = await runtime.evaluate(text, opts.options);
+      } finally {
+        evaluating--;
+      }
       if (ok && gen === currentGen()) {
         evaluated = {
           song: { path, title: titleFrom(path, opts.metaTitle) },
@@ -368,6 +381,8 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
         };
         publish();
       }
+      // Still stopped (a failed or non-starting evaluate): the arm catches up with the header.
+      headerChanged();
       return ok;
     },
 

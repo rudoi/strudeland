@@ -479,6 +479,38 @@ describe('a stopped arm follows its names when the header changes', () => {
     expect(h.tp()).toEqual(NOT_ARMED);
   });
 
+  test('an evaluate in flight keeps the arm it will start from', async () => {
+    const h = setup(layout('intro', 'verse', 'chorus'), { live: true, audio: 'running' });
+    h.pb.arm({ start: 'chorus' });
+    const held = deferred();
+    h.rt.hold(held.promise);
+    const run = h.pb.evaluate(PA, 'a', opts(), 1);
+    h.setHeader(layout('chorus', 'intro', 'verse'));
+    h.pb.headerChanged();
+    expect(rts(h)).toMatchObject({ pendingStart: true, armedSection: 2 });
+    held.resolve();
+    expect(await run).toBe(true);
+    expect(h.st().started).toBe(true);
+    // Started from the chorus at bar 4, where the evaluated text has it.
+    expect(h.rt.segments().at(-1)).toEqual({ at: 0, songBar: 4, view: { kind: 'song' } });
+  });
+
+  test('an evaluate that resolves stopped catches the arm up with the header', async () => {
+    const h = setup(layout('intro', 'verse', 'chorus'), { live: true, audio: 'running' });
+    h.pb.arm({ start: 'chorus' });
+    const held = deferred();
+    h.rt.hold(held.promise);
+    h.rt.setResult(false);
+    const run = h.pb.evaluate(PA, 'a', opts(), 1);
+    h.setHeader(layout('intro', 'chorus', 'verse'));
+    h.pb.headerChanged();
+    expect(rts(h).armedSection).toBe(2);
+    held.resolve();
+    expect(await run).toBe(false);
+    expect(rts(h)).toMatchObject({ pendingStart: true, armedSection: 1 });
+    expect(h.tp().armed).toBe('chorus');
+  });
+
   test('while playing the header is not consulted', async () => {
     const h = setup(layout('intro', 'verse', 'chorus'));
     await h.play();
