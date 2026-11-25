@@ -39,6 +39,9 @@ In:
    handler maps the result to the wire shape, which does not change.
 4. **`GLOSSARY.md` terms:** song, song header, structure and section. They were added during
    planning.
+5. **Rename `EvaluateOptions.expectedArrangement` to `expectedStructure`.** It holds the song's
+   structure; in the glossary, "arrangement" means the written order of patterns. The rename
+   touches `runtime.ts` (3 uses), the evaluate options and 3 test files, in its own commit.
 
 Out:
 
@@ -46,7 +49,6 @@ Out:
   `metaError`/`error` fields, and the CLI output.
 - **Exposing the error kind on the control wire.** That is follow-up task #137, blocked by this one.
 - **The other review candidates.** The song playback module (#114) builds on this task.
-- **Renaming `EvaluateOptions.expectedArrangement`.** See Open questions.
 - **The default structure built inline** in `runtime.ts:555` and `recording/controller.ts:396`
   (`buildStructure({})`). These read no header.
 
@@ -206,21 +208,16 @@ byte-identical.
 - **Hot path.** `derive` runs on every keystroke. The new path calls `buildStructure` once instead
   of twice, so it costs no more.
 
-## Open questions
+## Complexity
 
-- **"Arrangement" means two things.** `EvaluateOptions.expectedArrangement` (`runtime.ts`) holds
-  the structure, but `GLOSSARY.md` uses "arrangement" for the written order of patterns. Should it
-  be renamed? That is out of scope here; if yes, file a follow-up.
-- **Complexity is medium.** About 12 source and test files, one subsystem (the frontend), and the
-  design decisions settled in Q&A. Recommendation:
-  - skip Fracture, so the plan stays one document;
-  - keep Singletonize as a short pass;
-  - run a light Loss check.
+Medium: about 12 source and test files, one subsystem (the frontend), and the design decisions
+settled in Q&A. Fracture is skipped, so the plan stays one document. Singletonize is a short pass
+and the Loss check is light.
 
 ## Decisions from planning Q&A
 
 1. **Scope:** cross-field rules, the song header module and the typed error kind, in three commits
-   in that order.
+   in that order, plus the rename in decision 10.
 2. **Visible behaviour:** every message, position and wire text stays byte-identical.
 3. **Regeneration:** `host:build`, `engine:refs --write` and `host:parity` are accepted. A change
    to job bytes is a bug.
@@ -233,3 +230,6 @@ byte-identical.
    texts.
 8. **Error kind:** internal only. The wire is unchanged; #137 tracks exposing it.
 9. **Tests:** replace, don't layer. One table test, and a pairing test for both entry points.
+10. **Rename:** `expectedArrangement` becomes `expectedStructure` in this task, in its own commit.
+    `runtime.ts` is bundled into the headless host, so the rename is covered by the same
+    `host:build`.
