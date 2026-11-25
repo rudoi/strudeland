@@ -307,8 +307,8 @@
   function noteHelp(note: RollNote): string {
     if (editable && note.timeEditable) {
       return note.pitchEditable
-        ? 'Drag to move or retune. Drag the end to resize, or press Delete to remove.'
-        : 'Drag to move in time. Drag the end to resize, or press Delete to remove.';
+        ? 'Drag to move or retune. Shift+Left or Right resizes. Delete removes.'
+        : 'Drag to move in time. Shift+Left or Right resizes. Delete removes.';
     }
     if (editable && note.pitchEditable) return 'Drag up or down to change pitch.';
     if (canShowSource(note)) return 'Press Shift+Enter to find this note’s source in the editor.';
