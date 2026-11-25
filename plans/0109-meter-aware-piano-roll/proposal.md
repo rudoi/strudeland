@@ -17,9 +17,9 @@ material and has a persistent, easy-to-reach **Piano Roll** toggle in the editor
 - The first usable release supports pitch, timing, length, insertion and deletion for simple
   monophonic phrases. Simultaneous authored notes support individual pitch edits when source
   attribution is verified. Expand viewing coverage independently of write-back coverage.
-- Note auditioning is part of the first release. A user can hear an individual pitch from the
-  roll without starting song playback. Audition trigger, voice fallback and preference behavior
-  are product decisions in refinement.
+- Note auditioning is part of the first release. Explicit auditions are available when the
+  transport, memo player and recorder are idle. **Audition notes** also enables automatic
+  previews on addition and pitch changes.
 - A reference to a shared binding offers **Edit shared definition**, with source links to affected
   uses and an explanation when the list is incomplete. Selecting an invocation or repetition
   alone never makes it a private copy.
@@ -62,8 +62,10 @@ event is an observation. An edit capability is an independently established sour
 ### Selection and binding resolution
 
 Take a snapshot of the active project, song, CodeMirror document revision and UTF-16 selection.
-Reuse the editor update hook in [setup.ts](../../src/lib/editor/setup.ts), including state swaps
-when the session changes songs. Keep focus changes into the roll from clearing the active target.
+Add a dedicated selection and document listener in [setup.ts](../../src/lib/editor/setup.ts).
+Also refresh the snapshot through the [session's `onShown` hook](../../src/lib/project/session.ts)
+because the session swaps songs with `setState`. Keep focus changes into the roll from clearing
+the active target.
 Start with one nonempty selection. Resolve an exact expression, variable identifier, complete
 pitch atom selection inside a mini literal, or recognized labeled pattern body. Trim trivia
 and keep the smallest supported scope that contains the complete selection. Show the resolved
@@ -77,17 +79,20 @@ Use Acorn with the same script options as the [transpiler](../../vendor/strudel/
 literal detection. [note-audition.ts](../../src/lib/editor/note-audition.ts) distinguishes value
 children from suffix arguments. Reuse those semantics where they have the same contract.
 Classify candidates by lexical bindings and positively identified call positions. A JavaScript
-string, a numeric atom, a property key and a note can have the same spelling. A local function
-named `note` or a dynamic method call does not inherit the builtin's edit capabilities.
+string, a numeric atom, a property key and a note can have the same spelling. Confirm the
+builtin pitch producer and the helper emitted by the transpiler's
+[mini plugin](../../vendor/strudel/packages/transpiler/plugin-mini.mjs). Locally shadowed helpers,
+dynamic scopes and method calls with uncertain receivers have no source edit capability.
 
 Follow immutable local `const` aliases, respecting scope and shadowing, including a pattern
 passed through known section/voice combinators. Retain the definition and the selected use as
 separate spans. Use the distinctions in the [glossary](../../GLOSSARY.md) for source use sites
 and written pattern occurrences. Collect direct and transitive lexical use sites, including
-aliases, labels, and `song(meta, parts)` section references when provable. Mark escapes through callbacks, computed
-properties, mutable aliases, object indirection and unclassified calls as potentially affecting
-additional uses. Permit edits to an independently verified definition with the uncertainty
-displayed. When the definition itself is uncertain, retain inspection and omit write-back. Show
+aliases, labels, and `song(meta, parts)` section references when provable. Mark escapes through
+callbacks, computed properties, mutable aliases, object indirection and unclassified calls as
+potentially affecting additional uses. Permit edits to an independently verified definition
+with the uncertainty displayed. When the definition itself is uncertain, retain inspection and
+omit write-back. Show
 affected known uses before the first shared edit in a selection context, then let successive
 gestures use that target until the context changes. When a selected expression transforms a
 shared pattern, show the result of that expression. **Edit shared definition** takes the user to
@@ -106,8 +111,8 @@ known occurrences. For a definition without a known occurrence, label the base m
 preview meter. Edits stay in bar-relative fractions even if other uses display them against a
 different beat grid.
 
-Use the written beat as the base horizontal unit of the ruler, measured in quarter-note
-equivalents. An eighth note takes the same horizontal space in 4/4 and 7/8 at a given zoom, so
+Use quarter-note equivalents as the horizontal unit of the ruler. An eighth note takes the
+same horizontal space in 4/4 and 7/8 at a given zoom, so
 the 7/8 bar is seven-eighths as wide. A bar in meter N/D has N denominator
 beat marks spaced 1/N of a cycle apart. In the viewport, favor nearby musical subdivisions
 including triplets and offer snap bypass. Treat compound grouping as visual emphasis (for example
@@ -118,13 +123,15 @@ separate tick conventions for its compact ruler. Share the underlying meter calc
 
 Use an initial bounded window of up to four bars, with a shorter window when a finite authored
 phrase or section extent is known. Allow window navigation for longer and variable patterns.
-View periodic patterns as a window into the pattern. A repeated source atom remains linked
+Keep pattern phase separate from the meter anchor. A later section can start at local cycle
+zero while its grid takes the meter of the corresponding written bar. A repeated source atom remains linked
 across displayed occurrences. In song, derive the location from the linear arrangement and
 section-local mapping in [song.ts](../../src/lib/strudel/song.ts). Use
 [queryMetered](../../src/lib/strudel/metered-pattern.ts) to retain the scheduler's per-meter
-query controls. If showing a playhead, use `runtime.position()` and verify source revision,
-song and displayed use before mapping the live position. Loop wraps follow the written
-position. Count-in or unmatched/stale playback has no in-song playhead.
+query controls. Map a live playhead through `runtime.position()` when the session's evaluated song
+and the runtime's `activeCode` match the roll and the position is in the displayed use. Add a pin
+revision match when claiming preview parity with the live evaluation. Loop wraps follow the
+written position. Count-in and unmatched playback hide the playhead.
 
 For pitched haps use Strudel's [pitch conversions](../../vendor/strudel/packages/core/util.mjs).
 Treat finite positive frequency and fractional MIDI as continuous pitch and show their exact
@@ -135,8 +142,8 @@ clipped visible span, distinguish continuations and preserve true duplicates. So
 by onset and stable occurrence order because Strudel can return haps out of time order. Use the visible
 pitches to fit a padded vertical range with a minimum height and scrolling at wide ranges.
 Freeze the mapping during a drag, provide edge scroll for out-of-range destinations, and refit
-once the edit lands. An empty editor target gives guidance. A supported empty phrase has an
-insertable grid with a conventional starting octave.
+once the edit lands. An empty editor target gives guidance. A rest-only phrase such as
+`note("~")` has an insertable grid with a conventional starting octave.
 
 ### Notation support and provenance
 
@@ -177,10 +184,13 @@ forms until a verified offset mapping exists.
 Keep selection changes outside the live REPL. [Runtime.query](../../src/lib/strudel/runtime.ts)
 queries the last successful full evaluation, which misses unused definitions and can represent
 a different document. [The current host query](../../src/host/main.ts) is an arrangement/render
-diagnostic and elides details required by the roll. Extend the headless host with a distinct
-inspection request. Reuse its inert audio backend, fresh context and Rust watchdog. Pass current
-project instrument pins and evaluate options. Render and playback callers retain their existing
-query contracts.
+diagnostic and drops exact spans, continuation fragments, custom-routed events and source
+locations through [render selection](../../src/lib/render/plan.ts). Its
+[Rust query](../../crates/strudeland-host/src/host.rs) runs without a deadline. Extend the
+headless host with a distinct inspection request. Reuse its inert audio backend and fresh
+isolate, and require a deadline via the [watchdog](../../crates/strudeland-host/src/engine.rs).
+Supply the session's current project instrument snapshot and evaluation options. Render and
+playback callers retain their existing query contracts.
 
 For Expression, use source-aware capture around an eligible expression while evaluating the
 file in its lexical scope once. This captures unused declarations that actually execute, and
@@ -190,33 +200,42 @@ source offsets through the hook. Capture the result of an expression without re-
 changing call receiver, execution order, short circuiting, direct eval or lvalue semantics.
 An in-memory probe with the transpiler's `leave` hook captured an unused initializer and a
 transformed reuse with original mini offsets while the final song still produced its unrelated
-drum pattern. Evaluate this seam with a request-scoped hook and collision-free lexical helper.
-For a selected callee/member/function-body location whose expression is unsafe or never runs,
-return an explicit status. Multiple calls at one site may produce distinct instance candidates.
-Use a whitelist of instrumentable node roles, with semantic equivalence tests on untouched song
-output.
+drum pattern. The mini plugin replaces bare literals earlier in the walk and drops their
+original spans. Resolve a selected literal to an eligible enclosing expression or preserve its
+origin through the mini rewrite. Evaluate a request-scoped hook and collision-free lexical
+helper. Distinguish unsupported capture from a site that was not entered during evaluation.
+Lazy callbacks can run only at query time. Multiple calls at one site may produce distinct
+instance candidates. Use a whitelist of instrumentable roles and verify untouched song output
+equivalence. The runtime applies the metadata seed to the final pattern, so direct capture
+needs equivalent seed context. Verify with randomized pattern cases.
 
 For In song, query the final pattern in the selected written window. Static proven paths and
 a separately tested per-use marker can attribute haps to a particular occurrence when note
 locations are shared. Probe the marker through `stack`, labels, constructors, value and time
-transforms, and the section wrapper. A source link leads back to the specific source expression,
-or offers verified contributors when several source ranges explain the event. Any edit starts
+transforms, and the section wrapper. Preserve hap statefulness and all existing metadata.
+Context composition treats location arrays specially and can overwrite other keys, so verify
+markers through merges and stripped context. A source link leads back to the specific source
+expression or offers verified contributors when several source ranges explain the event. Any edit starts
 from a supported target in Expression. Keep ambiguous events as context with a clear label. When
 selection-specific attribution is unavailable, offer the full in-song view with any known
 highlights and an attribution status. Do not infer that two identical notes came from the same
 use. Compare output with the uninstrumented host for parity. Host slider movement, DOM APIs,
-external triggers, live-only randomness or custom UI can prevent parity; identify that in the
-view. The in-song projection reflects the inspected buffer, with a separate live playhead where
-the evaluated revision matches.
+external triggers, live-only randomness or custom UI can prevent parity. Identify that in the
+view. Preserve each raw hap's exact whole span and visible part when available. Merge query
+fragments only when evidence establishes their identity. Start with whole-bar query windows
+because the current meter splitting converts query boundaries to numbers. Serialize event span
+endpoints as bounded rational strings. The in-song projection reflects the inspected buffer.
 
 A request has a revision ID, target and use ID, window, pins fingerprint, and seed/controls
 context. The response carries exact event arcs, normalized pitch data, source contributors,
 instance/use identity where established, and typed failure or truncation status. Send only
-bounded, sanitized observations across the desktop bridge. Debounce selection/typing, permit
-one active job and one latest pending, discard late replies, and cancel or suppress work on
-collapse and song/project change. Bound query window width, total response/events, execution time,
-and native memory as supported by the embedding; validate the bounds on dense/custom patterns.
-Put the host work off the UI thread. The static path works immediately for simple phrases.
+bounded, sanitized observations across the desktop bridge. Debounce selection and typing.
+Admit one active job and one replaceable pending request outside the host's unbounded FIFO.
+On collapse or song/project change, drop pending work and ignore any reply to invalidated work.
+An admitted job can run until its watchdog deadline. Bound query window width, execution time,
+and event and response size during result construction. Measure pathological query memory
+separately from response size. Put evaluation and result construction off the UI thread.
+The static path works immediately for simple phrases.
 Measure first-open and re-selection latency before enabling automatic headless previews for
 trusted evaluated songs. When the current draft revision has yet to be evaluated, show simple
 authored phrases immediately. If inspection requires executing the draft, offer **Preview
@@ -228,12 +247,13 @@ headless capability fails.
 
 An edit intent contains the gesture, exact source revision, target capability, expected text at
 all changed ranges, and source/use snapshot. Preview the gesture locally; commit once on pointer
-release or completed keyboard action. Recheck project, active song, revision, target and relevant
-pins immediately before dispatch; a concurrent edit, song switch, external reload or stale drag
-cancels cleanly. Use the [session](../../src/lib/project/session.ts) range-transaction pattern
-from `applyMeta` and `applyInstrument`, with an isolated CodeMirror undo group and existing dirty
-and watcher behavior. Keep use selection separate from the changed definition range. Map
-selection and focus through the edit and update the roll from the resulting buffer. Undo and
+release or completed keyboard action. Recheck project, active song, document and selection
+generation, target and relevant pins immediately before dispatch. Invalidate old gestures even
+when a switch or undo returns to byte-identical text. Follow
+[the session's `applyInstrument`](../../src/lib/project/session.ts) for project checks, one range
+transaction and isolated undo. Use the session's normal dirty and watcher behavior. Keep use
+selection separate from the changed definition range. Map selection and focus through the edit
+and update the roll from the resulting buffer. Undo and
 redo update both views through their normal document listener.
 
 - Pitch replacement patches one exact atom or numeric/string literal, preserving spelling style
@@ -245,13 +265,16 @@ redo update both views through their normal document listener.
   capacity to represent the result, retaining the containing JS expression and sibling bars.
   Use the [transcriber's weighted notation](../../crates/strudeland-transcribe/src/notation.rs)
   as a reference for valid rest and slow-sequence encodings. Tied groups still need an edit rule.
-  Encode exact ratios using bounded integer weights. For example, moving a quarter-bar E4 from
-  beat 3 to beat 4 in a 4/4 `c4 ~ e4 ~` can write `c4 ~@2 e4`. Delete leaves silence for the
-  vacated interval, and insertion can split a rest. Reject unsupported overlap, out-of-phrase
-  moves or disproportionate rewrites, with an actionable reason.
-- Before dispatch, reparse the candidate and check the intended exact event spans, pitches,
-  untouched intervals and enclosing JS parse. Query comparable authored phrases in tests to
-  catch mini AST-versus-runtime drift. Explicitly guard mixed-meter bars, tuplets and pattern
+  Encode exact ratios using bounded positive integer weights reduced by their common divisor.
+  For example, moving a quarter-bar E4 from beat 3 to beat 4 in a 4/4 `c4 ~ e4 ~` can write
+  `c4 ~@2 e4`. Delete leaves silence for the
+  vacated interval. Deleting the final note can write a rest-only phrase, and insertion can split
+  a rest. Reject unsupported overlap, out-of-phrase moves or disproportionate rewrites with an
+  actionable reason.
+- Before dispatch, reparse the candidate and check exact event spans, pitch, event counts,
+  untouched intervals and unchanged enclosing JavaScript shape outside the intended replacement.
+  Source-gesture validation uses the restricted mini grammar. Query comparable authored phrases
+  in tests to catch parser-versus-runtime drift. Explicitly guard mixed-meter bars, tuplets and pattern
   weights whose effective duration is relative to sibling weights. A roll rectangle represents
   the pattern's logical interval. Playback `clip`, envelopes and sample tails can differ.
 - If the prototype establishes a safe cross-bar move, preserve musical duration across meters
@@ -261,14 +284,26 @@ redo update both views through their normal document listener.
 
 ### Note auditioning
 
-Treat auditioning as a short pitch preview and **Preview expression** as silent pattern
-inspection. Reuse the bounded [note audition player](../../src/lib/audio/note-audition.ts)
-and the audio lifecycle in [app.ts](../../src/lib/app.ts). Use the existing Web Audio graph
-and resume it from the audition gesture. The roll supplies the pitch and a verified voice
-when available. The current player accepts an integer MIDI pitch and a fixed built-in synth.
-Reuse that limit for the initial design. Preview samples, custom instruments, and continuous
-pitch need separate capability decisions if required. Keep preview voices separate from the
-live transport and ensure stale preview work is cancelled on panel collapse or song change.
+Audition a note or piano key on deliberate click or keyboard command. **Audition notes**
+also previews a newly added note or a committed pitch change. Timing moves, resizing, source
+selection and dock changes are silent. Distinguish a click from the start of a drag. Audition
+is unavailable during song or memo playback, recording, or a transition into playback.
+
+Reuse the bounded [note audition player](../../src/lib/audio/note-audition.ts) and the
+[app audio lifecycle](../../src/lib/app.ts). Call `runtime.prepareAudition()` from the roll
+gesture even when the song uses the Rust engine. The existing
+[window gesture handler](../../src/App.svelte) routes non-editor gestures to the song backend,
+so give roll auditions an explicit route to the preview graph. Share preview ownership with
+typed-note auditions and preserve the typed queue's debounce behavior.
+
+Use the pattern's verified built-in synth when available. For a sample, custom instrument or
+ambiguous voice, use a labeled stock triangle preview. The current player accepts integer MIDI
+pitches from 0 through 127 and checks whether the current registered trigger still matches
+its captured built-in. Verify that the fallback can use the stock triangle when a song has
+replaced that registry entry. Frequency and fractional pitches remain visible in inspection.
+Cancel or invalidate pending and audible previews on collapse, song change, playback request,
+memo playback or recording. Recheck eligibility after async preparation and guard highlight
+cleanup against superseding previews. **Preview expression** remains silent.
 
 ### UI and accessibility
 
@@ -313,8 +348,9 @@ anchoring a reused motif, overlapping chord voices, and blank/frequency/dynamic 
 In the shared-motif scenario, `const motif = note("c4 e4")` appears directly in 4/4 and as
 `motif.transpose(12)` in 7/8. Selecting the transformed use displays C5 and E5 in Expression.
 **Edit shared definition** opens C4 and E4 on the retained 7/8 grid and identifies both uses.
-Changing E4 to F4 updates the buffer and the inspected projections. The running song picks up
-the change on **Re-evaluate**, sounding F4 in the direct use and F5 in the transposed use.
+Changing E4 to F4 updates the buffer and the authored projection immediately. Previewing the
+changed draft refreshes the transformed projection. A running song picks up the change on
+**Re-evaluate**, sounding F4 in the direct use and F5 in the transposed use.
 The cross-bar drag prototype must check exact snapping, quarter-note duration preservation and
 unrelated source diffs before cross-bar dragging becomes a release requirement. Verify persisted
 dock state, note auditioning on both playback engine settings, cancellation on collapse or
@@ -347,8 +383,12 @@ definition, preserve the chosen occurrence when navigating from a use, preserve 
 if cross-bar moves ship, remember dock visibility with a collapsed default, and explicitly
 request headless inspection when a draft requires execution. Note auditioning is in scope.
 
-Remaining product decisions include audition gestures, fallback voice and preference behavior.
-The current selection proposal starts with nonempty selections.
+Confirmed in the third refinement round: explicit note and piano-key auditions, automatic
+previews for additions and pitch changes under **Audition notes**, verified synth or labeled
+triangle fallback, and silence during song playback, memo playback and recording.
+
+The selection proposal starts with nonempty selections. See the [refinement audit](refinement-audit.md)
+for checked references, local probes and remaining implementation gates.
 The capture prototype must determine the minimal safe instrumentation seam, quantify attribution
 coverage, and set measured worker and rendering limits. The rhythm prototype must establish
 which weights and subdivisions can be serialized with localized, bounded changes. Once both
