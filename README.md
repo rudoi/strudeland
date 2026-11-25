@@ -6,7 +6,7 @@ patterns, arrange them into sections, and keep your songs in a regular folder.
 ![Strudeland playing a synth arrangement, with the code editor, section timeline, and live output meter visible](docs/strudeland.png)
 
 - Edit patterns with live note highlighting, an oscilloscope, and optional Vim keybindings.
-- Inspect and edit selected note patterns in a meter-aware piano roll.
+- Edit note patterns directly from a caret-driven, meter-aware piano roll.
 - Arrange songs with named sections, section-range loops, and meter changes.
 - Keep songs, reusable instruments, voice memos, and renders together in a project.
 - Export synth arrangements to WAV, MP3, Ogg Vorbis, or Opus, or export aligned WAV stems.
@@ -92,18 +92,32 @@ choice. Typed-note previews support fixed built-in synths.
 
 ### Piano roll
 
-Click **Piano Roll** in the toolbar and select a pattern in the editor. **Expression** shows
-the selected pattern. **In song** is read-only and shows the arranged notes with each bar's meter.
-The dock fits the visible pitch range automatically and remembers whether it was open.
-Use **Preview expression** when a generated pattern in the current draft needs evaluation.
+Click **Piano Roll** in the toolbar and place the caret inside a pitched pattern. You can also
+select a pattern explicitly. **Expression** shows the pattern’s own notes. **In song** shows
+the arrangement against the written time signatures and outlines matching source notes when known. The dock fits the visible
+pitch range and remembers whether it was open. Use **Preview expression** to inspect generated
+notes in an unevaluated draft.
 
-For simple monophonic phrases, drag a note to change pitch or timing, drag its right edge to
-resize, and double-click an empty cell to insert. With a note focused, Up and Down change pitch,
-Left and Right change timing, Shift with Left or Right changes length, and Delete removes it.
-Rhythm edits fit within one authored bar. For a reused pattern, **Edit shared definition** shows
-the authored pitches and the known uses affected by the edit. When source locations are available,
-notes in **In song** link back to the editor. Each edit is one undo step. Use **Re-evaluate** to
-apply edits to a running song.
+Drag a note up or down to change pitch, or drag it sideways to change timing. Drag the right
+edge to resize. With a note focused, use the arrow keys for pitch and timing, Shift with the
+horizontal arrows for length, and Delete to remove it. Supported authored phrases and grids
+also accept new notes in empty cells.
+
+On drop, the editor writes the change, scrolls to it, and briefly highlights the code and the
+edited notes. The roll keeps focus for the next edit. An edit is one undo step. Simple phrases
+and recognized note grids change in place. For a transformed or generated note, the first drag
+records a scoped event edit that Strudeland uses for playback and export. The original expression
+stays in the script. A drag from a
+particular use stays local. Choose **Edit shared definition** to change a definition and see its
+known uses. Use **Re-evaluate** to apply edits to a running song.
+
+For an editable multi-bar grid, pass single-quoted rows of equal width to `noteGrid`. Each row
+spans one written bar. A pitch starts a note, `_` continues it across slots and barlines, and `~`
+starts a rest. A suffix such as `g4:0.20` sets glide time in seconds. For example:
+
+```js
+noteGrid(['c4 _ ~ g4:0.20', '_ ~ ~ ~']).s('triangle')
+```
 
 While playback and recording are idle, click a note or piano key to audition its pitch. The roll
 uses the pattern's verified synth or a triangle preview. **Audition notes** also plays pitches

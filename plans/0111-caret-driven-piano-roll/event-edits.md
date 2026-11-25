@@ -5,14 +5,14 @@ C4 from the last beat of the first bar to the first beat of the second can produ
 
 ```js
 (line.fast(2))._pianoEdits({ entries: [
-  { from: ['3/4', '1'], pitch: 60, to: '1' }
+  { id: 'roll1', from: ['3/4', '1'], pitch: 60, to: '1' }
 ] })
 ```
 
 Fractions and other data strings use single-quoted JS literals because the Strudel transpiler
 interprets double-quoted strings as mini. Parenthesize the **entire** receiver, including a
 conditional or comma expression. For final-output edits use a trailing block comment
-`/* @piano-edits {"entries":[{"from":["3/4","1"],"pitch":60,"to":"1"}]} */`. This JSON form
+`/* @piano-edits {"entries":[{"id":"roll1","from":["3/4","1"],"pitch":60,"to":"1"}]} */`. This JSON form
 survives a labeled stack, `all()`, and an unlabeled final return. Escape comment terminators
 in JSON strings. Read only the dedicated top-level trailing comment through Acorn. Songs
 without the marker take the existing fast path. Reject malformed or duplicate declarations
@@ -143,3 +143,17 @@ the probe for ordinary discrete haps. It does not establish arbitrary custom Pat
   Share probes by onset and cap total query work under the existing host deadline. A budget
   failure is explicit. Check Rust deserialization and Tauri reserialization retain the full
   identity. Rebuild the host bundle and verify page/host job parity for saved event edits.
+
+
+## Implementation limits
+
+An inspection only draws editable note observations with a prepared source or event identity.
+Indistinguishable callback-backed occurrences and continuous observations that cannot be captured
+within the bounded representation produce an inspection status. Seeded lanes are checked against
+three alternate seed probes within the inspection budget. A stored selector that can no longer
+match its source is reported during inspection, and the underlying pattern still plays.
+
+The arrangement supplies the written coordinate only when the final hap retains the geometry from
+its song placement. Independent layers and outer-transformed output use the observed absolute
+occurrence. This keeps a pitch-only edit from adding onsets to repeated material that the
+transformation did not produce there.

@@ -92,11 +92,14 @@ the V8 download the host brings.
   `visuals.ts` outlines the sounding audition token independently of evaluated highlights.
   `format-script.ts` computes token-gap edits for chains and song structures, and `format-song.ts`
   combines them with localized mini-notation edits. The project session applies both on save.
-- Piano roll (`src/lib/piano-roll/`) resolves selections and aliases in `source.ts`, verifies
-  exact edits in `phrase.ts`, and maps meter to geometry in `grid.ts`. The dock uses session
-  selection snapshots and isolated range edits. See the [source contract](plans/0109-meter-aware-piano-roll/source.md)
-  for source capabilities and the [dock contract](plans/0109-meter-aware-piano-roll/dock.md)
-  for preview ownership and visibility preferences.
+- Piano roll (`src/lib/piano-roll/`) resolves caret, selections and aliases in `source.ts`.
+  The direct codecs are `phrase.ts` and `authored-grid.ts`. The latter shares row decoding with
+  `src/lib/strudel/note-grid.ts`. `event-source.ts` writes scoped edits for evaluated notes.
+  `src/lib/strudel/event-edits.ts` applies them to logical-time haps before clock mapping.
+  The session commits, reveals and marks changed ranges in one editor transaction. See the
+  [editor](plans/0111-caret-driven-piano-roll/editor-experience.md),
+  [grid](plans/0111-caret-driven-piano-roll/authored-grids.md) and
+  [event edit](plans/0111-caret-driven-piano-roll/event-edits.md) contracts.
 - `src/components/`
   Svelte UI, built from the primitives in `src/components/ui/` (`Button`, `Chip`, `Dot`, `Notice`,
   `Field`, `ListRow`, `Link`, `Menu`, `MenuItem`, `MasterMeter`, `Scope`). `src/styles/` the global CSS:
@@ -224,7 +227,8 @@ the V8 download the host brings.
   of every bundled file); its README has the runtime choice, the `Math` classification and the
   known differences. `scripts/host/build.ts` runs `host:build` with Bun's bundler.
   For [piano roll inspection](plans/0109-meter-aware-piano-roll/inspection.md), `src/host/inspection.ts`
-  captures expressions and exact event spans. `src-tauri/src/piano_roll.rs` resolves project
+  captures expressions, exact event spans and identifiers needed for write-back.
+  `src-tauri/src/piano_roll.rs` resolves project
   pins and admits one preview. The frontend request queue and IPC live in `src/lib/piano-roll/`.
   `scripts/render/job-source.ts` (`JobSource`: where `RustRenderer` gets its jobs),
   `host-planner.ts` (runs the host binary), `host-parity.ts`

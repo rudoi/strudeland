@@ -53,3 +53,22 @@ Record additional results below as they complete.
   include disconnected note fragments, multiple continuous cuts, wrapped shorthand and ASI,
   carry-in movement, duplicate note focus, source reveal anchors, re-registration, generated
   pitch shape, changed seeds and stale selectors. The final gate reruns across the integrated tree.
+
+## Review candidate
+
+The final code snapshot is `6670cf2`. Local validation passed:
+
+- `HOST_BUILD_CHECK=1 bun test ./tests` ran 3,487 tests with zero failures. The frontend
+  build, Svelte and TypeScript checks, and Prettier checks passed.
+- `cargo test --workspace` ran 2,201 passing Rust tests with seven explicitly ignored
+  benchmarks or reference probes. Rustdoc, workspace Clippy with warnings denied, and
+  `cargo fmt --all --check` passed.
+- Standard mixed-meter host parity and a saved-event-edit probe each matched four render plans.
+  The built frontend smoke verified direct, generated and arranged edits, same-scope
+  consecutive gestures, auditioning, history, source reveal and reduced motion. The local
+  Luoyuan grid and a unison keyboard-focus case were verified separately.
+- Independent high-thoroughness reviews covered the editor and the runtime/host contracts.
+  Rechecked fixes for the reported cases, including exact fragments and timing across query
+  partitions, direct-grid glide feedback, seeded variation, and retained focused voices.
+- Updated the README and AGENTS.md and checked the plan and repository links. Existing
+  Keitora #110 tracks general direct cross-bar serialization.
