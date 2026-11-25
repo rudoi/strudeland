@@ -82,7 +82,7 @@ export interface App {
    * starts there (as `evaluateDoc`: nothing more during a take). Nothing when the choice does not
    * resolve. Call from the user gesture: nothing awaits before the evaluate.
    */
-  playFrom(choice: Exclude<ArmChoice, 'stopLooping'>): void;
+  playFrom(choice: ArmChoice): void;
   /**
    * Restore vim's `:w`, stop listening for control requests and prefs, dispose of the scope clock, stop memo playback and the
    * recording controller (the component is destroyed, or HMR replaced it). Idempotent.
@@ -182,7 +182,7 @@ export function createApp(
     memos?.stopPlayback();
     void session.saveAndEvaluate().finally(() => playRequests--);
   }
-  function playFrom(choice: Exclude<ArmChoice, 'stopLooping'>): void {
+  function playFrom(choice: ArmChoice): void {
     const { started } = get(session.playback.store);
     if (session.playback.arm(choice) && !started) evaluateDoc();
   }

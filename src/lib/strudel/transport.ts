@@ -325,11 +325,13 @@ export interface TransportModelOptions {
 const isInitial = (seg: readonly Segment[]): boolean =>
   seg.length === 1 && seg[0]!.at === 0 && seg[0]!.songBar === 0 && seg[0]!.view.kind === 'song';
 
-const sameView = (a: View, b: View): boolean =>
+/** Whether two views show the same thing (a loop by its sections). */
+export const sameView = (a: View, b: View): boolean =>
   a.kind === b.kind &&
   (a.kind !== 'loop' ||
     (a.section === (b as typeof a).section && a.through === (b as typeof a).through));
 
+/** A store's current value: `svelte/store`'s `get`, without bundling svelte into the host. */
 const current = <T>(store: Readable<T>): T => {
   let value!: T;
   store.subscribe((v) => (value = v))();

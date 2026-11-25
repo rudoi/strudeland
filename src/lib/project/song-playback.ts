@@ -6,7 +6,7 @@
  * `runtime.store`, the view and `pendingStart` from `runtime.transport.store`, and the armed names
  * are dropped whenever the runtime reports no pending start (every stop rewinds the transport).
  * The session constructs it, calls its verbs and exposes it as `session.playback`; it reads the
- * active song's header through `getHeader()` and never subscribes to the session.
+ * active song's header structure through `getHeader()` and never subscribes to the session.
  *
  * `runtime` is called through the object at call time, so a test can replace its methods.
  */
@@ -14,7 +14,16 @@ import { derived, get, writable, type Readable } from 'svelte/store';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { EngineId, EvaluateOptions, Runtime } from '../strudel/runtime';
 import type { SongStructure } from '../strudel/structure';
-import type { View } from '../strudel/transport';
+import { sameView, type View } from '../strudel/transport';
+import { stripSongExt } from './ui';
+
+/** "songs/main.js" to "main". */
+export const fileStem = (path: string): string =>
+  stripSongExt(path.slice(path.lastIndexOf('/') + 1));
+
+/** `meta.title` when it is a non-blank string, else the file name without ".js". */
+export const titleFrom = (path: string, title: unknown): string =>
+  typeof title === 'string' && title.trim() ? title : fileStem(path);
 
 /** A song as the store names it. */
 export interface PlaybackSong {
@@ -51,16 +60,10 @@ export interface PlaybackState {
 }
 
 /**
- * What to arm, by section name: start from a section, loop one section (or the header's run from
- * `loop` through `through`), or stop looping.
+ * What to arm, by section name: start from a section, or loop one section (or the header's run
+ * from `loop` through `through`).
  */
-export type ArmChoice = { start: string } | { loop: string; through?: string } | 'stopLooping';
-
-/** A section of the evaluated song to start from (or loop) when `start` starts playback. */
-export interface StartSection {
-  name: string;
-  loop: boolean;
-}
+export type ArmChoice = { start: string } | { loop: string; through?: string };
 
 /**
  * Where `start` started the song (`T`, the context time of bar 1's downbeat, and `cps`);
@@ -68,15 +71,6 @@ export interface StartSection {
  * when it could not start.
  */
 export type PlaybackStartResult = { T: number; cps: number } | { missingSection: string } | null;
-
-/** The active song's header as the session reads it. */
-export interface PlaybackHeader {
-  active: string | null;
-  /** The header's structure; null without an active song. */
-  structure: SongStructure | null;
-  /** The header's error; nothing can be armed while it has one. */
-  metaError: string | null;
-}
 
 /** What `evaluate` passes to `runtime.evaluate`, and the header's `meta.title`. */
 export interface PlaybackEvaluate {
@@ -86,19 +80,19 @@ export interface PlaybackEvaluate {
 
 export interface SongPlaybackDeps {
   runtime: Pick<Runtime, 'store' | 'transport' | 'evaluate' | 'stop' | 'start' | 'cycleTime'>;
-  getHeader(): PlaybackHeader;
+  /**
+   * The active song's header structure; null without an active song or while the header has an
+   * error (nothing can be armed while stopped then).
+   */
+  getHeader(): SongStructure | null;
   /** The session's project generation; an evaluate that resolves in another one is not recorded. */
   currentGen(): number;
-  /** The song's title: `meta.title` when it is a non-blank string, else its file name. */
-  titleFrom(path: string, title: unknown): string;
 }
 
 export interface SongPlayback {
   readonly store: Readable<PlaybackState>;
   /** Whether `arm(choice)` would arm anything now. */
   readonly canArm: Readable<(choice: ArmChoice) => boolean>;
-  /** The evaluated song's `meta.title` as read (undefined when nothing is evaluated). */
-  metaTitle(): unknown;
   /** The instrument pins the evaluated song was evaluated with. */
   instruments(): InstrumentSnapshot | undefined;
   /**
@@ -128,40 +122,94 @@ export interface SongPlayback {
   removed(path: string): { stopped: boolean };
   /**
    * Arm a section by name, against the evaluated structure while playing and the active header's
-   * while stopped. Nothing while the header has an error or the names do not resolve.
-   * `stopLooping` while stopped drops anything armed; while playing it leaves the loop at the next
-   * bar. True iff the names resolved and the runtime was asked to arm.
+   * while stopped. Nothing while the header has an error or the names do not resolve. True iff
+   * the names resolved and the runtime was asked to arm.
    */
   arm(choice: ArmChoice): boolean;
+  /**
+   * While stopped, drop anything armed; while playing, leave the loop at the next bar. Nothing
+   * while stopped without a header structure.
+   */
+  stopLooping(): void;
   /** Leave the loop and play the ending (see `Transport.playEnding`). */
   playEnding(): void;
   /**
    * Start the evaluated song from cycle 0 (a playing runtime is stopped first), with `section`
-   * of the evaluated structure armed first. Synchronous up to `runtime.start`, so its resume stays
+   * armed first against the evaluated structure. Synchronous up to `runtime.start`, so its resume stays
    * inside the user gesture. A failed start disarms, unless the runtime started meanwhile.
    * `T` is global cycle 1 with a count-in, else cycle 0.
    */
   start(opts: {
-    section?: StartSection | null;
+    section?: ArmChoice | null;
     countIn: boolean;
     backend?: EngineId;
   }): Promise<PlaybackStartResult>;
 }
 
-/** A choice resolved to indices in `structure`, with the names it publishes while stopped. */
-type Resolved =
-  | { kind: 'stopLooping'; structure: SongStructure }
-  | { kind: 'start'; structure: SongStructure; index: number; name: string }
-  | {
-      kind: 'loop';
-      structure: SongStructure;
-      first: number;
-      last: number;
-      loop: PlaybackLoop;
-    };
+/**
+ * A choice resolved to sections `first` to `last` of `structure`: started from (`loop` null) or
+ * looped. Its name is its first section's.
+ */
+interface Resolved {
+  structure: SongStructure;
+  first: number;
+  last: number;
+  loop: PlaybackLoop | null;
+}
 
-const sameSong = (a: PlaybackSong | null, b: PlaybackSong | null): boolean =>
-  a === b || (a !== null && b !== null && a.path === b.path && a.title === b.title);
+const nameOf = (r: Resolved): string => r.structure.sections[r.first]!.name;
+
+/** The choice that resolves to `r` again. */
+function choiceOf(r: Resolved): ArmChoice {
+  if (!r.loop) return { start: nameOf(r) };
+  const { section, through } = r.loop;
+  return through === undefined ? { loop: section } : { loop: section, through };
+}
+
+/** Where `r` arms: its section indices and the song bar it begins at. */
+const place = (r: Resolved) => ({
+  first: r.first,
+  last: r.last,
+  bar: r.structure.sections[r.first]!.start,
+});
+
+const samePlace = (a: Resolved, b: Resolved): boolean => {
+  const [p, q] = [place(a), place(b)];
+  return p.first === q.first && p.last === q.last && p.bar === q.bar;
+};
+
+const indexIn = (s: SongStructure, name: string, from = 0): number =>
+  s.sections.findIndex((x, i) => i >= from && x.name === name);
+
+/**
+ * `choice` against `structure`, with names from `visible` (the structure the user sees): a
+ * section must be in both, and a range's run in `visible` must appear contiguously and in order
+ * in `structure`.
+ */
+function resolveIn(
+  structure: SongStructure,
+  visible: SongStructure,
+  choice: ArmChoice,
+): Resolved | null {
+  if ('start' in choice) {
+    if (indexIn(visible, choice.start) < 0) return null;
+    const index = indexIn(structure, choice.start);
+    return index < 0 ? null : { structure, first: index, last: index, loop: null };
+  }
+  const from = indexIn(visible, choice.loop);
+  const to = choice.through === undefined ? from : indexIn(visible, choice.through, from);
+  if (from < 0 || to < 0) return null;
+  const names = visible.sections.slice(from, to + 1).map((s) => s.name);
+  const first = indexIn(structure, names[0]!);
+  if (first < 0 || names.some((name, i) => structure.sections[first + i]?.name !== name)) {
+    return null;
+  }
+  const loop: PlaybackLoop =
+    names.length === 1
+      ? { section: names[0]!, names }
+      : { section: names[0]!, through: names.at(-1)!, names };
+  return { structure, first, last: first + names.length - 1, loop };
+}
 
 const sameLoop = (a: PlaybackLoop | null, b: PlaybackLoop | null): boolean =>
   a === b ||
@@ -172,15 +220,10 @@ const sameLoop = (a: PlaybackLoop | null, b: PlaybackLoop | null): boolean =>
     a.names.length === b.names.length &&
     a.names.every((n, i) => n === b.names[i]));
 
-const sameView = (a: View, b: View): boolean =>
-  a.kind === b.kind &&
-  (a.kind !== 'loop' ||
-    (a.section === (b as typeof a).section && a.through === (b as typeof a).through));
-
 function sameState(a: PlaybackState, b: PlaybackState): boolean {
   return (
     a.evaluated === b.evaluated &&
-    sameSong(a.playing, b.playing) &&
+    a.playing === b.playing &&
     a.started === b.started &&
     sameView(a.transport.view, b.transport.view) &&
     sameLoop(a.transport.loop, b.transport.loop) &&
@@ -200,7 +243,7 @@ function viewLoop(view: View, structure: SongStructure | null): PlaybackLoop | n
 }
 
 export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
-  const { runtime, getHeader, currentGen, titleFrom } = deps;
+  const { runtime, getHeader, currentGen } = deps;
 
   let evaluated: {
     song: PlaybackSong;
@@ -208,17 +251,10 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
     instruments: InstrumentSnapshot | undefined;
   } | null = null;
   /**
-   * What `arm` armed while stopped: its names, the choice that re-resolves them, and the indices
-   * and song bar the runtime holds. Dropped once the runtime reports no pending start.
+   * What `arm` armed while stopped, as resolved: its names, and the place the runtime holds.
+   * Dropped once the runtime reports no pending start.
    */
-  let armed: {
-    name: string;
-    loop: PlaybackLoop | null;
-    choice: ArmChoice;
-    first: number;
-    last: number;
-    bar: number;
-  } | null = null;
+  let armed: Resolved | null = null;
   /** While `start` awaits `runtime.start`: its arm is against the evaluated song, not the header. */
   let starting = 0;
 
@@ -234,7 +270,7 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
       transport: {
         view: ts.view,
         loop: rs.started ? viewLoop(ts.view, rs.structure) : (armed?.loop ?? null),
-        armed: armed?.name ?? null,
+        armed: armed ? nameOf(armed) : null,
       },
     };
   }
@@ -261,74 +297,25 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
    * The structure arming goes against: the evaluated one while playing, the active header's while
    * stopped (none while the header has an error).
    */
-  function inForce(header: PlaybackHeader): SongStructure | null {
-    if (get(runtime.store).started) return get(runtime.store).structure;
-    return header.metaError === null ? header.structure : null;
+  function inForce(header: SongStructure | null): SongStructure | null {
+    return get(runtime.store).started ? get(runtime.store).structure : header;
   }
 
   function resolve(choice: ArmChoice): Resolved | null {
-    const header = getHeader();
-    const structure = inForce(header);
-    if (!structure) return null;
-    if (choice === 'stopLooping') return { kind: 'stopLooping', structure };
     // Names come from the header the user sees; none while it has an error.
-    const visible = header.metaError === null ? header.structure : null;
-    if (!visible) return null;
-    const indexIn = (s: SongStructure, name: string, from = 0): number =>
-      s.sections.findIndex((x, i) => i >= from && x.name === name);
-    if ('start' in choice) {
-      if (indexIn(visible, choice.start) < 0) return null;
-      const index = indexIn(structure, choice.start);
-      return index < 0 ? null : { kind: 'start', structure, index, name: choice.start };
-    }
-    const from = indexIn(visible, choice.loop);
-    const to = choice.through === undefined ? from : indexIn(visible, choice.through, from);
-    if (from < 0 || to < 0) return null;
-    // The header's run must appear contiguously and in order in the structure in force.
-    const names = visible.sections.slice(from, to + 1).map((s) => s.name);
-    const first = indexIn(structure, names[0]!);
-    if (first < 0 || names.some((name, i) => structure.sections[first + i]?.name !== name)) {
-      return null;
-    }
-    const last = first + names.length - 1;
-    const loop: PlaybackLoop =
-      names.length === 1
-        ? { section: names[0]!, names }
-        : { section: names[0]!, through: names.at(-1)!, names };
-    return { kind: 'loop', structure, first, last, loop };
+    const visible = getHeader();
+    const structure = inForce(visible);
+    return structure && visible ? resolveIn(structure, visible, choice) : null;
   }
 
-  /** Ask the runtime to arm `r`, and keep its names while the start is pending. */
+  /** Ask the runtime to arm `r`, and keep it while the start is pending. */
   function apply(r: Resolved): void {
     const { transport } = runtime;
-    if (r.kind === 'stopLooping') transport.loopSection(null, r.structure);
-    else if (r.kind === 'start') transport.startFrom(r.index, r.structure);
+    if (!r.loop) transport.startFrom(r.first, r.structure);
     else if (r.first === r.last) transport.loopSection(r.first, r.structure);
     else transport.loopRange(r.first, r.last, r.structure);
-    // Names are kept only for a start the runtime now holds pending (never while playing).
-    if (r.kind !== 'stopLooping' && get(runtime.transport.store).pendingStart) {
-      armed =
-        r.kind === 'start'
-          ? {
-              name: r.name,
-              loop: null,
-              choice: { start: r.name },
-              first: r.index,
-              last: r.index,
-              bar: r.structure.sections[r.index]!.start,
-            }
-          : {
-              name: r.loop.section,
-              loop: r.loop,
-              choice:
-                r.loop.through === undefined
-                  ? { loop: r.loop.section }
-                  : { loop: r.loop.section, through: r.loop.through },
-              first: r.first,
-              last: r.last,
-              bar: r.structure.sections[r.first]!.start,
-            };
-    }
+    // Kept only for a start the runtime now holds pending (never while playing).
+    if (get(runtime.transport.store).pendingStart) armed = r;
     publish();
   }
 
@@ -339,27 +326,21 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
    * publish, so this never re-enters.
    */
   function headerChanged(): void {
+    // `armed` is only ever set while a start is pending, and dropped on the notification that
+    // ends it, so a start is pending here.
     if (!armed || starting > 0 || get(runtime.store).started) return;
-    if (!get(runtime.transport.store).pendingStart) {
-      publish(); // drops the stale names
-      return;
-    }
-    const r = resolve(armed.choice);
-    if (!r || r.kind === 'stopLooping') {
+    const r = resolve(choiceOf(armed));
+    // Disarm when the names no longer resolve, or the header's run from `loop` through `through`
+    // changed.
+    if (!r || !sameLoop(r.loop, armed.loop)) {
       runtime.transport.reset();
       return;
     }
-    if (r.kind === 'loop' && !sameLoop(r.loop, armed.loop)) {
-      runtime.transport.reset(); // the header's run from `loop` through `through` changed
-      return;
-    }
-    const [first, last] = r.kind === 'start' ? [r.index, r.index] : [r.first, r.last];
-    const bar = r.structure.sections[first]!.start;
-    if (first === armed.first && last === armed.last && bar === armed.bar) return;
-    apply(r);
+    if (!samePlace(r, armed)) apply(r);
   }
 
-  // Recomputed when the runtime or the store moves; the header is read at call time.
+  // Recomputed when the runtime or the store moves; the header is read at call time. The runtime
+  // store is needed too: the evaluated structure changing while playing need not change `state`.
   const canArm = derived(
     [runtime.store, state],
     () => (choice: ArmChoice) => resolve(choice) !== null,
@@ -368,7 +349,6 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
   return {
     store: { subscribe: state.subscribe },
     canArm,
-    metaTitle: () => evaluated?.metaTitle,
     instruments: () => evaluated?.instruments,
 
     async evaluate(path, text, opts, gen) {
@@ -427,6 +407,12 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
       return true;
     },
 
+    stopLooping() {
+      const structure = inForce(getHeader());
+      if (structure) runtime.transport.loopSection(null, structure);
+      publish();
+    },
+
     playEnding() {
       runtime.transport.playEnding();
     },
@@ -437,20 +423,9 @@ export function createSongPlayback(deps: SongPlaybackDeps): SongPlayback {
       if (section !== null) {
         // After the stop (a stop rewinds the transport), against the evaluated structure.
         const structure = get(runtime.store).structure;
-        const index = structure?.sections.findIndex((s) => s.name === section.name) ?? -1;
-        if (!structure || index < 0) return { missingSection: section.name };
-        const { name } = section;
-        apply(
-          section.loop
-            ? {
-                kind: 'loop',
-                structure,
-                first: index,
-                last: index,
-                loop: { section: name, names: [name] },
-              }
-            : { kind: 'start', structure, index, name },
-        );
+        const r = structure && resolveIn(structure, structure, section);
+        if (!r) return { missingSection: 'start' in section ? section.start : section.loop };
+        apply(r);
       }
       starting++;
       let ok: boolean;

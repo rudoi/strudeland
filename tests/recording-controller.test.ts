@@ -89,10 +89,9 @@ function setup(
     runtime: rt.runtime,
     getHeader: () => {
       const { active, structure } = get(sessionStore);
-      return { active, structure: active === null ? null : structure, metaError: null };
+      return active === null ? null : structure;
     },
     currentGen: () => 0,
-    titleFrom: (path) => path,
   });
   const g = fakeAudioGraph({
     currentTime: 5,

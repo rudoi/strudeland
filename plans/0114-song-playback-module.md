@@ -82,7 +82,7 @@ flowchart TB
   P["song-playback.ts<br/>store: evaluated · playing · started ·<br/>transport {view, loop names, armed} ·<br/>canArm (derived)"]
   P -->|"subscribes; index verbs"| T["runtime.transport<br/>(createTransportModel)"]
   P -->|subscribes| RS["runtime.store<br/>started · structure"]
-  P -->|"getHeader(): {active, structure, metaError}"| S
+  P -->|"getHeader(): structure or null"| S
   UI["App · Timeline · PianoRoll · handler · recording controller"] -->|"read store / call verbs"| P
   STUB["stubRuntime"] -->|uses| TM["createTransportModel"]
   T -.same factory.-> TM
@@ -140,8 +140,7 @@ flowchart TB
 - **`canArm`** is a derived store, `(choice) => boolean`, built from the header and the runtime
   stores. The Timeline's menus re-render from it; it replaces `resolveRange`.
 - **Accessors outside the store:**
-  - `metaTitle()` and `instruments()`, which the session's rename and `pianoRollMatchesLivePins`
-    use;
+  - `instruments()`, which `pianoRollMatchesLivePins` uses;
   - `removedStops(path)`.
 
 ### Verbs and their contracts
@@ -159,20 +158,19 @@ flowchart TB
 4. **`projectChanged()`.** Stop if started, reset, and clear `evaluated`. It runs synchronously
    from `install`.
 5. **`renamed(from, to)`.** Synchronous, inside the session's `whileMoving`. If `evaluated` is
-   `from`, it retitles to `titleFrom(to, metaTitle)`. `titleFrom` moves to a shared export in
-   `song-header.ts` or `session.ts`, so the module calls it.
+   `from`, it retitles to `titleFrom(to, metaTitle)`. `titleFrom` lives in the module, and the
+   session imports it.
 6. **`removed(path) → { stopped }`.** It runs after `activeChanged()`, as in `deleteTask`.
    - If `evaluated.path === path`: stop if started, clear `evaluated`, and return
      `stopped = started at call time`.
    - Otherwise return `{ stopped: false }`.
 7. **`arm(choice)`,** where `choice` is one of:
    - `{ start: name }`;
-   - `{ loop: name, through?: name }`;
-   - `'stopLooping'`.
+   - `{ loop: name, through?: name }`.
 
    It resolves names to indices against the structure in force (see the next section), then calls
-   the runtime's index verb, and records the armed names. `'stopLooping'` keeps today's two
-   behaviours:
+   the runtime's index verb, and records the armed names.
+7a. **`stopLooping()`.** It keeps today's two behaviours:
    - while stopped, `loopSection(null)` resets the whole transport, an armed start included;
    - while playing, it appends a loop end at the next bar.
 8. **`playEnding()`.** A passthrough.
@@ -190,7 +188,8 @@ flowchart TB
 9. **`start({ section?, countIn, backend }) → { T, cps } | { missingSection } | null`.** This is
    backing's flow:
    - stop if playing;
-   - resolve the name against `runtime.store.structure`, the evaluated structure;
+   - resolve `section` (an arm choice) against `runtime.store.structure`, the evaluated
+     structure, with the same resolution as `arm()`;
    - arm, then call `runtime.start` with no await in between;
    - on a failed start, disarm only if the runtime is still stopped.
 
@@ -198,7 +197,7 @@ flowchart TB
 
 - **Structure in force:** the evaluated structure (`runtime.store.structure`) while started. While
   stopped, it is the active song header's structure from `getHeader()`.
-  - When the header has a `metaError`, nothing can be armed. `canArm` is false and `arm` does
+  - When the header has a `metaError`, `getHeader()` returns null and nothing can be armed. `canArm` is false and `arm` does
     nothing, matching today's `editableStructure` gate.
 - **A start or a single-section loop:** the index of the first section with that name. That is
   today's lookup, so duplicate names keep resolving to the first one.
@@ -216,8 +215,7 @@ flowchart TB
   - `runtime`, called through the object at call time, so `app.test.ts`'s monkey-patching keeps
     working;
   - `getHeader`;
-  - `currentGen`;
-  - `titleFrom`.
+  - `currentGen`.
 
   It exposes the module as `session.playback`.
 - **`app.ts`** passes `session.playback` to the handler deps, `createBackingStarter`
@@ -298,6 +296,10 @@ flowchart TB
   its verbs alone.
 - **Recording reads.** The controller reads the store before stopping, so the store must update
   synchronously on stop. Svelte stores are synchronous.
+- **Known limitation.** Arming the first section is not observable as a pending start: the
+  transport model treats the initial segment list as nothing pending. So the timeline shows no
+  "will start at" for it, and `headerChanged` does not re-resolve it. Playback still starts
+  there, so display and playback agree.
 - **Test churn.** Large but mechanical. The faithful model removes the order-coupled tests rather
   than porting them.
 

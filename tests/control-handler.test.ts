@@ -1092,7 +1092,7 @@ describe('state: playhead, transport and outputError', () => {
     expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: 'tail' });
     pb.arm({ loop: 'intro' });
     expect(await t()).toEqual({ view: 'loop', loopSection: 'intro', armedSection: 'intro' });
-    pb.arm('stopLooping');
+    pb.stopLooping();
     expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: null });
     // Playing: the loop is named from the evaluated song.
     await h.handle('eval', {});
@@ -1101,7 +1101,7 @@ describe('state: playhead, transport and outputError', () => {
     expect(await t()).toEqual({ view: 'loop', loopSection: 'body', armedSection: null });
     h.rt.setPosition({ cycle: 3, located: null });
     h.rt.setHorizon(3);
-    pb.arm('stopLooping');
+    pb.stopLooping();
     expect(await t()).toEqual({ view: 'song', loopSection: null, armedSection: null });
     pb.playEnding();
     expect(await t()).toEqual({ view: 'release', loopSection: null, armedSection: null });

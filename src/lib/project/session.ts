@@ -12,9 +12,8 @@ import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { Runtime } from '../strudel/runtime';
 import { sameStructure, type SongStructure } from '../strudel/structure';
 import { readSongHeader, type MetaError } from './song-header';
-import { createSongPlayback, type SongPlayback } from './song-playback';
+import { createSongPlayback, fileStem, titleFrom, type SongPlayback } from './song-playback';
 import { setMetaValue, type MetaPath } from './meta-write';
-import { stripSongExt } from './ui';
 import {
   PROJECT_CHANGED,
   ProjectError,
@@ -289,13 +288,7 @@ function settled(): { promise: Promise<void>; resolve: () => void } {
 /** An error (or any thrown value) as a message string. */
 export { errorMessage };
 
-/** "songs/main.js" to "main". */
-export const fileStem = (path: string): string =>
-  stripSongExt(path.slice(path.lastIndexOf('/') + 1));
-
-/** `meta.title` when it is a non-blank string, else the file name without ".js". */
-export const titleFrom = (path: string, title: unknown): string =>
-  typeof title === 'string' && title.trim() ? title : fileStem(path);
+export { fileStem };
 
 /** CRLF and lone CR line breaks to LF. */
 export const toLF = (text: string): string => text.replace(/\r\n?/g, '\n');
@@ -500,13 +493,8 @@ export function createSession(deps: SessionDeps): Session {
   let nextGeneration = 0;
   const playback = createSongPlayback({
     runtime,
-    getHeader: () => ({
-      active,
-      structure: active ? derive(active).structure : null,
-      metaError: active ? (derive(active).headerError?.located ?? null) : null,
-    }),
+    getHeader: () => (active && !derive(active).headerError ? derive(active).structure : null),
     currentGen: () => generation,
-    titleFrom,
   });
   /**
    * While an open waits for `project_open`: the generation it will install. The new project's

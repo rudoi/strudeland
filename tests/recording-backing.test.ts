@@ -47,9 +47,8 @@ function setup(opts: { active?: string | null; outcome?: Partial<SessionEvalOutc
   // The header never arms here: the section is the evaluated song's.
   const playback = createSongPlayback({
     runtime: rt.runtime,
-    getHeader: () => ({ active: null, structure: null, metaError: null }),
+    getHeader: () => null,
     currentGen: () => 0,
-    titleFrom: (path) => path,
   });
   const backing = createBackingStarter({ runtime: rt.runtime, playback, session, metronome });
   return {

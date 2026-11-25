@@ -7,10 +7,10 @@ afterAll(() => GlobalRegistrator.unregister());
 const { get } = await import('svelte/store');
 const { buildStructure } = await import('../src/lib/strudel/structure');
 const { createSongPlayback } = await import('../src/lib/project/song-playback');
-const { createSession, titleFrom } = await import('../src/lib/project/session');
+const { createSession } = await import('../src/lib/project/session');
 const { createEditorState } = await import('../src/lib/editor/setup');
 const { EditorView } = await import('@codemirror/view');
-import type { PlaybackHeader, PlaybackTransport } from '../src/lib/project/song-playback';
+import type { PlaybackTransport } from '../src/lib/project/song-playback';
 import type { Session } from '../src/lib/project/session';
 import type { InstrumentSnapshot } from '../src/lib/strudel/instruments';
 import type { SongStructure } from '../src/lib/strudel/structure';
@@ -28,19 +28,18 @@ const opts = (metaTitle?: unknown, instruments?: InstrumentSnapshot) => ({
   metaTitle,
 });
 
-/** The module alone over the stub runtime, with a header the test sets. */
+/** The module alone over the stub runtime, with a header structure the test sets (null: none). */
 function setup(
   structure: SongStructure | null = layout('intro', 'verse', 'chorus'),
   runtimeOpts: Parameters<typeof stubRuntime>[0] = {},
 ) {
   const rt = stubRuntime(runtimeOpts);
-  let header: PlaybackHeader = { active: PA, structure, metaError: null };
+  let header = structure;
   let gen = 1;
   const pb = createSongPlayback({
     runtime: rt.runtime,
     getHeader: () => header,
     currentGen: () => gen,
-    titleFrom,
   });
   return {
     rt,
@@ -48,10 +47,10 @@ function setup(
     st: () => get(pb.store),
     tp: () => get(pb.store).transport,
     canArm: (choice: Parameters<typeof pb.arm>[0]) => get(pb.canArm)(choice),
-    setHeader: (h: Partial<PlaybackHeader>) => void (header = { ...header, ...h }),
+    setHeader: (s: SongStructure | null) => void (header = s),
     setGen: (g: number) => void (gen = g),
     /** Evaluated and playing `structure`. */
-    async play(path = PA, s: SongStructure | null = header.structure) {
+    async play(path = PA, s: SongStructure | null = header) {
       expect(await pb.evaluate(path, path, opts(), gen)).toBe(true);
       rt.patch({ started: true, structure: s });
     },
@@ -71,7 +70,6 @@ describe('evaluate', () => {
       playing: null,
       started: false,
     });
-    expect(h.pb.metaTitle()).toBe('Alpha');
     expect(h.pb.instruments()).toEqual({});
     h.rt.setStarted(true);
     expect(h.st()).toMatchObject({ playing: { path: PA, title: 'Alpha' }, started: true });
@@ -272,39 +270,58 @@ describe('arm', () => {
     h.pb.arm({ loop: 'b', through: 'c' });
     expect(h.tp().view).toEqual({ kind: 'loop', section: 1, through: 2 });
     expect(h.tp().loop).toEqual({ section: 'b', through: 'c', names: ['b', 'c'] });
-    h.setHeader({ structure: layout('b', 'a', 'c') });
+    h.setHeader(layout('b', 'a', 'c'));
     expect(h.canArm({ loop: 'b', through: 'c' })).toBe(false);
-    h.setHeader({ structure: layout('b', 'new', 'c') });
+    h.setHeader(layout('b', 'new', 'c'));
     expect(h.canArm({ loop: 'b', through: 'c' })).toBe(false);
     expect(h.canArm({ loop: 'c', through: 'b' })).toBe(false); // through before loop
   });
 
-  test('nothing is armable under a meta error; while playing stopLooping still is', async () => {
+  test('nothing is armable under a meta error; while playing stopLooping still leaves', async () => {
     const h = setup();
-    h.setHeader({ metaError: 'meta: bad (1:1)' });
-    for (const choice of [{ start: 'verse' }, { loop: 'verse' }, 'stopLooping'] as const) {
+    h.setHeader(null);
+    for (const choice of [{ start: 'verse' }, { loop: 'verse' }] as const) {
       expect(h.canArm(choice)).toBe(false);
       h.pb.arm(choice);
       expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
     }
-    await h.play(PA, layout('intro', 'verse', 'chorus'));
+    h.pb.stopLooping();
+    expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
+    h.setHeader(layout('intro', 'verse', 'chorus'));
+    await h.play();
+    h.pb.arm({ loop: 'verse' });
+    h.setHeader(null);
     expect(h.canArm({ loop: 'verse' })).toBe(false);
-    expect(h.canArm('stopLooping')).toBe(true);
+    h.rt.setPosition({ cycle: 3, located: null });
+    h.rt.setHorizon(3);
+    h.pb.stopLooping();
+    expect(h.tp().view).toEqual({ kind: 'song' });
+  });
+
+  test('canArm recomputes when the evaluated structure changes while playing', async () => {
+    const h = setup(layout('intro', 'verse', 'bridge'));
+    await h.play(PA, layout('intro', 'verse'));
+    const seen: boolean[] = [];
+    const off = h.pb.canArm.subscribe((can) => seen.push(can({ start: 'bridge' })));
+    h.rt.patch({ structure: layout('intro', 'verse', 'bridge') });
+    off();
+    expect(seen).toEqual([false, true]);
   });
 
   test('nothing is armable while stopped without an active song', () => {
     const h = setup(null);
     expect(h.canArm({ start: 'verse' })).toBe(false);
-    expect(h.canArm('stopLooping')).toBe(false);
+    h.pb.stopLooping();
+    expect(h.tp()).toEqual(NOT_ARMED);
   });
 
   test('stopLooping while stopped drops anything armed, a start included', () => {
     const h = setup();
     h.pb.arm({ start: 'chorus' });
-    h.pb.arm('stopLooping');
+    h.pb.stopLooping();
     expect(h.tp()).toEqual(NOT_ARMED);
     h.pb.arm({ loop: 'verse' });
-    h.pb.arm('stopLooping');
+    h.pb.stopLooping();
     expect(h.tp()).toEqual(NOT_ARMED);
   });
 
@@ -314,7 +331,7 @@ describe('arm', () => {
     h.pb.arm({ loop: 'verse' });
     h.rt.setPosition({ cycle: 3, located: null });
     h.rt.setHorizon(3);
-    h.pb.arm('stopLooping');
+    h.pb.stopLooping();
     expect(h.tp()).toEqual({ view: { kind: 'song' }, loop: null, armed: null });
     expect(h.rt.segments().at(-1)).toEqual({ at: 3, songBar: 3, view: { kind: 'song' } });
   });
@@ -347,7 +364,7 @@ describe('the armed section is the one the header shows', () => {
     const h = setup(layout('intro', 'verse'));
     await h.pb.evaluate(PA, 'a', opts(), 1);
     h.rt.patch({ structure: layout('intro', 'verse') });
-    h.setHeader({ structure: layout('intro', 'bridge', 'verse') });
+    h.setHeader(layout('intro', 'bridge', 'verse'));
     h.pb.arm({ start: 'bridge' });
     expect(get(h.rt.runtime.transport.store).armedSection).toBe(1);
     expect(h.tp().armed).toBe('bridge');
@@ -370,7 +387,7 @@ describe('a stopped arm follows its names when the header changes', () => {
   test('a reorder re-arms the same name at its new index', () => {
     const h = setup(layout('intro', 'verse', 'chorus'));
     h.pb.arm({ start: 'chorus' });
-    h.setHeader({ structure: layout('intro', 'chorus', 'verse') });
+    h.setHeader(layout('intro', 'chorus', 'verse'));
     h.pb.headerChanged();
     expect(rts(h)).toMatchObject({ pendingStart: true, armedSection: 1 });
     expect(h.rt.segments().at(-1)).toEqual({ at: 0, songBar: 2, view: { kind: 'song' } });
@@ -380,14 +397,14 @@ describe('a stopped arm follows its names when the header changes', () => {
   test('the same index at another bar re-arms it there', () => {
     const h = setup(layout('intro', 'verse'));
     h.pb.arm({ start: 'verse' });
-    h.setHeader({
-      structure: buildStructure({
+    h.setHeader(
+      buildStructure({
         sections: [
           { name: 'intro', bars: 4 },
           { name: 'verse', bars: 2 },
         ],
       }),
-    });
+    );
     h.pb.headerChanged();
     expect(h.rt.segments().at(-1)).toEqual({ at: 0, songBar: 4, view: { kind: 'song' } });
     expect(h.tp().armed).toBe('verse');
@@ -396,7 +413,7 @@ describe('a stopped arm follows its names when the header changes', () => {
   test('a rename removing the armed section disarms', () => {
     const h = setup(layout('intro', 'verse', 'chorus'));
     h.pb.arm({ loop: 'chorus' });
-    h.setHeader({ structure: layout('intro', 'verse', 'hook') });
+    h.setHeader(layout('intro', 'verse', 'hook'));
     h.pb.headerChanged();
     expect(rts(h).pendingStart).toBe(false);
     expect(h.tp()).toEqual(NOT_ARMED);
@@ -406,7 +423,7 @@ describe('a stopped arm follows its names when the header changes', () => {
     const h = setup(layout('intro', 'verse', 'chorus'));
     h.pb.arm({ loop: 'verse' });
     const before = h.rt.segments();
-    h.setHeader({ structure: layout('intro', 'verse', 'bridge') });
+    h.setHeader(layout('intro', 'verse', 'bridge'));
     h.pb.headerChanged();
     expect(h.rt.segments()).toBe(before);
     expect(h.tp()).toEqual({
@@ -419,14 +436,14 @@ describe('a stopped arm follows its names when the header changes', () => {
   test('a range re-arms where its run moved, and disarms once the run breaks', () => {
     const h = setup(layout('intro', 'verse', 'chorus', 'outro'));
     h.pb.arm({ loop: 'verse', through: 'chorus' });
-    h.setHeader({ structure: layout('verse', 'chorus', 'intro', 'outro') });
+    h.setHeader(layout('verse', 'chorus', 'intro', 'outro'));
     h.pb.headerChanged();
     expect(h.tp()).toEqual({
       view: { kind: 'loop', section: 0, through: 1 },
       loop: { section: 'verse', through: 'chorus', names: ['verse', 'chorus'] },
       armed: 'verse',
     });
-    h.setHeader({ structure: layout('verse', 'bridge', 'chorus', 'outro') });
+    h.setHeader(layout('verse', 'bridge', 'chorus', 'outro'));
     h.pb.headerChanged();
     expect(rts(h).pendingStart).toBe(false);
     expect(h.tp()).toEqual(NOT_ARMED);
@@ -435,7 +452,7 @@ describe('a stopped arm follows its names when the header changes', () => {
   test('a range whose ends swap order disarms', () => {
     const h = setup(layout('intro', 'verse', 'chorus'));
     h.pb.arm({ loop: 'verse', through: 'chorus' });
-    h.setHeader({ structure: layout('intro', 'chorus', 'verse') });
+    h.setHeader(layout('intro', 'chorus', 'verse'));
     h.pb.headerChanged();
     expect(h.tp()).toEqual(NOT_ARMED);
   });
@@ -443,7 +460,7 @@ describe('a stopped arm follows its names when the header changes', () => {
   test('a header that gains a meta error disarms', () => {
     const h = setup(layout('intro', 'verse'));
     h.pb.arm({ start: 'verse' });
-    h.setHeader({ metaError: 'meta: bad (1:1)' });
+    h.setHeader(null);
     h.pb.headerChanged();
     expect(rts(h).pendingStart).toBe(false);
     expect(h.tp()).toEqual(NOT_ARMED);
@@ -454,9 +471,9 @@ describe('a stopped arm follows its names when the header changes', () => {
     await h.play();
     h.pb.arm({ loop: 'verse' });
     const before = h.rt.segments();
-    h.setHeader({ structure: layout('verse', 'intro', 'chorus') });
+    h.setHeader(layout('verse', 'intro', 'chorus'));
     h.pb.headerChanged();
-    h.setHeader({ metaError: 'meta: bad (1:1)' });
+    h.setHeader(null);
     h.pb.headerChanged();
     expect(h.rt.segments()).toBe(before);
     expect(h.tp().view).toEqual({ kind: 'loop', section: 1 });
@@ -482,7 +499,7 @@ describe('start', () => {
       return true;
     });
     const pending = h.pb.start({
-      section: { name: 'verse', loop: false },
+      section: { start: 'verse' },
       countIn: true,
       backend: 'superdough',
     });
@@ -496,7 +513,7 @@ describe('start', () => {
 
   test('a looped section plays as a loop, named from the evaluated song', async () => {
     const h = await evaluated();
-    expect(await h.pb.start({ section: { name: 'chorus', loop: true }, countIn: false })).toEqual({
+    expect(await h.pb.start({ section: { loop: 'chorus' }, countIn: false })).toEqual({
       T: 10,
       cps: 0.5,
     });
@@ -517,11 +534,11 @@ describe('start', () => {
 
   test('a section the evaluated song lacks starts nothing', async () => {
     const h = await evaluated();
-    expect(await h.pb.start({ section: { name: 'bridge', loop: false }, countIn: false })).toEqual({
+    expect(await h.pb.start({ section: { start: 'bridge' }, countIn: false })).toEqual({
       missingSection: 'bridge',
     });
     h.rt.patch({ structure: null });
-    expect(await h.pb.start({ section: { name: 'verse', loop: true }, countIn: false })).toEqual({
+    expect(await h.pb.start({ section: { loop: 'verse' }, countIn: false })).toEqual({
       missingSection: 'verse',
     });
     expect(h.rt.starts()).toEqual([]);
@@ -531,14 +548,14 @@ describe('start', () => {
   test('a failed start disarms, unless the runtime started meanwhile', async () => {
     const h = await evaluated();
     h.rt.setStart(() => false);
-    expect(await h.pb.start({ section: { name: 'verse', loop: true }, countIn: false })).toBeNull();
+    expect(await h.pb.start({ section: { loop: 'verse' }, countIn: false })).toBeNull();
     expect(h.tp()).toEqual(NOT_ARMED);
     expect(get(h.rt.runtime.transport.store).pendingStart).toBe(false);
     h.rt.setStart(() => {
       h.rt.setStarted(true); // another start won the race
       return false;
     });
-    expect(await h.pb.start({ section: { name: 'verse', loop: true }, countIn: false })).toBeNull();
+    expect(await h.pb.start({ section: { loop: 'verse' }, countIn: false })).toBeNull();
     expect(h.tp().view).toEqual({ kind: 'loop', section: 1 });
   });
 
@@ -669,6 +686,25 @@ describe('the session', () => {
     });
     await h.session.saveAndEvaluate();
     expect(h.rt.evaluated).toEqual([]);
+    expect(h.tp()).toEqual(NOT_ARMED);
+  });
+
+  test('a meta error in the edited header disarms before the store publishes', async () => {
+    const h = await opened();
+    h.pb.arm({ start: 'verse' });
+    const seen: (string | null)[] = [];
+    const off = h.session.store.subscribe((st) => {
+      if (st.metaError !== null) seen.push(h.tp().armed);
+    });
+    h.view.dispatch({
+      changes: {
+        from: 0,
+        to: h.view.state.doc.length,
+        insert: SA.replace("'Alpha'", "'A', bpm: 'x'"),
+      },
+    });
+    off();
+    expect(seen).toEqual([null]);
     expect(h.tp()).toEqual(NOT_ARMED);
   });
 

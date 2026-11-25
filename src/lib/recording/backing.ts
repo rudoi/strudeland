@@ -6,7 +6,7 @@
 import { get, type Readable } from 'svelte/store';
 import type { Metronome, MetronomeGrid } from '../audio/metronome';
 import type { SessionEvalOutcome } from '../project/session';
-import type { PlaybackStartResult, SongPlayback } from '../project/song-playback';
+import type { ArmChoice, PlaybackStartResult, SongPlayback } from '../project/song-playback';
 import type { Runtime } from '../strudel/runtime';
 import type { Meter } from '../strudel/structure';
 import { FIXED_METER_BACKING_MESSAGE } from './types';
@@ -72,6 +72,10 @@ export const BACKING_MESSAGES = {
   mixedMeter: FIXED_METER_BACKING_MESSAGE,
 } as const;
 
+/** A section choice as the song playback arms it. */
+const armChoice = (c: SectionChoice | null): ArmChoice | null =>
+  c === null ? null : c.loop ? { loop: c.name } : { start: c.name };
+
 export function createBackingStarter(deps: BackingDeps): BackingStarter {
   const { runtime, playback, session, metronome } = deps;
   let startedSong = false;
@@ -99,7 +103,7 @@ export function createBackingStarter(deps: BackingDeps): BackingStarter {
       // A take's backing plays on superdough whatever the song's engine (its clock is the one
       // recording syncs to); the next stop returns to the song's.
       const r = await playback.start({
-        section: opts.section ?? null,
+        section: armChoice(opts.section ?? null),
         countIn: opts.countIn ?? false,
         backend: 'superdough',
       });

@@ -93,7 +93,8 @@
   let menuFor = $state<number | null>(null);
   let choosingEnd = $state(false);
   let track = $state<HTMLDivElement>();
-  // Shown with the blocks only (none while the header has a meta error).
+  // Shown with the blocks only (none while the header has a meta error). The module disarms on a
+  // meta error, except for the arm of a `start` still waiting on the runtime, so the gate stays.
   const armedName = $derived(structure ? $pb.transport.armed : null);
 
   function openMenu(e: MouseEvent, index: number) {
@@ -108,7 +109,7 @@
   }
   function stopLooping() {
     menuFor = null;
-    playback.arm('stopLooping');
+    playback.stopLooping();
   }
   async function showRangeOptions(show: boolean) {
     choosingEnd = show;
