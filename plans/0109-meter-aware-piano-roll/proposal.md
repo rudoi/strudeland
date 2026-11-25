@@ -17,6 +17,9 @@ material and has a persistent, easy-to-reach **Piano Roll** toggle in the editor
 - The first usable release supports pitch, timing, length, insertion and deletion for simple
   monophonic phrases. Simultaneous authored notes support individual pitch edits when source
   attribution is verified. Expand viewing coverage independently of write-back coverage.
+- Note auditioning is part of the first release. A user can hear an individual pitch from the
+  roll without starting song playback. Audition trigger, voice fallback and preference behavior
+  are product decisions in refinement.
 - A reference to a shared binding offers **Edit shared definition**, with source links to affected
   uses and an explanation when the list is incomplete. Selecting an invocation or repetition
   alone never makes it a private copy.
@@ -96,10 +99,12 @@ Keep exact logical-cycle start/end fractions through projection and write-back. 
 one cycle is one written bar. Use [structure.ts](../../src/lib/strudel/structure.ts) and
 [timing.ts](../../src/lib/strudel/timing.ts) for meter and mapping to the reference clock. Use
 written bar numbers in the in-song view, and label pattern-local cycles in Expression. Select
-the relevant written use as the meter anchor. If a definition is used in multiple sections or
-meters, show the selected use next to the meter and let the user switch explicitly. For a
-definition without a known use, label the base meter as the preview meter. Edits stay in
-bar-relative fractions even if other uses display them against a different beat grid.
+the relevant written use as the meter anchor. A direct selection of a definition starts at its
+first known occurrence in written song order. When arriving via **Edit shared definition**,
+keep the occurrence the user came from. Show the meter anchor and offer a chooser for other
+known occurrences. For a definition without a known occurrence, label the base meter as the
+preview meter. Edits stay in bar-relative fractions even if other uses display them against a
+different beat grid.
 
 Use the written beat as the base horizontal unit of the ruler, measured in quarter-note
 equivalents. An eighth note takes the same horizontal space in 4/4 and 7/8 at a given zoom, so
@@ -213,8 +218,9 @@ collapse and song/project change. Bound query window width, total response/event
 and native memory as supported by the embedding; validate the bounds on dense/custom patterns.
 Put the host work off the UI thread. The static path works immediately for simple phrases.
 Measure first-open and re-selection latency before enabling automatic headless previews for
-trusted evaluated songs. For a draft not yet run, present **Preview expression** when execution
-of the full draft is necessary. Prefer a fresh host result for draft semantics after that action.
+trusted evaluated songs. When the current draft revision has yet to be evaluated, show simple
+authored phrases immediately. If inspection requires executing the draft, offer **Preview
+expression** and run the current revision in the headless host on activation.
 Check platform coverage for the app's jitless host, and keep static editing available when a
 headless capability fails.
 
@@ -248,18 +254,34 @@ redo update both views through their normal document listener.
   catch mini AST-versus-runtime drift. Explicitly guard mixed-meter bars, tuplets and pattern
   weights whose effective duration is relative to sibling weights. A roll rectangle represents
   the pattern's logical interval. Playback `clip`, envelopes and sample tails can differ.
+- If the prototype establishes a safe cross-bar move, preserve musical duration across meters
+  and encode it using the destination bar's fractions. A quarter note moved from 4/4 to 7/8
+  spans two eighth-note beats in either bar, so its duration changes from `1/4` to `2/7` of a
+  cycle. Release scope depends on proving the exact rewrite and preservation of other notes.
+
+### Note auditioning
+
+Treat auditioning as a short pitch preview and **Preview expression** as silent pattern
+inspection. Reuse the bounded [note audition player](../../src/lib/audio/note-audition.ts)
+and the audio lifecycle in [app.ts](../../src/lib/app.ts). Use the existing Web Audio graph
+and resume it from the audition gesture. The roll supplies the pitch and a verified voice
+when available. The current player accepts an integer MIDI pitch and a fixed built-in synth.
+Reuse that limit for the initial design. Preview samples, custom instruments, and continuous
+pitch need separate capability decisions if required. Keep preview voices separate from the
+live transport and ensure stale preview work is cancelled on panel collapse or song change.
 
 ### UI and accessibility
 
 Put a labeled **Piano Roll** disclosure in [Toolbar.svelte](../../src/components/Toolbar.svelte),
 near the editor controls, with `aria-expanded` and `aria-controls`. Use a dock below the editor
-and above the arrangement timeline in [App.svelte](../../src/App.svelte). Default to collapsed
-on a fresh window, keep the user's choice while switching songs, and keep the toggle reachable
-at minimum supported window width. Collapse returns focus to the toggle when the panel had focus.
+and above the arrangement timeline in [App.svelte](../../src/App.svelte). Use the existing
+[app preferences](../../src/lib/prefs/store.ts) to remember dock visibility across launches,
+defaulting to collapsed when the preference is absent. Keep the user's choice while switching
+songs and keep the toggle reachable at minimum supported window width. Collapse returns focus
+to the toggle when the panel had focus.
 Use existing Svelte primitives/styles. Provide clickable source links, keyboard selection and
 edit commands, zoom/scroll as needed, visible focus, and announced editable/read-only, loading,
-empty and stale states. Keep the selection gesture responsive on the editor side. Revisit
-remembering dock state across app launches after testing the default.
+empty and stale states. Keep the selection gesture responsive on the editor side.
 
 ## Dependencies and delivery order
 
@@ -275,7 +297,8 @@ prototype clears the requirements.
 2. Ship the foundation internally as a collapsible Expression dock for authored patterns.
    Connect scope-aware selection, shared-use reporting, auto-fit pitch and meter anchors.
 3. Add the five source edits for the supported phrase grammar with candidate verification,
-   stale-write protection, and isolated undo/redo. This is the first editing acceptance gate.
+   stale-write protection, isolated undo/redo, and individual note auditioning. This is the
+   first editing acceptance gate.
 4. Add bounded broad Expression inspection and then In song with source/use attribution and
    fallback. Include the in-song view in first-release acceptance. Confirm app usability with
    those capabilities together.
@@ -292,8 +315,10 @@ In the shared-motif scenario, `const motif = note("c4 e4")` appears directly in 
 **Edit shared definition** opens C4 and E4 on the retained 7/8 grid and identifies both uses.
 Changing E4 to F4 updates the buffer and the inspected projections. The running song picks up
 the change on **Re-evaluate**, sounding F4 in the direct use and F5 in the transposed use.
-The cross-bar drag prototype must check exact snapping and unrelated source diffs before
-cross-bar dragging becomes a release requirement.
+The cross-bar drag prototype must check exact snapping, quarter-note duration preservation and
+unrelated source diffs before cross-bar dragging becomes a release requirement. Verify persisted
+dock state, note auditioning on both playback engine settings, cancellation on collapse or
+song switch, and a draft whose generated pitches appear only after **Preview expression**.
 
 ## Risks
 
@@ -317,7 +342,13 @@ affected uses shown before editing, beat-proportional ruler, all five edits for 
 phrases, pitch edits for individually attributable simultaneous notes, a toolbar toggle, and
 explicit **Re-evaluate** for playback changes.
 
-Proposed defaults for refinement: collapsed on a fresh window and start with nonempty selections.
+Confirmed in the second refinement round: first known written occurrence for a directly selected
+definition, preserve the chosen occurrence when navigating from a use, preserve musical duration
+if cross-bar moves ship, remember dock visibility with a collapsed default, and explicitly
+request headless inspection when a draft requires execution. Note auditioning is in scope.
+
+Remaining product decisions include audition gestures, fallback voice and preference behavior.
+The current selection proposal starts with nonempty selections.
 The capture prototype must determine the minimal safe instrumentation seam, quantify attribution
 coverage, and set measured worker and rendering limits. The rhythm prototype must establish
 which weights and subdivisions can be serialized with localized, bounded changes. Once both
