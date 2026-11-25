@@ -52,10 +52,42 @@ describe('piano roll source projection', () => {
     expect(resolveRollTarget(source, span(source, '"saw"'))).toBeNull();
   });
 
-  test('trims selected trivia around a pattern while requiring a nonempty selection', () => {
+  test('trims selected trivia around a pattern and ignores a caret in comments', () => {
     const source = '/* lead */  note("c4")  /* tail */';
     expect(editable(source).target.expression).toEqual(span(source, 'note("c4")'));
-    expect(resolveRollTarget(source, { from: 13, to: 13 })).toBeNull();
+    expect(resolveRollTarget(source, { from: 4, to: 4 })).toBeNull();
+  });
+
+  test('opens an authored phrase at a caret inside notes, whitespace, and its closing delimiter', () => {
+    const source = 'const melody = note("c4 ~ e4 ~");';
+    const note = span(source, 'note("c4 ~ e4 ~")');
+    for (const position of [note.from, source.indexOf('c4') + 1, source.indexOf(' ~'), note.to]) {
+      expect(resolveRollTarget(source, { from: position, to: position })?.expression).toEqual(note);
+    }
+    expect(resolveRollTarget(source, { from: -1, to: -1 })).toBeNull();
+  });
+
+  test('resolves a transformed pattern and aliases while avoiding effect arguments', () => {
+    const source = [
+      'const melody = note("c4");',
+      'const fast = melody.fast(2).gain(rand.range(0.05, 0.1));',
+      'song(meta, { intro: fast })',
+    ].join('\n');
+    function at(fragment: string, last = false) {
+      const from = (last ? source.lastIndexOf(fragment) : source.indexOf(fragment)) + 1;
+      return resolveRollTarget(source, { from, to: from });
+    }
+    expect(at('melody')?.phrase?.notes[0].pitch).toBe(60);
+    expect(at('fast', true)?.definition?.name).toBe('melody');
+    expect(at('0.05')).toBeNull();
+    expect(at('range')).toBeNull();
+    expect(at('intro')).toBeNull();
+  });
+
+  test('keeps a saved event edit as the target when the caret is in its original expression', () => {
+    const source = '(note("c4"))._pianoEdits({ entries: [] })';
+    const from = source.indexOf('c4');
+    expect(resolveRollTarget(source, { from, to: from })?.expression).toEqual(span(source, source));
   });
 
   test('recognizes an authored repeated pitch without attributing Euclidean operands', () => {

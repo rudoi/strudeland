@@ -560,16 +560,107 @@ function selectedNode(source: string, selection: SourceSpan, script: Script): An
   }
 }
 
+function caretNode(source: string, caret: number, script: Script): AnyNode | undefined {
+  if (script.comments.some(({ start, end }) => start <= caret && caret < end)) return;
+  // At the end of a closing delimiter, the editor caret is still attached to the expression.
+  const closing = /[)\]'`"]/.test(source[caret - 1] ?? '');
+  let visit: Visit | undefined;
+  for (const current of script.visits.values()) {
+    const { start, end } = current.node;
+    if (start <= caret && (caret < end || (closing && caret === end))) {
+      if (!visit || end - start <= visit.node.end - visit.node.start) visit = current;
+    }
+  }
+  if (!visit) return;
+
+  // An existing event edit owns the rendered value and should remain the target when its
+  // original expression or edit data is under the caret.
+  for (let at: Visit | undefined = visit; at; at = at.parent) {
+    if (method(at.node)?.name === '_pianoEdits') return at.node;
+    if (at.key === 'arguments' && at.parent?.node.type === 'CallExpression') {
+      const chain = method(at.parent.node);
+      if (chain && chain.name !== 'note' && chain.name !== 'freq') return;
+    }
+  }
+
+  for (let at: Visit | undefined = visit; at; at = at.parent) {
+    const { node, parent, key } = at;
+    const enclosing = parent?.node;
+    if (!enclosing) return;
+    if (node.type === 'Literal' || node.type === 'TemplateLiteral') {
+      const pitched = liftLiteral(script, node, source);
+      if (pitched) return pitched;
+      if (
+        enclosing.type === 'CallExpression' &&
+        key === 'arguments' &&
+        (callName(enclosing, script) === 'freq' || method(enclosing)?.name === 'freq')
+      ) {
+        return enclosing;
+      }
+      if (enclosing.type !== 'ExpressionStatement') return;
+    }
+    if (key === 'key' && enclosing.type === 'Property') return;
+    if (node.type === 'Identifier' && script.declarations.has(node)) {
+      const declaration = [...script.definitions.values()].find(
+        (binding) => binding.declaration === node,
+      );
+      const init = declaration?.initializer;
+      return init && inspectedExpressions.has(init.type) ? init : undefined;
+    }
+    if (node.type === 'Identifier' && expressionIsValue(at, script)) {
+      const binding = lookup(at, node.name);
+      if (binding?.initializer && inspectedExpressions.has(binding.initializer.type)) return node;
+      if (!binding && destination(at, script).section !== undefined) return node;
+    }
+    if (
+      inspectedExpressions.has(node.type) &&
+      node.type !== 'Identifier' &&
+      expressionIsValue(at, script)
+    ) {
+      if (node.type === 'CallExpression') {
+        const chain = method(node);
+        if (
+          chain &&
+          chain.name !== 'note' &&
+          chain.name !== 'freq' &&
+          caret < node.end - 1 &&
+          source.slice(node.callee.end, caret).includes('(')
+        )
+          return;
+      }
+      return pitchProducer(node, script)?.owner ?? node;
+    }
+    if (node.type === 'ExpressionStatement' || node.type === 'VariableDeclaration') return;
+  }
+}
+
+let cachedSource: { code: string; script: Script | undefined } | undefined;
+
+function scriptFor(code: string): Script | undefined {
+  if (cachedSource?.code === code) return cachedSource.script;
+  try {
+    cachedSource = { code, script: readScript(code) };
+  } catch {
+    cachedSource = { code, script: undefined };
+  }
+  return cachedSource.script;
+}
+
 function locateTarget(source: string, selection: SourceSpan) {
   if (
     !Number.isInteger(selection.from) ||
     !Number.isInteger(selection.to) ||
     selection.from < 0 ||
-    selection.from >= selection.to ||
+    selection.from > selection.to ||
     selection.to > source.length
   )
     return;
-  const script = readScript(source);
+  const script = scriptFor(source);
+  if (!script) return;
+  if (selection.from === selection.to) {
+    const node = caretNode(source, selection.from, script);
+    return node ? { node, script } : undefined;
+  }
   const trimmed = trimSelection(source, selection, script.comments);
   if (trimmed.from >= trimmed.to) return;
   const node = selectedNode(source, trimmed, script);
