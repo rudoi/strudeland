@@ -1,18 +1,21 @@
 <script lang="ts">
+  import { helpTarget } from '../../lib/help/targets';
   import type { Snippet } from 'svelte';
   import type { HTMLButtonAttributes } from 'svelte/elements';
 
   type Props = HTMLButtonAttributes & {
+    help?: string;
     active?: boolean;
     children: Snippet;
     /** Sits at the right, inside the button. */
     trailing?: Snippet;
   };
 
-  let { active = false, children, trailing, class: className, ...rest }: Props = $props();
+  let { help, active = false, children, trailing, class: className, ...rest }: Props = $props();
 </script>
 
 <button
+  use:helpTarget={help}
   type="button"
   aria-current={active ? 'true' : undefined}
   {...rest}

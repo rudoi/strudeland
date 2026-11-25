@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { helpTarget } from '../../lib/help/targets';
   import type { Snippet } from 'svelte';
   import type { HTMLButtonAttributes } from 'svelte/elements';
   import type { Tone } from '../../lib/theme/tones';
   import { pressedAttrs } from './button';
 
   type Props = HTMLButtonAttributes & {
+    help?: string;
     variant?: 'default' | 'primary' | 'quiet';
     /**
      * Tints text and outline, or the fill of a `primary`. Defaults to `accent` for `primary` and
@@ -21,6 +23,7 @@
   };
 
   let {
+    help,
     variant = 'default',
     tone,
     size = 'md',
@@ -36,6 +39,7 @@
 </script>
 
 <button
+  use:helpTarget={help}
   {...rest}
   {type}
   class={['btn', 'control', 'pressable', variant, size, { pressed: attrs.pressedClass }, className]}

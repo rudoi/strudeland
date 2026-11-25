@@ -1,13 +1,20 @@
 <script lang="ts">
+  import { helpTarget } from '../../lib/help/targets';
   import type { Snippet } from 'svelte';
   import type { HTMLButtonAttributes } from 'svelte/elements';
 
-  type Props = HTMLButtonAttributes & { children: Snippet };
+  type Props = HTMLButtonAttributes & { help?: string; children: Snippet };
 
-  let { children, class: className, ...rest }: Props = $props();
+  let { help, children, class: className, ...rest }: Props = $props();
 </script>
 
-<button type="button" role="menuitem" {...rest} class={['item', 'pressable', className]}>
+<button
+  use:helpTarget={help}
+  type="button"
+  role="menuitem"
+  {...rest}
+  class={['item', 'pressable', className]}
+>
   {@render children()}
 </button>
 
