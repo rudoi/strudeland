@@ -9,7 +9,7 @@ This is a refactor. Nothing a user, the CLI or the control protocol sees changes
 
 ## Background
 
-The [re-verification](0113-song-header-module/reverify.md) records the evidence on `main` at
+The [re-verification](reverify.md) records the evidence on `main` at
 8312dd9. In summary:
 
 - **The cross-field rules are written twice.** These are the rules that compare header fields with
