@@ -15,6 +15,20 @@ const descriptions = new WeakMap<Element, HTMLElement>();
 const message = writable<Message | null>(null);
 export const helpMessage = { subscribe: message.subscribe };
 
+let pendingMessage: Message | null = null;
+let awaitingPublish = false;
+
+function setHelp(next: Message | null) {
+  pendingMessage = next;
+  if (awaitingPublish) return;
+  awaitingPublish = true;
+  // A focused node can blur while Svelte is removing it. Publish after that update.
+  queueMicrotask(() => {
+    awaitingPublish = false;
+    message.set(pendingMessage);
+  });
+}
+
 const interactive = [
   'button',
   'input',
@@ -111,6 +125,7 @@ function listen(doc: Document) {
   let pointer: { x: number; y: number; element: Element | null } | undefined;
   let hoverWins = false;
   let last: Target | undefined;
+  let lastScope: HTMLDialogElement | null = null;
   let lastText: string | undefined;
   let timer: number | undefined;
   let suspended = false;
@@ -131,10 +146,11 @@ function listen(doc: Document) {
   function publish() {
     const target =
       (hoverWins && valid(hover) ? hover : undefined) ?? (valid(focus) ? focus : undefined);
-    if (target === last && target?.text === lastText) return;
+    if (target === last && target?.text === lastText && scope === lastScope) return;
     last = target;
     lastText = target?.text;
-    message.set(target ? { scope, text: target.text } : null);
+    lastScope = scope;
+    setHelp(target || scope ? { scope, text: target?.text ?? '' } : null);
   }
 
   function cancelExit() {
@@ -310,8 +326,8 @@ function listen(doc: Document) {
   doc.addEventListener('focusout', onFocus, capture);
   doc.addEventListener('keydown', onKeyboard, capture);
   doc.addEventListener('visibilitychange', onWindowFocus, capture);
-  win.addEventListener('blur', onBlur, capture);
-  win.addEventListener('focus', onWindowFocus, capture);
+  win.addEventListener('blur', onBlur, { signal: stop.signal });
+  win.addEventListener('focus', onWindowFocus, { signal: stop.signal });
 
   return {
     reset,
@@ -330,7 +346,7 @@ function listen(doc: Document) {
       cancelExit();
       observer.disconnect();
       stop.abort();
-      message.set(null);
+      setHelp(null);
     },
   };
 }

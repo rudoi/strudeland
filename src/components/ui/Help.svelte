@@ -10,16 +10,14 @@
     scope = element.closest('dialog');
   });
 
-  const text = $derived(
-    $helpMessage?.scope === scope
-      ? $helpMessage.text
-      : 'Hover over a control or use Tab to see what it does.',
-  );
+  const idle = 'Hover over a control or use Tab to see what it does.';
+  const activeText = $derived($helpMessage?.scope === scope ? $helpMessage.text : '');
+  const inactive = $derived(compact && $helpMessage?.scope != null);
 </script>
 
 <div class="help" class:compact bind:this={element} data-help-gutter aria-hidden="true">
-  <span class="label">help</span>
-  <span class="message">{text}</span>
+  <span class="label">{inactive ? '' : 'help'}</span>
+  <span class="message">{inactive ? '' : activeText || idle}</span>
 </div>
 
 <style>

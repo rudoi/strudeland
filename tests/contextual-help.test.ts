@@ -28,10 +28,13 @@ function keyboard(key: string) {
   document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 }
 
-const rendered = () => get(helpMessage)?.text;
+const rendered = async () => {
+  await Promise.resolve();
+  return get(helpMessage)?.text || undefined;
+};
 const mutations = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-test('the latest focus or control entry owns help, and an existing hover yields to keyboard navigation', () => {
+test('the latest focus or control entry owns help, and an existing hover yields to keyboard navigation', async () => {
   document.body.innerHTML =
     '<button id="one">one</button><button id="two"><span>two</span></button>';
   const one = element('#one');
@@ -40,19 +43,19 @@ test('the latest focus or control entry owns help, and an existing hover yields 
   registerHelpTarget(two, 'Second action.');
 
   one.focus();
-  expect(rendered()).toBe('First action.');
+  expect(await rendered()).toBe('First action.');
   hover(two);
-  expect(rendered()).toBe('Second action.');
+  expect(await rendered()).toBe('Second action.');
   keyboard('Tab');
   hover(element('#two span'));
-  expect(rendered()).toBe('First action.');
+  expect(await rendered()).toBe('First action.');
   two.focus();
-  expect(rendered()).toBe('Second action.');
+  expect(await rendered()).toBe('Second action.');
   one.focus();
-  expect(rendered()).toBe('First action.');
+  expect(await rendered()).toBe('First action.');
 });
 
-test('disabled controls and native labels can show help while nested controls own their own help', () => {
+test('disabled controls and native labels can show help while nested controls own their own help', async () => {
   document.body.innerHTML = `
     <button id="previous" disabled>previous</button>
     <label><span>tempo</span><input /></label>
@@ -63,14 +66,14 @@ test('disabled controls and native labels can show help while nested controls ow
   registerHelpTarget(element('#container'), 'Container help.');
 
   hover(element('#previous'));
-  expect(rendered()).toBe('You’re on the first page.');
+  expect(await rendered()).toBe('You’re on the first page.');
   hover(element('label span'));
-  expect(rendered()).toBe('Set quarter notes per minute.');
+  expect(await rendered()).toBe('Set quarter notes per minute.');
   hover(element('#nested'));
-  expect(rendered()).toBeUndefined();
+  expect(await rendered()).toBeUndefined();
 });
 
-test('shows the current unavailable reason when disabling a focused, hovered button blurs it', () => {
+test('shows the current unavailable reason when disabling a focused, hovered button blurs it', async () => {
   document.body.innerHTML = '<button>export</button>';
   const button = element<HTMLButtonElement>('button');
   const help = registerHelpTarget(button, 'Write the audio file.');
@@ -79,7 +82,7 @@ test('shows the current unavailable reason when disabling a focused, hovered but
   button.disabled = true;
   help.update('Choose an export folder first.');
   button.blur();
-  expect(rendered()).toBe('Choose an export folder first.');
+  expect(await rendered()).toBe('Choose an export folder first.');
 });
 
 test('keeps a stable description, merges existing IDs, and removes its own reference on cleanup', async () => {
@@ -89,8 +92,8 @@ test('keeps a stable description, merges existing IDs, and removes its own refer
   const id = input.getAttribute('aria-describedby')!.split(' ')[1]!;
   input.focus();
 
-  expect(rendered()).toBe('Change in quarter notes per minute.');
-  expect(document.getElementById(id)?.textContent).toBe(rendered());
+  expect(await rendered()).toBe('Change in quarter notes per minute.');
+  expect(document.getElementById(id)?.textContent).toBe(await rendered());
   input.setAttribute('aria-describedby', 'units invalid');
   binding.update('Enter a positive tempo.');
   await mutations();
@@ -99,7 +102,7 @@ test('keeps a stable description, merges existing IDs, and removes its own refer
   expect(input.getAttribute('aria-describedby')).toBe('units invalid ' + id);
   expect(document.getElementById(id)?.textContent).toBe('Enter a positive tempo.');
   binding.destroy();
-  expect(rendered()).toBeUndefined();
+  expect(await rendered()).toBeUndefined();
   expect(input.getAttribute('aria-describedby')).toBe('units invalid');
   expect(document.getElementById(id)).toBeNull();
 });
@@ -113,10 +116,10 @@ test('resolves a composite virtual focus before falling back to the focused cont
   registerHelpTarget(element('#suggestion'), 'Insert this suggestion.');
   await mutations();
 
-  expect(rendered()).toBe('Insert this suggestion.');
+  expect(await rendered()).toBe('Insert this suggestion.');
   input.removeAttribute('aria-activedescendant');
   await mutations();
-  expect(rendered()).toBe('Write code.');
+  expect(await rendered()).toBe('Write code.');
 });
 
 test('keeps valid help from the active modal and discards removed controls and stale view hover', async () => {
@@ -128,16 +131,21 @@ test('keeps valid help from the active modal and discards removed controls and s
   registerHelpTarget(outside, 'Outside help.');
   registerHelpTarget(inside, 'Inside help.');
   hover(outside);
-  expect(rendered()).toBe('Outside help.');
+  expect(await rendered()).toBe('Outside help.');
   resetHelp();
-  expect(rendered()).toBeUndefined();
+  expect(await rendered()).toBeUndefined();
 
   dialog.setAttribute('open', '');
   inside.focus();
+  await rendered();
   expect(get(helpMessage)).toEqual({ scope: dialog, text: 'Inside help.' });
   hover(outside);
-  expect(rendered()).toBe('Inside help.');
+  expect(await rendered()).toBe('Inside help.');
   inside.remove();
   await mutations();
-  expect(rendered()).toBeUndefined();
+  expect(await rendered()).toBeUndefined();
+  expect(get(helpMessage)?.scope).toBe(dialog);
+  dialog.remove();
+  await mutations();
+  expect(get(helpMessage)).toBeNull();
 });
