@@ -3,7 +3,6 @@ import { Text, type ChangeSpec, type EditorState, type TransactionSpec } from '@
 import { EditorView } from '@codemirror/view';
 import { get, writable, type Readable } from 'svelte/store';
 import type { EvalOutcome } from '../control/protocol';
-
 import { instrumentApplication } from '../editor/apply-instrument';
 import { claudeEdit, hasClaudeMark } from '../editor/claude-mark';
 import { formatSong } from '../editor/format-song';
@@ -614,7 +613,7 @@ export function createSession(deps: SessionDeps): Session {
     return st ? st.doc.toString() : (songs.get(path)?.diskText ?? null);
   }
 
-  /** Title, dirty and metaError of a song; recomputed only when its doc or disk text changed. */
+  /** Title, dirty and headerError of a song; recomputed only when its doc or disk text changed. */
   function derive(path: string): Derived {
     const song = songs.get(path)!;
     const doc = stateOf(path)?.doc ?? null;
@@ -1661,7 +1660,7 @@ export function createSession(deps: SessionDeps): Session {
 
     async evaluateBuffer(path, opts) {
       const text = textOf(path);
-      // Title and metaError of the text being evaluated, read before the evaluate awaits.
+      // Title and headerError of the text being evaluated, read before the evaluate awaits.
       const d = songs.has(path) ? derive(path) : null;
       const pinsError = instrumentError;
       let ok = false;
