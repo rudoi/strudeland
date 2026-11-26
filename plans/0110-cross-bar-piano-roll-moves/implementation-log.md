@@ -51,3 +51,9 @@ query context.
   when a true mask edge coincides with the viewport. The saved edit is exact.
 - Updated the README and AGENTS.md and checked the local references in the plan and
   repository guide. Follow-ups #147 and #148 depend on this task.
+
+## Final review
+
+All six GitHub CI jobs passed on the reviewed head `51bdfd9`. The user approved
+finalization and merge of [PR #33](https://github.com/rudoi/strudeland/pull/33).
+The finalization commit removes the numbered execution files named in the entry point.

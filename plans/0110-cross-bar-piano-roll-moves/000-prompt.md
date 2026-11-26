@@ -5,8 +5,6 @@ Use the current user-created checkout. The [proposal](proposal.md),
 [contract](contract.md), [refinement evidence](refinement-audit.md), and
 [requirements cross-check](loss-check.md) govern the change.
 
-Complete [exact move planning](001-planning.md), then [dock integration and
-delivery checks](002-integration.md). The user authorized automatic advancement to
-entry to the Review Gate. Keep the proposal, contract, refinement evidence, requirements
-cross-check, this entry point, and implementation log. Remove only the numbered execution
-files during Finalization.
+Implementation and validation are complete. See the [implementation log](implementation-log.md)
+for the results and follow-up tasks. The numbered execution files are retained in the
+review branch history.
