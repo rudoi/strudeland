@@ -22,7 +22,7 @@ import {
   type EventEditEntry,
 } from '../src/lib/strudel/event-edits';
 import {
-  expressionEditPeriod,
+  eventMoveSource,
   planEventEdit,
   preparePhraseEvents,
 } from '../src/lib/piano-roll/event-source';
@@ -273,6 +273,16 @@ test('a mixed-meter move saves both edges and replays its gate in partitioned qu
     to: '10/7',
     until: '12/7',
   });
+  const moved: RollNote = {
+    ...n,
+    start: '10/7',
+    end: '12/7',
+    event: { ...n.event!, entry: spec.entries[0].id },
+  };
+  expect(eventMoveSource(saved, { kind: 'song' }, moved)).toMatchObject({
+    start: '1/4',
+    end: '1/2',
+  });
   const result = editPatternEvents(p, spec);
   expect(query(result, 0, 1)).toEqual([]);
   const [whole] = query(result, 1, 2);
@@ -303,12 +313,12 @@ test('moving a later repeat keeps both edges in the original entry phase', () =>
     event: identifyEvent(later, all, true, false),
   };
   expect(n).toMatchObject({ start: '38/7', end: '40/7', event: { entry: 'r' } });
-  expect(expressionEditPeriod(code, scope.expression, n)).toBe(2);
+  expect(eventMoveSource(code, scope, n)).toMatchObject({ start: '4', end: '5', period: 2 });
   expect(
-    expressionEditPeriod(code, scope.expression, {
+    eventMoveSource(code, scope, {
       ...n,
       event: { ...n.event!, entry: 'unrelated' },
-    }),
+    })?.period,
   ).toBeUndefined();
   const move = { kind: 'move', id: n.id, start: '11/2', end: '13/2' } as const;
   const saved = apply(code, planEventEdit(code, scope, n, move));

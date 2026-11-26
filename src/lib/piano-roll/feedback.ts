@@ -103,6 +103,25 @@ export function sourceEditFeedback(
   );
 }
 
+export function projectNoteEdit(
+  note: RollNote,
+  change: Exclude<RollEdit, { kind: 'insert' }>,
+): RollNote | undefined {
+  if (change.kind === 'delete') return;
+  if (change.kind === 'pitch') return { ...note, pitch: change.pitch };
+  if (change.kind === 'resize') return { ...note, end: change.end, visibleEnd: undefined };
+
+  const moved = { ...note, start: change.start, end: change.end };
+  if (note.visibleStart === undefined && note.visibleEnd === undefined) return moved;
+  const start = Fraction(change.start);
+  const scale = Fraction(change.end).sub(start).div(Fraction(note.end).sub(note.start));
+  const moveEdge = (edge: string) =>
+    start.add(Fraction(edge).sub(note.start).mul(scale)).toFraction();
+  if (note.visibleStart !== undefined) moved.visibleStart = moveEdge(note.visibleStart);
+  if (note.visibleEnd !== undefined) moved.visibleEnd = moveEdge(note.visibleEnd);
+  return moved;
+}
+
 /** Predict changes in displayed coordinates while source and host inspection catch up. */
 export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, direct: boolean) {
   const edited: RollNote[] = [];
@@ -127,25 +146,8 @@ export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, di
       sameEventOrigin(note.event, selected.event) &&
       sameRollPosition(note, selected);
     if (note !== selected && !sameToken && !sameOccurrence) return [note];
-    if (change.kind === 'delete') return [];
-    let next: RollNote;
-    if (change.kind === 'pitch') {
-      next = { ...note, pitch: change.pitch };
-    } else if (change.kind === 'move') {
-      const start = Fraction(change.start);
-      const scale = Fraction(change.end).sub(start).div(Fraction(note.end).sub(note.start));
-      const moveEdge = (edge: string) =>
-        start.add(Fraction(edge).sub(note.start).mul(scale)).toFraction();
-      next = {
-        ...note,
-        start: change.start,
-        end: change.end,
-        ...(note.visibleStart !== undefined && { visibleStart: moveEdge(note.visibleStart) }),
-        ...(note.visibleEnd !== undefined && { visibleEnd: moveEdge(note.visibleEnd) }),
-      };
-    } else {
-      next = { ...note, end: change.end, visibleEnd: undefined };
-    }
+    const next = projectNoteEdit(note, change);
+    if (!next) return [];
     edited.push(next);
     return [next];
   });

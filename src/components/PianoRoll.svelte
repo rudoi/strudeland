@@ -3,7 +3,7 @@
   import { helpTarget, resetHelp } from '../lib/help/targets';
   import type { App } from '../lib/app';
   import type { PianoRollSnapshot } from '../lib/project/session';
-  import { DEFAULT_METER, MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
+  import { MAX_BARS, type Section } from '../lib/strudel/structure';
   import {
     hasAuthoredMoveSource,
     planRollEdit,
@@ -13,16 +13,17 @@
     targetsDefinition,
   } from '../lib/piano-roll/source';
   import {
-    expressionEditPeriod,
+    eventMoveSource,
     planEventEdit,
     preparePhraseEvents,
+    type EventEditScope,
   } from '../lib/piano-roll/event-source';
   import { cycleNumber } from '../lib/piano-roll/grid';
   import {
     crossesRollBar,
-    moveFitsSections,
+    sectionMoveConflict,
+    rollMoveTime,
     spansUseSameCps,
-    type RollMoveTime,
   } from '../lib/piano-roll/move';
   import {
     projectRollEdit,
@@ -173,22 +174,12 @@
       (mode === 'song' ? structure?.totalBars || MAX_BARS : (gridBars ?? anchor?.bars ?? MAX_BARS)),
   );
   const to = $derived(Math.min(from + windowBars, maxCycle));
-  const moveTime = $derived.by<RollMoveTime>(() => {
-    const current = structure;
-    const base = mode === 'song' ? 0 : anchorBar;
-    return {
-      end: maxCycle,
-      meterAt: (cycle) => {
-        if (!current) return DEFAULT_METER;
-        return base === undefined ? current.meter : meterAtBar(current, base + cycle);
-      },
-    };
-  });
+  const moveTime = $derived(rollMoveTime(structure, maxCycle, mode === 'song' ? 0 : anchorBar));
   const bars = $derived.by<RollBar[]>(() => {
     if (!structure) return [];
     return Array.from({ length: Math.max(0, to - from) }, (_, i) => {
       const cycle = from + i;
-      const meter = moveTime.meterAt(cycle);
+      const { meter } = moveTime.runAt(cycle);
       return {
         cycle,
         label:
@@ -380,6 +371,50 @@
     }
   }
 
+  function moveProblem(
+    code: string,
+    scope: EventEditScope,
+    note: RollNote,
+    move: Extract<RollEdit, { kind: 'move' }>,
+    direct: boolean,
+  ) {
+    if (!structure) return;
+    const origin = eventMoveSource(code, scope, note);
+    const needsMeterProof =
+      !direct &&
+      structure.meterChanges?.length &&
+      (scope.kind === 'song' || !hasAuthoredMoveSource(code, scope.expression));
+    const meterProblem = 'The source meter cannot be verified for this event move.';
+    if (scope.kind === 'expression') {
+      const placements = resolveMovePlacements(code, scope.expression);
+      const conflict =
+        placements.kind === 'sections'
+          ? sectionMoveConflict(
+              structure,
+              placements.names,
+              note,
+              move,
+              origin?.period,
+              needsMeterProof ? origin : undefined,
+            )
+          : placements.kind === 'unproved'
+            ? 'placement'
+            : undefined;
+      if (conflict === 'placement')
+        return 'This move may change another use or fall outside its section. Try editing the occurrence in In song.';
+      if (
+        conflict === 'meter' ||
+        (needsMeterProof && (!origin || !spansUseSameCps(moveTime, origin, move)))
+      )
+        return meterProblem;
+    } else if (
+      needsMeterProof &&
+      (origin?.placement !== 'song' || !spansUseSameCps(moveTime, origin))
+    ) {
+      return meterProblem;
+    }
+  }
+
   function edit(change: RollEdit) {
     if (!snapshot || !target || expressionFrom === undefined || expressionTo === undefined)
       return false;
@@ -391,47 +426,17 @@
     const note = 'id' in change ? notes.find((item) => item.id === change.id) : undefined;
     if ('id' in change && !note) return false;
     const expression = { from: expressionFrom, to: expressionTo };
-    const move =
-      change.kind === 'move' && note && crossesRollBar(note, change) ? change : undefined;
-    const placements =
-      move && mode === 'expression' && structure
-        ? resolveMovePlacements(snapshot.code, expression)
-        : undefined;
-    const period = placements && note && expressionEditPeriod(snapshot.code, expression, note);
-    if (move && note && placements && structure) {
-      if (
-        placements.kind === 'unproved' ||
-        (placements.kind === 'sections' &&
-          !moveFitsSections(structure, placements.names, note, move, period))
-      ) {
-        notice =
-          'This move may change another use or fall outside its section. Try editing the occurrence in In song.';
-        return false;
-      }
-    }
+    const scope: EventEditScope =
+      mode === 'song' ? { kind: 'song' } : { kind: 'expression', expression };
     const direct = editTarget && planRollEdit(snapshot.code, editTarget, change);
-    if (!direct && move && note && structure?.meterChanges?.length) {
-      const safeOrigin =
-        mode === 'song'
-          ? note.event?.placement === 'song' && spansUseSameCps(moveTime, note)
-          : hasAuthoredMoveSource(snapshot.code, expression) ||
-            (spansUseSameCps(moveTime, note, move) &&
-              (placements?.kind !== 'sections' ||
-                moveFitsSections(structure, placements.names, note, move, period, true)));
-      if (!safeOrigin) {
-        notice = 'The source meter cannot be verified for this event move.';
+    if (change.kind === 'move' && note && crossesRollBar(note, change)) {
+      const problem = moveProblem(snapshot.code, scope, note, change, Boolean(direct));
+      if (problem) {
+        notice = problem;
         return false;
       }
     }
-    const patches =
-      direct ||
-      (note &&
-        planEventEdit(
-          snapshot.code,
-          mode === 'song' ? { kind: 'song' } : { kind: 'expression', expression },
-          note,
-          change,
-        ));
+    const patches = direct || (note && planEventEdit(snapshot.code, scope, note, change));
     if (!patches) {
       notice = 'This edit does not fit the source pattern.';
       return false;

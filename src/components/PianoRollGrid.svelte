@@ -19,7 +19,7 @@
     type GridBar,
     type PitchRange,
   } from '../lib/piano-roll/grid';
-  import { projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
+  import { projectNoteEdit, sameRollPosition } from '../lib/piano-roll/feedback';
   import { resolveRollMove, type RollMoveTime } from '../lib/piano-roll/move';
   import type { RollBar, RollEdit, RollNote } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
@@ -386,7 +386,7 @@
     await tick();
     const focused = document.activeElement;
     if ((focused !== document.body && focused !== button) || !surface) return;
-    const destination = projectRollEdit([previous], edit, false).edited[0];
+    const destination = projectNoteEdit(previous, edit);
     const next = destination
       ? (visible.find((note) => note.id === previous.id && sameRollPosition(note, destination)) ??
         visible.find((note) => isFlashing(note) && sameRollPosition(note, destination)) ??
@@ -488,7 +488,7 @@
     const note = gesture?.note;
     const edit = gesture?.edit;
     if (!note || !edit) return;
-    const projected = projectRollEdit([note], edit, false).edited[0];
+    const projected = projectNoteEdit(note, edit);
     if (!projected) return;
     return {
       pitch: projected.pitch,

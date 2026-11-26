@@ -13,8 +13,13 @@ import {
   snapGrid,
 } from '../src/lib/piano-roll/grid';
 import type { RollNote } from '../src/lib/piano-roll/types';
-import { moveFitsSections, resolveRollMove, spansUseSameCps } from '../src/lib/piano-roll/move';
-import { buildStructure, meterAtBar } from '../src/lib/strudel/structure';
+import {
+  sectionMoveConflict,
+  resolveRollMove,
+  rollMoveTime,
+  spansUseSameCps,
+} from '../src/lib/piano-roll/move';
+import { buildStructure } from '../src/lib/strudel/structure';
 
 const { bars, width } = rollGeometry([
   { cycle: 2, label: '3', numerator: 4, denominator: 4 },
@@ -36,7 +41,7 @@ describe('musical move intervals', () => {
       { name: 'tail', bars: 2 },
     ],
   });
-  const time = { end: 3, meterAt: (bar: number) => meterAtBar(structure, bar) };
+  const time = rollMoveTime(structure, 3, 0);
 
   test('preserves a quarter note across 4/4, 7/8 and 6/8, including in reverse', () => {
     const source = { ...note(64), start: '1/4', end: '1/2' };
@@ -62,24 +67,33 @@ describe('musical move intervals', () => {
     expect(resolveRollMove(note(60), '0', '0', time)).toBeUndefined();
   });
 
+  test('crosses a long constant-meter run without accumulating a rounding error', () => {
+    const time = rollMoveTime(null, 640_000);
+    const source = { ...note(60), start: '1/3', end: '900001/3' };
+    expect(resolveRollMove(source, '1/3', '2/3', time)).toMatchObject({
+      start: '2/3',
+      end: '900002/3',
+    });
+  });
+
   test('checks every affected phase in a section and every shared section', () => {
     const a = { start: '1/4', end: '1/2' };
     const b = { start: '10/7', end: '12/7' };
-    expect(moveFitsSections(structure, ['verse'], a, b)).toBe(true);
-    expect(moveFitsSections(structure, ['verse'], a, b, 2)).toBe(false);
-    expect(moveFitsSections(structure, ['verse'], a, b, 3)).toBe(true);
-    expect(moveFitsSections(structure, ['verse', 'tail'], a, b, 3)).toBe(false);
-    expect(moveFitsSections(structure, ['verse'], b, a, 2)).toBe(false);
-    expect(moveFitsSections(structure, ['tail'], { start: '1', end: '3' }, a)).toBe(false);
+    expect(sectionMoveConflict(structure, ['verse'], a, b)).toBeUndefined();
+    expect(sectionMoveConflict(structure, ['verse'], a, b, 2)).toBe('placement');
+    expect(sectionMoveConflict(structure, ['verse'], a, b, 3)).toBeUndefined();
+    expect(sectionMoveConflict(structure, ['verse', 'tail'], a, b, 3)).toBe('placement');
+    expect(sectionMoveConflict(structure, ['verse'], b, a, 2)).toBe('placement');
+    expect(sectionMoveConflict(structure, ['tail'], { start: '1', end: '3' }, a)).toBe('placement');
     expect(spansUseSameCps(time, a, b)).toBe(false);
     expect(spansUseSameCps(time, { start: '1/2', end: '1' })).toBe(true);
     expect(spansUseSameCps(time, { start: '1/2', end: '5/4' })).toBe(false);
     const acrossChange = { start: '1/2', end: '5/4' };
     const equalLength = { start: '2', end: '71/24' };
-    expect(moveFitsSections(structure, ['verse'], acrossChange, equalLength)).toBe(true);
-    expect(moveFitsSections(structure, ['verse'], acrossChange, equalLength, undefined, true)).toBe(
-      false,
-    );
+    expect(sectionMoveConflict(structure, ['verse'], acrossChange, equalLength)).toBeUndefined();
+    expect(
+      sectionMoveConflict(structure, ['verse'], acrossChange, equalLength, undefined, acrossChange),
+    ).toBe('meter');
   });
 });
 

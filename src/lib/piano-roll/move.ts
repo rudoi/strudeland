@@ -1,5 +1,5 @@
 import { Fraction } from '@strudel/core';
-import { beatsPerBar, meterAtBar, type Meter, type SongStructure } from '../strudel/structure';
+import { beatsPerBar, DEFAULT_METER, type Meter, type SongStructure } from '../strudel/structure';
 import type { RollEdit, RollNote } from './types';
 
 type Edge = ReturnType<typeof Fraction>;
@@ -10,15 +10,48 @@ const ceil = (edge: Edge): number => -Number(edge.mul(-1).floor());
 
 export interface RollMoveTime {
   end: number;
-  meterAt(cycle: number): Meter;
+  runAt(bar: number): { from: number; to: number; meter: Meter };
 }
 
-function quarterLength(start: Edge, end: Edge, { meterAt }: RollMoveTime): Edge {
+export function rollMoveTime(
+  structure: SongStructure | null,
+  end: number,
+  writtenStart?: number,
+): RollMoveTime {
+  const base = structure?.meter ?? DEFAULT_METER;
+  const changes = structure?.meterChanges;
+  if (!changes?.length || writtenStart === undefined) {
+    const run = { from: 0, to: end, meter: base };
+    return { end, runAt: () => run };
+  }
+  return {
+    end,
+    runAt(bar) {
+      const written = writtenStart + bar;
+      let first = 0;
+      let last = changes.length;
+      while (first < last) {
+        const middle = Math.floor((first + last) / 2);
+        if (changes[middle]!.bar <= written) first = middle + 1;
+        else last = middle;
+      }
+      const change = changes[first - 1];
+      const next = changes[first];
+      return {
+        from: change ? Math.max(0, change.bar - writtenStart) : 0,
+        to: next ? Math.min(end, next.bar - writtenStart) : end,
+        meter: change?.meter ?? base,
+      };
+    },
+  };
+}
+
+function quarterLength(start: Edge, end: Edge, time: RollMoveTime): Edge {
   let length = Fraction(0);
   for (let at = start; at.lt(end);) {
-    const bar = Number(at.floor());
-    const next = end.min(Fraction(bar + 1));
-    length = length.add(next.sub(at).mul(beatsPerBar(meterAt(bar))));
+    const run = time.runAt(Number(at.floor()));
+    const next = end.min(Fraction(run.to));
+    length = length.add(next.sub(at).mul(beatsPerBar(run.meter)));
     at = next;
   }
   return length;
@@ -34,8 +67,9 @@ function atDistance(
   while (quarters.gt(0)) {
     if (direction === 1 ? at.gte(time.end) : at.lte(0)) return null;
     const bar = direction === 1 ? Number(at.floor()) : ceil(at) - 1;
-    const boundary = Fraction(direction === 1 ? bar + 1 : bar);
-    const width = beatsPerBar(time.meterAt(bar));
+    const run = time.runAt(bar);
+    const boundary = Fraction(direction === 1 ? run.to : run.from);
+    const width = beatsPerBar(run.meter);
     const available = boundary.sub(at).mul(direction).mul(width);
     if (quarters.lte(available)) return at.add(quarters.div(width).mul(direction));
     quarters = quarters.sub(available);
@@ -68,7 +102,7 @@ export function resolveRollMove(
     return null;
   const movedStart = atDistance(dest, quarterLength(start, grabbed, time), -1, time);
   if (!movedStart) return null;
-  const movedEnd = atDistance(movedStart, quarterLength(start, end, time), 1, time);
+  const movedEnd = atDistance(dest, quarterLength(grabbed, end, time), 1, time);
   if (!movedEnd) return null;
   return { kind: 'move', id: note.id, start: movedStart.toFraction(), end: movedEnd.toFraction() };
 }
@@ -82,38 +116,46 @@ export function crossesRollBar(note: Span, move: Span): boolean {
   );
 }
 
-/** Different time signatures with the same quarter-note length use the same CPS. */
-export function spansUseSameCps(time: RollMoveTime, ...spans: Span[]): boolean {
-  const width = beatsPerBar(time.meterAt(Number(Fraction(spans[0]!.start).floor())));
-  return spans.every(({ start, end }) => {
-    const until = ceil(Fraction(end));
-    for (let bar = Number(Fraction(start).floor()); bar < until; bar++) {
-      if (beatsPerBar(time.meterAt(bar)) !== width) return false;
+type ExactSpan = readonly [start: Edge, end: Edge];
+
+function sameCps(time: RollMoveTime, first: ExactSpan, ...others: ExactSpan[]): boolean {
+  const width = beatsPerBar(time.runAt(Number(first[0].floor())).meter);
+  return [first, ...others].every(([start, end]) => {
+    if (start.lt(0) || end.gt(time.end)) return false;
+    const until = ceil(end);
+    for (let bar = Number(start.floor()); bar < until;) {
+      const run = time.runAt(bar);
+      if (beatsPerBar(run.meter) !== width) return false;
+      bar = run.to;
     }
     return true;
   });
 }
 
+/** Different time signatures with the same quarter-note length use the same CPS. */
+export function spansUseSameCps(time: RollMoveTime, first: Span, ...others: Span[]): boolean {
+  const exact = ({ start, end }: Span): ExactSpan => [Fraction(start), Fraction(end)];
+  return sameCps(time, exact(first), ...others.map(exact));
+}
+
 /** A phrase restarts at cycle zero at each section, and may repeat inside it. */
-export function moveFitsSections(
+export function sectionMoveConflict(
   structure: SongStructure,
   names: readonly string[],
   note: Span,
   move: Span,
   period?: number,
-  requireSameCps = false,
-): boolean {
+  queryOrigin?: Span,
+): 'placement' | 'meter' | undefined {
   const sourceStart = Fraction(note.start);
   const sourceEnd = Fraction(note.end);
   const destStart = Fraction(move.start);
   const destEnd = Fraction(move.end);
-  return names.every((name) => {
+  const origin = queryOrigin && [Fraction(queryOrigin.start), Fraction(queryOrigin.end)];
+  for (const name of names) {
     const section = structure.sections.find((item) => item.name === name);
-    if (!section) return false;
-    const time = {
-      end: section.bars,
-      meterAt: (cycle: number) => meterAtBar(structure, section.start + cycle),
-    };
+    if (!section) return 'placement';
+    const time = rollMoveTime(structure, section.bars, section.start);
     const earliest = sourceStart.min(destStart);
     const latest = sourceEnd.max(destEnd);
     const first = period ? Number(latest.mul(-1).div(period).floor()) + 1 : 0;
@@ -126,21 +168,10 @@ export function moveFitsSections(
         d = destEnd.add(offset);
       const audible = (start: Edge, end: Edge) => end.gt(0) && start.lt(time.end);
       if (!audible(a, b) && !audible(c, d)) continue;
-      if (a.lt(0) || b.gt(time.end) || c.lt(0) || d.gt(time.end)) return false;
-      if (!quarterLength(a, b, time).eq(quarterLength(c, d, time))) return false;
-      if (
-        requireSameCps &&
-        !spansUseSameCps(
-          time,
-          { start: a.toFraction(), end: b.toFraction() },
-          {
-            start: c.toFraction(),
-            end: d.toFraction(),
-          },
-        )
-      )
-        return false;
+      if (a.lt(0) || b.gt(time.end) || c.lt(0) || d.gt(time.end)) return 'placement';
+      if (!quarterLength(a, b, time).eq(quarterLength(c, d, time))) return 'placement';
+      if (origin && !sameCps(time, [origin[0].add(offset), origin[1].add(offset)], [c, d]))
+        return 'meter';
     }
-    return true;
-  });
+  }
 }

@@ -868,16 +868,21 @@ export type MovePlacements =
 const placementMethods = new Set([...neutralControls, 's', 'sound', 'transpose']);
 const placementNames = new Set([...placementMethods, 'song', 'stack', '_pianoEdits']);
 
-/** Static authored inputs and their saved literal edits reproduce the same values at any CPS. */
-export function hasAuthoredMoveSource(code: string, span: SourceSpan): boolean {
+function locateMoveTarget(code: string, span: SourceSpan) {
   const selected = locateTarget(code, span);
   if (
-    !selected ||
-    !exact(selected.node, span) ||
-    !selected.script.staticSafe ||
-    !selected.script.placementSafe
+    selected &&
+    exact(selected.node, span) &&
+    selected.script.staticSafe &&
+    selected.script.placementSafe
   )
-    return false;
+    return selected;
+}
+
+/** Static authored inputs and their saved literal edits reproduce the same values at any CPS. */
+export function hasAuthoredMoveSource(code: string, span: SourceSpan): boolean {
+  const selected = locateMoveTarget(code, span);
+  if (!selected) return false;
   const { script } = selected;
   const grids = gridsFor(code, script);
   let node = selected.node;
@@ -918,15 +923,9 @@ function constantControl(call: AnyNode, script: Script, code: string): boolean {
 
 /** The written section clock is meaningful only along a completely phase-preserving route. */
 export function resolveMovePlacements(code: string, span: SourceSpan): MovePlacements {
-  const selected = locateTarget(code, span);
+  const selected = locateMoveTarget(code, span);
   const unproved = { kind: 'unproved' } as const;
-  if (
-    !selected ||
-    !exact(selected.node, span) ||
-    !selected.script.staticSafe ||
-    !selected.script.placementSafe
-  )
-    return unproved;
+  if (!selected) return unproved;
   const { script, node } = selected;
   const visits = [...script.visits.values()];
   const usesGlobal = (visit: Visit, name: string) => {

@@ -116,14 +116,38 @@ function expressionEntries(node: AnyNode) {
   return { entries: data.entries, array: entriesArray(spec) };
 }
 
-export function expressionEditPeriod(source: string, expression: SourceSpan, note: RollNote) {
+function periodicOffset(entry: EventEditEntry, note: RollNote) {
+  const start = Fraction(entry.to ?? entry.from[0]);
+  const end = entry.until ?? start.add(Fraction(entry.from[1]).sub(entry.from[0]));
+  const offset = Fraction(note.start).sub(start);
+  return offset.mod(entry.period).eq(0) && Fraction(note.end).sub(offset).eq(end) ? offset : null;
+}
+
+/** The runtime re-queries a saved edit's original interval, at the observed repeat phase. */
+export function eventMoveSource(source: string, scope: EventEditScope, note: RollNote) {
   const identity = note.event;
-  if (!identity?.entry) return identity?.period;
+  if (!identity) return;
   try {
-    const found = findExpression(source, expression);
-    const saved =
-      found && expressionEntries(found.node)?.entries.find((e) => e.id === identity.entry);
-    return saved?.period ?? identity.period;
+    let saved: EventEditEntry | undefined;
+    if (identity.entry) {
+      if (scope.kind === 'song') {
+        saved = songEditComment(source)?.spec.entries.find((entry) => entry.id === identity.entry);
+      } else {
+        const found = findExpression(source, scope.expression);
+        saved =
+          found && expressionEntries(found.node)?.entries.find((e) => e.id === identity.entry);
+      }
+    }
+    const origin = saved ?? identity;
+    const offset =
+      saved?.period && scope.kind === 'expression' ? periodicOffset(saved, note) : Fraction(0);
+    if (!offset) return;
+    return {
+      start: Fraction(origin.from[0]).add(offset).toFraction(),
+      end: Fraction(origin.from[1]).add(offset).toFraction(),
+      period: origin.period,
+      placement: origin.placement,
+    };
   } catch {
     return;
   }
@@ -211,14 +235,9 @@ export function planEventEdit(
     if (gesture.kind === 'pitch') entry.key = gesture.pitch;
     if (gesture.kind === 'move') {
       const sourceLength = Fraction(entry.from[1]).sub(entry.from[0]);
-      let offset = Fraction(0);
-      if (scope.kind === 'expression' && prior?.period !== undefined) {
-        const previousStart = Fraction(prior.to ?? prior.from[0]);
-        offset = Fraction(note.start).sub(previousStart);
-        if (!offset.mod(prior.period).eq(0)) return null;
-        const previousEnd = prior.until ?? previousStart.add(sourceLength);
-        if (!Fraction(note.end).sub(offset).eq(previousEnd)) return null;
-      }
+      const offset =
+        scope.kind === 'expression' && prior?.period ? periodicOffset(prior, note) : Fraction(0);
+      if (!offset) return null;
       const start = Fraction(gesture.start).sub(offset);
       const end = Fraction(gesture.end).sub(offset);
       entry.to = start.toFraction();
