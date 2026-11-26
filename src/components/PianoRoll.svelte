@@ -3,15 +3,27 @@
   import { helpTarget, resetHelp } from '../lib/help/targets';
   import type { App } from '../lib/app';
   import type { PianoRollSnapshot } from '../lib/project/session';
-  import { MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
+  import { DEFAULT_METER, MAX_BARS, meterAtBar, type Section } from '../lib/strudel/structure';
   import {
+    hasAuthoredMoveSource,
     planRollEdit,
+    resolveMovePlacements,
     resolveRollTarget,
     rollSourceHasSyntax,
     targetsDefinition,
   } from '../lib/piano-roll/source';
-  import { planEventEdit, preparePhraseEvents } from '../lib/piano-roll/event-source';
+  import {
+    expressionEditPeriod,
+    planEventEdit,
+    preparePhraseEvents,
+  } from '../lib/piano-roll/event-source';
   import { cycleNumber } from '../lib/piano-roll/grid';
+  import {
+    crossesRollBar,
+    moveFitsSections,
+    spansUseSameCps,
+    type RollMoveTime,
+  } from '../lib/piano-roll/move';
   import {
     projectRollEdit,
     reconcileRollNotes,
@@ -49,7 +61,7 @@
     index: number;
     mode: typeof mode;
   } | null>(null);
-  let anchorChoice = $state.raw<{ context: string; name: string } | null>(null);
+  let anchorChoice = $state.raw<{ contexts: ReadonlySet<string>; name: string } | null>(null);
   let shared = $state.raw<{ context: string; name: string } | null>(null);
   let approvedDraft = $state.raw<{ song: string; code: string }>();
   let retained = $state.raw<{ snapshot: PianoRollSnapshot; target: RollTarget }>();
@@ -107,19 +119,20 @@
     (definitionMode ? definition?.expression : target?.expression)?.from,
   );
   const expressionTo = $derived((definitionMode ? definition?.expression : target?.expression)?.to);
+  const chosenAnchorName = $derived(
+    anchorChoice?.contexts.has(contextKey) ? anchorChoice.name : undefined,
+  );
   const relevantSections = $derived.by(() => {
     const names = new Set(target?.sections);
     for (const use of definition?.uses ?? []) {
       for (const name of use.sections) names.add(name);
     }
-    if (anchorChoice?.context === contextKey && anchorChoice) names.add(anchorChoice.name);
+    if (chosenAnchorName) names.add(chosenAnchorName);
     return structure?.sections.filter((section) => names.has(section.name)) ?? [];
   });
   const anchor = $derived.by(() => {
-    if (anchorChoice?.context === contextKey) {
-      const chosen = relevantSections.find((section) => section.name === anchorChoice?.name);
-      if (chosen) return chosen;
-    }
+    const chosen = relevantSections.find((section) => section.name === chosenAnchorName);
+    if (chosen) return chosen;
     return (
       relevantSections.find((section) => target?.sections.includes(section.name)) ??
       relevantSections[0]
@@ -160,12 +173,22 @@
       (mode === 'song' ? structure?.totalBars || MAX_BARS : (gridBars ?? anchor?.bars ?? MAX_BARS)),
   );
   const to = $derived(Math.min(from + windowBars, maxCycle));
+  const moveTime = $derived.by<RollMoveTime>(() => {
+    const current = structure;
+    const base = mode === 'song' ? 0 : anchorBar;
+    return {
+      end: maxCycle,
+      meterAt: (cycle) => {
+        if (!current) return DEFAULT_METER;
+        return base === undefined ? current.meter : meterAtBar(current, base + cycle);
+      },
+    };
+  });
   const bars = $derived.by<RollBar[]>(() => {
     if (!structure) return [];
     return Array.from({ length: Math.max(0, to - from) }, (_, i) => {
       const cycle = from + i;
-      const written = mode === 'song' ? cycle : anchorBar === undefined ? null : anchorBar + cycle;
-      const meter = written === null ? structure.meter : meterAtBar(structure, written);
+      const meter = moveTime.meterAt(cycle);
       return {
         cycle,
         label:
@@ -303,7 +326,7 @@
 
   function changeAnchor(section: Section | undefined) {
     if (snapshot && section) {
-      anchorChoice = { context: contextKey, name: section.name };
+      anchorChoice = { contexts: new Set([contextKey]), name: section.name };
       page = null;
     }
   }
@@ -336,7 +359,7 @@
   function reveal(context: PianoRollSnapshot, span: SourceSpan, section?: Section) {
     mode = 'expression';
     session.revealPianoRoll(context, span);
-    if (section) anchorChoice = { context: contextKey, name: section.name };
+    if (section) anchorChoice = { contexts: new Set([contextKey]), name: section.name };
   }
 
   function goToNote(note: RollNote) {
@@ -368,7 +391,33 @@
     const note = 'id' in change ? notes.find((item) => item.id === change.id) : undefined;
     if ('id' in change && !note) return false;
     const expression = { from: expressionFrom, to: expressionTo };
+    const move =
+      change.kind === 'move' && note && crossesRollBar(note, change) ? change : undefined;
+    if (move && note && mode === 'expression' && structure) {
+      const placements = resolveMovePlacements(snapshot.code, expression);
+      const period = expressionEditPeriod(snapshot.code, expression, note);
+      if (
+        placements.kind === 'unproved' ||
+        (placements.kind === 'sections' &&
+          !moveFitsSections(structure, placements.names, note, move, period))
+      ) {
+        notice =
+          'This move may change another use or fall outside its section. Try editing the occurrence in In song.';
+        return false;
+      }
+    }
     const direct = editTarget && planRollEdit(snapshot.code, editTarget, change);
+    if (!direct && move && note && structure?.meterChanges?.length) {
+      const safeOrigin =
+        mode === 'song'
+          ? note.event?.placement === 'song' && spansUseSameCps(moveTime, note)
+          : hasAuthoredMoveSource(snapshot.code, expression) ||
+            spansUseSameCps(moveTime, note, move);
+      if (!safeOrigin) {
+        notice = 'The source meter cannot be verified for this event move.';
+        return false;
+      }
+    }
     const patches =
       direct ||
       (note &&
@@ -404,8 +453,10 @@
         target: { ...nextTarget, gridRow: previousGridRow ?? nextTarget.gridRow },
       };
     }
-    if (anchorChoice?.context === previousContext)
-      anchorChoice = { ...anchorChoice, context: contextKey };
+    if (anchorChoice?.contexts.has(previousContext) && !anchorChoice.contexts.has(contextKey)) {
+      // The earlier offsets identify this same target again after undo.
+      anchorChoice = { ...anchorChoice, contexts: new Set([...anchorChoice.contexts, contextKey]) };
+    }
     if (shared?.context === previousContext) shared = { ...shared, context: contextKey };
     goToPage(previousPage);
     if (wasApproved) approvedDraft = { song: songKey, code: result.snapshot.code };
@@ -592,12 +643,14 @@
     <PianoRollGrid
       {notes}
       {bars}
+      {moveTime}
       editable={editTarget !== undefined || notes.length > 0}
       {gestureKey}
       focusedBar={mode === 'expression' ? target.gridRow : undefined}
       gridSteps={mode === 'expression' ? target.gridSteps : undefined}
       isFlashing={(note) => feedback?.key === gestureKey && feedback.edited.has(note.id)}
       oncancel={() => (notice = 'The editor changed during this edit.')}
+      onmoveoutside={() => (notice = 'The note would extend outside the editable range.')}
       insertable={editTarget !== undefined && phrase?.insertable === true}
       {playhead}
       onedit={edit}

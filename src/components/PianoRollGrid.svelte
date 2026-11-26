@@ -20,12 +20,14 @@
     type PitchRange,
   } from '../lib/piano-roll/grid';
   import { projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
+  import { resolveRollMove, type RollMoveTime } from '../lib/piano-roll/move';
   import type { RollBar, RollEdit, RollNote } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
 
   let {
     notes,
     bars,
+    moveTime,
     editable,
     insertable,
     gestureKey,
@@ -33,6 +35,7 @@
     gridSteps,
     isFlashing,
     oncancel,
+    onmoveoutside,
     playhead,
     onedit,
     onaudition,
@@ -40,6 +43,7 @@
   }: {
     notes: readonly RollNote[];
     bars: readonly RollBar[];
+    moveTime: RollMoveTime;
     editable: boolean;
     insertable: boolean;
     gestureKey: string;
@@ -47,6 +51,7 @@
     gridSteps?: number;
     isFlashing: (note: RollNote) => boolean;
     oncancel: () => void;
+    onmoveoutside: () => void;
     playhead?: number;
     onedit: (edit: RollEdit) => boolean;
     onaudition: (pitch: number, note?: RollNote) => void;
@@ -82,7 +87,7 @@
     lastX: number;
     lastY: number;
     free: boolean;
-    edit?: Exclude<RollEdit, { kind: 'insert' }>;
+    edit?: Exclude<RollEdit, { kind: 'insert' }> | null;
   }
 
   let gesture = $state.raw<Gesture>();
@@ -203,13 +208,10 @@
     const lastBar = bar === geometry.bars.at(-1);
     const upper = !resize && lastBar ? 1 - 1 / steps : 1;
     const snapped = snapGrid(bar, offset, steps, upper);
-    const point = shiftRollEdge(resize ? note.end : note.start, anchor, snapped);
+    if (!resize) return resolveRollMove(note, anchor, snapped, moveTime);
+    const point = shiftRollEdge(note.end, anchor, snapped);
     const value = cycleNumber(point);
-    if (resize)
-      return value > start && value !== end
-        ? { kind: 'resize', id: note.id, end: point }
-        : undefined;
-    return value >= 0 && value !== start ? { kind: 'move', id: note.id, start: point } : undefined;
+    return value > start && value !== end ? { kind: 'resize', id: note.id, end: point } : undefined;
   }
 
   function updateGesture(current: Gesture): Gesture {
@@ -297,7 +299,8 @@
           lastY: event.clientY,
           free: event.altKey,
         });
-        if (edit && onedit(edit)) {
+        if (edit === null) onmoveoutside();
+        else if (edit && onedit(edit)) {
           void restoreNoteFocus(event.currentTarget as HTMLButtonElement, current.note, edit);
         }
       }
@@ -307,8 +310,8 @@
   function noteHelp(note: RollNote): string {
     if (editable && note.timeEditable) {
       return note.pitchEditable
-        ? 'Drag to move or retune. Shift+Left or Right resizes. Delete removes.'
-        : 'Drag to move in time. Shift+Left or Right resizes. Delete removes.';
+        ? 'Drag to move or retune. Left or Right moves without changing musical duration.'
+        : 'Drag or press Left or Right to move without changing musical duration.';
     }
     if (editable && note.pitchEditable) return 'Drag up or down to change pitch.';
     if (canShowSource(note)) return 'Press Shift+Enter to find this note’s source in the editor.';
@@ -332,7 +335,7 @@
       return;
     }
     if (!editable || event.metaKey || event.ctrlKey || event.altKey) return;
-    let edit: Exclude<RollEdit, { kind: 'insert' }> | undefined;
+    let edit: Exclude<RollEdit, { kind: 'insert' }> | null | undefined;
     if (note.pitchEditable && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       const pitch = keyPitch(note.pitch + (event.key === 'ArrowUp' ? 1 : -1));
       if (pitch !== note.pitch) edit = { kind: 'pitch', id: note.id, pitch };
@@ -343,7 +346,6 @@
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         const resize = event.shiftKey;
         const delta = event.key === 'ArrowRight' ? 1 : -1;
-        const original = resize ? note.end : note.start;
         const anchor = shownEdge(note, resize);
         const edge = cycleNumber(anchor);
         const bar =
@@ -356,16 +358,21 @@
             step < 0 && previous
               ? gridPoint(previous, stepsInBar(previous) - 1, stepsInBar(previous))
               : gridPoint(bar, step, stepsInBar(bar));
-          const point = shiftRollEdge(original, anchor, snapped);
-          const value = cycleNumber(point);
-          if (resize && value > cycleNumber(note.start) && cycleNumber(snapped) <= windowEnd)
-            edit = { kind: 'resize', id: note.id, end: point };
-          if (!resize && value >= 0 && cycleNumber(snapped) < windowEnd)
-            edit = { kind: 'move', id: note.id, start: point };
+          const snappedCycle = cycleNumber(snapped);
+          if (resize && snappedCycle <= windowEnd) {
+            const point = shiftRollEdge(note.end, anchor, snapped);
+            if (cycleNumber(point) > cycleNumber(note.start))
+              edit = { kind: 'resize', id: note.id, end: point };
+          } else if (!resize && snappedCycle < windowEnd) {
+            edit = resolveRollMove(note, anchor, snapped, moveTime);
+          }
         }
       }
     }
-    if (edit) {
+    if (edit === null) {
+      event.preventDefault();
+      onmoveoutside();
+    } else if (edit) {
       event.preventDefault();
       if (onedit(edit)) void restoreNoteFocus(event.currentTarget as HTMLButtonElement, note, edit);
     }
@@ -481,15 +488,11 @@
     const note = gesture?.note;
     const edit = gesture?.edit;
     if (!note || !edit) return;
-    const start = edit.kind === 'move' ? cycleNumber(edit.start) : cycleNumber(note.start);
-    const end =
-      edit.kind === 'resize'
-        ? cycleNumber(edit.end)
-        : start + (cycleNumber(note.end) - cycleNumber(note.start));
+    const projected = projectRollEdit([note], edit, false).edited[0];
+    if (!projected) return;
     return {
-      pitch: edit.kind === 'pitch' ? edit.pitch : note.pitch,
-      left: timePercent(start),
-      width: timePercent(end) - timePercent(start),
+      pitch: projected.pitch,
+      ...markerPosition(projected),
     };
   });
 
