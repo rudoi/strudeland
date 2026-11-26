@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use strudeland_ctl::{InstrumentApplyParams, InstrumentApplyResult, Method};
+use strudeland_ctl::{InstrumentApply, InstrumentApplyParams, InstrumentApplyResult};
 use strudeland_project::{
     INSTRUMENTS_DIR, InstrumentEntry, InstrumentLibrary, Project, ProjectError,
 };
 
 use super::{
-    Env, Failure, InstrumentCommand, Transport, call, emit, offline_project, params,
-    read_utf8_file, stdout_only,
+    Env, Failure, InstrumentCommand, Transport, call, emit, offline_project, read_utf8_file,
+    stdout_only,
 };
 
 #[derive(Serialize)]
@@ -112,7 +112,7 @@ impl Instruments<'_> {
             to: request.to,
             expect: request.expect,
         };
-        let (_, result) = call(self.transport, Method::InstrumentApply, params(&args))?;
+        let (_, result) = call::<InstrumentApply>(self.transport, &args)?;
         Ok(result)
     }
 }

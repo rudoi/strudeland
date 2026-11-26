@@ -161,7 +161,10 @@ the V8 download the host brings.
   instrument operations with its local stdio MCP server in `src/run/mcp.rs`.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,
   blocking `Client`). Windows uses per-user named pipes. Linux uses private XDG Unix sockets
-  with peer credentials. No Tauri dependency.
+  with peer credentials. No Tauri dependency. `tests/wire/` the golden wire examples
+  (hand-written, prettier-formatted), read by `tests/wire.rs`, the TS control tests
+  (`tests/helpers/wire-examples.ts`) and, through the dev-only `wire-fixtures` feature, the
+  CLI's and the app's tests.
 - `crates/strudeland-cli/` the `strudeland` command (clap, output, exit codes) over
   `strudeland-ctl`. `src/docs.rs` plus `strudel-docs.json` are the embedded Strudel docs (`strudeland
   docs`); `scripts/extract-strudel-docs.ts` generates the JSON from
@@ -348,10 +351,19 @@ the V8 download the host brings.
 - A change to the CLI's commands, flags, output or exit codes updates
   `crates/strudeland-cli/skill/SKILL.md` in the same change. A test checks that every subcommand
   and long flag is mentioned, but it cannot check what the text says about them.
-- Only `src/lib/control/api.ts` calls Tauri for the control socket. Protocol error codes live in
-  `strudeland-ctl` and are mirrored in `src/lib/control/protocol.ts`; a test cross-checks them. Method names are cross-checked the same
-  way (`METHOD_NAMES` in `protocol.ts`). A change to the `state` result's fields updates `methods.rs`,
-  `protocol.ts`, `handler.ts`, the CLI formatter and `SKILL.md` together.
+- Only `src/lib/control/api.ts` calls Tauri for the control socket. `strudeland-ctl` owns the
+  method table (`Method`, one `Rpc` marker per method), the error codes and the `events`
+  limits; the CLI calls only through `Rpc` markers. The wire examples in
+  `crates/strudeland-ctl/tests/wire/` (one JSON file per method, plus `errors.json` and
+  `limits.json`) are the cross-check: Rust round-trips them through the typed params and
+  results, the webview handler accepts every params example, refuses every invalid one with
+  its exact code and message, and produces their result shape, and the CLI and app tests
+  take their fake replies from them. `protocol.ts`'s `ErrorCode`, `METHOD_NAMES` and
+  `handler.ts`'s limits are checked against them. The webview stays the only params
+  validator (Rust checks only `screenshot` and `project.open`'s absolute path). A change to
+  a method's params, result or refusal texts updates its example in the same change; a
+  change to the `state` result's fields updates `methods.rs`, `state.json`, `protocol.ts`,
+  `handler.ts`, the CLI formatter and `SKILL.md` together.
 - Song files are a plain Strudel script, evaluated exactly as on disk. The `meta` header is
   `const meta = { … }`, never `export const`: the transpiler parses code as a script. Strings in
   `meta` that the app reads (meters, section names, loop endpoints) use single quotes: the transpiler turns

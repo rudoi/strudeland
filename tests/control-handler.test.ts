@@ -6,7 +6,8 @@ afterAll(() => GlobalRegistrator.unregister());
 
 const { createSession } = await import('../src/lib/project/session');
 const { createEditorState } = await import('../src/lib/editor/setup');
-const { createControlHandler, replyTo } = await import('../src/lib/control/handler');
+const { createControlHandler, replyTo, EVENTS_LIMIT, EVENTS_LIMIT_MAX } =
+  await import('../src/lib/control/handler');
 const { createPlayArbiter } = await import('../src/lib/play-arbiter');
 const { ControlError, ErrorCode } = await import('../src/lib/control/protocol');
 const { CommandError } = await import('../src/lib/ipc/command-error');
@@ -19,6 +20,8 @@ import type { Session } from '../src/lib/project/session';
 import type { Runtime } from '../src/lib/strudel/runtime';
 import { deferred, fakeProjectApi, flush } from './helpers/fake-project-api';
 import { stubRuntime } from './helpers/stub-runtime';
+import { wireExamples, wireLimits, wireResult } from './helpers/wire-examples';
+import type { MethodName } from '../src/lib/control/protocol';
 
 /** The app's arbiter without a take or a memo. */
 const plainArbiter = (session: Session, runtime: Runtime) =>
@@ -82,6 +85,85 @@ async function setup(
   };
   return { api, fake, rt, view, session, handle, st, item, doc, fail };
 }
+
+/** Where `expectWireShape` does not descend: an event's value is a free map. */
+const FREE_PATHS = new Set(['events[].value']);
+
+/**
+ * The key paths at which `actual` and `example` differ in shape: their key sets differ, or one is
+ * an object, an array or a scalar and the other is not. A key where either side is `null` is not
+ * compared further, and an array's elements are compared with the example's first element when
+ * both arrays are non-empty. A key whose value is `undefined` is absent, as `JSON.stringify` drops
+ * it from the reply.
+ */
+function wireShapeDiff(actual: unknown, example: unknown, path = ''): string[] {
+  if (actual === null || example === null || FREE_PATHS.has(path)) return [];
+  const kind = (v: unknown) =>
+    Array.isArray(v) ? 'array' : typeof v === 'object' ? 'object' : 'scalar';
+  if (kind(actual) !== kind(example)) {
+    return [`${path || '.'}: ${kind(actual)} where the example has ${kind(example)}`];
+  }
+  if (Array.isArray(actual) && Array.isArray(example)) {
+    if (example.length === 0) return [];
+    return actual.flatMap((a) => wireShapeDiff(a, example[0], `${path}[]`));
+  }
+  if (kind(actual) !== 'object') return [];
+  const a = actual as Record<string, unknown>;
+  const e = example as Record<string, unknown>;
+  const at = (k: string) => (path ? `${path}.${k}` : k);
+  const keys = (o: Record<string, unknown>) => Object.keys(o).filter((k) => o[k] !== undefined);
+  const has = (o: Record<string, unknown>, k: string) => o[k] !== undefined;
+  const diffs = [
+    ...keys(a)
+      .filter((k) => !has(e, k))
+      .map((k) => `${at(k)}: not in the example`),
+    ...keys(e)
+      .filter((k) => !has(a, k))
+      .map((k) => `${at(k)}: missing`),
+  ];
+  for (const k of keys(a)) {
+    if (k in e) diffs.push(...wireShapeDiff(a[k], e[k], at(k)));
+  }
+  return diffs;
+}
+
+/** `actual` has the key shape of `method`'s wire result `resultName`. */
+function expectWireShape(actual: unknown, method: MethodName, resultName: string) {
+  expect(wireShapeDiff(actual, wireResult(method, resultName))).toEqual([]);
+}
+
+describe('expectWireShape', () => {
+  test('values are not compared', () => {
+    expect(wireShapeDiff({ a: 1 }, { a: 2 })).toEqual([]);
+  });
+
+  test('an extra key fails', () => {
+    expect(wireShapeDiff({ a: 1, b: 1 }, { a: 1 })).toEqual(['b: not in the example']);
+  });
+
+  test('a key whose value is undefined is absent', () => {
+    expect(wireShapeDiff({ a: 1, b: undefined }, { a: 1 })).toEqual([]);
+    expect(wireShapeDiff({ a: undefined }, { a: 1 })).toEqual(['a: missing']);
+  });
+
+  test('a null side is not compared further', () => {
+    expect(wireShapeDiff({ a: null }, { a: { x: 1 } })).toEqual([]);
+  });
+
+  test('a missing key, a nested key and an array element fail by path', () => {
+    expect(wireShapeDiff({ a: { b: [{ c: 1 }] } }, { a: { b: [{ d: 1 }] }, e: 1 })).toEqual([
+      'e: missing',
+      'a.b[].c: not in the example',
+      'a.b[].d: missing',
+    ]);
+  });
+
+  test("an event's value is a free map", () => {
+    expect(
+      wireShapeDiff({ events: [{ value: { s: 'a', n: 1 } }] }, { events: [{ value: { s: 'b' } }] }),
+    ).toEqual([]);
+  });
+});
 
 // ---------------------------------------------------------------- state
 
@@ -177,12 +259,14 @@ describe('state', () => {
 describe('code.get', () => {
   test('the active song by default, with live edits', async () => {
     const h = await setup();
-    expect(await h.handle('code.get', {})).toEqual({
+    const r = await h.handle('code.get', {});
+    expect(r).toEqual({
       song: PA,
       title: 'Alpha',
       code: A,
       dirty: false,
     });
+    expectWireShape(r, 'code.get', 'example');
     h.view.dispatch({ changes: { from: 0, insert: '// x\n' } });
     expect(await h.handle('code.get', {})).toEqual({
       song: PA,
@@ -414,6 +498,7 @@ describe('code.set', () => {
       const h = await setup();
       await h.handle('eval', {});
       const r = (await h.handle('code.set', { code: A + '// more' })) as any;
+      expectWireShape(r, 'code.set', 'evaluated');
       expect(r.evaluated).toEqual({
         ok: true,
         song: PA,
@@ -535,6 +620,8 @@ describe('eval and play', () => {
     };
     expect(e).toEqual(outcome);
     expect(p).toEqual(outcome);
+    expectWireShape(e, 'eval', 'ok');
+    expectWireShape(p, 'play', 'ok');
     expect(h.rt.evaluated).toEqual([A + '// x', A + '// x']);
     expect(h.fake.files().get(PA)).toBe(A);
     expect(h.item(PA).dirty).toBe(true);
@@ -598,7 +685,9 @@ describe('stop', () => {
     const before = h.rt.stops();
     expect(await h.handle('stop', {})).toEqual({ wasPlaying: false });
     await h.handle('play', {});
-    expect(await h.handle('stop', {})).toEqual({ wasPlaying: true });
+    const r = await h.handle('stop', {});
+    expect(r).toEqual({ wasPlaying: true });
+    expectWireShape(r, 'stop', 'example');
     expect(get(h.rt.runtime.store).started).toBe(false);
     expect(h.rt.stops()).toBe(before + 2);
   });
@@ -607,42 +696,13 @@ describe('stop', () => {
 // ---------------------------------------------------------------- params
 
 describe('invalid params', () => {
-  const cases: [string, Parameters<ControlHandler>[0], unknown, string][] = [
-    ['non-object', 'code.get', [], 'expected an object'],
-    ['null', 'eval', null, 'expected an object'],
-    ['a string', 'code.set', 'x', 'expected an object'],
-    ['unknown key', 'code.get', { song: 'a', foo: 1 }, `unknown parameter 'foo'`],
-    ['unknown key on state', 'state', { verbose: true }, `unknown parameter 'verbose'`],
-    ['unknown key on stop', 'stop', { now: true }, `unknown parameter 'now'`],
-    ['non-object on stop', 'stop', 1, 'expected an object'],
-    ['empty song', 'play', { song: '' }, `'song' must be a non-empty string`],
-    ['numeric song', 'eval', { song: 3 }, `'song' must be a non-empty string`],
-    ['missing code', 'code.set', {}, `'code' must be a string`],
-    ['non-string code', 'code.set', { code: 1 }, `'code' must be a string`],
-    [
-      'bad eval',
-      'code.set',
-      { code: '', eval: 'alwys' },
-      `'eval' must be "auto", "always" or "never"`,
-    ],
-    ['bad expect', 'code.set', { code: '', expect: 3 }, `'expect' must be a string`],
-  ];
-  for (const [name, method, params, detail] of cases) {
-    test(name, async () => {
-      const h = await setup();
-      const stops = h.rt.stops();
-      expect(await h.fail(method, params)).toEqual({
-        code: ErrorCode.INVALID_PARAMS,
-        message: `invalid params: ${detail}`,
-      });
-      expect(h.doc()).toBe(A);
-      expect(h.rt.stops()).toBe(stops);
+  // `parse_request` turns null params into `{}`, so this one has no wire example.
+  test('null params are not an object', async () => {
+    const h = await setup();
+    expect(await h.fail('eval', null)).toEqual({
+      code: ErrorCode.INVALID_PARAMS,
+      message: 'invalid params: expected an object',
     });
-  }
-
-  test('params are checked before the project', async () => {
-    const h = await setup({ last: null });
-    expect((await h.fail('code.set', {})).code).toBe(ErrorCode.INVALID_PARAMS);
   });
 
   test('an empty code string is allowed', async () => {
@@ -774,7 +834,9 @@ describe('events', () => {
     const h = await evaluated();
     h.rt.setQuery([onset(1.5, 2, { s: 'b', _x: 1 }), onset(0, 1, { s: 'a' })]);
     h.rt.patch({ tempoOverride: true, meter: { num: 3, den: 4 } });
-    expect(await h.handle('events', {})).toEqual({
+    const r = await h.handle('events', {});
+    expectWireShape(r, 'events', 'stale');
+    expect(r).toEqual({
       song: { path: PA, title: 'Alpha' },
       from: 1,
       to: 4,
@@ -972,59 +1034,11 @@ describe('events', () => {
     });
   });
 
-  const bad: [string, unknown, string][] = [
-    ['non-object', 3, 'expected an object'],
-    ['unknown key', { bar: 1 }, `unknown parameter 'bar'`],
-    [
-      'bars and section',
-      { bars: { from: 1, to: 2 }, section: 'a' },
-      'bars and section are mutually exclusive',
-    ],
-    ['bars not an object', { bars: 3 }, `'bars' must be an object with 'from' and 'to'`],
-    [
-      'bars extra key',
-      { bars: { from: 1, to: 2, by: 1 } },
-      `'bars' must be an object with 'from' and 'to'`,
-    ],
-    ['bars missing to', { bars: { from: 1 } }, `'bars.from' and 'bars.to' must be integers >= 1`],
-    ['from < 1', { bars: { from: 0, to: 2 } }, `'bars.from' and 'bars.to' must be integers >= 1`],
-    [
-      'non-integer',
-      { bars: { from: 1.5, to: 2 } },
-      `'bars.from' and 'bars.to' must be integers >= 1`,
-    ],
-    [
-      'string bars',
-      { bars: { from: '1', to: 2 } },
-      `'bars.from' and 'bars.to' must be integers >= 1`,
-    ],
-    ['from > to', { bars: { from: 3, to: 2 } }, `'bars.from' must not be after 'bars.to'`],
-    ['empty section', { section: '' }, `'section' must be a non-empty string`],
-    ['numeric section', { section: 1 }, `'section' must be a non-empty string`],
-    ['non-boolean all', { all: 'yes' }, `'all' must be a boolean`],
-    ['limit 0', { limit: 0 }, `'limit' must be an integer from 1 to 100000`],
-    ['limit too large', { limit: 100001 }, `'limit' must be an integer from 1 to 100000`],
-    ['fractional limit', { limit: 1.5 }, `'limit' must be an integer from 1 to 100000`],
-  ];
-  for (const [name, params, detail] of bad) {
-    test(`invalid params: ${name}`, async () => {
-      const h = await evaluated();
-      expect(await h.fail('events', params)).toEqual({
-        code: ErrorCode.INVALID_PARAMS,
-        message: `invalid params: ${detail}`,
-      });
-      expect(h.rt.queries()).toEqual([]);
-    });
-  }
-
-  test('params are checked before anything was evaluated', async () => {
-    const h = await setup();
-    expect((await h.fail('events', { limit: 0 })).code).toBe(ErrorCode.INVALID_PARAMS);
-  });
-
   test('the largest limit is accepted', async () => {
     const h = await evaluated();
-    expect(await h.handle('events', { limit: 100000 })).toMatchObject({ truncated: false });
+    expect(await h.handle('events', { limit: wireLimits.eventsLimitMax })).toMatchObject({
+      truncated: false,
+    });
   });
 });
 
@@ -1188,7 +1202,10 @@ describe('state: playhead, transport and outputError', () => {
     h.rt.patch({ structure });
     h.rt.setPosition({ cycle: 3, located: { section: 1, localCycle: 1, songBar: 3 } });
     h.session.playback.arm({ loop: 'intro', through: 'body' });
-    expect(await h.handle('state', {})).toMatchObject({
+    h.rt.patch({ seed: 7 });
+    const state = await h.handle('state', {});
+    expectWireShape(state, 'state', 'full');
+    expect(state).toMatchObject({
       meter: '3/8',
       cps: 4 / 3,
       bpm: 120,
@@ -1212,18 +1229,21 @@ describe('state: playhead, transport and outputError', () => {
     const state = (await h.handle('state', {})) as any;
     expect(state.engine).toBe('rust');
     expect(state.live).toEqual(live);
+    expect(wireShapeDiff(state.live, wireResult('state', 'full').live, 'live')).toEqual([]);
   });
 
   test('levels: null before a frame, a summary after, the limiter follows the store', async () => {
     const h = await setup();
     expect(((await h.handle('state', {})) as any).levels).toBeNull();
     h.rt.setLevels({ peak: [0, 1.274], overs: 12, limitDb: -2.3 });
-    expect(((await h.handle('state', {})) as any).levels).toEqual({
+    const levels = ((await h.handle('state', {})) as any).levels;
+    expect(levels).toEqual({
       peakDb: [null, 2.1],
       overs: 12,
       limitDb: -2.3,
       limiter: false,
     });
+    expect(wireShapeDiff(levels, wireResult('state', 'full').levels, 'levels')).toEqual([]);
     h.rt.patch({ limiter: true });
     h.rt.setLevels({ peak: [0.5, 0.0001], overs: 0, limitDb: 0 });
     expect(((await h.handle('state', {})) as any).levels).toEqual({
@@ -1265,9 +1285,11 @@ const snapshot = async (h: Awaited<ReturnType<typeof setup>>) => ({
 describe('song.new', () => {
   test('creates the song, switches to it and returns its ref', async () => {
     const h = await setup();
-    expect(await h.handle('song.new', { name: 'intro' })).toEqual({
+    const r = await h.handle('song.new', { name: 'intro' });
+    expect(r).toEqual({
       song: { path: 'songs/intro.js', title: 'intro' },
     });
+    expectWireShape(r, 'song.new', 'example');
     expect(h.st().active).toBe('songs/intro.js');
     expect(h.fake.files().has('songs/intro.js')).toBe(true);
   });
@@ -1295,15 +1317,6 @@ describe('song.new', () => {
     const h = await setup();
     expect((await h.fail('song.new', { name: 'x.js' })).code).toBe(ErrorCode.INVALID_PARAMS);
     expect((await h.fail('song.new', { name: ' x' })).code).toBe(ErrorCode.INVALID_PARAMS);
-  });
-
-  test('params: missing, wrong type, unknown key', async () => {
-    const h = await setup();
-    expect((await h.fail('song.new', {})).message).toBe(`invalid params: 'name' must be a string`);
-    expect((await h.fail('song.new', { name: 1 })).code).toBe(ErrorCode.INVALID_PARAMS);
-    expect((await h.fail('song.new', { name: 'x', foo: 1 })).message).toBe(
-      `invalid params: unknown parameter 'foo'`,
-    );
   });
 
   test('no project open', async () => {
@@ -1363,9 +1376,11 @@ describe('song.new', () => {
 describe('song.switch', () => {
   test('shows the song and returns its ref', async () => {
     const h = await setup();
-    expect(await h.handle('song.switch', { song: 'b' })).toEqual({
+    const r = await h.handle('song.switch', { song: 'b' });
+    expect(r).toEqual({
       song: { path: PB, title: 'b' },
     });
+    expectWireShape(r, 'song.switch', 'example');
     expect(h.st().active).toBe(PB);
   });
 
@@ -1375,14 +1390,6 @@ describe('song.switch', () => {
       song: { path: PA, title: 'Alpha' },
     });
     expect(await h.handle('song.switch', { song: 'b.js' })).toMatchObject({ song: { path: PB } });
-  });
-
-  test('song is required', async () => {
-    const h = await setup();
-    expect(await h.fail('song.switch', {})).toEqual({
-      code: ErrorCode.INVALID_PARAMS,
-      message: `invalid params: 'song' is required`,
-    });
   });
 
   test('unknown song', async () => {
@@ -1401,10 +1408,9 @@ describe('song.switch', () => {
     expect(h.st().active).toBe(PA);
   });
 
-  test('no project open; unknown key', async () => {
+  test('no project open', async () => {
     const h = await setup({ last: null });
     expect((await h.fail('song.switch', { song: 'a' })).code).toBe(ErrorCode.NO_PROJECT);
-    expect((await h.fail('song.switch', { song: 'a', x: 1 })).code).toBe(ErrorCode.INVALID_PARAMS);
   });
 });
 
@@ -1412,10 +1418,12 @@ describe('song.rename', () => {
   test('renames the active song by default and keeps unsaved edits', async () => {
     const h = await setup();
     dirtyActive(h);
-    expect(await h.handle('song.rename', { name: 'intro' })).toEqual({
+    const r = await h.handle('song.rename', { name: 'intro' });
+    expect(r).toEqual({
       from: { path: PA, title: 'Alpha' },
       to: { path: 'songs/intro.js', title: 'Alpha' },
     });
+    expectWireShape(r, 'song.rename', 'example');
     expect(h.st().active).toBe('songs/intro.js');
     expect(h.item('songs/intro.js').dirty).toBe(true);
     expect(h.doc()).toBe(A + '// x');
@@ -1498,15 +1506,12 @@ describe('song.rename', () => {
     });
   });
 
-  test('params: missing name, wrong types, unknown key', async () => {
+  test('params: missing name, wrong type', async () => {
     const h = await setup();
     expect((await h.fail('song.rename', { song: 'b' })).message).toBe(
       `invalid params: 'name' must be a string`,
     );
     expect((await h.fail('song.rename', { song: 'b', name: 3 })).code).toBe(
-      ErrorCode.INVALID_PARAMS,
-    );
-    expect((await h.fail('song.rename', { name: 'x', foo: 1 })).code).toBe(
       ErrorCode.INVALID_PARAMS,
     );
   });
@@ -1515,10 +1520,12 @@ describe('song.rename', () => {
 describe('song.delete', () => {
   test('deletes a clean song and returns its ref', async () => {
     const h = await setup();
-    expect(await h.handle('song.delete', { song: 'b' })).toEqual({
+    const r = await h.handle('song.delete', { song: 'b' });
+    expect(r).toEqual({
       song: { path: PB, title: 'b' },
       stopped: false,
     });
+    expectWireShape(r, 'song.delete', 'example');
     expect(h.fake.files().has(PB)).toBe(false);
     expect(h.st().songs.map((s) => s.path)).toEqual([PA, PM]);
   });
@@ -1584,7 +1591,6 @@ describe('song.delete', () => {
       code: ErrorCode.INVALID_PARAMS,
       message: `invalid params: 'discard' must be a boolean`,
     });
-    expect((await h.fail('song.delete', { x: 1 })).code).toBe(ErrorCode.INVALID_PARAMS);
     const e = await setup({ last: null });
     expect((await e.fail('song.delete', {})).code).toBe(ErrorCode.NO_PROJECT);
   });
@@ -1594,7 +1600,9 @@ describe('save', () => {
   test('defaults to the active song', async () => {
     const h = await setup();
     dirtyActive(h);
-    expect(await h.handle('save', {})).toEqual({ saved: [{ path: PA, title: 'Alpha' }] });
+    const r = await h.handle('save', {});
+    expect(r).toEqual({ saved: [{ path: PA, title: 'Alpha' }] });
+    expectWireShape(r, 'save', 'one');
     expect(h.fake.files().get(PA)).toBe(A + '// x');
     expect(h.item(PA).dirty).toBe(false);
   });
@@ -1635,14 +1643,6 @@ describe('save', () => {
     expect(await h.handle('save', { all: false })).toMatchObject({ saved: [{ path: PA }] });
   });
 
-  test('song and all are mutually exclusive', async () => {
-    const h = await setup();
-    expect(await h.fail('save', { song: 'a', all: true })).toEqual({
-      code: ErrorCode.INVALID_PARAMS,
-      message: `invalid params: 'song' and 'all' are mutually exclusive`,
-    });
-  });
-
   test('song with all: false saves that song', async () => {
     const h = await setup();
     await h.session.switchSong(PB);
@@ -1653,12 +1653,8 @@ describe('save', () => {
     });
   });
 
-  test('params, unknown song, no project', async () => {
+  test('unknown song, no project', async () => {
     const h = await setup();
-    expect((await h.fail('save', { all: 1 })).message).toBe(
-      `invalid params: 'all' must be a boolean`,
-    );
-    expect((await h.fail('save', { x: 1 })).code).toBe(ErrorCode.INVALID_PARAMS);
     expect((await h.fail('save', { song: 'zz' })).code).toBe(ErrorCode.NO_SUCH_SONG);
     const e = await setup({ last: null });
     expect((await e.fail('save', {})).code).toBe(ErrorCode.NO_PROJECT);
@@ -1692,10 +1688,12 @@ describe('save', () => {
 describe('project.open', () => {
   test('opens another project', async () => {
     const h = await setup();
-    expect(await h.handle('project.open', { path: '/empty' })).toEqual({
+    const r = await h.handle('project.open', { path: '/empty' });
+    expect(r).toEqual({
       project: { name: 'Empty', root: '/empty' },
       alreadyOpen: false,
     });
+    expectWireShape(r, 'project.open', 'example');
     expect(h.st().project?.root).toBe('/empty');
   });
 
@@ -1766,19 +1764,6 @@ describe('project.open', () => {
     release.resolve();
     await ui;
   });
-
-  test('params: missing path, wrong types, unknown key', async () => {
-    const h = await setup();
-    expect((await h.fail('project.open', {})).message).toBe(
-      `invalid params: 'path' must be a string`,
-    );
-    expect((await h.fail('project.open', { path: '/p', discard: 1 })).message).toBe(
-      `invalid params: 'discard' must be a boolean`,
-    );
-    expect((await h.fail('project.open', { path: '/p', x: 1 })).code).toBe(
-      ErrorCode.INVALID_PARAMS,
-    );
-  });
 });
 
 describe('instrument.apply', () => {
@@ -1799,11 +1784,13 @@ describe('instrument.apply', () => {
     h.view.dispatch({ selection: { anchor: to, head: from } });
     expect(h.session.instrumentSelection()).toEqual({ root: '/p', song: PA, from, to, expect: A });
     const insert = '(s("a")).apply(instruments.lead())';
-    expect(await h.handle('instrument.apply', request)).toEqual({
+    const r = await h.handle('instrument.apply', request);
+    expect(r).toEqual({
       song: PA,
       from,
       to: from + insert.length,
     });
+    expectWireShape(r, 'instrument.apply', 'example');
     expect(h.doc()).toBe(A.slice(0, from) + insert + A.slice(to));
     expect(h.item(PA).dirty).toBe(true);
     expect(get(h.session.playback.store).evaluated).toBeNull();
@@ -1903,5 +1890,106 @@ describe('instrument.apply', () => {
     expect((await applying).code).toBe(ErrorCode.SONG_CHANGED);
     expect(h.doc()).toBe(A + '// new edit');
     h.view.destroy();
+  });
+});
+
+// ---------------------------------------------------------------- wire examples
+
+describe('wire examples', () => {
+  const webview = wireExamples().filter((e) => e.answeredBy === 'webview');
+
+  describe('accepted', () => {
+    for (const ex of webview) {
+      for (const entry of ex.params) {
+        test(`${ex.method} ${entry.name}`, async () => {
+          const h = await setup();
+          const method = ex.method as Parameters<ControlHandler>[0];
+          try {
+            await h.handle(method, entry.value);
+          } catch (e) {
+            if (!(e instanceof ControlError)) throw e;
+            expect(e.code).not.toBe(ErrorCode.INVALID_PARAMS);
+          } finally {
+            h.view.destroy();
+          }
+        });
+      }
+    }
+  });
+
+  describe('one example succeeds', () => {
+    const states = {
+      'a project': () => setup(),
+      evaluated: () => evaluated(),
+    };
+    /**
+     * Methods none of whose examples returns a result in this harness, and why; each is checked
+     * to still fail, so a fix that makes one succeed removes it from here.
+     */
+    const NEVER_SUCCEEDS: Partial<Record<MethodName, string>> = {
+      // Its `expect` ("x") is not the text of the selection 8..18 in the harness song, so it is
+      // refused with SONG_CHANGED; `instrument.apply`'s own tests cover the accepted path.
+      'instrument.apply': 'the example expect does not match the harness song',
+    };
+    for (const ex of webview) {
+      test(ex.method, async () => {
+        const method = ex.method as Parameters<ControlHandler>[0];
+        const failures: string[] = [];
+        for (const entry of ex.params) {
+          for (const [label, make] of Object.entries(states)) {
+            const h = await make();
+            try {
+              await h.handle(method, entry.value);
+            } catch (e) {
+              if (!(e instanceof ControlError)) throw e;
+              failures.push(`${entry.name} with ${label}: ${e.message}`);
+              continue;
+            } finally {
+              h.view.destroy();
+            }
+            expect(NEVER_SUCCEEDS[ex.method]).toBeUndefined();
+            return;
+          }
+        }
+        if (NEVER_SUCCEEDS[ex.method]) return;
+        expect({ method: ex.method, failures }).toEqual({ method: ex.method, failures: [] });
+      });
+    }
+  });
+
+  describe('refused', () => {
+    const states = {
+      'a project': () => setup(),
+      'no project': () => setup({ last: null }),
+      evaluated: () => evaluated(),
+    };
+    for (const ex of webview) {
+      for (const entry of ex.invalid) {
+        test(`${ex.method} ${entry.name}`, async () => {
+          for (const [label, make] of Object.entries(states)) {
+            const h = await make();
+            const doc = h.doc();
+            const stops = h.rt.stops();
+            const queries = [...h.rt.queries()];
+            const method = ex.method as Parameters<ControlHandler>[0];
+            const got = await h.fail(method, entry.params);
+            expect({ state: label, ...got }).toEqual({
+              state: label,
+              code: entry.code,
+              message: entry.message,
+            });
+            expect(h.doc()).toBe(doc);
+            expect(h.rt.stops()).toBe(stops);
+            expect(h.rt.queries()).toEqual(queries);
+            h.view.destroy();
+          }
+        });
+      }
+    }
+  });
+
+  test('the events limits are the examples', () => {
+    expect(EVENTS_LIMIT).toBe(wireLimits.eventsLimitDefault);
+    expect(EVENTS_LIMIT_MAX).toBe(wireLimits.eventsLimitMax);
   });
 });

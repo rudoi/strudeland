@@ -1,0 +1,54 @@
+{
+  "method": "song.rename",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "active",
+      "value": {
+        "name": "intro"
+      }
+    },
+    {
+      "name": "named",
+      "value": {
+        "song": "b",
+        "name": "intro"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "from": {
+          "path": "songs/a.js",
+          "title": "a"
+        },
+        "to": {
+          "path": "songs/b.js",
+          "title": "b"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown key",
+      "params": {
+        "name": "x",
+        "foo": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'foo'"
+    },
+    {
+      "name": "empty song",
+      "params": {
+        "song": "",
+        "name": "x"
+      },
+      "code": -32602,
+      "message": "invalid params: 'song' must be a non-empty string"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "eventsLimitDefault": 2000,
+  "eventsLimitMax": 100000
+}

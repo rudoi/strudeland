@@ -1,0 +1,68 @@
+{
+  "method": "save",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "active",
+      "value": {}
+    },
+    {
+      "name": "song",
+      "value": {
+        "song": "a"
+      }
+    },
+    {
+      "name": "all",
+      "value": {
+        "all": true
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "empty",
+      "value": {
+        "saved": []
+      }
+    },
+    {
+      "name": "one",
+      "value": {
+        "saved": [
+          {
+            "path": "songs/a.js",
+            "title": "a"
+          }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "non-boolean all",
+      "params": {
+        "all": 1
+      },
+      "code": -32602,
+      "message": "invalid params: 'all' must be a boolean"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "x": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'x'"
+    },
+    {
+      "name": "song and all",
+      "params": {
+        "song": "a",
+        "all": true
+      },
+      "code": -32602,
+      "message": "invalid params: 'song' and 'all' are mutually exclusive"
+    }
+  ]
+}

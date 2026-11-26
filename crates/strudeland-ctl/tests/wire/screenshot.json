@@ -1,0 +1,73 @@
+{
+  "method": "screenshot",
+  "answeredBy": "app",
+  "params": [
+    {
+      "name": "default",
+      "value": {}
+    },
+    {
+      "name": "path",
+      "value": {
+        "path": "/tmp/a.png"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "path": "/tmp/a.png",
+        "width": 1600,
+        "height": 1000
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "non-object",
+      "params": [],
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    },
+    {
+      "name": "a string",
+      "params": "x",
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "path": "/tmp/a.png",
+        "size": 2
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'size'"
+    },
+    {
+      "name": "numeric path",
+      "params": {
+        "path": 3
+      },
+      "code": -32602,
+      "message": "invalid params: 'path' must be a string"
+    },
+    {
+      "name": "null path",
+      "params": {
+        "path": null
+      },
+      "code": -32602,
+      "message": "invalid params: 'path' must be a string"
+    },
+    {
+      "name": "relative path",
+      "params": {
+        "path": "shot.png"
+      },
+      "code": -32602,
+      "message": "invalid params: 'path' must be absolute, got shot.png"
+    }
+  ]
+}

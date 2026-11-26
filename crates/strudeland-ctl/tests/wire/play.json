@@ -1,0 +1,40 @@
+{
+  "method": "play",
+  "answeredBy": "webview",
+  "params": [
+    { "name": "active", "value": {} },
+    { "name": "stem", "value": { "song": "b" } }
+  ],
+  "results": [
+    {
+      "name": "ok",
+      "value": {
+        "ok": true,
+        "song": "songs/verse.js",
+        "title": "Verse",
+        "started": false,
+        "audio": "suspended",
+        "error": null
+      }
+    },
+    {
+      "name": "failed",
+      "value": {
+        "ok": false,
+        "song": "songs/main.js",
+        "title": "Main Theme",
+        "started": false,
+        "audio": "running",
+        "error": "sound nope not found!"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty song",
+      "params": { "song": "" },
+      "code": -32602,
+      "message": "invalid params: 'song' must be a non-empty string"
+    }
+  ]
+}

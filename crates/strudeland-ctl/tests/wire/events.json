@@ -1,0 +1,259 @@
+{
+  "method": "events",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "default",
+      "value": {}
+    },
+    {
+      "name": "bars",
+      "value": {
+        "bars": {
+          "from": 2,
+          "to": 4
+        },
+        "all": true,
+        "limit": 10
+      }
+    },
+    {
+      "name": "section",
+      "value": {
+        "section": "intro"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "stale",
+      "value": {
+        "song": {
+          "path": "songs/main.js",
+          "title": "Main Theme"
+        },
+        "from": 1,
+        "to": 1,
+        "stale": true,
+        "truncated": false,
+        "meter": "4/4",
+        "tempoOverride": false,
+        "events": [
+          {
+            "bar": 1,
+            "beat": 1.0,
+            "begin": 0.0,
+            "end": 0.25,
+            "onset": true,
+            "section": {
+              "name": "intro",
+              "bar": 1
+            },
+            "value": {
+              "s": "bd"
+            },
+            "locations": [
+              {
+                "line": 7,
+                "col": 15,
+                "endLine": 7,
+                "endCol": 17,
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "truncated",
+      "value": {
+        "song": {
+          "path": "songs/main.js",
+          "title": "Main"
+        },
+        "from": 1,
+        "to": 2,
+        "stale": false,
+        "truncated": true,
+        "meter": "4/4",
+        "tempoOverride": false,
+        "events": [
+          {
+            "bar": 1,
+            "beat": 1.0,
+            "begin": 0.0,
+            "end": 0.25,
+            "onset": true,
+            "section": {
+              "name": "intro",
+              "bar": 1
+            },
+            "value": {
+              "s": "bd"
+            },
+            "locations": [
+              {
+                "line": 2,
+                "col": 5,
+                "endLine": 2,
+                "endCol": 7,
+                "text": "s(\"bd\")"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "non-object",
+      "params": 3,
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "bar": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'bar'"
+    },
+    {
+      "name": "bars and section",
+      "params": {
+        "bars": {
+          "from": 1,
+          "to": 2
+        },
+        "section": "a"
+      },
+      "code": -32602,
+      "message": "invalid params: bars and section are mutually exclusive"
+    },
+    {
+      "name": "bars not an object",
+      "params": {
+        "bars": 3
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars' must be an object with 'from' and 'to'"
+    },
+    {
+      "name": "bars extra key",
+      "params": {
+        "bars": {
+          "from": 1,
+          "to": 2,
+          "by": 1
+        }
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars' must be an object with 'from' and 'to'"
+    },
+    {
+      "name": "bars missing to",
+      "params": {
+        "bars": {
+          "from": 1
+        }
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars.from' and 'bars.to' must be integers >= 1"
+    },
+    {
+      "name": "from < 1",
+      "params": {
+        "bars": {
+          "from": 0,
+          "to": 2
+        }
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars.from' and 'bars.to' must be integers >= 1"
+    },
+    {
+      "name": "non-integer",
+      "params": {
+        "bars": {
+          "from": 1.5,
+          "to": 2
+        }
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars.from' and 'bars.to' must be integers >= 1"
+    },
+    {
+      "name": "string bars",
+      "params": {
+        "bars": {
+          "from": "1",
+          "to": 2
+        }
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars.from' and 'bars.to' must be integers >= 1"
+    },
+    {
+      "name": "from > to",
+      "params": {
+        "bars": {
+          "from": 3,
+          "to": 2
+        }
+      },
+      "code": -32602,
+      "message": "invalid params: 'bars.from' must not be after 'bars.to'"
+    },
+    {
+      "name": "empty section",
+      "params": {
+        "section": ""
+      },
+      "code": -32602,
+      "message": "invalid params: 'section' must be a non-empty string"
+    },
+    {
+      "name": "numeric section",
+      "params": {
+        "section": 1
+      },
+      "code": -32602,
+      "message": "invalid params: 'section' must be a non-empty string"
+    },
+    {
+      "name": "non-boolean all",
+      "params": {
+        "all": "yes"
+      },
+      "code": -32602,
+      "message": "invalid params: 'all' must be a boolean"
+    },
+    {
+      "name": "limit 0",
+      "params": {
+        "limit": 0
+      },
+      "code": -32602,
+      "message": "invalid params: 'limit' must be an integer from 1 to 100000"
+    },
+    {
+      "name": "limit too large",
+      "params": {
+        "limit": 100001
+      },
+      "code": -32602,
+      "message": "invalid params: 'limit' must be an integer from 1 to 100000"
+    },
+    {
+      "name": "fractional limit",
+      "params": {
+        "limit": 1.5
+      },
+      "code": -32602,
+      "message": "invalid params: 'limit' must be an integer from 1 to 100000"
+    }
+  ]
+}

@@ -51,6 +51,13 @@ impl CallError {
     }
 }
 
+/// `M`'s typed result from a raw `result`; `CallError::Protocol("invalid {method} result: {e}")`
+/// when it does not match. The one place that text is built.
+pub fn decode_result<M: Rpc>(result: &serde_json::Value) -> Result<M::Result, CallError> {
+    <M::Result as serde::Deserialize>::deserialize(result)
+        .map_err(|e| CallError::Protocol(format!("invalid {} result: {e}", M::METHOD.as_str())))
+}
+
 /// A connection to the app's control socket.
 pub struct Client {
     reader: BufReader<Pipe>,
@@ -101,8 +108,7 @@ impl Client {
         let params = serde_json::to_value(params)
             .map_err(|e| CallError::Protocol(format!("cannot encode params: {e}")))?;
         let result = self.call_raw(M::METHOD.as_str(), params)?;
-        serde_json::from_value(result)
-            .map_err(|e| CallError::Protocol(format!("invalid {} result: {e}", M::METHOD.as_str())))
+        decode_result::<M>(&result)
     }
 
     /// Calls a method by name and returns its raw `result`.
@@ -190,6 +196,27 @@ impl Client {
                 "response has neither result nor error".into(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod decode_tests {
+    use super::*;
+    use crate::methods::{StateCall, Stop, StopResult};
+    use serde_json::json;
+
+    #[test]
+    fn decode_result_names_the_method() {
+        match decode_result::<StateCall>(&json!({"project": null})) {
+            Err(CallError::Protocol(m)) => {
+                assert_eq!(m, "invalid state result: missing field `songs`")
+            }
+            other => panic!("expected a protocol error, got {other:?}"),
+        }
+        assert_eq!(
+            decode_result::<Stop>(&json!({"wasPlaying": true})).unwrap(),
+            StopResult { was_playing: true }
+        );
     }
 }
 

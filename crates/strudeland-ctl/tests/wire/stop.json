@@ -1,0 +1,20 @@
+{
+  "method": "stop",
+  "answeredBy": "webview",
+  "params": [{ "name": "empty", "value": {} }],
+  "results": [{ "name": "example", "value": { "wasPlaying": true } }],
+  "invalid": [
+    {
+      "name": "unknown key",
+      "params": { "now": true },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'now'"
+    },
+    {
+      "name": "non-object",
+      "params": 1,
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    }
+  ]
+}

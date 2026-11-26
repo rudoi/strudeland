@@ -1,0 +1,85 @@
+{
+  "method": "state",
+  "answeredBy": "webview",
+  "params": [{ "name": "empty", "value": {} }],
+  "results": [
+    {
+      "name": "full",
+      "value": {
+        "project": { "name": "demo", "root": "/Users/me/demo" },
+        "songs": [
+          { "path": "songs/main.js", "title": "Main Theme", "dirty": true, "conflict": null },
+          { "path": "songs/verse.js", "title": "Verse", "dirty": false, "conflict": "changed" }
+        ],
+        "active": "songs/main.js",
+        "playing": { "path": "songs/main.js", "title": "Main Theme" },
+        "started": true,
+        "cps": 0.5,
+        "bpm": 120,
+        "meter": "4/4",
+        "audio": "running",
+        "evalError": "sound nope not found!",
+        "metaError": "meta.bpm must be a positive number",
+        "tempoOverride": false,
+        "seed": 7,
+        "playhead": { "cycle": 5.5, "songBar": 6, "section": { "name": "verse", "bar": 2 } },
+        "transport": {
+          "view": "loop",
+          "loopSection": "verse",
+          "loopThrough": "chorus",
+          "armedSection": "chorus"
+        },
+        "outputError": "no sound",
+        "engine": "rust",
+        "live": {
+          "underruns": 1,
+          "lateHaps": 2,
+          "haps": 300,
+          "batches": 40,
+          "skippedHaps": 5,
+          "renderHeadroomMs": 38.5,
+          "batchDecodeUs": { "p50": 120, "max": 900 },
+          "invokeRttMs": { "p50": 1.5, "p95": 4.1, "max": 9 }
+        },
+        "levels": { "peakDb": [null, 2.1], "overs": 12, "limitDb": -2.3, "limiter": true },
+        "vim": true
+      }
+    }
+  ],
+  "olderResults": [
+    {
+      "name": "minimal",
+      "value": {
+        "project": { "name": "demo", "root": "/Users/me/demo" },
+        "songs": [
+          { "path": "songs/main.js", "title": "Main Theme", "dirty": true, "conflict": null },
+          { "path": "songs/verse.js", "title": "Verse", "dirty": false, "conflict": "changed" }
+        ],
+        "active": "songs/main.js",
+        "playing": { "path": "songs/main.js", "title": "Main Theme" },
+        "started": true,
+        "cps": 0.5,
+        "bpm": 120,
+        "meter": "4/4",
+        "audio": "running",
+        "evalError": null,
+        "metaError": null,
+        "tempoOverride": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "non-object",
+      "params": [],
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    },
+    {
+      "name": "unknown key",
+      "params": { "verbose": true },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'verbose'"
+    }
+  ]
+}

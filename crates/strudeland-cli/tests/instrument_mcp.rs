@@ -152,6 +152,7 @@ fn mcp_discovers_five_typed_tools_and_lists_the_enclosing_project() {
 fn mcp_creates_pins_updates_and_applies_through_the_control_socket() {
     use std::fs;
     use std::os::unix::{fs::PermissionsExt, net::UnixListener};
+    use strudeland_ctl::{Method, wire_fixtures};
     let temp = tempfile::Builder::new()
         .permissions(fs::Permissions::from_mode(0o700))
         .tempdir_in("/tmp")
@@ -214,7 +215,7 @@ fn mcp_creates_pins_updates_and_applies_through_the_control_socket() {
         let mut line = String::new();
         BufReader::new(stream).read_line(&mut line).unwrap();
         let request: Value = serde_json::from_str(&line).unwrap();
-        let result = json!({"song":"songs/main.js","from":8,"to":48});
+        let result = wire_fixtures::result(Method::InstrumentApply, "example");
         writeln!(
             writer,
             "{}",

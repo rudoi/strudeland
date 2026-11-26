@@ -1,0 +1,48 @@
+{
+  "method": "song.new",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "example",
+      "value": {
+        "name": "intro"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "song": {
+          "path": "songs/a.js",
+          "title": "a"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing name",
+      "params": {},
+      "code": -32602,
+      "message": "invalid params: 'name' must be a string"
+    },
+    {
+      "name": "numeric name",
+      "params": {
+        "name": 1
+      },
+      "code": -32602,
+      "message": "invalid params: 'name' must be a string"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "name": "x",
+        "foo": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'foo'"
+    }
+  ]
+}

@@ -3,12 +3,11 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use strudeland_ctl::{
-    AppState, CallError, CodeGetResult, CodeSetParams, EvalMode, EventsParams, Method, PingResult,
-    ProjectOpenParams, SaveParams, ScreenshotParams, SongDeleteParams, SongNewParams, SongParams,
-    SongRenameParams, SongSwitchParams, StopResult, codes,
+    self as ctl, CallError, CodeSetParams, EvalMode, EvalOutcome, EventsParams, Method,
+    ProjectOpenParams, Rpc, SaveParams, ScreenshotParams, SongDeleteParams, SongNewParams,
+    SongParams, SongRenameParams, SongSwitchParams, codes,
 };
 use strudeland_project::{InstrumentLibrary, Project, ProjectError, RecordingEntry, Sidecar};
 use strudeland_render::export::{self, Finished, ReplacePolicy};
@@ -155,19 +154,15 @@ pub fn run_with(
     }
 }
 
-fn call<T: DeserializeOwned>(
+/// Calls `M` with typed params; the raw result (for `--json`) and its typed form.
+fn call<M: Rpc>(
     transport: &mut dyn Transport,
-    method: Method,
-    params: Value,
-) -> Result<(Value, T), Failure> {
-    let raw = transport.call(method, params)?;
-    let typed = T::deserialize(&raw)
-        .map_err(|e| Failure::Call(CallError::Protocol(format!("invalid {method} result: {e}"))))?;
+    params: &M::Params,
+) -> Result<(Value, M::Result), Failure> {
+    let params = serde_json::to_value(params).expect("params serialize");
+    let raw = transport.call(M::METHOD, params)?;
+    let typed = ctl::decode_result::<M>(&raw)?;
     Ok((raw, typed))
-}
-
-fn params<P: serde::Serialize>(p: &P) -> Value {
-    serde_json::to_value(p).expect("params serialize")
 }
 
 /// Prints a command's output: the raw result on one line for `--json`, else the human text.
@@ -186,16 +181,15 @@ fn emit(env: &mut Env, json: bool, raw: &Value, human: Report) -> i32 {
     }
 }
 
-/// Calls `method`, then prints its result with [`emit`], formatting the human text with `format`.
-fn report<T: DeserializeOwned>(
+/// [`call`], then [`emit`] with the human text from `format`.
+fn report<M: Rpc>(
     transport: &mut dyn Transport,
     env: &mut Env,
     json: bool,
-    method: Method,
-    params: Value,
-    format: impl FnOnce(&T) -> Report,
+    params: &M::Params,
+    format: impl FnOnce(&M::Result) -> Report,
 ) -> Result<i32, Failure> {
-    let (raw, r) = call(transport, method, params)?;
+    let (raw, r) = call::<M>(transport, params)?;
     Ok(emit(env, json, &raw, format(&r)))
 }
 
@@ -252,59 +246,35 @@ fn execute(
         }
         Command::Ping => {
             let mut not_ready = false;
-            let code = report(
-                transport,
-                env,
-                json,
-                Method::Ping,
-                json!({}),
-                |r: &PingResult| {
-                    not_ready = !r.attached;
-                    output::format_ping(r)
-                },
-            )?;
+            let code = report::<ctl::Ping>(transport, env, json, &ctl::Empty {}, |r| {
+                not_ready = !r.attached;
+                output::format_ping(r)
+            })?;
             Ok(if not_ready && code == EXIT_OK {
                 EXIT_TIMEOUT
             } else {
                 code
             })
         }
-        Command::State => report(
-            transport,
-            env,
-            json,
-            Method::State,
-            json!({}),
-            |s: &AppState| stdout_only(output::format_state(s)),
-        ),
-        Command::Stop => report(
-            transport,
-            env,
-            json,
-            Method::Stop,
-            json!({}),
-            |r: &StopResult| stdout_only(output::format_stop(r.was_playing)),
-        ),
+        Command::State => report::<ctl::StateCall>(transport, env, json, &ctl::Empty {}, |s| {
+            stdout_only(output::format_state(s))
+        }),
+        Command::Stop => report::<ctl::Stop>(transport, env, json, &ctl::Empty {}, |r| {
+            stdout_only(output::format_stop(r.was_playing))
+        }),
         Command::Events {
             bars,
             section,
             all,
             limit,
         } => {
-            let p = params(&EventsParams {
+            let p = EventsParams {
                 bars: *bars,
                 section: section.clone(),
                 all: all.then_some(true),
                 limit: *limit,
-            });
-            report(
-                transport,
-                env,
-                json,
-                Method::Events,
-                p,
-                output::format_events,
-            )
+            };
+            report::<ctl::EventsCall>(transport, env, json, &p, output::format_events)
         }
         Command::Screenshot { path } => {
             let path = path
@@ -313,62 +283,51 @@ fn execute(
                     Ok::<_, Failure>(absolute(p, &current_dir()?).to_string_lossy().into_owned())
                 })
                 .transpose()?;
-            let p = params(&ScreenshotParams { path });
-            report(
-                transport,
-                env,
-                json,
-                Method::Screenshot,
-                p,
-                output::format_screenshot,
-            )
+            let p = ScreenshotParams { path };
+            report::<ctl::ScreenshotCall>(transport, env, json, &p, output::format_screenshot)
         }
         Command::Song { command } => match command {
-            SongCommand::New { name } => report(
+            SongCommand::New { name } => report::<ctl::SongNewCall>(
                 transport,
                 env,
                 json,
-                Method::SongNew,
-                params(&SongNewParams { name: name.clone() }),
+                &SongNewParams { name: name.clone() },
                 output::format_song_new,
             ),
-            SongCommand::Switch { song } => report(
+            SongCommand::Switch { song } => report::<ctl::SongSwitchCall>(
                 transport,
                 env,
                 json,
-                Method::SongSwitch,
-                params(&SongSwitchParams { song: song.clone() }),
+                &SongSwitchParams { song: song.clone() },
                 output::format_song_switch,
             ),
-            SongCommand::Rename { song, name } => report(
+            SongCommand::Rename { song, name } => report::<ctl::SongRenameCall>(
                 transport,
                 env,
                 json,
-                Method::SongRename,
-                params(&SongRenameParams {
+                &SongRenameParams {
                     song: song.clone(),
                     name: name.clone(),
-                }),
+                },
                 output::format_song_rename,
             ),
-            SongCommand::Delete { song, discard } => report(
+            SongCommand::Delete { song, discard } => report::<ctl::SongDeleteCall>(
                 transport,
                 env,
                 json,
-                Method::SongDelete,
-                params(&SongDeleteParams {
+                &SongDeleteParams {
                     song: song.clone(),
                     discard: discard.then_some(true),
-                }),
+                },
                 output::format_song_delete,
             ),
         },
         Command::Save { song, all } => {
-            let p = params(&SaveParams {
+            let p = SaveParams {
                 song: song.clone(),
                 all: all.then_some(true),
-            });
-            report(transport, env, json, Method::Save, p, output::format_save)
+            };
+            report::<ctl::SaveCall>(transport, env, json, &p, output::format_save)
         }
         Command::Project {
             command: ProjectCommand::Open { path, discard },
@@ -376,26 +335,18 @@ fn execute(
             let path = absolute(path, &current_dir()?)
                 .to_string_lossy()
                 .into_owned();
-            let p = params(&ProjectOpenParams {
+            let p = ProjectOpenParams {
                 path,
                 discard: discard.then_some(true),
-            });
-            report(
-                transport,
-                env,
-                json,
-                Method::ProjectOpen,
-                p,
-                output::format_project_open,
-            )
+            };
+            report::<ctl::ProjectOpenCall>(transport, env, json, &p, output::format_project_open)
         }
-        Command::Eval { song } => eval_like(transport, env, json, Method::Eval, song),
-        Command::Play { song } => eval_like(transport, env, json, Method::Play, song),
+        Command::Eval { song } => eval_like::<ctl::EvalCall>(transport, env, json, song),
+        Command::Play { song } => eval_like::<ctl::Play>(transport, env, json, song),
         Command::Code {
             command: CodeCommand::Get { song },
         } => {
-            let p = params(&SongParams { song: song.clone() });
-            let (raw, r): (Value, CodeGetResult) = call(transport, Method::CodeGet, p)?;
+            let (raw, r) = call::<ctl::CodeGet>(transport, &SongParams { song: song.clone() })?;
             if json {
                 let _ = writeln!(env.stdout, "{raw}");
             } else {
@@ -429,13 +380,13 @@ fn execute(
             } else {
                 None
             };
-            let p = params(&CodeSetParams {
+            let p = CodeSetParams {
                 song: song.clone(),
                 code,
                 eval,
                 expect,
-            });
-            report(transport, env, json, Method::CodeSet, p, output::format_set)
+            };
+            report::<ctl::CodeSet>(transport, env, json, &p, output::format_set)
         }
     }
 }
@@ -528,7 +479,7 @@ fn offline_project(
     if let Some(p) = find_local(&cwd).map_err(Failure::Project)? {
         return Ok(p);
     }
-    let from_app = call::<AppState>(transport, Method::State, json!({}))
+    let from_app = call::<ctl::StateCall>(transport, &ctl::Empty {})
         .ok()
         .and_then(|(_, s)| s.project)
         .and_then(|p| Project::open(Path::new(&p.root)).ok());
@@ -812,15 +763,14 @@ fn absolute(path: &Path, cwd: &Path) -> PathBuf {
     }
 }
 
-fn eval_like(
+fn eval_like<M: Rpc<Params = SongParams, Result = EvalOutcome>>(
     transport: &mut dyn Transport,
     env: &mut Env,
     json: bool,
-    method: Method,
     song: &Option<String>,
 ) -> Result<i32, Failure> {
-    let p = params(&SongParams { song: song.clone() });
-    report(transport, env, json, method, p, output::format_eval)
+    let p = SongParams { song: song.clone() };
+    report::<M>(transport, env, json, &p, output::format_eval)
 }
 
 fn read_utf8_file(path: &Path, label: &str) -> Result<String, Failure> {
@@ -928,17 +878,7 @@ mod tests {
     }
 
     fn state_json() -> Value {
-        json!({
-            "project": {"name": "demo", "root": "/Users/me/demo"},
-            "songs": [
-                {"path": "songs/main.js", "title": "Main Theme", "dirty": true, "conflict": null},
-                {"path": "songs/verse.js", "title": "Verse", "dirty": false, "conflict": "changed"}
-            ],
-            "active": "songs/main.js",
-            "playing": {"path": "songs/main.js", "title": "Main Theme"},
-            "started": true, "cps": 0.5, "bpm": 120, "meter": "4/4", "audio": "running",
-            "evalError": null, "metaError": null, "tempoOverride": false
-        })
+        strudeland_ctl::wire_fixtures::result(Method::State, "minimal")
     }
 
     fn outcome(ok: bool, started: bool, audio: &str, error: Value) -> Value {
@@ -1361,17 +1301,7 @@ mod tests {
     }
 
     fn events_json() -> Value {
-        json!({
-            "song": {"path": "songs/main.js", "title": "Main Theme"},
-            "from": 1, "to": 1, "stale": true, "truncated": false, "meter": "4/4",
-            "tempoOverride": false,
-            "events": [{
-                "bar": 1, "beat": 1.0, "begin": 0.0, "end": 0.25, "onset": true,
-                "section": {"name": "intro", "bar": 1},
-                "value": {"s": "bd"},
-                "locations": [{"line": 7, "col": 15, "endLine": 7, "endCol": 17, "text": "x"}]
-            }]
-        })
+        strudeland_ctl::wire_fixtures::result(Method::Events, "stale")
     }
 
     #[test]

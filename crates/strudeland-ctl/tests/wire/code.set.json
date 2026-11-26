@@ -1,0 +1,77 @@
+{
+  "method": "code.set",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "full",
+      "value": {
+        "song": "a",
+        "code": "$: s(\"bd sd\")\n",
+        "eval": "never",
+        "expect": "$: s(\"bd\")\n"
+      }
+    },
+    { "name": "minimal", "value": { "code": "x" } }
+  ],
+  "results": [
+    {
+      "name": "evaluated",
+      "value": {
+        "song": "songs/main.js",
+        "changed": true,
+        "dirty": true,
+        "conflict": null,
+        "evaluated": {
+          "ok": true,
+          "song": "songs/main.js",
+          "title": "Main Theme",
+          "started": true,
+          "audio": "running",
+          "error": null
+        }
+      }
+    },
+    {
+      "name": "unevaluated",
+      "value": {
+        "song": "songs/main.js",
+        "changed": false,
+        "dirty": false,
+        "conflict": "deleted",
+        "evaluated": null
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "a string",
+      "params": "x",
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    },
+    {
+      "name": "missing code",
+      "params": {},
+      "code": -32602,
+      "message": "invalid params: 'code' must be a string"
+    },
+    {
+      "name": "non-string code",
+      "params": { "code": 1 },
+      "code": -32602,
+      "message": "invalid params: 'code' must be a string"
+    },
+    {
+      "name": "bad eval",
+      "params": { "code": "", "eval": "alwys" },
+      "code": -32602,
+      "message": "invalid params: 'eval' must be \"auto\", \"always\" or \"never\""
+    },
+    {
+      "name": "bad expect",
+      "params": { "code": "", "expect": 3 },
+      "code": -32602,
+      "message": "invalid params: 'expect' must be a string"
+    }
+  ]
+}

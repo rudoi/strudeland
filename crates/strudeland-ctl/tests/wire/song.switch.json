@@ -1,0 +1,40 @@
+{
+  "method": "song.switch",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "example",
+      "value": {
+        "song": "b"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "song": {
+          "path": "songs/a.js",
+          "title": "a"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing song",
+      "params": {},
+      "code": -32602,
+      "message": "invalid params: 'song' is required"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "song": "a",
+        "x": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'x'"
+    }
+  ]
+}

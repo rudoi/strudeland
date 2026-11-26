@@ -72,7 +72,7 @@ pub enum Command {
         #[arg(long)]
         all: bool,
         /// Show at most this many events (1..=100000; default 2000).
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=100000))]
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=i64::from(strudeland_ctl::EVENTS_LIMIT_MAX)))]
         limit: Option<u32>,
     },
     /// Look up Strudel function docs (offline, matching the pinned version).
@@ -544,6 +544,7 @@ pub enum CodeCommand {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+    use strudeland_ctl::{EVENTS_LIMIT_DEFAULT, EVENTS_LIMIT_MAX};
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("strudeland").chain(args.iter().copied()))
@@ -1181,11 +1182,40 @@ mod tests {
         );
         let e = parse(&["events", "--bars", "1", "--section", "x"]).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::ArgumentConflict);
-        for bad in ["0", "100001", "-1", "x"] {
+        let over = (EVENTS_LIMIT_MAX + 1).to_string();
+        for bad in ["0", over.as_str(), "-1", "x"] {
             assert!(parse(&["events", "--limit", bad]).unwrap_err().use_stderr());
         }
-        assert!(parse(&["events", "--limit", "100000"]).is_ok());
+        assert!(parse(&["events", "--limit", &EVENTS_LIMIT_MAX.to_string()]).is_ok());
         assert!(parse(&["events", "--song", "a"]).unwrap_err().use_stderr());
+    }
+
+    #[test]
+    fn events_limit_docs_name_the_ctl_limits() {
+        let command = <Cli as clap::CommandFactory>::command();
+        let events = command
+            .find_subcommand("events")
+            .expect("an events subcommand");
+        let limit = events
+            .get_arguments()
+            .find(|a| a.get_id() == "limit")
+            .expect("an events --limit argument");
+        let help = limit.get_help().expect("--limit has help").to_string();
+        assert!(help.contains(&format!("1..={EVENTS_LIMIT_MAX}")), "{help}");
+        assert!(
+            help.contains(&format!("default {EVENTS_LIMIT_DEFAULT}")),
+            "{help}"
+        );
+
+        let line = crate::skill::SKILL
+            .lines()
+            .find(|l| l.contains("`--limit N`"))
+            .expect("SKILL.md documents --limit N");
+        assert!(line.contains(&format!("1 to {EVENTS_LIMIT_MAX}")), "{line}");
+        assert!(
+            line.contains(&format!("default {EVENTS_LIMIT_DEFAULT}")),
+            "{line}"
+        );
     }
 
     #[test]
