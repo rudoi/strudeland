@@ -17,6 +17,7 @@ import type {
   RuntimeState,
   StartOptions,
 } from '../../src/lib/strudel/runtime';
+import { tempoAtBar } from '../../src/lib/strudel/structure';
 import {
   createTransportModel,
   INITIAL_SEGMENTS,
@@ -136,6 +137,11 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     },
     transport: model,
     position: () => pos,
+    tempoNow: () => {
+      const s = get(store);
+      const bar = s.started && s.structure?.meterChanges ? (pos.located?.songBar ?? null) : null;
+      return tempoAtBar(s.cps, s.meter, s.structure, bar);
+    },
     query(from, to) {
       queries.push([from, to]);
       return typeof answer === 'function' ? answer(from, to) : answer;

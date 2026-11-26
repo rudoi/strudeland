@@ -35,8 +35,10 @@ import {
   meterString,
   DEFAULT_BPM,
   DEFAULT_METER,
+  tempoAtBar,
   type Meter,
   type SongStructure,
+  type Tempo,
 } from './structure';
 import {
   createTransportModel,
@@ -190,6 +192,13 @@ export interface Runtime {
   readonly transport: Transport;
   /** The scheduler's cycle (clamped >= 0) and where the evaluated song is at it. */
   position(): { cycle: number; located: Located | null };
+  /**
+   * The tempo to show now: the last successful evaluate's cps and bpm, at the meter of the song
+   * bar sounding while a song with meter changes plays, else at the evaluate's meter. It is the
+   * scheduled tempo: after a live edit it changes at once, ahead of the audio. Changes nothing
+   * (unlike `position`, it prunes no segments).
+   */
+  tempoNow(): Tempo;
   /**
    * The evaluated pattern's haps over cycles `[fromCycle, toCycle)` of the linear song timeline
    * (`LINEAR_SEGMENTS`: cycle N is song bar N, independent of loop, armed section and playback),
@@ -1113,6 +1122,12 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     },
     transport,
     position,
+    tempoNow() {
+      const s = state.structure;
+      const bar =
+        state.started && s?.meterChanges ? (locate(now(), s, segments)?.songBar ?? null) : null;
+      return tempoAtBar(state.cps, state.meter, s, bar);
+    },
     query,
     readScope: (buf) => active().readScope?.(buf) ?? false,
     drainLevels() {

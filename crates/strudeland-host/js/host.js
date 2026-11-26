@@ -11499,6 +11499,10 @@
     return beats === referenceBeats ? cps : cps * referenceBeats / beats;
   }
   var bpmFromCps = (cps, meter) => cps * 60 * beatsPerBar(meter);
+  function tempoAtBar(cps, meter, s, bar) {
+    const at = bar !== null && s?.meterChanges ? meterAtBar(s, bar) : meter;
+    return { cps: cpsAtMeter(cps, meter, at), bpm: bpmFromCps(cps, meter), meter: at };
+  }
   var meterString = (m) => `${m.num}/${m.den}`;
   var METER_RE = /^(\d+)\/(\d+)$/;
   var parseMeter = (s) => {
@@ -30347,6 +30351,11 @@ Please check with "npm ls @strudel/core".`);
       },
       transport,
       position,
+      tempoNow() {
+        const s2 = state2.structure;
+        const bar = state2.started && s2?.meterChanges ? locate(now(), s2, segments)?.songBar ?? null : null;
+        return tempoAtBar(state2.cps, state2.meter, s2, bar);
+      },
       query,
       readScope: (buf) => active().readScope?.(buf) ?? false,
       drainLevels() {

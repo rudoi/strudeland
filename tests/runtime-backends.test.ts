@@ -604,6 +604,28 @@ test('getCps follows the audible meter and tempo across a change to both', async
   expect(core.getCps()).toBe(1.5);
 });
 
+test('tempoNow reports the scheduled tempo at the audible bar', async () => {
+  const { rt, tick } = fake();
+  expect(await rt.evaluate(MIXED_SONG)).toBe(true);
+  expect(rt.tempoNow()).toEqual({ cps: 0.5, bpm: 120, meter: { num: 4, den: 4 } });
+  tick(22);
+  let tempo = rt.tempoNow();
+  expect(tempo.meter).toEqual({ num: 3, den: 8 });
+  expect(tempo.cps).toBeCloseTo(4 / 3, 10);
+  expect(tempo.bpm).toBe(120);
+  expect(await rt.evaluate(MIXED_SONG, { cps: 1.5 })).toBe(true);
+  tempo = rt.tempoNow();
+  expect(tempo.bpm).toBe(360);
+  expect(tempo.meter).toEqual({ num: 3, den: 8 });
+  expect(tempo.cps).toBeCloseTo(4, 10);
+  rt.stop();
+  expect(rt.tempoNow()).toEqual({ cps: 1.5, bpm: 360, meter: { num: 4, den: 4 } });
+  expect(await rt.evaluate(SONG)).toBe(true);
+  tick(25);
+  expect(rt.tempoNow()).toEqual({ cps: 0.5, bpm: 120, meter: { num: 4, den: 4 } });
+  rt.stop();
+});
+
 test('a drawing window preserves painter order and repetitions across meter boundaries', async () => {
   await import('@strudel/draw');
   const paintA = () => {};

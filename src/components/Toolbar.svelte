@@ -1,12 +1,6 @@
 <script lang="ts">
   import type { App } from '../lib/app';
-  import {
-    bpmFromCps,
-    cpsAtMeter,
-    meterAtBar,
-    meterString,
-    type Meter,
-  } from '../lib/strudel/structure';
+  import { meterString } from '../lib/strudel/structure';
   import Button from './ui/Button.svelte';
   import Scope from './ui/Scope.svelte';
   import RecordControls from './RecordControls.svelte';
@@ -21,20 +15,15 @@
   const play = arbiter.store;
   // While a take runs, play and stop belong to it.
   const taking = $derived($play.taking);
-  let playingMeter = $state.raw<Meter | null>(null);
+  // The tempo shown: sampled on every runtime change, and every scope frame while a song with
+  // meter changes plays.
+  let tempo = $state.raw(runtime.tempoNow());
   $effect(() => {
-    const structure = $rt.structure;
-    if (!$rt.started || !structure?.meterChanges) {
-      playingMeter = null;
-      return;
-    }
-    return scopeClock.subscribe(() => {
-      const { located } = runtime.position();
-      playingMeter = located ? meterAtBar(structure, located.songBar) : null;
-    });
+    const { started, structure } = $rt;
+    tempo = runtime.tempoNow();
+    if (!started || !structure?.meterChanges) return;
+    return scopeClock.subscribe(() => (tempo = runtime.tempoNow()));
   });
-  const meter = $derived(playingMeter ?? $rt.meter);
-  const bpm = $derived(bpmFromCps($rt.cps, $rt.meter));
   const stopHelp = $derived.by(() => {
     if ($play.stopTarget === 'take') {
       if ($play.takePhase === 'starting') return 'Wait for the recording to start.';
@@ -90,13 +79,13 @@
     }}>Piano Roll</Button
   >
   <RecordControls {recording} {session} {arbiter} />
-  {@render readout(cpsAtMeter($rt.cps, $rt.meter, meter).toFixed(3), 'cps')}
+  {@render readout(tempo.cps.toFixed(3), 'cps')}
   {@render readout(
-    String(Math.round(bpm)),
+    String(Math.round(tempo.bpm)),
     'bpm',
     'one cycle is one bar; bpm counts quarter notes, so 6/8 at 120 has 3 per bar',
   )}
-  {@render readout(meterString(meter), 'meter', 'current time signature')}
+  {@render readout(meterString(tempo.meter), 'meter', 'current time signature')}
   <span class="label out" class:live={$rt.started}>out</span>
   <Scope size="md" running={$rt.started} />
   <span class="hint backend">backend: {$rt.backend}</span>

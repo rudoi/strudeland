@@ -84,6 +84,27 @@ export function cpsAtMeter(cps: number, reference: Meter, meter: Meter): number 
 /** Quarter-note bpm for `cps`; the inverse of `cpsFor`. */
 export const bpmFromCps = (cps: number, meter: Meter): number => cps * 60 * beatsPerBar(meter);
 
+/** cps (at the meter in force), quarter-note bpm and meter. */
+export interface Tempo {
+  cps: number;
+  bpm: number;
+  meter: Meter;
+}
+
+/**
+ * The tempo an evaluate at `cps` and `meter` has at song bar `bar`: the bar's meter when the
+ * structure changes meter, else `meter`. `bar` null: at `meter`. bpm is not rounded.
+ */
+export function tempoAtBar(
+  cps: number,
+  meter: Meter,
+  s: SongStructure | null,
+  bar: number | null,
+): Tempo {
+  const at = bar !== null && s?.meterChanges ? meterAtBar(s, bar) : meter;
+  return { cps: cpsAtMeter(cps, meter, at), bpm: bpmFromCps(cps, meter), meter: at };
+}
+
 export const meterString = (m: Meter): string => `${m.num}/${m.den}`;
 
 const METER_RE = /^(\d+)\/(\d+)$/;

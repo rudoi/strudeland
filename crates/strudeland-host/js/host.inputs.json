@@ -104,10 +104,10 @@
     "src/lib/strudel/metered-pattern.ts": "98dfc133580639c70f9c4016141bbd2a833a8f9185f37143148dc082473b706b",
     "src/lib/strudel/note-grid.ts": "88aa7ba98aaf98f515b29138c36dde29ce854efdf7a2fb270c31c831b58129f2",
     "src/lib/strudel/note-name.ts": "ee99615eb8be5130d8a587e009ac87bb264d100da203869cf44df66a31b661d2",
-    "src/lib/strudel/runtime.ts": "0272d297dd1ee42465ecedb00eeac4288d92f2ec3dccd101804c8376d9bdd631",
+    "src/lib/strudel/runtime.ts": "032ef0e3a9df1d83301699394e4e520cb41715f619cf9decb7a15918f9e7d784",
     "src/lib/strudel/seed.ts": "d2453dfd92566e735aa67e36efffa3c0cafd17924134be001527024b760edc06",
     "src/lib/strudel/song.ts": "743adc4ae2cc5ca1f303169ac52fae74a9eb4476e811982b659b65507fa25c83",
-    "src/lib/strudel/structure.ts": "f276975993dff12644cf37bc8d8d640a8ba84bb08cdc5e77597d2c1a1d6843dc",
+    "src/lib/strudel/structure.ts": "b3d364d267238d6a0321fdcd1471ec71288bf3f0d445932017e6112a65d2e9f3",
     "src/lib/strudel/timing.ts": "460340192fd0eb64cad58bcd6d869113a5a86cd0fdce286c79f2ec676f6fd258",
     "src/lib/strudel/transport.ts": "091b796cc97c9e791a0f189fe24e07c24895359d3d10cc2e21d344aec0097502",
     "vendor/strudel/packages/core/controls.mjs": "d82a3139f89858d523db3c73f5e9b4e7bc3c5ae953207c4adc6808f9b95679cc",
@@ -155,5 +155,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "66569b8e712a349b88274c2803ed0e6d9a686063cc8910b88eea63468c3ebf1e"
+  "combined": "f95491ff3eb78c8ffa0eeb24f517c3e8b3bb6ad7e189a221b5f2a8f18549bc1e"
 }
