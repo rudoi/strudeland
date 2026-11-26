@@ -11,11 +11,10 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::project::{ScopedDirectory, check_dir, device_basename, redirects};
-use crate::{Project, ProjectError};
+use crate::{AppData, Project, ProjectError};
 
 pub const INSTRUMENTS_DIR: &str = "instruments";
 pub const MAX_INSTRUMENT_ENTRIES: usize = 128;
-const APP_IDENTIFIER: &str = "com.rudoi.strudeland";
 const LOCK_FILE: &str = ".strudeland.lock";
 const MAX_FILE: usize = 64 * 1024;
 const MAX_SNAPSHOT: usize = 2 * 1024 * 1024;
@@ -437,16 +436,26 @@ pub struct InstrumentLibrary {
 }
 
 impl InstrumentLibrary {
-    /// The default global directory is shared with Tauri's app data path.
+    /// The library in the located app data dir (see [`AppData::locate`]), the same dir as
+    /// Tauri's app data path.
     pub fn open_default() -> Result<Self, ProjectError> {
-        let base = dirs::data_dir()
-            .ok_or_else(|| invalid(INSTRUMENTS_DIR, "cannot locate user data directory"))?;
-        fs::create_dir_all(&base).map_err(|e| ProjectError::io(&base, e))?;
-        let base = base
-            .canonicalize()
-            .map_err(|e| ProjectError::io(&base, e))?;
+        let app = AppData::locate()
+            .map_err(|_| invalid(INSTRUMENTS_DIR, "cannot locate user data directory"))?;
+        Self::open_in(&app)
+    }
+
+    /// The library in `app`'s dir, creating the app data dir and `instruments` if needed.
+    pub fn open_in(app: &AppData) -> Result<Self, ProjectError> {
+        let (Some(base), Some(name)) = (app.dir().parent(), app.dir().file_name()) else {
+            return Err(invalid(
+                INSTRUMENTS_DIR,
+                "cannot locate user data directory",
+            ));
+        };
+        fs::create_dir_all(base).map_err(|e| ProjectError::io(base, e))?;
+        let base = base.canonicalize().map_err(|e| ProjectError::io(base, e))?;
         let base = checked_directory(&base)?;
-        let app = checked_directory(&create_directory(&base, APP_IDENTIFIER)?)?;
+        let app = checked_directory(&create_directory(&base, name)?)?;
         let path = create_directory(&app, INSTRUMENTS_DIR)?;
         open_store(&path)?;
         Ok(Self { path })
@@ -1167,10 +1176,19 @@ mod tests {
     }
 
     #[test]
-    fn default_directory_matches_desktop_identifier() {
-        let config: Value =
-            serde_json::from_str(include_str!("../../../src-tauri/tauri.conf.json")).unwrap();
-        assert_eq!(config["identifier"], APP_IDENTIFIER);
-        assert!(config["app"]["appDirectoriesOverride"].is_null());
+    fn open_in_creates_the_library_under_the_app_data_dir() {
+        let tmp = tempdir().unwrap();
+        let data = tmp.path().join("data");
+        let library =
+            InstrumentLibrary::open_in(&AppData::at(data.join("com.rudoi.strudeland"))).unwrap();
+        assert_eq!(
+            library.path(),
+            data.canonicalize()
+                .unwrap()
+                .join("com.rudoi.strudeland")
+                .join(INSTRUMENTS_DIR)
+        );
+        assert!(library.path().is_dir());
+        assert!(library.entries().unwrap().is_empty());
     }
 }

@@ -41,6 +41,8 @@ pub enum ProjectError {
     /// `found` is the JSON text of the `schema` value.
     #[error("unsupported memo sidecar schema {found} (this app reads schema 1)")]
     UnsupportedSidecarSchema { found: String },
+    #[error("cannot locate the user data directory")]
+    NoDataDir,
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,

@@ -157,7 +157,12 @@ the V8 download the host brings.
   outcome. The project session's `guardShutdown` shares the unsaved prompt with window close.
   An approved native exit holds the export permit through Tauri shutdown.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
-  atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
+  atomic writes, templates) and the owner of the app data dir and its documents: `AppData`
+  (`app_data.rs`) locates the dir without Tauri and holds the one load and save, with one
+  bad-file policy (a missing, unreadable, corrupt or wrong-schema file gives the defaults, stays
+  in place and is reported to the caller to log), for `prefs.json` (app preferences) and
+  `recent.json` (recent projects). The app resolves it once as `AppDataState`. No Tauri
+  dependency, so the CLI can reuse it.
 - The instrument library store and project pins live in `crates/strudeland-project`.
   `src/lib/strudel/instruments.ts` binds the pinned snapshot as `instruments` at
   evaluation. The project session refreshes the snapshot through the watcher, and the desktop

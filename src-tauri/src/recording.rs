@@ -586,7 +586,7 @@ mod tests {
     use std::time::{Duration, Instant, SystemTime};
 
     use serde_json::json;
-    use strudeland_project::ProjectError;
+    use strudeland_project::{AppData, ProjectError};
 
     // --- errors and wire shapes ---
 
@@ -959,8 +959,7 @@ mod tests {
         let other = Project::create(&rig.tmp.path().join("beta"), "beta").unwrap();
         let old = stale_partial(&other, "memo-01");
         let dir = other.root().to_string_lossy().into_owned();
-        let recents = rig.tmp.path().join("recent.json");
-        crate::project::open_project(&rig.projects, &recents, &dir, |_| {
+        crate::project::open_project(&rig.projects, &AppData::at(rig.tmp.path()), &dir, |_| {
             Ok(crate::watcher::Watcher::inert())
         })
         .unwrap();

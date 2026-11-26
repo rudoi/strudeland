@@ -1,8 +1,8 @@
 //! Project commands: the managed project state and the Tauri commands over `strudeland-project`.
 //!
-//! The logic lives in plain functions that take the state and the recents file path so it can be
-//! tested without an `AppHandle`; the `#[tauri::command]` wrappers only resolve the path and build
-//! the frontend's project watcher.
+//! The logic lives in plain functions that take the state and the app data so it can be tested
+//! without an `AppHandle`; the `#[tauri::command]` wrappers only take the managed app data and
+//! build the frontend's project watcher.
 //!
 //! The commands are `async` so Tauri runs them off the main thread, and the state lock is only
 //! held to clone or swap the open project, never across file I/O.
@@ -14,19 +14,41 @@
 //!
 //! [`CommandErrorKind::ProjectChanged`]: crate::command_error::CommandErrorKind::ProjectChanged
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use strudeland_project::{
-    InstrumentEntry, InstrumentSnapshot, PREFS_FILE, Prefs, Project, ProjectError, ProjectInfo,
-    RecentProject, Recents, SongEntry,
+    AppData, InstrumentEntry, InstrumentSnapshot, Loaded, Prefs, Project, ProjectError,
+    ProjectInfo, RecentProject, Recents, SongEntry,
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::command_error::CommandError;
 use crate::watcher::{self, Watcher};
 
-const RECENTS_FILE: &str = "recent.json";
+/// The app data dir, located once when the app starts. A missing data dir still lets the app
+/// start; each command that needs it then fails with kind `other`.
+pub struct AppDataState(Result<AppData, String>);
+
+impl AppDataState {
+    pub fn locate() -> Self {
+        AppDataState(AppData::locate().map_err(|e| e.to_string()))
+    }
+
+    pub fn get(&self) -> Result<&AppData, CommandError> {
+        self.0
+            .as_ref()
+            .map_err(|msg| CommandError::other(msg.clone()))
+    }
+}
+
+/// Logs a loaded document's problem as `{what}: {problem}` and returns its value.
+fn logged<T>(what: &str, loaded: Loaded<T>) -> T {
+    if let Some(problem) = loaded.problem {
+        eprintln!("{what}: {problem}");
+    }
+    loaded.value
+}
 
 /// The project open in this window, if any. Dropping it stops its watcher.
 pub struct OpenProject {
@@ -99,13 +121,15 @@ impl ProjectState {
 /// project is left as it was.
 fn install(
     state: &ProjectState,
-    recents_file: &Path,
+    app_data: &AppData,
     project: Project,
     watch: impl FnOnce(&Project) -> Result<Watcher, String>,
 ) -> Result<ProjectInfo, CommandError> {
     let result = project.info()?;
     let watcher = watch(&project).map_err(CommandError::other)?;
-    Recents::touch_and_save(recents_file, project.root());
+    if let Some(problem) = Recents::touch_and_save(app_data, project.root()) {
+        eprintln!("recents: {problem}");
+    }
     let project = Arc::new(project);
     state.replace(Some(OpenProject {
         project: Arc::clone(&project),
@@ -119,23 +143,23 @@ fn install(
 
 pub fn create_project(
     state: &ProjectState,
-    recents_file: &Path,
+    app_data: &AppData,
     dir: &str,
     name: &str,
     watch: impl FnOnce(&Project) -> Result<Watcher, String>,
 ) -> Result<ProjectInfo, CommandError> {
     let project = Project::create(Path::new(dir), name)?;
-    install(state, recents_file, project, watch)
+    install(state, app_data, project, watch)
 }
 
 pub fn open_project(
     state: &ProjectState,
-    recents_file: &Path,
+    app_data: &AppData,
     dir: &str,
     watch: impl FnOnce(&Project) -> Result<Watcher, String>,
 ) -> Result<ProjectInfo, CommandError> {
     let project = Project::open(Path::new(dir))?;
-    install(state, recents_file, project, watch)
+    install(state, app_data, project, watch)
 }
 
 /// Drops the open project and its watcher. Only tests close a project; the app replaces it.
@@ -147,13 +171,13 @@ fn close_project(state: &ProjectState) {
 /// Prunes recents, then installs the first entry that opens and starts watching.
 pub fn open_last(
     state: &ProjectState,
-    recents_file: &Path,
+    app_data: &AppData,
     watch: impl Fn(&Project) -> Result<Watcher, String>,
 ) -> Result<Option<ProjectInfo>, CommandError> {
-    let recents = Recents::load_pruned(recents_file);
+    let recents = logged("recents", Recents::load_pruned(app_data));
     Ok(recents
         .open_each()
-        .find_map(|(_, project)| install(state, recents_file, project, &watch).ok()))
+        .find_map(|(_, project)| install(state, app_data, project, &watch).ok()))
 }
 
 /// Re-reads the open project's `project.json` and returns its info, without restarting the
@@ -236,34 +260,25 @@ fn app_watcher(app: &AppHandle) -> impl Fn(&Project) -> Result<Watcher, String> 
     }
 }
 
-fn app_data_file(app: &AppHandle, name: &str) -> Result<PathBuf, CommandError> {
-    app.path()
-        .app_data_dir()
-        .map(|d| d.join(name))
-        .map_err(CommandError::other)
-}
-
-fn recents_path(app: &AppHandle) -> Result<PathBuf, CommandError> {
-    app_data_file(app, RECENTS_FILE)
-}
-
 #[tauri::command]
 pub async fn project_create(
     app: AppHandle,
+    app_data: State<'_, AppDataState>,
     state: State<'_, ProjectState>,
     dir: String,
     name: String,
 ) -> Result<ProjectInfo, CommandError> {
-    create_project(&state, &recents_path(&app)?, &dir, &name, app_watcher(&app))
+    create_project(&state, app_data.get()?, &dir, &name, app_watcher(&app))
 }
 
 #[tauri::command]
 pub async fn project_open(
     app: AppHandle,
+    app_data: State<'_, AppDataState>,
     state: State<'_, ProjectState>,
     dir: String,
 ) -> Result<ProjectInfo, CommandError> {
-    open_project(&state, &recents_path(&app)?, &dir, app_watcher(&app))
+    open_project(&state, app_data.get()?, &dir, app_watcher(&app))
 }
 
 #[tauri::command]
@@ -277,27 +292,31 @@ pub async fn project_info(
 #[tauri::command]
 pub async fn project_last(
     app: AppHandle,
+    app_data: State<'_, AppDataState>,
     state: State<'_, ProjectState>,
 ) -> Result<Option<ProjectInfo>, CommandError> {
-    open_last(&state, &recents_path(&app)?, app_watcher(&app))
+    open_last(&state, app_data.get()?, app_watcher(&app))
 }
 
 #[tauri::command]
-pub async fn recent_list(app: AppHandle) -> Result<Vec<RecentProject>, CommandError> {
-    Ok(Recents::list(&recents_path(&app)?))
+pub async fn recent_list(
+    app_data: State<'_, AppDataState>,
+) -> Result<Vec<RecentProject>, CommandError> {
+    Ok(logged("recents", Recents::list(app_data.get()?)))
 }
 
 #[tauri::command]
-pub async fn prefs_get(app: AppHandle) -> Result<Prefs, CommandError> {
-    Ok(Prefs::load(&app_data_file(&app, PREFS_FILE)?))
+pub async fn prefs_get(app_data: State<'_, AppDataState>) -> Result<Prefs, CommandError> {
+    Ok(logged("prefs", Prefs::load(app_data.get()?)))
 }
 
 /// Replaces the whole prefs object.
 #[tauri::command]
-pub async fn prefs_set(app: AppHandle, prefs: Prefs) -> Result<(), CommandError> {
-    prefs
-        .save(&app_data_file(&app, PREFS_FILE)?)
-        .map_err(CommandError::from)
+pub async fn prefs_set(
+    app_data: State<'_, AppDataState>,
+    prefs: Prefs,
+) -> Result<(), CommandError> {
+    prefs.save(app_data.get()?).map_err(CommandError::from)
 }
 
 #[tauri::command]
@@ -378,7 +397,9 @@ mod tests {
     use crate::command_error::CommandErrorKind;
     use crate::watcher::ProjectChanged;
     use std::fs;
+    use std::path::PathBuf;
     use std::sync::mpsc::Sender;
+    use strudeland_project::RECENTS_FILE;
     use tempfile::TempDir;
 
     fn unwatched(_: &Project) -> Result<Watcher, String> {
@@ -405,8 +426,11 @@ mod tests {
                 state: ProjectState::default(),
             }
         }
+        fn app_data(&self) -> AppData {
+            AppData::at(self.tmp.path().join("data"))
+        }
         fn recents(&self) -> PathBuf {
-            self.tmp.path().join("data/recent.json")
+            self.app_data().dir().join(RECENTS_FILE)
         }
         fn dir(&self, name: &str) -> String {
             self.tmp.path().join(name).to_string_lossy().into_owned()
@@ -414,7 +438,7 @@ mod tests {
         fn create(&self, name: &str) -> ProjectInfo {
             create_project(
                 &self.state,
-                &self.recents(),
+                &self.app_data(),
                 &self.dir(name),
                 name,
                 unwatched,
@@ -426,7 +450,7 @@ mod tests {
             self.state.current().unwrap().info().unwrap().root
         }
         fn recent_entries(&self) -> Vec<PathBuf> {
-            Recents::load(&self.recents()).entries().to_vec()
+            Recents::load(&self.app_data()).value.entries().to_vec()
         }
     }
 
@@ -444,7 +468,7 @@ mod tests {
         env.create("beta");
         close_project(&env.state);
         let opened =
-            open_project(&env.state, &env.recents(), &env.dir("alpha"), unwatched).unwrap();
+            open_project(&env.state, &env.app_data(), &env.dir("alpha"), unwatched).unwrap();
         assert_eq!(opened.root, created.root);
         assert_eq!(opened.songs, created.songs);
         assert_eq!(env.recent_entries()[0], root);
@@ -461,12 +485,12 @@ mod tests {
             log.lock().unwrap().push(root);
         });
         let alpha = env.create("alpha");
-        let err = open_project(&env.state, &env.recents(), &env.dir("nope"), unwatched);
+        let err = open_project(&env.state, &env.app_data(), &env.dir("nope"), unwatched);
         assert!(err.is_err());
         let beta = env.create("beta");
-        open_project(&env.state, &env.recents(), &env.dir("alpha"), unwatched).unwrap();
+        open_project(&env.state, &env.app_data(), &env.dir("alpha"), unwatched).unwrap();
         close_project(&env.state);
-        let last = open_last(&env.state, &env.recents(), unwatched)
+        let last = open_last(&env.state, &env.app_data(), unwatched)
             .unwrap()
             .unwrap();
         assert_eq!(last.root, alpha.root);
@@ -489,7 +513,7 @@ mod tests {
         fs::write(Path::new(&env.dir("busy")).join("x"), "").unwrap();
         let err = create_project(
             &env.state,
-            &env.recents(),
+            &env.app_data(),
             &env.dir("busy"),
             "busy",
             unwatched,
@@ -504,19 +528,19 @@ mod tests {
     fn open_of_a_non_project_errors_without_touching_recents_or_the_open_project() {
         let env = Env::new();
         let err =
-            open_project(&env.state, &env.recents(), &env.dir("nope"), unwatched).unwrap_err();
+            open_project(&env.state, &env.app_data(), &env.dir("nope"), unwatched).unwrap_err();
         assert!(!env.recents().exists(), "{err}");
 
         fs::create_dir(env.dir("plain")).unwrap();
         let err =
-            open_project(&env.state, &env.recents(), &env.dir("plain"), unwatched).unwrap_err();
+            open_project(&env.state, &env.app_data(), &env.dir("plain"), unwatched).unwrap_err();
         assert!(err.message.contains("not a strudeland project"), "{err}");
         assert!(!env.recents().exists());
 
         let first = env.create("alpha");
         let before = env.recent_entries();
         let err =
-            open_project(&env.state, &env.recents(), &env.dir("plain"), unwatched).unwrap_err();
+            open_project(&env.state, &env.app_data(), &env.dir("plain"), unwatched).unwrap_err();
         assert!(err.message.contains("not a strudeland project"), "{err}");
         assert_eq!(env.recent_entries(), before);
         assert_eq!(list_songs(&env.state, &first.root).unwrap(), first.songs);
@@ -527,9 +551,13 @@ mod tests {
         let env = Env::new();
         let first = env.create("alpha");
         let before = env.recent_entries();
-        let error = create_project(&env.state, &env.recents(), &env.dir("beta"), "beta", |_| {
-            Err("watch failed".to_owned())
-        })
+        let error = create_project(
+            &env.state,
+            &env.app_data(),
+            &env.dir("beta"),
+            "beta",
+            |_| Err("watch failed".to_owned()),
+        )
         .unwrap_err();
         assert_eq!(error, CommandError::other("watch failed"));
         assert_eq!(env.root(), first.root);
@@ -570,7 +598,7 @@ mod tests {
         let (tx, rx) = channel();
         let created = create_project(
             &env.state,
-            &env.recents(),
+            &env.app_data(),
             &env.dir("alpha"),
             "alpha",
             watch_to(tx),
@@ -855,7 +883,7 @@ mod tests {
     fn last_with_empty_recents_is_none() {
         let env = Env::new();
         assert_eq!(
-            open_last(&env.state, &env.recents(), unwatched).unwrap(),
+            open_last(&env.state, &env.app_data(), unwatched).unwrap(),
             None
         );
         assert!(list_songs(&env.state, "/nowhere").is_err());
@@ -871,7 +899,7 @@ mod tests {
         fs::remove_dir_all(env.dir("gone")).unwrap();
         close_project(&env.state);
 
-        let opened = open_last(&env.state, &env.recents(), unwatched)
+        let opened = open_last(&env.state, &env.app_data(), unwatched)
             .unwrap()
             .unwrap();
         assert_eq!(opened.root, good.root);
@@ -889,7 +917,7 @@ mod tests {
         fs::write(Path::new(&env.dir("broken")).join("project.json"), "{ nope").unwrap();
         close_project(&env.state);
         assert_eq!(
-            open_last(&env.state, &env.recents(), unwatched).unwrap(),
+            open_last(&env.state, &env.app_data(), unwatched).unwrap(),
             None
         );
         assert!(list_songs(&env.state, "/nowhere").is_err());
@@ -906,7 +934,7 @@ mod tests {
         let (tx_a, rx_a) = channel();
         create_project(
             &env.state,
-            &env.recents(),
+            &env.app_data(),
             &env.dir("alpha"),
             "alpha",
             watch_to(tx_a),
@@ -922,14 +950,14 @@ mod tests {
         let (tx_b, rx_b) = channel();
         open_project(
             &env.state,
-            &env.recents(),
+            &env.app_data(),
             &env.dir("nope"),
             watch_to(tx_b.clone()),
         )
         .unwrap_err();
         create_project(
             &env.state,
-            &env.recents(),
+            &env.app_data(),
             &env.dir("beta"),
             "beta",
             watch_to(tx_b),
