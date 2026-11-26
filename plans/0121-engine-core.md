@@ -3,8 +3,8 @@
 ## Goal
 
 `Core`, the render core shared by the offline `Engine` and the streaming `LiveEngine`, moves to
-its own module, `crates/strudeland-engine/src/core.rs`, with private fields. Both drivers use
-only its interface. The core keeps its own invariants:
+its own module, `crates/strudeland-engine/src/render_core.rs`, with private fields. Both drivers
+use only its interface. The core keeps its own invariants:
 
 - stopping clears the voices, their outputs and their orbit map together;
 - reseeding resets the noise and IR caches;
@@ -56,9 +56,10 @@ In:
    - the `unsettled` flag offline too, so the slice index goes;
    - the deletion of every settle, take and apply helper that becomes dead.
 3. **The module** (stage 004):
-   - `core.rs` with private fields, and `Slot` with private fields and accessors;
+   - `render_core.rs` with private fields, and `Slot` with private fields and accessors;
    - test-only readers;
-   - `render.rs`'s tests rewritten onto the interface, with the Core-only tests moved to `core.rs`;
+   - `render.rs`'s tests rewritten onto the interface, with the Core-only tests moved to
+     `render_core.rs`;
    - the engine README and AGENTS.md.
 4. **The bit guard** (stage 001): an absolute A/B check against a pre-edit build, plus
    `live_equals_offline` extended to local (FX) reverbs.
@@ -73,7 +74,11 @@ Out:
   `IrRequest`/`IrBuilt`/`build_ir`.
 - **The public API.** `LiveEngine`, `LiveOptions`, `LiveHap`, `LiveEvent`, `LiveCounters`,
   `IrRequest`, `IrBuilt`, `build_ir`, `Engine`, `render` and `render_with_stems` keep their
-  signatures and behaviour. `LiveEngine::stop` stays, as a thin wrapper.
+  signatures and behaviour. `LiveEngine::stop` stays, as a thin wrapper. The one exception:
+  `orbit` is a `pub mod`, so the deleted `OrbitBank::settle`, `Orbit::settle_reverb`,
+  `Orbit::take_reverb_request` and `Orbit::apply_reverb` are public items today. No crate in the
+  workspace calls them (the only outside import of `orbit` is `tests/orbit_pairs.rs`, which
+  takes `orbit_pair` and `route`), and the engine is not published, so they go.
 - **The scheduling path inside `Core::schedule` and `Core::step`.** That covers the duck,
   `prepare_value`, `voice_seed`/`occurrence`, the voice build and summation. The code moves
   file, but not one statement of it changes order.
@@ -85,7 +90,8 @@ Out:
 
 ### The module and its seams
 
-`core.rs` is a **deep module**. Its interface is small: about ten methods, one trait and one enum.
+`render_core.rs` is a **deep module**. Its interface is small: about ten methods, one trait and
+one enum.
 Behind it sit 18 fields' worth of state and the rules that keep them consistent. The offline
 `Engine` (`render.rs`) and `LiveEngine` (`live.rs`) are its two **drivers**. Each one owns a
 `Core` and reaches it only through methods.
@@ -97,7 +103,7 @@ There are two seams:
 - **The settler seam** is `IrSettler`. The core walks its reverbs in settle order and hands each
   one to a settler. The settler decides how the IR gets built: synchronously now, or by a worker
   later. There are two adapters:
-  - **`SyncSettler`** (in `core.rs`), used offline and by live in `sync_ir` mode or with no
+  - **`SyncSettler`** (in `render_core.rs`), used offline and by live in `sync_ir` mode or with no
     worker;
   - **the worker settler** (in `live.rs`), today's `IrLink` logic.
 
@@ -107,7 +113,7 @@ fields become private, behind `value()` and `orbit()`.
 ### Core's interface
 
 ```rust
-// crates/strudeland-engine/src/core.rs
+// crates/strudeland-engine/src/render_core.rs
 pub(crate) struct Core { /* every field private */ }
 
 impl Core {
@@ -118,7 +124,8 @@ impl Core {
     pub(crate) fn create_orbit(&mut self, spec: &OrbitSpec);
     pub(crate) fn schedule(&mut self, p: ScheduleArgs<'_>);                        // unchanged
     pub(crate) fn step(&mut self);                                                 // unchanged
-    pub(crate) fn step_with_stems(&mut self, capture: Option<&mut StemCapture>);   // unchanged
+    /// Body unchanged. Private today; `pub(crate)` because `Engine::play` calls it from `render.rs`.
+    pub(crate) fn step_with_stems(&mut self, capture: Option<&mut StemCapture>);
     /// Every pending reverb request, in settle order, through `settler`: the orbits' reverbs in
     /// bank order, then each unsettled voice in creation order (its flag cleared), its local
     /// reverbs in chain order. Only existing reverbs are visited.
@@ -155,7 +162,9 @@ Test-only readers, all `#[cfg(test)] pub(crate)`:
 
 - `errors() -> &[RenderError]`, `slots() -> &[Slot]`, `seeds() -> &[u32]`;
 - `noise() -> &NoiseCache`, `ir_cache() -> &IrCache`, `orbits() -> &OrbitBank`;
-- `reverb(target: IrTarget) -> Option<&Reverb>`, which uses the same lookup as `land_ir`.
+- `reverb(target: IrTarget) -> Option<&Reverb>`, which uses the same lookup as `land_ir`. It is a
+  second copy of `land_ir`'s private `target_reverb_mut` lookup, through `&` instead of `&mut`;
+  both carry a comment saying so.
 
 On `Slot`:
 
@@ -164,8 +173,8 @@ On `Slot`:
 
 `ScheduleArgs` stays a plain argument record with `pub(crate)` fields. It has no invariant.
 
-`HapTag` moves to `core.rs` as `pub(crate)`. `Engine::schedule` builds the late-hap error with it
-and passes that error to `push_error`.
+`HapTag` moves to `render_core.rs` as `pub(crate)`. `Engine::schedule` builds the late-hap error
+with it and passes that error to `push_error`.
 
 `Engine::run_observing_overflow` returns the unsupported errors directly with overflow `false`,
 without touching the core. That is what it returns today: nothing has rendered, so
@@ -174,7 +183,7 @@ without touching the core. That is what it returns today: nothing has rendered, 
 ### The settler seam
 
 ```rust
-// core.rs
+// render_core.rs
 /// Which reverb an IR request belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IrTarget {
@@ -197,7 +206,8 @@ pub(crate) struct SyncSettler;
 
 `settle_reverbs` reaches the reverbs through two new accessors, which replace the per-type helpers:
 
-- `Orbit::reverb_mut() -> Option<&mut Reverb>`;
+- `Orbit::reverb_mut() -> Option<&mut Reverb>`, `pub(crate)` (`orbit` is public and `reverb`
+  is not);
 - `Voice::local_reverbs_mut() -> impl Iterator<Item = (usize, &mut Reverb)>`, which yields the
   stage index and the reverb of each `Stage::LocalReverb`, in chain order.
 
@@ -305,17 +315,27 @@ show zero differences.
   - stderr.
 - **Live and stems A/B.** The offline binary cannot reach the worker path (`new_live`), `stop`,
   `set_seed` or stems. So a small digest crate in the scratchpad (`$S/0121-baseline/digest/`)
-  path-depends on `strudeland-engine`, with the workspace `Cargo.lock` copied in. It prints one
-  FNV-1a digest per variant and job:
+  path-depends on `strudeland-engine`, with the workspace `Cargo.lock` copied in and built
+  `--offline`. It prints one FNV-1a digest per variant and job, and `panic` for a variant that
+  panics (each runs under `catch_unwind`). The `stop` and `set_seed` actions happen at the quantum
+  boundary nearest below half the render, whatever the pauses are:
   - `live-worker`: worker attached, every request built right after the quantum that sent it;
-  - `live-stop`: `stop()` before the middle pause's haps;
-  - `live-seed`: `set_seed(seed + 1)` and then the same seed again, at the middle pause;
+  - `live-sync`: no worker and `sync_ir` false, the synchronous settle `render_quantum` picks
+    when no link exists;
+  - `live-stop`: `stop()` at mid-render (`sync_ir`);
+  - `live-seed`: `set_seed(seed + 1)` and then the same seed again, at mid-render (`sync_ir`);
+  - `live-worker-lag`: results three quanta late, each batch in reverse order;
+  - `live-worker-stop`: the lag, with `stop()` at mid-render while requests are outstanding;
+  - `live-dead`: the worker's request receiver dropped after the first quantum, so every later
+    miss builds in place and the link drops;
   - `stems-orbit`, `stems-voice` and `stems-instrument`: `render_with_stems`.
 
-  Its baseline binary is built at stage 001 too, before any engine edit.
+  All of them use only the public API (`LiveEngine`, `IrRequest`/`IrBuilt`/`build_ir`, the
+  stems entry points). Its baseline binary is built at stage 001 too, before any engine edit.
 - **One script,** `$S/0121-baseline/ab.sh check`, rebuilds both from the working tree, re-runs
   everything and diffs against the baseline. It exits 0 only with zero differences. Nothing under
-  `$S` is committed.
+  `$S` is committed. `ab.sh` and the digest crate's sources are copied to
+  `~/.cache/strudeland-0121/`, so the guard survives a cleared scratchpad.
 
 `live_equals_offline` gains the local-reverb jobs `fx-chain-room`, `fixture-fx-chain--mix-0` and
 `fixture-fx-chain--mix-1`, after they are confirmed to pass on today's code. None of its current
@@ -324,13 +344,14 @@ jobs has a local reverb.
 ## Tests: replace, don't layer
 
 - **`live_equals_offline`** is kept and extended (stage 001).
-- **New Core tests** (in `render.rs`'s test module at stages 002 and 003, moved to `core.rs` in
-  stage 004):
+- **New Core tests** (in `render.rs`'s test module at stages 002 and 003, moved to
+  `render_core.rs` in stage 004):
   - `stop_voices` drops every voice, but an orbit reverb's tail rings on;
   - the sequence number and the voice seeds continue after a stop;
   - orbits, the IR cache and the graph survive a stop;
   - `set_seed` with another seed returns true, resets the noise cache and empties the IR cache,
-    and the next settle generates the IR again;
+    and the next settle of a new local reverb generates its IR again (an orbit reverb rescheduled
+    with the same settings makes no request, so it cannot show this);
   - `set_seed` with the same seed returns false and keeps both caches;
   - `create_orbit` keeps first-add order, and an existing number is a no-op;
   - `settle_reverbs` visits the orbits and then only the new voices, in creation and chain
@@ -348,7 +369,7 @@ jobs has a local reverb.
   worker. The dropped-worker test gains a local reverb, so one settle exercises the in-place
   fallback for an orbit and a voice.
 - **`render.rs`'s Engine tests** read through the test readers. The Core-only tests move to
-  `core.rs`, where the private fields are visible: `retain_flagged…`, `cps_is_per_hap`,
+  `render_core.rs`, where the private fields are visible: `retain_flagged…`, `cps_is_per_hap`,
   `a_growing_graph_moves_a_playing_voice_to_its_new_level` and their helpers.
 - **Tests of deleted helpers** (`orbit.rs:1368-1379` and `:1404`, `voice.rs:3494`,
   `chain.rs:3592`, `reverb.rs:2415`) call `reverb_mut()`/`local_reverbs_mut()` and then
@@ -388,20 +409,21 @@ jobs has a local reverb.
   without `play`, and they never settle afterwards, so nothing changes for them. A later
   `play()` on the same `Engine` would now settle those voices. No test does that. Stage 003 checks
   with a grep.
-- **The scratchpad can be cleared** (reboot). If the baseline is lost after stage 001 is
-  committed, rebuild it from the stage 001 commit, which changes no engine source:
-  1. make a WIP commit;
-  2. `git switch --detach <001-sha>`;
-  3. `ab.sh baseline`;
-  4. `git switch -`.
+- **The scratchpad can be cleared** (reboot), and it is per session. Stage 001 copies `ab.sh`
+  and the digest crate's sources (not `target/`) to `~/.cache/strudeland-0121/`. If the baseline
+  is lost after stage 001 is committed, rebuild it from the stage 001 commit, which changes no
+  engine source:
+  1. restore `ab.sh` and `digest/` from `~/.cache/strudeland-0121/` into the scratchpad;
+  2. make a WIP commit if the tree is dirty;
+  3. `git switch --detach <001-sha>`;
+  4. `ab.sh rebuild-baseline`, which builds both baseline binaries from the tree and refuses
+     unless `git diff 3cd77ba -- 'crates/*/src'` is empty; then `ab.sh baseline`;
+  5. `git switch -`, and undo the WIP commit.
 
   Never use a scratch worktree.
-- **The module name `core`** shadows the `core` crate in `lib.rs`'s own paths. In edition 2024,
-  a bare `core::…` path in `lib.rs` becomes ambiguous. `lib.rs` has none today, and submodules are
-  unaffected. Stage 004 greps for bare `core::` paths.
 - **The licence test.** `tests/licence.rs` requires the Blink header on any file that names a
-  `.cc` or `.h` file. `core.rs` ports no Blink file: the frame conversions stay in `render.rs`. So
-  `core.rs`'s comments must not name one. Stage 004 runs that test.
+  `.cc` or `.h` file. `render_core.rs` ports no Blink file: the frame conversions stay in
+  `render.rs`. So `render_core.rs`'s comments must not name one. Stage 004 runs that test.
 - **The digest crate's dependency versions.** Copying the workspace `Cargo.lock` pins them. In any
   case, the baseline and current digests are built the same way, so a version skew would show up
   as a difference, never hide one.
@@ -410,8 +432,8 @@ jobs has a local reverb.
 
 Medium: about 12 files in one crate, with no new behaviour.
 
-- engine: `core.rs` (new), `render.rs`, `live.rs`, `stems.rs`, `orbit.rs`, `voice.rs`, `chain.rs`,
-  `reverb.rs` (tests only), `lib.rs` and `tests/live_equals_offline.rs`;
+- engine: `render_core.rs` (new), `render.rs`, `live.rs`, `stems.rs`, `orbit.rs`, `voice.rs`,
+  `chain.rs`, `reverb.rs` (tests only), `lib.rs` and `tests/live_equals_offline.rs`;
 - docs: the engine README and AGENTS.md.
 
 There are four sequential stages, each one commit, each green on its own. The plan is one
@@ -419,11 +441,12 @@ document, so there are no fracture or loss-check stages.
 
 ## Decisions
 
-1. **`core.rs`, with private fields.** The drivers and stems use only its methods and `Slot`'s
-   accessors.
+1. **`render_core.rs`, with private fields.** The drivers and stems use only its methods and
+   `Slot`'s accessors. The module is `render_core`, not `core`, so it never reads as the `core`
+   crate and never makes a bare `core::` path in `lib.rs` ambiguous.
 2. **One new-voice mechanism:** the private `unsettled` flag on each slot, offline too.
 3. **One settle walk,** `Core::settle_reverbs(&mut dyn IrSettler)`, with two adapters.
-   `SyncSettler` lives in `core.rs`. The worker settler lives in `live.rs`, so the worker
+   `SyncSettler` lives in `render_core.rs`. The worker settler lives in `live.rs`, so the worker
    channels stay live-only.
 4. **The settler is handed the `&mut Reverb` itself.** Cache hits and fallbacks apply directly.
    Only results that arrive later need `land_ir` and a target.
@@ -434,6 +457,7 @@ document, so there are no fracture or loss-check stages.
 6. **Test readers are `#[cfg(test)]`.** Only `frame`, `mix` and `bus_graph` are production
    readers.
 7. **The bit guard is absolute:** a pre-edit binary and digest crate, diffed after every stage.
-   It adds the live worker, stop, seed and stems variants that the offline binary cannot reach.
+   It adds the live worker (on time, late and reordered, stopped, dead), synchronous, stop, seed
+   and stems variants that the offline binary cannot reach.
 8. **No GLOSSARY term.** "Render core" and "settler" are engine-internal names. The engine
    README's Live mode section names them.

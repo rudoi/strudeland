@@ -18,7 +18,7 @@ The per-slot `unsettled` flag is the one new-voice mechanism, offline too. Built
 
 ## Implementation
 
-### `render.rs`: the seam (stage 004 moves it to `core.rs`)
+### `render.rs`: the seam (stage 004 moves it to `render_core.rs`)
 
 1. **`IrTarget`:** move `live.rs`'s private `Target` here and rename it, with the derives, the
    variants and the docs from the proposal. Make it `pub(crate)`.
@@ -49,9 +49,15 @@ The per-slot `unsettled` flag is the one new-voice mechanism, offline too. Built
    - for `Local { seq, stage }`, the slot whose `seq` matches, then
      `voice.local_reverb_mut(stage)`;
    - when the lookup gives `None`, `convolver` is not called.
+
+   Its doc comment says that `reverb` (step 7) is the same lookup through a shared reference,
+   so a change to one is made to both.
 6. **`cache_ir(key, convolver)`** is `self.ir_cache.insert(key, convolver)`.
 7. **`#[cfg(test)] pub(crate) fn reverb(&self, target: IrTarget) -> Option<&Reverb>`** is the
-   shared-reference twin of `target_reverb_mut`, with the same lookup.
+   shared-reference twin of `target_reverb_mut`, with the same lookup (`Orbit::reverb`, and for
+   a local target `voice.stages().get(stage)` matched on `Stage::LocalReverb`; `stages()` is
+   already `#[cfg(test)]`). Its doc comment says it is a second copy of `target_reverb_mut`'s
+   lookup, kept apart only because one returns `&mut`.
 8. **`Slot::unsettled`'s doc** now reads: "Whether its reverbs' IR requests are still to be
    settled: set at build, cleared by `settle_reverbs`."
 9. **`Engine::play`:**
@@ -66,7 +72,10 @@ The per-slot `unsettled` flag is the one new-voice mechanism, offline too. Built
 
 Add:
 
-- `Orbit::reverb_mut(&mut self) -> Option<&mut Reverb>`;
+- `pub(crate) fn Orbit::reverb_mut(&mut self) -> Option<&mut Reverb>`. Not `pub`: `orbit` is a
+  public module, and `reverb` is `pub(crate)`, so a `pub` method would put a crate-private type
+  in the public API (the `private_interfaces` lint). Today's `Orbit::reverb` is `pub` with the
+  same type; leave it as it is;
 - `Voice::local_reverbs_mut(&mut self) -> impl Iterator<Item = (usize, &mut Reverb)> + '_`. It
   yields the stage index and the reverb of each `Stage::LocalReverb`, in chain order;
 - `Voice::local_reverb_mut(&mut self, stage: usize) -> Option<&mut Reverb>`. It returns `None`
@@ -79,9 +88,19 @@ Delete:
 - `Voice::settle_local_reverbs`, `Voice::take_local_reverb_requests` and `Voice::apply_local_reverb`;
 - `LocalReverb::settle`. Also check `LocalReverb`'s doc comment for a stale mention.
 
-Drop any import these deletions leave unused (`IrPlan` and `Convolver` in `orbit.rs`). `chain.rs`'s
-module doc and `LocalReverb`'s doc say the IR is "settled at the end of the pause through the
-run's IrCache". That is still true. Leave it.
+Then the imports:
+
+- **`orbit.rs:68`** becomes `use crate::reverb::{IrError, Reverb};`. `IrPlan` and `Convolver`
+  are unused once `take_reverb_request` and `apply_reverb` go. `IrCache` is then used only by the
+  tests: add `use crate::reverb::IrCache;` to `orbit.rs`'s `mod tests`, below `use super::*;`.
+- **`chain.rs:44`** becomes `use crate::reverb::Reverb;`. Once `LocalReverb::settle` goes,
+  `IrCache` is used only by the tests: add `use crate::reverb::IrCache;` to `chain.rs`'s
+  `mod tests`, below `use super::*;`.
+- **`chain.rs:1442`**, `LocalReverb`'s doc, links `` [`IrCache`] ``, which no longer resolves
+  without the import. Write it in plain backticks: "settled at the end of the pause through the
+  run's `IrCache`". The sentence is still true; change nothing else in it.
+
+Clippy runs with `-D warnings`, so an unused import fails the gate.
 
 Keep:
 
@@ -237,7 +256,10 @@ offline reverb test except where listed below.
 **Moved**, for the deleted helpers. Keep the same assertions in each:
 
 - `orbit.rs:1368`: `assert!(!bank.orbits_mut()[0].settle_reverb(…))`, where orbit 0 has no
-  reverb, becomes `assert!(bank.orbits_mut()[0].reverb_mut().is_none())`.
+  reverb, becomes `assert!(bank.orbits_mut()[0].reverb_mut().is_none())`. This is slightly
+  weaker: today's line checks that settling an orbit with no reverb reports no change, and that
+  path is gone. What is left is that orbit 0 has no reverb, which `:1370` already asserts after
+  the bank settle. Keep the line anyway, so the test still states it before the settle.
 - `orbit.rs:1369` and `:1379`: `bank.settle(0, &mut IrCache::new())` becomes a local helper
   `settle_bank(&mut bank)`. It creates one `IrCache` per call and calls `settle_cached(0, &mut cache)`
   on each `reverb_mut()`, in bank order.

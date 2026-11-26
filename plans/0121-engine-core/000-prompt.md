@@ -19,8 +19,8 @@ The stages run in order. Each one is one commit, green with every gate below.
    them, and the live tests that read the touched fields are rewritten.
 3. [003-settler.md](003-settler.md): `IrTarget`, `IrSettler`, `SyncSettler`, the worker
    adapter, `settle_reverbs`/`land_ir`/`cache_ir`, the offline flag, and the deletions.
-4. [004-core-module.md](004-core-module.md): `core.rs` with private fields, `Slot`'s accessors,
-   the test readers, the `render.rs` test rewrite, and the README and AGENTS.md.
+4. [004-core-module.md](004-core-module.md): `render_core.rs` with private fields, `Slot`'s
+   accessors, the test readers, the `render.rs` test rewrite, and the README and AGENTS.md.
 
 ## Rules for every stage
 
@@ -49,7 +49,10 @@ The stages run in order. Each one is one commit, green with every gate below.
   - When the stage is done, run each gate once, log it, and read the log rather than re-running
     it. `S` is the scratchpad,
     `/private/tmp/claude-501/-Volumes-rudenet-code-strudeland-worktrees-poptart/2d85ebc3-84cd-4f6d-90b0-657c13b5df8a/scratchpad`,
-    and `N` is the stage number:
+    and `N` is the stage number. That path belongs to the session that wrote this plan. A later
+    session has its own scratchpad: set `S` to it, and restore `$S/0121-baseline/` from
+    `~/.cache/strudeland-0121/` as [001-baseline.md](001-baseline.md#6-keep-a-copy-and-recover)
+    describes.
 
     ```sh
     cargo fmt --all
@@ -69,6 +72,9 @@ The stages run in order. Each one is one commit, green with every gate below.
     first build takes minutes.
   - The gates run on macOS. Clippy there cannot see a `cfg(windows)` or `cfg(unix)` difference.
     The engine has none in the files touched, so this needs no extra care.
+- **The A/B guard must exist before any engine edit.** If `$S/0121-baseline/base/` is missing
+  (a new session, or a cleared scratchpad), recover it first, as 001 step 6 says. Never record a
+  baseline from an edited tree: `ab.sh` refuses to.
 - **Commits are plain Conventional Commits.** Use the message the stage file gives, with no task
   or plan identifiers. End each with:
 

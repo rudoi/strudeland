@@ -92,7 +92,8 @@ and `apply`. Stage 003 removes them.
 
 ### Tests
 
-These go in `render.rs`'s test module, next to `bare_core`. Stage 004 moves them to `core.rs`.
+These go in `render.rs`'s test module, next to `bare_core`. Stage 004 moves them to
+`render_core.rs`.
 
 Add a test helper that settles a core the way offline does today:
 
@@ -111,8 +112,9 @@ fn settle(core: &mut Core) {
 Stage 003 replaces its body with `core.settle_reverbs(&mut SyncSettler)`. Then add these tests:
 
 1. **`stop_voices_drops_every_voice_and_keeps_the_rest`**
-   - Setup: `bare_core(0)` and one value `{"s":"sine","room":0.5,"roomsize":0.05}`. Schedule two
-     haps, `settle`, then `steps(&mut core, 2)`.
+   - Setup: `bare_core(0)`, then `core.add_value(&value)` for the one value
+     `{"s":"sine","room":0.5,"roomsize":0.05}` (index 0). Schedule two haps of it, `settle`, then
+     `steps(&mut core, 2)`.
    - Record `core.orbits().count()`, `core.orbits().orbits().len()`, `core.ir_cache.len()`,
      `core.bus_graph().max_level()` and `core.frame()`.
    - Call `stop_voices`, then assert:
@@ -124,14 +126,18 @@ Stage 003 replaces its body with `core.settle_reverbs(&mut SyncSettler)`. Then a
        schedules the same three haps with no stop in between; build it as a second `bare_core`.
 2. **`stop_voices_keeps_the_orbit_reverb_tail`**
    - This replaces live `stop_keeps_an_orbit_reverb_tail`. Delete that test.
-   - Setup: `bare_core(0)` and the value `{"s":"sine","room":0.8}`. Schedule one hap
-     (duration 0.05), `settle`, then `steps(&mut core, 4)`.
+   - Setup: `bare_core(0)`, then `core.add_value(&value)` for the value `{"s":"sine","room":0.8}`.
+     Schedule one hap (duration 0.05), `settle`, then `steps(&mut core, 4)`.
    - Call `stop_voices`, then assert that `steps(&mut core, 20)` has a non-zero sample: the tail
      rings.
 3. **`set_seed_resets_the_caches_and_the_same_seed_is_a_no_op`**
    - This replaces live `set_seed_to_the_same_seed_keeps_the_caches`. Delete that test.
-   - Setup: `bare_core(0)` and two values, `{"s":"sine","room":0.8,"roomsize":0.5}` and
-     `{"s":"white"}`. Schedule one hap of each, `settle`, then `steps(&mut core, 1)`.
+   - Setup: `bare_core(0)`, then one `core.add_value` per value, in this order:
+     - value 0, `{"s":"sine","room":0.8,"roomsize":0.5}` (an orbit reverb);
+     - value 1, `{"s":"white"}`;
+     - value 2, `{"s":"sine","FX":[{"room":0.8,"roomsize":0.5}]}` (a local reverb).
+
+     Schedule one hap of value 0 and one of value 1, `settle`, then `steps(&mut core, 1)`.
    - Assert:
      - `core.ir_cache.len() == 1`;
      - `core.noise.is_cached(NoiseKind::White)`.
@@ -141,9 +147,15 @@ Stage 003 replaces its body with `core.settle_reverbs(&mut SyncSettler)`. Then a
    - Call `set_seed(5)`. Assert:
      - it returns `true`;
      - `core.ir_cache.len() == 0` and white noise is no longer cached.
-   - Schedule the room hap again, then `settle`. Assert:
+   - Schedule one hap of value 2, then `settle`. Assert:
      - `core.ir_cache.generated() == 1`: the cleared cache generated the IR again;
      - `core.ir_cache.len() == 1`.
+
+     It must be a local reverb. Rescheduling value 0 makes no IR request: the orbit's reverb
+     exists, and the same settings are no change (`Orbit::get_reverb` calls `Reverb::update`,
+     `orbit.rs:452-468`, which returns early when `changed_by` is false, `reverb.rs:1056-1069`).
+     A local reverb is a new `Reverb` per voice, so its `create` makes a request, and the settle
+     builds it through the reset cache.
 4. **`create_orbit_keeps_first_add_order`**
    - Setup: `Core::new(0, BusGraph::default(), OrbitBank::empty(2))`.
    - Call `create_orbit` with orbits 3, 1, 3 and 2.
