@@ -12,7 +12,7 @@ use crate::js::{Occurrence, voice_seed};
 use crate::noise::NoiseCache;
 use crate::orbit::{DuckControls, OrbitBank};
 use crate::periodic::WaveTables;
-use crate::reverb::IrCache;
+use crate::reverb::{Convolver, IrCache, IrKey, Reverb};
 use crate::stems::{StemCapture, StemLayout};
 use crate::voice::{StartInfo, Voice, VoiceOutput, sound_name};
 use crate::{QUANTUM, Rendered};
@@ -95,10 +95,35 @@ pub(crate) struct Slot {
     pub(crate) value: usize,
     /// Its creation sequence number (bus feeders sum in this order).
     pub(crate) seq: u64,
-    /// Whether its local reverbs' IR requests are still to be settled (set at build; the
-    /// streaming driver clears it when it settles or sends them; offline settles each pause's
-    /// new voices by position).
+    /// Whether its reverbs' IR requests are still to be settled: set at build, cleared by
+    /// `settle_reverbs`.
     pub(crate) unsettled: bool,
+}
+
+/// Which reverb an IR request belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IrTarget {
+    /// An orbit's reverb: its index in the bank.
+    Orbit(usize),
+    /// A voice's local reverb: the voice's sequence number and the stage index in its chain.
+    Local { seq: u64, stage: usize },
+}
+
+/// How a reverb's pending IR request is built and landed.
+pub(crate) trait IrSettler {
+    /// Settles one existing reverb at `target`. `seed` is the core's audio seed and `cache` the
+    /// run's IR cache.
+    fn settle(&mut self, target: IrTarget, reverb: &mut Reverb, seed: i32, cache: &mut IrCache);
+}
+
+/// The synchronous settle: `reverb.settle_cached(seed, cache)` (a miss builds with
+/// `Convolver::new`, the Blink stage layout).
+pub(crate) struct SyncSettler;
+
+impl IrSettler for SyncSettler {
+    fn settle(&mut self, _target: IrTarget, reverb: &mut Reverb, seed: i32, cache: &mut IrCache) {
+        reverb.settle_cached(seed, cache);
+    }
 }
 
 /// Keeps the items of `v` whose flag in `keep` (same order) is set, in one in-place pass.
@@ -263,6 +288,86 @@ impl Core {
     #[cfg(test)]
     pub(crate) fn orbits(&self) -> &OrbitBank {
         &self.orbits
+    }
+
+    /// Every pending reverb request, in settle order, through `settler`: the orbits' reverbs in
+    /// bank order, then each unsettled voice in creation order (its flag cleared), its local
+    /// reverbs in chain order. Only existing reverbs are visited.
+    pub(crate) fn settle_reverbs(&mut self, settler: &mut dyn IrSettler) {
+        let (seed, cache) = (self.seed, &mut self.ir_cache);
+        for (k, o) in self.orbits.orbits_mut().iter_mut().enumerate() {
+            if let Some(r) = o.reverb_mut() {
+                settler.settle(IrTarget::Orbit(k), r, seed, cache);
+            }
+        }
+        for slot in self.slots.iter_mut().filter(|s| s.unsettled) {
+            slot.unsettled = false;
+            for (stage, r) in slot.voice.local_reverbs_mut() {
+                settler.settle(
+                    IrTarget::Local {
+                        seq: slot.seq,
+                        stage,
+                    },
+                    r,
+                    seed,
+                    cache,
+                );
+            }
+        }
+    }
+
+    /// Lands a convolver built elsewhere on `target` (newest request wins; a target that is
+    /// gone is skipped and `convolver` is not called).
+    pub(crate) fn land_ir(
+        &mut self,
+        target: IrTarget,
+        request: u64,
+        convolver: impl FnOnce() -> Convolver,
+    ) {
+        if let Some(r) = self.target_reverb_mut(target) {
+            r.apply(request, convolver);
+        }
+    }
+
+    /// `IrCache::insert`: caches a convolver built elsewhere.
+    pub(crate) fn cache_ir(&mut self, key: IrKey, convolver: Convolver) {
+        self.ir_cache.insert(key, convolver);
+    }
+
+    /// The reverb at `target`, when it still exists. [`Self::reverb`] is the same lookup
+    /// through a shared reference: a change to one is made to both.
+    fn target_reverb_mut(&mut self, target: IrTarget) -> Option<&mut Reverb> {
+        match target {
+            IrTarget::Orbit(k) => self.orbits.orbits_mut().get_mut(k)?.reverb_mut(),
+            IrTarget::Local { seq, stage } => self
+                .slots
+                .iter_mut()
+                .find(|s| s.seq == seq)?
+                .voice
+                .local_reverb_mut(stage),
+        }
+    }
+
+    /// The reverb at `target` (tests): a second copy of `target_reverb_mut`'s lookup, kept
+    /// apart only because that one returns `&mut`.
+    #[cfg(test)]
+    pub(crate) fn reverb(&self, target: IrTarget) -> Option<&Reverb> {
+        match target {
+            IrTarget::Orbit(k) => self.orbits.orbits().get(k)?.reverb(),
+            IrTarget::Local { seq, stage } => {
+                match self
+                    .slots
+                    .iter()
+                    .find(|s| s.seq == seq)?
+                    .voice
+                    .stages()
+                    .get(stage)
+                {
+                    Some(crate::chain::Stage::LocalReverb(r)) => Some(&r.reverb),
+                    _ => None,
+                }
+            }
+        }
     }
 
     /// Schedules one hap: the duck, superdough's mutation, the voice seed, the voice build.
@@ -544,19 +649,13 @@ impl<'a> Engine<'a> {
         for pause in &job.pauses {
             let pause_frame = frame_for_pause(pause.suspend_sec);
             self.render_to(pause_frame);
-            let first_new = self.core.slots.len();
             for hap in &pause.haps {
                 self.schedule(hap, pause_frame);
             }
             // `settleIR()` before the context resumes: each orbit's newest IR request lands, then
-            // the local reverbs of this pause's voices in creation order (voices built earlier
-            // have nothing pending), all through the run's IR cache.
-            let core = &mut self.core;
-            core.orbits.settle(core.seed, &mut core.ir_cache);
-            for slot in &mut core.slots[first_new..] {
-                slot.voice
-                    .settle_local_reverbs(core.seed, &mut core.ir_cache);
-            }
+            // the local reverbs of the voices not yet settled (this pause's), in creation order,
+            // all through the run's IR cache.
+            self.core.settle_reverbs(&mut SyncSettler);
         }
         self.render_to(job.frames);
     }
@@ -1458,7 +1557,7 @@ mod tests {
         // Before the pause settles: two requests, no IR.
         let r = e.core.orbits.orbits()[0].reverb().unwrap();
         assert_eq!((r.latest(), r.applied(), r.ir().is_none()), (2, 0, true));
-        e.core.orbits.settle(j.seed, &mut e.core.ir_cache);
+        e.core.settle_reverbs(&mut SyncSettler);
         let r = e.core.orbits.orbits()[0].reverb().unwrap();
         assert_eq!(r.applied(), 2, "the newest request of the pause");
         assert_eq!(r.ir().unwrap()[0].len(), 1323);
@@ -2084,13 +2183,7 @@ mod tests {
 
     /// Settles the core's pending reverb requests as the offline driver does at a pause.
     fn settle(core: &mut Core) {
-        core.orbits.settle(core.seed, &mut core.ir_cache);
-        for slot in &mut core.slots {
-            if std::mem::take(&mut slot.unsettled) {
-                slot.voice
-                    .settle_local_reverbs(core.seed, &mut core.ir_cache);
-            }
-        }
+        core.settle_reverbs(&mut SyncSettler)
     }
 
     /// Schedules a hap of value `index` at the render head.
@@ -2210,6 +2303,135 @@ mod tests {
         }
         let numbers: Vec<f64> = core.orbits().orbits().iter().map(|o| o.orbit()).collect();
         assert_eq!(numbers, [3.0, 1.0, 2.0]);
+    }
+
+    /// Records each target it is handed, then settles it synchronously.
+    struct Recording(Vec<IrTarget>);
+
+    impl IrSettler for Recording {
+        fn settle(
+            &mut self,
+            target: IrTarget,
+            reverb: &mut Reverb,
+            seed: i32,
+            cache: &mut IrCache,
+        ) {
+            self.0.push(target);
+            SyncSettler.settle(target, reverb, seed, cache);
+        }
+    }
+
+    /// The stage indexes of a voice's local reverbs, in chain order.
+    fn local_stages(slot: &Slot) -> Vec<usize> {
+        slot.voice
+            .stages()
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| matches!(s, crate::chain::Stage::LocalReverb(_)))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    #[test]
+    fn settle_reverbs_visits_orbits_then_new_voices_in_order() {
+        let mut core = Core::new(0, BusGraph::default(), OrbitBank::empty(2));
+        for n in [1.0, 2.0] {
+            let spec = crate::job::OrbitSpec {
+                orbit: n,
+                channels: vec![0, 1],
+            };
+            core.create_orbit(&spec);
+        }
+        let values = [
+            value_map(json!({ "s": "sine", "room": 0.5, "roomsize": 0.05 })),
+            value_map(json!({ "s": "sine", "orbit": 2, "room": 0.5, "roomsize": 0.1 })),
+            value_map(json!({
+                "s": "sine",
+                "FX": [{ "room": 0.5, "roomsize": 0.05 }, { "room": 0.3, "roomsize": 0.2 }]
+            })),
+        ];
+        for v in &values {
+            core.add_value(v);
+        }
+        for i in [0, 2, 1] {
+            core.schedule(args(&values[i], i, 0.0, 0.5, 0.5));
+        }
+        let seqs: Vec<u64> = core.slots.iter().map(|s| s.seq).collect();
+        assert_eq!(seqs, [0, 1, 2]);
+        assert!(local_stages(&core.slots[0]).is_empty());
+        assert!(local_stages(&core.slots[2]).is_empty());
+        let stages = local_stages(&core.slots[1]);
+        let [a, b] = stages[..] else {
+            panic!("{stages:?}")
+        };
+        assert!(a < b);
+
+        let mut rec = Recording(Vec::new());
+        core.settle_reverbs(&mut rec);
+        assert_eq!(
+            rec.0,
+            [
+                IrTarget::Orbit(0),
+                IrTarget::Orbit(1),
+                IrTarget::Local { seq: 1, stage: a },
+                IrTarget::Local { seq: 1, stage: b },
+            ]
+        );
+        assert!(core.slots.iter().all(|s| !s.unsettled));
+
+        let mut rec = Recording(Vec::new());
+        core.settle_reverbs(&mut rec);
+        assert_eq!(rec.0, [IrTarget::Orbit(0), IrTarget::Orbit(1)]);
+
+        core.schedule(args(&values[2], 2, 0.0, 0.5, 0.5));
+        let last = core.slots.last().unwrap();
+        assert_eq!(last.seq, 3);
+        let stages = local_stages(last);
+        let mut rec = Recording(Vec::new());
+        core.settle_reverbs(&mut rec);
+        assert_eq!(
+            rec.0,
+            [
+                IrTarget::Orbit(0),
+                IrTarget::Orbit(1),
+                IrTarget::Local {
+                    seq: 3,
+                    stage: stages[0]
+                },
+                IrTarget::Local {
+                    seq: 3,
+                    stage: stages[1]
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn land_ir_skips_a_target_that_is_gone() {
+        let value = value_map(json!({ "s": "sine", "FX": [{ "room": 0.5, "roomsize": 0.05 }] }));
+        let mut core = bare_core(0);
+        core.add_value(&value);
+        core.schedule(args(&value, 0, 0.0, 0.5, 0.5));
+        let called = std::cell::Cell::new(false);
+        let one_frame = || {
+            called.set(true);
+            Convolver::new(&[vec![1.0], vec![1.0]], 1.0)
+        };
+        core.land_ir(IrTarget::Orbit(7), 1, one_frame);
+        core.land_ir(IrTarget::Local { seq: 99, stage: 0 }, 1, one_frame);
+        assert!(!called.get(), "a target that is gone builds nothing");
+
+        let target = IrTarget::Local {
+            seq: core.slots[0].seq,
+            stage: local_stages(&core.slots[0])[0],
+        };
+        core.land_ir(target, 1, one_frame);
+        assert!(called.get());
+        assert_eq!(core.reverb(target).unwrap().applied(), 1);
+        called.set(false);
+        core.land_ir(target, 1, one_frame);
+        assert_eq!(core.reverb(target).unwrap().applied(), 1);
+        assert!(!called.get(), "an old request is ignored");
     }
 
     #[test]
