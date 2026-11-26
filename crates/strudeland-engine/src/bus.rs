@@ -9,9 +9,10 @@
 //! quantum's feeders per bus and sums them in voice creation order.
 
 use crate::QUANTUM;
-use crate::controls::{js_to_string, prepare_value};
+use crate::coerce::js_to_string;
 use crate::job::{EngineJob, Value, ValueMap};
 use crate::orbit::{Input, sum_stereo};
+use crate::params::prepare_value;
 use crate::voice::SendBuf;
 
 /// The JS property key of a bus number (`buses[busNum]`): a number through `String(number)`, a

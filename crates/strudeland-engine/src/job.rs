@@ -193,7 +193,7 @@ impl<'de> Deserialize<'de> for Value {
 pub fn orbit_number(map: &ValueMap) -> f64 {
     let n = match map.get("orbit") {
         None | Some(Value::Null) => 1.0,
-        Some(v) => crate::controls::js_to_number(v),
+        Some(v) => crate::coerce::js_to_number(v),
     };
     if n.is_finite() { n } else { 1.0 }
 }

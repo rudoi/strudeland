@@ -484,7 +484,7 @@ Evidence paths in the table are relative to the plan that added the case: from `
 
 `controls.md` is the audit of every control key (where superdough reads it, whether the engine
 implements it, ignores it like superdough does for synths, or refuses it as unsupported).
-`ALLOWED_KEYS` in `src/controls.rs` is exactly its `implemented` and `ignored` rows; a test checks
+`ALLOWED_KEYS` in `src/capability.rs` is exactly its `implemented` and `ignored` rows; a test checks
 it. Its `owner` column records the implementation scope for each unsupported key and each
 refused sound. A unit test checks the coverage of that inventory.
 
@@ -504,7 +504,7 @@ thread owns it (it is `!Send`).
   `floor(t_sec * 44100)`, informational), with the hap's own `cps`. A hap before the render
   head is **late**: it starts at the head and `counters().late_haps` counts it; it is not an
   error and pushes no event. Support is decided at the first hap of each `(value, cps)`
-  (`controls::signature_of_with_bus`, a bus cycle counting as unsupported) and cached; an
+  (`capability::signature_of_with_bus`, a bus cycle counting as unsupported) and cached; an
   unsupported hap is skipped (`skipped_haps`) and the first of each signature pushes one
   `LiveEvent::Warning`. A hap naming an unknown value is an `Error` event.
 - **Events.** `take_events` drains the engine's events, then at most 32 of the core's render

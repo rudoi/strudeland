@@ -38,7 +38,7 @@ fn sine() -> Value {
 }
 
 /// A job with one pause per value: hap `j` plays value `j` at cycle `j + 0.5` (bar `j`), as
-/// `table_job` in `src/controls.rs`.
+/// `table_job` in `src/capability.rs`.
 fn table_job(values: &Value) -> Value {
     let n = values.as_array().unwrap().len();
     let pauses: Vec<Value> = (0..n)
@@ -429,7 +429,7 @@ fn controls_json_prints_the_allowlist() {
     assert_eq!(v["unsupportedValues"], json!({}));
     assert_eq!(
         v["chainKeys"],
-        json!(strudeland_engine::controls::CHAIN_KEYS)
+        json!(strudeland_engine::capability::CHAIN_KEYS)
     );
     assert!(v["chainKeys"].as_array().unwrap().contains(&json!("delay")));
     let mk = v["modulatorKeys"].as_object().unwrap();

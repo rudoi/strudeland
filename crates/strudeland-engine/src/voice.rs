@@ -36,11 +36,7 @@ use crate::chain::{
     SourceKind, Stage, StageId, StageInputs, StageKind, Teardown, VoiceBus, build_entry,
     delay_applies, input_connected, push_stage, set_worklet_value,
 };
-use crate::controls::{
-    ControlError, FilterParams, FmModParams, VoiceParams, frequency_from_value, js_to_string,
-    pitch_curve,
-};
-use crate::controls::{js_max, js_min};
+use crate::coerce::{js_max, js_min, js_to_string};
 use crate::job::{ErrorKind, Value};
 use crate::jsmath;
 use crate::lfo::{Lfo, LfoProps, get_lfo};
@@ -51,6 +47,9 @@ use crate::osc::{ConstantSource, Input, Oscillator, ScheduleError};
 #[cfg(test)]
 use crate::panner::StereoPanner;
 use crate::param::{Param, ParamError, ParamInputs, Rate};
+use crate::params::{
+    ControlError, FilterParams, FmModParams, VoiceParams, frequency_from_value, pitch_curve,
+};
 use crate::periodic::{WaveError, WaveKind, WaveTables, uses_partials, waveform_n};
 use crate::pulse::{self, PulseNode};
 use crate::shaper::ShaperKind;
@@ -1099,7 +1098,7 @@ fn build_oscillator(
     let now = ctx.now;
     let tables = &mut *ctx.tables;
     let partials = params.partials.as_ref();
-    let truthy = partials.is_some_and(crate::controls::js_truthy);
+    let truthy = partials.is_some_and(crate::coerce::js_truthy);
     let s = if s == "user" && !truthy {
         "triangle"
     } else {
@@ -2263,12 +2262,12 @@ pub fn sound_name(s: Option<&Value>) -> String {
 mod tests {
     use super::*;
     use crate::chain::{FxKey, NodeList};
-    use crate::controls::parse_voice_params;
     use crate::job::OrbitSpec;
     use crate::job::ValueMap;
     use crate::lfo;
     use crate::noise::NoiseCache;
     use crate::param::RampKind;
+    use crate::params::parse_voice_params;
     use crate::periodic::{WaveKind, WaveTables};
     use crate::render::frame_for_buffer_start;
     use serde_json::json;

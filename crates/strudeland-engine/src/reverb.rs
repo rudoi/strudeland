@@ -59,7 +59,7 @@
 
 use crate::QUANTUM;
 use crate::biquad::{Biquad, BiquadInputs, FilterKind};
-use crate::controls::{js_min, js_to_number_full, js_to_string, js_truthy};
+use crate::coerce::{js_min, js_to_number_full, js_to_string, js_truthy};
 use crate::fft::FftFrame;
 use crate::job::{ErrorKind, Value};
 use crate::js::{HashPart, make_random, number_to_string};

@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::controls::js_to_number;
+use crate::coerce::js_to_number;
 use crate::fft::FftFrame;
 use crate::job::Value;
 
@@ -434,7 +434,7 @@ pub fn uses_partials(partials: Option<&Value>) -> bool {
     match partials {
         None => false,
         Some(v) => {
-            crate::controls::js_truthy(v)
+            crate::coerce::js_truthy(v)
                 && !matches!(v, Value::Arr(xs) if xs.is_empty())
                 && !matches!(v, Value::Str(s) if s.is_empty())
         }

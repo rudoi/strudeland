@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
 use crate::bus::BusGraph;
-use crate::controls::signature_of_with_bus;
+use crate::capability::signature_of_with_bus;
 use crate::job::{OrbitSpec, ValueMap};
 use crate::orbit::OrbitBank;
 use crate::render_core::{Core, IrSettler, IrTarget, ScheduleArgs, SyncSettler};

@@ -17,13 +17,14 @@
 use crate::QUANTUM;
 use crate::bus::{BusBank, bus_key};
 use crate::chain::{FxKey, Node, NodeList, NodeTable, ParamRef, ParamSlot, SourceKind, StageKind};
-use crate::controls::{VoiceParams, js_to_number_full, js_to_string, parse_js_number};
+use crate::coerce::{js_to_number_full, js_to_string, parse_js_number};
 use crate::envelope::{self, EnvProps, Envelope, get_envelope};
 use crate::job::{Value, ValueMap};
 use crate::js::number_to_string;
 use crate::lfo::{self, Lfo, LfoProps, ShapeInput, get_lfo};
 use crate::osc::ConstantSource;
 use crate::param::{Param, ParamInputs};
+use crate::params::VoiceParams;
 use crate::voice::{GainNode, VoiceError, hap_error, idl_float};
 
 /// The modulator types, in the order the loop runs them inside an FX entry.
@@ -618,7 +619,7 @@ fn control_of(ty: ModType, config: &ValueMap) -> Option<Value> {
 /// (its own signature) has no label.
 pub fn unsupported_targets(map: &ValueMap, cps: f64) -> Vec<String> {
     let mut out = Vec::new();
-    let Ok(params) = crate::controls::parse_voice_params(map, 0.0, cps) else {
+    let Ok(params) = crate::params::parse_voice_params(map, 0.0, cps) else {
         return out;
     };
     let Some(configs) = loop_configs(&params) else {
@@ -1251,10 +1252,10 @@ fn build_bmod(
 mod tests {
     use super::*;
     use crate::chain::StageId;
-    use crate::controls::parse_voice_params;
     use crate::job::{ErrorKind, OrbitSpec};
     use crate::noise::NoiseCache;
     use crate::orbit::{Orbit, OrbitInputs};
+    use crate::params::parse_voice_params;
     use crate::periodic::WaveTables;
     use crate::voice::{StartInfo, Voice, VoiceOutput};
     use serde_json::json;

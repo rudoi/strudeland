@@ -4,11 +4,11 @@
 
 use crate::QUANTUM;
 use crate::bus::{BusBank, BusGraph};
-use crate::controls::{parse_voice_params, prepare_value};
 use crate::job::{ErrorKind, OrbitSpec, RenderError, ValueMap, bar_of};
 use crate::js::{Occurrence, voice_seed};
 use crate::noise::NoiseCache;
 use crate::orbit::{DuckControls, OrbitBank};
+use crate::params::{parse_voice_params, prepare_value};
 use crate::periodic::WaveTables;
 use crate::reverb::{Convolver, IrCache, IrKey, Reverb};
 use crate::stems::StemCapture;

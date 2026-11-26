@@ -29,10 +29,8 @@
 
 use crate::QUANTUM;
 use crate::biquad::{Biquad, BiquadInputs, FilterKind};
+use crate::coerce::{js_max, js_min, js_to_number, js_truthy};
 use crate::compressor::Compressor;
-use crate::controls::{
-    EntryParams, FilterParams, VoiceParams, gain_stage, js_max, js_min, js_to_number, js_truthy,
-};
 use crate::delay::{FeedbackDelay, MAX_FEEDBACK};
 use crate::job::Value;
 use crate::jsmath;
@@ -41,6 +39,7 @@ use crate::lfo::{self, Lfo, LfoProps, ShapeInput, get_lfo};
 use crate::orbit::{Input, sum_stereo};
 use crate::panner::{Stereo, StereoPanner};
 use crate::param::{Param, ParamInputs};
+use crate::params::{EntryParams, FilterParams, VoiceParams, gain_stage};
 use crate::reverb::Reverb;
 use crate::shaper::{Coarse, Crush, Distort, Shape, Shaper, ShaperKind};
 use crate::transient::{Transient, TransientNode};
@@ -1495,7 +1494,7 @@ impl LocalReverb {
 /// `frequency.value = center + 282` and `Q.value = 2 - min(max(depth * 2, 0), 1.9)`, the LFO
 /// connected to its `detune`. Each `.value =` throws on a non-finite value.
 pub fn build_phaser(
-    p: &crate::controls::PhaserParams,
+    p: &crate::params::PhaserParams,
     begin: f64,
     end: f64,
     now: u64,
@@ -1520,12 +1519,12 @@ pub fn build_phaser(
 #[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
-    use crate::controls::{parse_entry_params, parse_voice_params};
     use crate::job::{OrbitSpec, ValueMap};
     use crate::noise::NoiseCache;
     use crate::orbit::Orbit;
     use crate::panner::{pan_to_target_value, pan_with_sample_accurate_values};
     use crate::param::Param;
+    use crate::params::{parse_entry_params, parse_voice_params};
     use crate::periodic::WaveTables;
     use crate::reverb::IrCache;
     use crate::shaper::Distort;

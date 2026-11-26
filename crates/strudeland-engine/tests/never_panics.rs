@@ -1258,7 +1258,7 @@ fn extreme_fx_chains_never_panic() {
         "cutoff": 2000, "pan": 0.3, "delay": 0.5, "delaytime": 0.01, "room": 0.5,
         "roomsize": 0.02, "roomlp": 0
     });
-    let chain_keys = strudeland_engine::controls::CHAIN_KEYS;
+    let chain_keys = strudeland_engine::capability::CHAIN_KEYS;
     assert!(!chain_keys.is_empty());
     for (i, key) in chain_keys.iter().enumerate() {
         for (j, x) in values.iter().enumerate() {

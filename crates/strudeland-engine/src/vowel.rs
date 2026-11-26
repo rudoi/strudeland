@@ -142,7 +142,7 @@ pub fn formant(letter: &Value) -> Result<Formant, String> {
             return Ok((*f, *g, *q));
         }
     }
-    let text = crate::controls::js_to_string(letter);
+    let text = crate::coerce::js_to_string(letter);
     Err(format!("vowel: unknown vowel {text}"))
 }
 

@@ -17,7 +17,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use strudeland_engine::controls::unsupported_signatures;
+use strudeland_engine::capability::unsupported_signatures;
 use strudeland_engine::{EngineJob, SAMPLE_RATE, controls_json, render, wav};
 
 const USAGE: &str = "usage: strudeland-engine render --job <file|-> --out <file.wav>\n       strudeland-engine signatures --job <file|->\n       strudeland-engine controls --json";
