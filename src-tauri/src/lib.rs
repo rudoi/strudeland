@@ -39,7 +39,7 @@ pub fn run() {
                 webview.state::<app_quit::QuitState>().detach();
                 webview.state::<Arc<control::Bridge>>().detach();
                 if let Some(recorder) = webview.try_state::<recording::RecorderState>() {
-                    recording::on_reload(&recorder.0);
+                    recorder.0.on_reload();
                 }
                 if let Some(p) = webview.try_state::<playback::PlaybackState>() {
                     playback::end_session(&p);
@@ -117,7 +117,7 @@ pub fn run() {
                 }
                 // Before the control socket, so a slow socket cannot delay the audio.
                 if let Some(recorder) = app.try_state::<recording::RecorderState>() {
-                    recording::shutdown(&recorder.0);
+                    recorder.0.shutdown();
                 }
                 control::shutdown(app);
             }

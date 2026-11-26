@@ -4554,6 +4554,8 @@ dependencies = [
  "libc",
  "mach2",
  "rtrb",
+ "serde",
+ "serde_json",
  "strudeland-project",
  "tempfile",
  "thiserror 2.0.21",

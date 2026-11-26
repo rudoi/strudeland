@@ -12,13 +12,15 @@ cpal = "=0.18.2"
 hound = "3.5.1"
 rtrb = "0.4.1"
 thiserror = "2.0.21"
+strudeland-project = { path = "../strudeland-project" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-strudeland-project = { path = "../strudeland-project" }
 
 [[example]]
 name = "probe"

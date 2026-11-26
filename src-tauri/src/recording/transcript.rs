@@ -10,13 +10,16 @@
 
 use super::rig::*;
 use super::*;
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{Value, json};
-use strudeland_record::FaultKind;
+use strudeland_record::takes::{Prefs, RepairOutcome, write_prefs};
 use strudeland_record::testing::{FakeHandle, Limits};
+use strudeland_record::{Ended, Event, FaultKind, TakeResult};
 
 // --- adapters ---
 
@@ -58,7 +61,7 @@ impl Script {
 
     /// The state events since the previous step.
     fn new_events(&mut self) -> Vec<Value> {
-        let states = self.rig.sink.states();
+        let states = self.rig.states();
         let events = states[self.seen..]
             .iter()
             .map(|e| serde_json::to_value(e).unwrap())
@@ -132,21 +135,26 @@ impl Script {
             (None, Some(c)) => format!("arm channel {c}"),
             (Some(d), Some(c)) => format!("arm {d} channel {c}"),
         };
-        let result = arm(
-            &self.rig.core,
-            &self.rig.prefs(),
-            device.map(str::to_string),
-            channel,
-        );
+        let result = self
+            .rig
+            .takes
+            .arm(&self.rig.prefs(), device.map(str::to_string), channel)
+            .map(RecordingStatus::from)
+            .map_err(CommandError::from);
         self.take_handles();
         self.call(&label, result);
     }
 
     /// `arm()` on another thread; it blocks in a gated permission request.
     fn spawn_arm(&self) -> JoinHandle<Result<RecordingStatus, CommandError>> {
-        let core = Arc::clone(&self.rig.core);
+        let takes = Arc::clone(&self.rig.takes);
         let prefs = self.rig.prefs();
-        std::thread::spawn(move || arm(&core, &prefs, None, None))
+        std::thread::spawn(move || {
+            takes
+                .arm(&prefs, None, None)
+                .map(RecordingStatus::from)
+                .map_err(CommandError::from)
+        })
     }
 
     /// Waits until the platform saw `n` permission requests. Records nothing.
@@ -172,17 +180,27 @@ impl Script {
     }
 
     fn disarm(&mut self) {
-        let result = disarm(&self.rig.core, &self.rig.prefs());
+        let result = self
+            .rig
+            .takes
+            .disarm(&self.rig.prefs())
+            .map(RecordingStatus::from)
+            .map_err(CommandError::from);
         self.call("disarm", result);
     }
 
     fn status(&mut self) {
-        let result = status(&self.rig.core, &self.rig.prefs());
+        let result = RecordingStatus::from(self.rig.takes.status(&self.rig.prefs()));
         self.call("status", Ok::<_, CommandError>(result));
     }
 
     fn devices(&mut self) {
-        let result = devices(&self.rig.core, &self.rig.prefs());
+        let result = self
+            .rig
+            .takes
+            .devices(&self.rig.prefs())
+            .map(DevicesResult::from)
+            .map_err(CommandError::from);
         self.call("devices", result);
     }
 
@@ -205,13 +223,7 @@ impl Script {
     fn start(&mut self, song: Option<&str>) {
         let result = match &self.handle {
             Some(handle) => self.rig.start(handle, song),
-            None => start(
-                &self.rig.core,
-                &self.rig.projects,
-                &self.rig.root,
-                song,
-                start_fields(),
-            ),
+            None => self.start_at(&self.rig.root, song),
         };
         self.call(&Script::start_label(song), result);
     }
@@ -224,13 +236,7 @@ impl Script {
 
     /// Starts a take without delivering any audio.
     fn start_silent(&mut self, song: Option<&str>) {
-        let result = start(
-            &self.rig.core,
-            &self.rig.projects,
-            &self.rig.root,
-            song,
-            start_fields(),
-        );
+        let result = self.start_at(&self.rig.root, song);
         self.call(
             &format!("{} without audio", Script::start_label(song)),
             result,
@@ -240,25 +246,34 @@ impl Script {
     /// Starts against the open project's root with `suffix` appended.
     fn start_at_root(&mut self, suffix: &str) {
         let root = format!("{}{suffix}", self.rig.root);
-        let result = start(
-            &self.rig.core,
-            &self.rig.projects,
-            &root,
-            None,
-            start_fields(),
-        );
+        let result = self.start_at(&root, None);
         self.call(&format!("start at root + {suffix}"), result);
+    }
+
+    /// `recording_start` at `root` with the default start fields, delivering no audio.
+    fn start_at(&self, root: &str, song: Option<&str>) -> Result<StartResult, CommandError> {
+        self.rig
+            .takes
+            .start(
+                || self.rig.projects.current_for(root),
+                song,
+                start_fields().into(),
+            )
+            .map(|stem| StartResult { stem })
     }
 
     /// Starts with no project open.
     fn start_no_project(&mut self) {
-        let result = start(
-            &self.rig.core,
-            &ProjectState::default(),
-            &self.rig.root,
-            None,
-            start_fields(),
-        );
+        let root = &self.rig.root;
+        let result = self
+            .rig
+            .takes
+            .start(
+                || ProjectState::default().current_for(root),
+                None,
+                start_fields().into(),
+            )
+            .map(|stem| StartResult { stem });
         self.call("start with no project open", result);
     }
 
@@ -276,8 +291,12 @@ impl Script {
     }
 
     fn stop(&mut self, label: &str, fields: Option<StopFields>) {
-        let result = stop(&self.rig.core, fields)
-            .map(|entry| summarize(serde_json::to_value(entry).unwrap()));
+        let result = self
+            .rig
+            .takes
+            .stop(fields.map(TakeStop::from))
+            .map(|entry| summarize(serde_json::to_value(entry).unwrap()))
+            .map_err(CommandError::from);
         self.call(label, result);
     }
 
@@ -292,17 +311,17 @@ impl Script {
     }
 
     fn reload(&mut self) {
-        on_reload(&self.rig.core);
+        self.rig.takes.on_reload();
         self.record("reload", Value::Null);
     }
 
     fn quit(&mut self) {
-        shutdown(&self.rig.core);
+        self.rig.takes.shutdown();
         self.record("quit", Value::Null);
     }
 
     fn repair(&mut self) {
-        let outcome = repair_on_open(&self.rig.core, &self.alpha);
+        let outcome = repair_on_open(&self.rig.takes, &self.alpha);
         let value = match outcome {
             RepairOutcome::Skipped => json!("skipped"),
             RepairOutcome::Repaired(report) => json!({ "repaired": report }),
@@ -328,11 +347,11 @@ impl Script {
 
     fn inject_failed(&mut self, arm_id: u64, error: RecordError) {
         let label = format!("failed arm {arm_id}: {error}");
-        failed(&self.rig.core, arm_id, error);
+        self.rig.takes.on_event(Event::Failed { arm_id, error });
         self.record(&label, Value::Null);
     }
 
-    /// `ended_by_itself` for a 1000-frame take at `stem`'s partial path (as `start` names it).
+    /// A recorder-ended take (`Event::TakeEnded`) for a 1000-frame take at `stem`'s partial path (as `start` names it).
     fn inject_ended(&mut self, stem: &str, ended: Ended) {
         let label = format!("take ended {ended:?} at {stem}'s partial");
         let result = TakeResult {
@@ -348,14 +367,14 @@ impl Script {
             xruns: 0,
             ended,
         };
-        ended_by_itself(&self.rig.core, result);
+        self.rig.takes.on_event(Event::TakeEnded(result));
         self.record(&label, Value::Null);
     }
 
     /// Waits for the first state event with an error after the recorded ones.
     fn wait_error(&self) {
         let deadline = Instant::now() + WAIT;
-        while !self.rig.sink.states()[self.seen..]
+        while !self.rig.states()[self.seen..]
             .iter()
             .any(|e| e.error.is_some())
         {
