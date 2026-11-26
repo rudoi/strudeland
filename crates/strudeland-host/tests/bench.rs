@@ -68,24 +68,26 @@ fn bench_on_sine_basic_reports_one_planned_song() {
 }
 
 #[test]
-fn the_hash_and_size_are_those_of_the_plan_output() {
+fn the_hash_and_size_are_those_of_the_single_chunk_plan() {
     let out = bench(&["--bars", "4", SINE]);
     let r = report(&out);
     let plan = Command::new(env!("CARGO_BIN_EXE_strudeland-host"))
         .args([
-            "plan",
+            "plan-render",
             "--song",
             SINE,
             "--request",
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}"#,
         ])
         .current_dir(repo_root())
         .output()
         .unwrap();
     assert_eq!(plan.status.code(), Some(0));
-    let sha = sha256_hex(std::str::from_utf8(&plan.stdout).unwrap());
-    assert_eq!(r["songs"][0]["jobSha256"], sha.as_str());
-    assert_eq!(r["songs"][0]["jobBytes"], plan.stdout.len());
+    let planned: Value = serde_json::from_slice(&plan.stdout).unwrap();
+    assert_eq!(planned["chunks"].as_array().map(Vec::len), Some(1));
+    let job = planned["chunks"][0]["json"].as_str().unwrap();
+    assert_eq!(r["songs"][0]["jobSha256"], sha256_hex(job).as_str());
+    assert_eq!(r["songs"][0]["jobBytes"], job.len());
 }
 
 #[test]

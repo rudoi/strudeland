@@ -18,18 +18,18 @@ for the overview and [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance
 | Typecheck | `bun run check` |
 | Format check / fix | `bun run lint` / `bun run format` |
 | Build the render page (`dist-render/`; `render:check` builds it when stale) | `bun run render:build` |
-| Render the corpus, run gates and parity against goldens (needs Chromium once: `bunx playwright install chromium`; exit 0 pass, 1 a fixture failed or errored or a mutation was missed, 2 harness error: Chromium or the render build missing, bad arguments). `--engine rust` renders with the Rust engine (cargo-built, or `STRUDELAND_ENGINE_BIN`), judges it against the superdough goldens with `PROFILES.engine` and reports fixtures it cannot play as `unsupported`; with `--update-goldens` it exits 2. `--planner host` (requires `--engine rust`; default `page`) plans the engine jobs with the headless host (cargo-built, or `STRUDELAND_HOST_BIN`) instead of the render page, and skips the render-page build; `--planner batch` plans like `host` and renders each fixture's main window through the whole Rust pipeline (`strudeland-render`, cargo-built, or `STRUDELAND_RENDER_BIN`) | `bun run render:check [fixture\|glob\|tag:<tag>]… [--engine superdough\|rust] [--planner page\|host\|batch] [--update-goldens] [--keep-wav] [--no-mutations] [--concurrency N] [--rebuild] [--out DIR]` |
+| Render the corpus, run gates and parity against goldens (needs Chromium once: `bunx playwright install chromium`; exit 0 pass, 1 a fixture failed or errored or a mutation was missed, 2 harness error: Chromium or the render build missing, bad arguments). `--engine rust` renders with the Rust engine (cargo-built, or `STRUDELAND_ENGINE_BIN`), judges it against the superdough goldens with `PROFILES.engine` and reports fixtures it cannot play as `unsupported`; with `--update-goldens` it exits 2. `--planner host` (requires `--engine rust`; default `page`) plans each engine job with one single-chunk `plan-render` of the headless host (cargo-built, or `STRUDELAND_HOST_BIN`) instead of the render page, and skips the render-page build; `--planner batch` plans like `host` and renders each fixture's main window through the whole Rust pipeline (`strudeland-render`, cargo-built, or `STRUDELAND_RENDER_BIN`) | `bun run render:check [fixture\|glob\|tag:<tag>]… [--engine superdough\|rust] [--planner page\|host\|batch] [--update-goldens] [--keep-wav] [--no-mutations] [--concurrency N] [--rebuild] [--out DIR]` |
 | Check (or with `--write` regenerate) the engine's JS vectors (`crates/strudeland-engine/tests/vectors/`; exit 1: they differ) | `bun run engine:vectors [--write]` |
 | Check (or with `--write` regenerate) the engine's Chromium references (`crates/strudeland-engine/tests/refs/`: micro cases and fixture jobs; also writes `v8-math.json` (a Chromium-evaluated JS math reference) and renders the measured-floor cases (`mod-lfo-note`, `vowel-formants`) eight times; needs Chromium; exit 1: they differ, over budget or a case failed, 2: bad arguments or harness error) | `bun run engine:refs [--write] [name…]` |
 | Render an engine job with the Rust engine (the binary `render:check --engine rust` runs; exit 1: render errors, 2: bad input) | `cargo run -p strudeland-engine -- render --job <file> --out <file.wav>` |
 | List what the Rust engine cannot play in a job (the unsupported signatures, one line of JSON `[{ s, keys, firstBar }]`; the only unsupported detection, called by `rust-engine.ts`; exit 0, 2: bad job) | `cargo run -p strudeland-engine -- signatures --job <file\|->` |
 | Rebuild the headless host's bundle `crates/strudeland-host/js/host.js` (and `host.inputs.json`) after a Strudel sync or an edit of anything it bundles | `bun run host:build` |
 | Regenerate the committed Tauri IPC bindings `src/lib/ipc/bindings.ts` (command names and argument keys, event names, command error kinds) from `src-tauri/src` after a command, event or kind change (exit 1: a command it cannot read, 2: bad arguments) | `bun run ipc:build` |
-| Compare render-page and headless-host engine jobs byte for byte (needs Chromium; exit 0 equal, 1 difference or failure on one side only, 2 harness error). `--batch` compares each corpus window's chunk jobs with one `plan-render` call. `--mixed-meter` compares the complete clip and loop-preset plans for the mixed-meter fixture. | `bun run host:parity [fixture\|glob\|tag:<tag>]… [--batch] [--out DIR]` or `bun run host:parity --mixed-meter` |
+| Compare render-page and headless-host plans (needs Chromium; exit 0 equal, 1 difference or failure on one side only, 2 harness error). Each request is a single-chunk `planRender` on both sides, compared by job text byte for byte (and its info without `errors`). `--batch` compares each corpus window's whole `plan-render` plan (without `errors`) and each chunk's job against the page's single-chunk job. `--mixed-meter` compares the complete clip and loop-preset plans for the mixed-meter fixture, and two single-chunk jobs over it. | `bun run host:parity [fixture\|glob\|tag:<tag>]… [--batch] [--out DIR]` or `bun run host:parity --mixed-meter` |
 | Check (or with `--write` regenerate) the render crate's TS-derived vectors (`crates/strudeland-render/tests/vectors/`: `loudness.json` from `loudness.ts`, `joiner.json` from `assembleWindow`; no browser; exit 1: they differ, 2: bad arguments) | `bun run render:vectors [--write]` |
 | Time the webview scheduler on the synthetic live-pressure fixture (headless, real Cyclist, bun/JSC; prints ms per tick and per second of playback; exit 0 ok, 2 bad arguments) | `bun run bench:scheduler [--song FILE] [--seconds N] [--out FILE]` |
-| Plan a song's engine job, query its events, or time full-song plans with the headless host (exit 0 ok, 1 host error including a planning `timeout`, 2 bad input; the binary `--planner host` and `host:parity` run) | `cargo run -p strudeland-host -- plan --song <file> --request <json\|file> [--out <file>] [--timeout <secs>]`, `… -- query --song <file> --from <c> --to <c> [--layout clip\|linear]`, `… -- plan-render --song <file> --request <json\|file> [--out <file>]` (every chunk of a render in one call), `… -- bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>` |
-| Check the headless host's per-song budget (release, the largest corpus fixture's full window under 2 s) | `cargo test --release -p strudeland-host --test perf_budget -- --ignored --nocapture` |
+| Plan a song's engine jobs, query its events, or time full-song plans with the headless host (exit 0 ok, 1 host error including a planning `timeout`, 2 bad input; the binary `--planner host` and `host:parity` run) | `cargo run -p strudeland-host -- plan-render --song <file> --request <json\|file> [--out <file>]` (every chunk of a render in one call, or one chunk with `chunk`; `timeoutSec` bounds it), `… -- query --song <file> --from <c> --to <c> [--layout clip\|linear]`, `… -- bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>` |
+| Check the headless host's per-song budget (release, the largest corpus fixture's full window, planned as one chunk, under 2 s) | `cargo test --release -p strudeland-host --test perf_budget -- --ignored --nocapture` |
 | Render a song file to audio with the whole pipeline, as the CLI does (plan, refuse unsupported, render, join, level, encode; harness binary: not a `strudeland` subcommand; exit 0 ok, 1 render failed, 2 bad input) | `cargo run -p strudeland-render -- render --song <file> --out <file> [--from N --to N --layout clip\|linear \| --section NAME \| --length N] [--loops N] [--format wav\|mp3\|ogg\|opus] [--bit-depth 16\|24\|32f] [--loudness on\|off] [--jobs N] [--plan-timeout SECS] [--info <file.json>]` |
 | Time the whole render pipeline and every encoder over songs (JSON on stdout, table on stderr; exit 0 ok, 1 a song failed, 2 bad input) | `cargo run --release -p strudeland-render -- bench [--jobs N] [--lengths FILE] [--bars N] [--out-dir DIR] <song…>` |
 | Check the live player's 48 kHz dropout budget (dense pattern under load and a sustained long-reverb workload) | `cargo test --release -p strudeland-live --test dropout -- --ignored --nocapture --test-threads=1` |
@@ -245,15 +245,15 @@ the V8 download the host brings.
   rule each, at most two sounding inputs per summing junction, so Chromium renders them
   identically every run; the measured-floor cases are the named exceptions). `scripts/render/probes/engine-null.probe.ts` calibrates
   `PROFILES.engine`.
-- The headless host: `src/lib/render/job-plan.ts` (`planJob`,
+- The headless host: `src/lib/render/job-plan.ts` (`planRender`,
   the planner the render page and the host both run: evaluate, schedule query, select, plan,
   `PlanJobError` kinds `meta`/`eval`/`plan`) and `page-job.ts` (the engine job as text, `asciiJson`).
   `src/host/` the host bundle's entry (`main.ts`, the `PlannerRuntime` adapter), the inert audio
   backend, the prebake and the shims of codemirror's and webaudio's value-affecting names
   (`shims.ts`, `superdough-names.ts`, `not-reachable.ts`); the bundle imports no superdough,
   webaudio or codemirror. `crates/strudeland-host/` the Rust host (raw `v8` crate: a fresh isolate
-  per request, deterministic natives, `HostError`; the `strudeland-host` binary with `plan`,
-  `query`, `bench`) and its committed bundle `js/host.js` with `js/host.inputs.json` (the hashes
+  per request, deterministic natives, `HostError`; the `strudeland-host` binary with
+  `plan-render`, `query`, `bench`) and its committed bundle `js/host.js` with `js/host.inputs.json` (the hashes
   of every bundled file); its README has the runtime choice, the `Math` classification and the
   known differences. `scripts/host/build.ts` runs `host:build` with Bun's bundler.
   For [piano roll inspection](plans/0109-meter-aware-piano-roll/inspection.md), `src/host/inspection.ts`
@@ -265,7 +265,7 @@ the V8 download the host brings.
   (`host:parity`, pure parts in `src/lib/render/host-parity-lib.ts`).
 - The render pipeline: `src/lib/render/job-plan.ts`
   `planRender` (resolve the length request, evaluate once, query the schedule once, plan every
-  chunk's job; `BATCH_REUSE_SCHEDULE`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
+  chunk's job, or one chunk for the harness with `chunk`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
   builds the `AssembledWindow` for `--planner batch`), `chunks.ts` `renderChunkPlans`. `crates/strudeland-host/` also has
   `plan_render` (the `plan-render` subcommand), the planning timeout (a watchdog thread,
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
@@ -426,12 +426,13 @@ the V8 download the host brings.
   prints the reminder) or an edit of any file listed in `host.inputs.json` (a `bun test` staleness
   test fails until then), then run `bun run host:parity` and `cargo test -p strudeland-host`.
   `host:parity` is the check that the host and the render page plan the same jobs (byte-equal job
-  text; `info` is not compared: the page-only and host-only error sources differ, crate README).
+  text, and `info` deep-equal without `errors`; `errors` is not compared: the page-only and
+  host-only error sources differ, crate README).
   In the host `Math.random` throws and the clocks read 0; `Math` transcendentals are `jsmath`
   overrides or on the verified-native list (`crates/strudeland-host/src/math.rs`), checked against
   `v8-math.json`. The host's binary is not a `strudeland` subcommand (`SKILL.md` does not mention
   it; a test checks); its library is behind `strudeland render`. `host:parity --batch` is the
-  check that `plan-render` plans the same chunk jobs; a `job-plan.ts` edit also needs
+  check that `plan-render` plans the page's plans and the page's single-chunk jobs; a `job-plan.ts` edit also needs
   `host:build`, `engine:refs --write` and `host:parity --batch`.
 - Render pipeline: `strudeland-render`'s binary is not a `strudeland` subcommand either (`SKILL.md`
   does not mention it; a test checks). `render:vectors --write` after an edit of `loudness.ts` or

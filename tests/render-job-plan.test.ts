@@ -6,10 +6,10 @@ import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
 import {
   cutSchedule,
   evaluateSong,
-  planJob,
   PlanJobError,
   planRender,
   querySong,
+  singleChunkRequest,
   type LengthRequest,
   type PlannedRender,
   type PlanJobPhase,
@@ -17,7 +17,7 @@ import {
   type RenderPlanRequest,
 } from '../src/lib/render/job-plan';
 import { lookbackSeconds } from '../src/lib/render/lookback';
-import { dedupeErrors, pageJob } from '../src/lib/render/page-job';
+import { dedupeErrors, pageJob, pageJobInfo } from '../src/lib/render/page-job';
 import { eventSources, selectHaps, windowPlan } from '../src/lib/render/plan';
 import { eventsFromValues } from '../src/lib/render/schedule';
 import type { EvaluateOptions } from '../src/lib/strudel/runtime';
@@ -101,7 +101,25 @@ function expected(
   const chunk = selectHaps(songHaps(plan.c0, plan.c1));
   const planned = planEngineJob(chunk.selected, selected, plan, request, cps, seed);
   const errors = dedupeErrors([...selectErrors, ...chunk.errors, ...captured]);
-  return pageJob(planned, { errors, plan, cps, structure });
+  const chunkPlan = { ...plan, fromBar: request.fromBar, toBar: request.toBar, lookbackSec };
+  return pageJob(planned, { errors, plan: chunkPlan, cps, structure });
+}
+
+/** `request` planned as one chunk by `planRender`: the chunk's job text and its `PageJobInfo`. */
+async function planOne(
+  rt: PlannerRuntime,
+  request: RenderRequest,
+  captured: RenderError[],
+  onPhase?: (p: PlanJobPhase) => void,
+) {
+  const planned = await planRender(
+    rt,
+    request.code,
+    singleChunkRequest(request),
+    captured,
+    onPhase,
+  );
+  return { json: planned.chunks[0]!.json, info: pageJobInfo(planned) };
 }
 
 async function planError(p: Promise<unknown>): Promise<PlanJobError> {
@@ -111,7 +129,7 @@ async function planError(p: Promise<unknown>): Promise<PlanJobError> {
     expect(e).toBeInstanceOf(PlanJobError);
     return e as PlanJobError;
   }
-  throw new Error('planJob resolved; expected a PlanJobError');
+  throw new Error('planning resolved; expected a PlanJobError');
 }
 
 describe('PlanJobError', () => {
@@ -124,11 +142,11 @@ describe('PlanJobError', () => {
   });
 });
 
-describe('planJob success', () => {
+describe('single-chunk planRender success', () => {
   test('equals pageJob(planEngineJob(...)) for the same haps (fixed lookback)', async () => {
     const request = req({ code: CODE, toBar: 3, overlapBars: 1, mode: 'stems' });
     const { rt, evaluated, queries } = fakeRuntime();
-    const got = await planJob(rt, request, []);
+    const got = await planOne(rt, request, []);
     const header = okHeader(CODE);
     const want = expected(request, 0.5, 7, header.structure);
     expect(got.json).toBe(want.json);
@@ -141,7 +159,7 @@ describe('planJob success', () => {
   test("'auto' lookback queries the chunk from the derived window", async () => {
     const request = req({ code: CODE, fromBar: 2, toBar: 4, lookbackSec: 'auto' });
     const { rt, queries } = fakeRuntime();
-    const got = await planJob(rt, request, []);
+    const got = await planOne(rt, request, []);
     const want = expected(request, 0.5, 7, okHeader(CODE).structure);
     expect(got.json).toBe(want.json);
     expect(got.info).toEqual(want.info);
@@ -152,7 +170,7 @@ describe('planJob success', () => {
   test('a numeric lookback moves c0 back by whole bars', async () => {
     const request = req({ code: CODE, fromBar: 2, toBar: 3, lookbackSec: 2.5 });
     const { rt, queries } = fakeRuntime();
-    const got = await planJob(rt, request, []);
+    const got = await planOne(rt, request, []);
     expect(got.info.plan.c0).toBe(0); // ceil(2.5 s * 0.5 cps) = 2 bars
     // The window reaches bar 0, so it is the schedule's window and is not queried again.
     expect(queries.map((q) => [q.from, q.to])).toEqual([[0, 3]]);
@@ -166,7 +184,7 @@ describe('planJob success', () => {
       order.push(`evaluate during ${phases.at(-1)}`);
       return orig(c, o);
     })(rt.evaluate.bind(rt));
-    await planJob(rt, req({ code: CODE }), [], (p) => phases.push(p));
+    await planOne(rt, req({ code: CODE }), [], (p) => phases.push(p));
     expect(phases).toEqual(['evaluating', 'querying']);
     expect(order).toEqual(['evaluate during evaluating']);
     expect(calls).toEqual(['evaluate', 'state', 'query 0 2']);
@@ -174,7 +192,7 @@ describe('planJob success', () => {
 
   test('without onPhase it still plans', async () => {
     const { rt } = fakeRuntime();
-    await expect(planJob(rt, req({ code: CODE }), [])).resolves.toBeDefined();
+    await expect(planOne(rt, req({ code: CODE }), [])).resolves.toBeDefined();
   });
 
   test('captured errors come after the select errors, deduped, read after the queries', async () => {
@@ -190,7 +208,7 @@ describe('planJob success', () => {
         return songHaps(from, to);
       },
     });
-    const got = await planJob(rt, request, captured);
+    const got = await planOne(rt, request, captured);
     const selectMsg = got.info.errors[0]!;
     expect(selectMsg.kind).not.toBe('worklet');
     expect(selectMsg.message).toContain('hap at cycle 1.25');
@@ -200,7 +218,7 @@ describe('planJob success', () => {
       { kind: 'worklet', message: 'w' },
       { kind: 'sample', message: 'during 0-3' },
     ]);
-    // Appending after planJob returned does not change the result.
+    // Appending after planning returned does not change the result.
     captured.push({ kind: 'other', message: 'late' });
     expect(got.info.errors).toHaveLength(3);
   });
@@ -208,10 +226,10 @@ describe('planJob success', () => {
   test('seed defaults to 0 when the state has none', async () => {
     const request = req({ code: CODE });
     const structure = okHeader(CODE).structure;
-    const none = await planJob(fakeRuntime({ seed: undefined }).rt, request, []);
+    const none = await planOne(fakeRuntime({ seed: undefined }).rt, request, []);
     expect(none.json).toBe(expected(request, 0.5, 0, structure).json);
     expect(JSON.parse(none.json).seed).toBe(0);
-    const seven = await planJob(fakeRuntime({ seed: -7 }).rt, request, []);
+    const seven = await planOne(fakeRuntime({ seed: -7 }).rt, request, []);
     expect(JSON.parse(seven.json).seed).toBe(-7);
     expect(seven.json).toBe(expected(request, 0.5, -7, structure).json);
   });
@@ -222,7 +240,7 @@ describe('planJob success', () => {
       meter: '3/4',
       sections: [{ name: 'a', bars: 8 }],
     });
-    const got = await planJob(fakeRuntime({ structure }).rt, req({ code: CODE }), []);
+    const got = await planOne(fakeRuntime({ structure }).rt, req({ code: CODE }), []);
     expect(got.info.structure).toBe(structure);
     expect(got.info.cps).toBe(0.5); // cps comes from the state, never the structure
   });
@@ -239,17 +257,17 @@ describe('planJob success', () => {
       ],
     });
     const clip = fakeRuntime({ structure });
-    await planJob(clip.rt, req({ code: CODE, layout: 'clip' }), []);
+    await planOne(clip.rt, req({ code: CODE, layout: 'clip' }), []);
     expect(clip.queries.map((q) => q.segments)).toEqual([clipSegments(structure)]);
     const clipChunk = fakeRuntime({ structure });
-    await planJob(clipChunk.rt, req({ code: CODE, layout: 'clip', fromBar: 1, toBar: 2 }), []);
+    await planOne(clipChunk.rt, req({ code: CODE, layout: 'clip', fromBar: 1, toBar: 2 }), []);
     expect(clipChunk.queries.map((q) => q.segments)).toEqual([
       clipSegments(structure),
       clipSegments(structure),
     ]);
     expect(clipSegments(structure)).not.toEqual(LINEAR_SEGMENTS);
     const linear = fakeRuntime({ structure });
-    await planJob(linear.rt, req({ code: CODE, layout: 'linear' }), []);
+    await planOne(linear.rt, req({ code: CODE, layout: 'linear' }), []);
     for (const q of linear.queries) expect(q.segments).toBe(LINEAR_SEGMENTS);
   });
 
@@ -259,12 +277,12 @@ describe('planJob success', () => {
     const structure = okHeader(code).structure;
     expect(structure.loopIndex).toBe(1);
     const f = fakeRuntime();
-    await planJob(f.rt, req({ code, layout: 'clip' }), []);
+    await planOne(f.rt, req({ code, layout: 'clip' }), []);
     expect(f.queries[0]!.segments).toEqual(clipSegments(structure));
   });
 });
 
-describe('planJob query reuse', () => {
+describe('single-chunk planRender query reuse', () => {
   const shapes: [string, Partial<RenderRequest>][] = [
     ['full window, mix', { toBar: 4 }],
     ['full window, stems', { toBar: 3, overlapBars: 1, mode: 'stems' }],
@@ -282,7 +300,7 @@ describe('planJob query reuse', () => {
     const request = req({ code: CODE, ...shape });
     const captured: RenderError[] = [{ kind: 'worklet', message: 'w' }];
     const f = fakeRuntime();
-    const got = await planJob(f.rt, request, captured);
+    const got = await planOne(f.rt, request, captured);
     const want = expected(request, 0.5, 7, okHeader(CODE).structure, captured);
     expect(got.json).toBe(want.json);
     expect(got.info).toEqual(want.info);
@@ -311,7 +329,7 @@ describe('planJob query reuse', () => {
         .map((x) => hap(x.b, x.e, { s: 'sine', note: x.note }, { partBegin: Math.max(x.b, from) }));
     const request = req({ code: CODE, fromBar: 1, toBar: 3, lookbackSec: 0 });
     const f = fakeRuntime({ query });
-    const got = await planJob(f.rt, request, []);
+    const got = await planOne(f.rt, request, []);
     expect(f.queries.map((q) => [q.from, q.to])).toEqual([
       [0, 3],
       [1, 3],
@@ -323,20 +341,20 @@ describe('planJob query reuse', () => {
 
   test('a reused selection still reports its select errors once', async () => {
     const f = fakeRuntime();
-    const got = await planJob(f.rt, req({ code: CODE, toBar: 3 }), []);
+    const got = await planOne(f.rt, req({ code: CODE, toBar: 3 }), []);
     expect(f.queries).toHaveLength(1);
     expect(got.info.errors.filter((e) => e.message.includes('hap at cycle 1.25'))).toHaveLength(1);
   });
 });
 
-describe('planJob failures', () => {
+describe('single-chunk planRender failures', () => {
   test("a meta error is kind 'meta' with the page's message; nothing is evaluated", async () => {
     const code = "const meta = { seed: 'a' };\nnote('c')";
     const metaError = headerError(code);
     expect(metaError).not.toBeNull();
     const phases: PlanJobPhase[] = [];
     const f = fakeRuntime();
-    const e = await planError(planJob(f.rt, req({ code }), [], (p) => phases.push(p)));
+    const e = await planError(planOne(f.rt, req({ code }), [], (p) => phases.push(p)));
     expect(e.kind).toBe('meta');
     expect(e.message).toBe(
       `meta: ${metaError.message} (${metaError.line}:${metaError.column + 1})`,
@@ -349,7 +367,7 @@ describe('planJob failures', () => {
   test("a failed evaluate is kind 'eval' with the runtime's message", async () => {
     const phases: PlanJobPhase[] = [];
     const f = fakeRuntime({ evaluateResult: false, evalError: 'ReferenceError: x' });
-    const e = await planError(planJob(f.rt, req({ code: CODE }), [], (p) => phases.push(p)));
+    const e = await planError(planOne(f.rt, req({ code: CODE }), [], (p) => phases.push(p)));
     expect(e.kind).toBe('eval');
     expect(e.message).toBe('ReferenceError: x');
     expect(f.calls).toEqual(['evaluate', 'evalError']);
@@ -358,26 +376,26 @@ describe('planJob failures', () => {
 
   test("a failed evaluate without a message is 'evaluate failed'", async () => {
     const f = fakeRuntime({ evaluateResult: false, evalError: null });
-    const e = await planError(planJob(f.rt, req({ code: CODE }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE }), []));
     expect(e.kind).toBe('eval');
     expect(e.message).toBe('evaluate failed');
   });
 
   test('an empty eval message is kept, not replaced by the fallback', async () => {
     const f = fakeRuntime({ evaluateResult: false, evalError: '' });
-    const e = await planError(planJob(f.rt, req({ code: CODE }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE }), []));
     expect(e.message).toBe('');
   });
 
   test('an evaluate that throws propagates unchanged (the runtime never throws)', async () => {
     const thrown = new TypeError('adapter broke');
     const f = fakeRuntime({ evaluateThrows: thrown });
-    await expect(planJob(f.rt, req({ code: CODE }), [])).rejects.toBe(thrown);
+    await expect(planOne(f.rt, req({ code: CODE }), [])).rejects.toBe(thrown);
   });
 
   test("a null query is kind 'plan': 'query before a successful evaluate'", async () => {
     const f = fakeRuntime({ query: () => null });
-    const e = await planError(planJob(f.rt, req({ code: CODE }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE }), []));
     expect(e.kind).toBe('plan');
     expect(e.message).toBe('query before a successful evaluate');
     expect(f.queries).toHaveLength(1);
@@ -386,7 +404,7 @@ describe('planJob failures', () => {
   test('a null chunk query after a good schedule query is the same error', async () => {
     let n = 0;
     const f = fakeRuntime({ query: (a, b) => (n++ === 0 ? songHaps(a, b) : null) });
-    const e = await planError(planJob(f.rt, req({ code: CODE, fromBar: 1, toBar: 2 }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE, fromBar: 1, toBar: 2 }), []));
     expect(f.queries.map((q) => [q.from, q.to])).toEqual([
       [0, 2],
       [1, 2],
@@ -400,14 +418,14 @@ describe('planJob failures', () => {
         throw new Error('pattern exploded');
       },
     });
-    const e = await planError(planJob(f.rt, req({ code: CODE }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE }), []));
     expect(e.kind).toBe('plan');
     expect(e.message).toBe('pattern exploded');
   });
 
   test('a non-Error thrown value is wrapped with its string form', async () => {
     const f = fakeRuntime({ stateThrows: 'state gone' });
-    const e = await planError(planJob(f.rt, req({ code: CODE }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE }), []));
     expect(e).toMatchObject({ kind: 'plan', message: 'state gone' });
   });
 
@@ -418,29 +436,12 @@ describe('planJob failures', () => {
         throw inner;
       },
     });
-    await expect(planJob(f.rt, req({ code: CODE }), [])).rejects.toBe(inner);
+    await expect(planOne(f.rt, req({ code: CODE }), [])).rejects.toBe(inner);
   });
-
-  test.each([
-    ['NaN cps', { cps: NaN }, {}, 'invalid cps NaN'],
-    ['zero cps', { cps: 0 }, {}, 'invalid cps 0'],
-    ['negative cps', { cps: -1 }, {}, 'invalid cps -1'],
-    ['negative lookback', {}, { lookbackSec: -1 }, 'invalid lookback -1'],
-    ['NaN lookback', {}, { lookbackSec: NaN }, 'invalid lookback NaN'],
-    ['empty window', {}, { fromBar: 0, toBar: 0 }, 'empty render window [0, 0)'],
-  ] as const)(
-    "%s: windowPlan's RangeError is kind 'plan'",
-    async (_name, state, request, message) => {
-      const f = fakeRuntime({ ...state, query: () => [] });
-      const e = await planError(planJob(f.rt, req({ code: CODE, ...request }), []));
-      expect(e.kind).toBe('plan');
-      expect(e.message).toBe(message);
-    },
-  );
 
   test("a huge window's buffer bound is kind 'plan'", async () => {
     const f = fakeRuntime({ query: () => [] });
-    const e = await planError(planJob(f.rt, req({ code: CODE, toBar: 1e7 }), []));
+    const e = await planError(planOne(f.rt, req({ code: CODE, toBar: 100000 }), []));
     expect(e.kind).toBe('plan');
     expect(e.message).toMatch(/^render buffer too large: \d+ bytes \(max 1000000000\)$/);
   });
@@ -822,6 +823,141 @@ describe('planRender request validation', () => {
   });
 });
 
+describe('planRender chunk validation', () => {
+  const win = (fromBar: number, toBar: number): LengthRequest => ({
+    kind: 'window',
+    fromBar,
+    toBar,
+    layout: 'linear',
+  });
+  const chunk = { overlapBars: 0, lookbackSec: 0, mode: 'mix' } as const;
+  const ok = renderReq(win(0, 4), { chunk });
+  test.each([
+    ['a chunk that is not an object', { ...ok, chunk: 3 }, 'bad request: chunk must be an object'],
+    ['a chunk array', { ...ok, chunk: [] }, 'bad request: chunk must be an object'],
+    [
+      'a chunk without a window',
+      { ...ok, length: { kind: 'length', bars: 4 } },
+      'bad request: chunk needs a window length',
+    ],
+    [
+      'a chunk with a loop preset (a bad request, not a meta error)',
+      { ...ok, preset: 'tagged-loop' },
+      'bad request: chunk cannot be combined with a preset',
+    ],
+    [
+      'a chunk with one-shot',
+      { ...ok, preset: 'one-shot' },
+      'bad request: chunk cannot be combined with a preset',
+    ],
+    [
+      'a negative overlap',
+      { ...ok, chunk: { ...chunk, overlapBars: -1 } },
+      'bad request: chunk.overlapBars must be an integer from 0 to 99996',
+    ],
+    [
+      'a fractional overlap',
+      { ...ok, chunk: { ...chunk, overlapBars: 0.5 } },
+      'bad request: chunk.overlapBars must be an integer from 0 to 99996',
+    ],
+    [
+      'an overlap past the limit',
+      { ...ok, chunk: { ...chunk, overlapBars: 99997 } },
+      'bad request: chunk.overlapBars must be an integer from 0 to 99996',
+    ],
+    [
+      'a missing overlap',
+      { ...ok, chunk: {} },
+      'bad request: chunk.overlapBars must be an integer from 0 to 99996',
+    ],
+    [
+      'a negative lookback',
+      { ...ok, chunk: { ...chunk, lookbackSec: -1 } },
+      "bad request: chunk.lookbackSec must be 'auto' or a number of seconds >= 0",
+    ],
+    [
+      'a NaN lookback',
+      { ...ok, chunk: { ...chunk, lookbackSec: NaN } },
+      "bad request: chunk.lookbackSec must be 'auto' or a number of seconds >= 0",
+    ],
+    [
+      'an infinite lookback',
+      { ...ok, chunk: { ...chunk, lookbackSec: Infinity } },
+      "bad request: chunk.lookbackSec must be 'auto' or a number of seconds >= 0",
+    ],
+    [
+      'a string lookback',
+      { ...ok, chunk: { ...chunk, lookbackSec: 'x' } },
+      "bad request: chunk.lookbackSec must be 'auto' or a number of seconds >= 0",
+    ],
+    [
+      'an unknown mode',
+      { ...ok, chunk: { ...chunk, mode: 'mono' } },
+      'bad request: unknown chunk mode mono',
+    ],
+    [
+      'an empty window with a chunk',
+      { ...ok, length: win(0, 0) },
+      'bad request: length window must be integers with 0 <= fromBar < toBar <= 100000',
+    ],
+  ] as const)('%s is kind plan without a flag', async (_name, request, message) => {
+    const f = fakeRuntime();
+    const e = await planError(planRender(f.rt, CODE, request as unknown as RenderPlanRequest, []));
+    expect(e.kind).toBe('plan');
+    expect(e.flag).toBeUndefined();
+    expect(e.message).toBe(message);
+    expect(f.calls).toEqual([]);
+  });
+
+  test('the overlap may reach the render limit, not pass it', async () => {
+    const at = (overlapBars: number) =>
+      planRender(
+        fakeRuntime({ query: () => [] }).rt,
+        CODE,
+        renderReq(win(99998, 99999), { chunk: { ...chunk, overlapBars } }),
+        [],
+      );
+    expect((await at(1)).chunks[0]!.plan).toMatchObject({ c1: 100000 });
+    expect((await planError(at(2))).message).toBe(
+      'bad request: chunk.overlapBars must be an integer from 0 to 1',
+    );
+  });
+
+  test.each(['mix', 'stems'] as const)('a %s chunk plans one chunk with its info', async (mode) => {
+    const got = await planRender(
+      fakeRuntime().rt,
+      CODE,
+      renderReq(win(1, 3), { chunk: { overlapBars: 1, lookbackSec: 'auto', mode } }),
+      [],
+    );
+    expect(got.chunks).toHaveLength(1);
+    const want = expected(
+      req({ code: CODE, fromBar: 1, toBar: 3, overlapBars: 1, lookbackSec: 'auto', mode }),
+      0.5,
+      7,
+      okHeader(CODE).structure,
+    );
+    expect(got.chunks[0]!.json).toBe(want.json);
+    expect(pageJobInfo(got)).toEqual(want.info);
+  });
+
+  test('a request without a chunk carries no chunk info', async () => {
+    const got = await planRender(fakeRuntime().rt, CODE, renderReq(win(0, 4)), []);
+    for (const c of got.chunks) expect(c.info).toBeUndefined();
+  });
+
+  test('singleChunkRequest keeps the window, overlap, lookback and mode', () => {
+    expect(
+      singleChunkRequest(
+        req({ code: CODE, layout: 'clip', fromBar: 2, toBar: 5, overlapBars: 1, mode: 'stems' }),
+      ),
+    ).toEqual({
+      length: { kind: 'window', fromBar: 2, toBar: 5, layout: 'clip' },
+      chunk: { overlapBars: 1, lookbackSec: req().lookbackSec, mode: 'stems' },
+    });
+  });
+});
+
 describe('planRender chunks', () => {
   const cases: [string, string, LengthRequest, typeof songHaps][] = [
     ['linear, 20 bars', CODE, { kind: 'length', bars: 20 }, songHaps],
@@ -837,7 +973,7 @@ describe('planRender chunks', () => {
   ];
 
   test.each(cases)(
-    "%s: every chunk's job equals planJob of its chunk request",
+    "%s: a single-chunk request at chunk k's bars and lookback, overlap 0, equals planRender chunk k",
     async (_name, code, length, haps) => {
       const captured: RenderError[] = [{ kind: 'worklet', message: 'w' }];
       const got = await planRender(
@@ -870,15 +1006,21 @@ describe('planRender chunks', () => {
       };
       for (const [i, plan] of plans.entries()) {
         const request = chunkRequest(base, plan);
-        const want = await planJob(fakeRuntime({ query: haps }).rt, request, captured);
-        expect(got.chunks[i]!.json).toBe(want.json);
-        expect(got.chunks[i]!.plan).toEqual({
-          ...want.info.plan,
+        const one = await planRender(
+          fakeRuntime({ query: haps }).rt,
+          code,
+          singleChunkRequest(request),
+          captured,
+        );
+        expect(one.chunks).toHaveLength(1);
+        expect(got.chunks[i]!.json).toBe(one.chunks[0]!.json);
+        expect(one.chunks[0]!.plan).toEqual(got.chunks[i]!.plan);
+        expect(got.chunks[i]!.plan).toMatchObject({
           fromBar: plan.contentStartBar,
           toBar: plan.contentEndBar,
-          lookbackSec: plan.lookbackSec,
         });
         expect(Object.is(got.chunks[i]!.plan.lookbackSec, request.lookbackSec)).toBe(true);
+        expect(Object.is(one.chunks[0]!.plan.lookbackSec, request.lookbackSec)).toBe(true);
       }
       expect(got.lookbackSec).toBe(lookbackSeconds(events));
       const { fromBar, toBar } = got.window;
@@ -886,20 +1028,6 @@ describe('planRender chunks', () => {
       expect(got.chunks.reduce((n, c) => n + c.plan.contentFrames, 0)).toBe(got.musicFrames);
       for (const c of got.chunks) {
         expect(c.plan.contentFrames).toBe(windowFrames(c.plan.fromBar, c.plan.toBar, 0.5, 44100));
-      }
-    },
-  );
-
-  test.each(cases)(
-    '%s: the per-chunk schedule fallback gives the same jobs',
-    async (_n, code, length, haps) => {
-      const reuse = await planRender(fakeRuntime({ query: haps }).rt, code, renderReq(length), []);
-      const f = fakeRuntime({ query: haps });
-      const fallback = await planRender(f.rt, code, renderReq(length), [], undefined, false);
-      expect(fallback).toEqual(reuse);
-      // The fallback queries [0, c1) for every chunk.
-      for (const c of reuse.chunks) {
-        expect(f.queries.some((q) => q.from === 0 && q.to === c.plan.toBar)).toBe(true);
       }
     },
   );
@@ -1267,14 +1395,7 @@ describe('loop export windows and decay', () => {
             return hap(bar, bar + 0.25, { s: 'white', note: from + to + bar });
           }),
       });
-      const plan = await planRender(
-        source.rt,
-        CODE,
-        renderReq(clip, { preset }),
-        [],
-        undefined,
-        false,
-      );
+      const plan = await planRender(source.rt, CODE, renderReq(clip, { preset }), []);
       expect(source.queries).toEqual([{ from: 0, to: 30, segments: LINEAR_SEGMENTS }]);
       const repeat = plan.export!.repeat!.chunks;
       expect(plan.chunks.length).toBeGreaterThan(1);
@@ -1562,7 +1683,7 @@ describe('mixed-meter render planning', () => {
       ],
     });
     const request = req({ code: CODE, fromBar: 0, toBar: 4, layout: 'linear' });
-    const { json, info } = await planJob(runtime.rt, request, []);
+    const { json, info } = await planOne(runtime.rt, request, []);
     const job: EngineJob = JSON.parse(json);
     expect(job.pauses.map((pause) => pause.suspendSec)).toEqual([0, 1.95, 3.95, 5.95]);
     expect(job.pauses.flatMap((pause) => pause.haps)).toEqual([
@@ -1583,17 +1704,12 @@ describe('mixed-meter render planning', () => {
   test('clip repeats the meter sequence and plans the ending after the second pass', async () => {
     const structure = structureAt(120);
     const request = renderReq({ kind: 'clip' }, { includeEvents: true });
-    const run = (reuse: boolean) =>
-      planRender(
-        fakeRuntime({ structure, query: musicalHaps }).rt,
-        CODE,
-        request,
-        [],
-        undefined,
-        reuse,
-      );
-    const plan = await run(true);
-    expect(plan).toEqual(await run(false));
+    const plan = await planRender(
+      fakeRuntime({ structure, query: musicalHaps }).rt,
+      CODE,
+      request,
+      [],
+    );
     expect(plan.window).toEqual({ fromBar: 0, toBar: 22, layout: 'clip' });
     expect(plan.musicFrames).toBe(1719900);
     expect(plan.events?.filter((event) => event.durSec < 1).map((event) => event.bar)).toEqual([

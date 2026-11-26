@@ -74,6 +74,19 @@ pub struct PlannedWindow {
 pub struct PlannedChunk {
     pub json: String,
     pub plan: ChunkWindow,
+    /// The job's events and stem pairs; present only for a single-chunk request
+    /// ([`RenderPlanRequest::chunk`](crate::RenderPlanRequest::chunk)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub info: Option<ChunkInfo>,
+}
+
+/// What a single-chunk plan adds to its chunk (`ChunkInfo` in `job-plan.ts`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkInfo {
+    /// The chunk's `RenderEvent[]`, kept as JSON.
+    pub events: serde_json::Value,
+    pub stem_pairs: u32,
 }
 
 /// A chunk's `WindowPlan` plus its content window and the exact `lookbackSec` its request carries
@@ -245,6 +258,32 @@ mod tests {
                 .unwrap()
                 .contains(r#""overlapFrames":88200"#)
         );
+    }
+
+    #[test]
+    fn chunk_info_round_trips_when_present_and_is_absent_otherwise() {
+        let with = PLANNED.replace(
+            r#""lookbackSec":0.30000000000000004}}]"#,
+            r#""lookbackSec":0.30000000000000004},"info":{"events":[{"note":"c","tSec":0.5}],"stemPairs":2}}]"#,
+        );
+        assert_ne!(with, PLANNED);
+        let p: PlannedRender = serde_json::from_str(&with).unwrap();
+        assert_eq!(
+            p.chunks[0].info,
+            Some(ChunkInfo {
+                events: serde_json::json!([{ "note": "c", "tSec": 0.5 }]),
+                stem_pairs: 2,
+            })
+        );
+        let text = serde_json::to_string(&p).unwrap();
+        assert!(
+            text.contains(r#""info":{"events":[{"note":"c","tSec":0.5}],"stemPairs":2}"#),
+            "{text}"
+        );
+        assert_eq!(serde_json::from_str::<PlannedRender>(&text).unwrap(), p);
+        let without: PlannedRender = serde_json::from_str(PLANNED).unwrap();
+        assert_eq!(without.chunks[0].info, None);
+        assert!(!serde_json::to_string(&without).unwrap().contains("info"));
     }
 
     #[test]

@@ -7,22 +7,26 @@
 //! ```
 //!
 //! It plans the largest corpus fixture (the widest manifest window; ties go to the larger job
-//! of a first run) over its full manifest window three times, each on a fresh `Host`, and asserts
-//! the median is within `BUDGET.full_song_max_ms`.
+//! of a first run) over its full manifest window as one chunk (a single-chunk `plan_render`)
+//! three times, each on a fresh `Host`, and asserts the median is within
+//! `BUDGET.full_song_max_ms`. It times that one call, not a production render's plan of every
+//! chunk.
 
 mod common;
 
 use std::time::Instant;
 
-use common::{corpus_song, repo_root};
+use common::{corpus_song, job, repo_root, single_chunk};
 use serde_json::Value;
 use strudeland_host::bench::{BUDGET, RUNS, median};
-use strudeland_host::{Host, Layout, LookbackSec, Mode, RenderRequest};
+use strudeland_host::{Host, Layout, LookbackSec, Mode, RenderPlanRequest, SingleChunk};
 
 struct Fixture {
     name: String,
     code: String,
-    request: RenderRequest,
+    from_bar: u32,
+    to_bar: u32,
+    request: RenderPlanRequest,
 }
 
 fn fixtures() -> Vec<Fixture> {
@@ -40,15 +44,18 @@ fn fixtures() -> Vec<Fixture> {
             Fixture {
                 name: f["name"].as_str().unwrap().to_string(),
                 code: corpus_song(f["file"].as_str().unwrap()),
-                request: RenderRequest {
-                    layout: serde_json::from_value::<Layout>(f["layout"].clone()).unwrap(),
-                    from_bar: bar(0),
-                    to_bar: bar(1),
-                    overlap_bars: 0,
-                    lookback_sec: LookbackSec::Seconds(0.0),
-                    mode: Mode::Mix,
-                    sample_rate: 44_100,
-                },
+                from_bar: bar(0),
+                to_bar: bar(1),
+                request: single_chunk(
+                    bar(0),
+                    bar(1),
+                    serde_json::from_value::<Layout>(f["layout"].clone()).unwrap(),
+                    SingleChunk {
+                        overlap_bars: 0,
+                        lookback_sec: LookbackSec::Seconds(0.0),
+                        mode: Mode::Mix,
+                    },
+                ),
             }
         })
         .collect()
@@ -56,7 +63,7 @@ fn fixtures() -> Vec<Fixture> {
 
 /// The widest window; among equally wide ones, the larger first-run job.
 fn largest(fixtures: Vec<Fixture>) -> Fixture {
-    let width = |f: &Fixture| f.request.to_bar - f.request.from_bar;
+    let width = |f: &Fixture| f.to_bar - f.from_bar;
     let widest = fixtures.iter().map(width).max().unwrap();
     let mut candidates: Vec<Fixture> = fixtures
         .into_iter()
@@ -69,7 +76,7 @@ fn largest(fixtures: Vec<Fixture>) -> Fixture {
     candidates
         .into_iter()
         .map(|f| {
-            let bytes = host.plan_job(&f.code, &f.request).unwrap().json.len();
+            let bytes = job(&host.plan_render(&f.code, &f.request).unwrap()).len();
             (bytes, f)
         })
         .max_by_key(|(bytes, _)| *bytes)
@@ -88,14 +95,14 @@ fn the_largest_corpus_fixture_plans_within_the_per_song_budget() {
     for _ in 0..RUNS {
         let host = Host::new().unwrap();
         let start = Instant::now();
-        host.plan_job(&fixture.code, &fixture.request)
+        host.plan_render(&fixture.code, &fixture.request)
             .unwrap_or_else(|e| panic!("{}: {e}", fixture.name));
         times.push(start.elapsed().as_secs_f64() * 1000.0);
     }
     let median_ms = median(&times).unwrap();
     println!(
         "perf_budget: {} bars {}..{}: runs {times:.1?} ms, median {median_ms:.1} ms (limit {} ms)",
-        fixture.name, fixture.request.from_bar, fixture.request.to_bar, BUDGET.full_song_max_ms
+        fixture.name, fixture.from_bar, fixture.to_bar, BUDGET.full_song_max_ms
     );
     assert!(
         median_ms <= BUDGET.full_song_max_ms,

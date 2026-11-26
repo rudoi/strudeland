@@ -1,29 +1,29 @@
 /**
- * The headless host (`crates/strudeland-host`) as a `JobSource`: each job is one
- * `strudeland-host plan` process, which evaluates the song in an embedded V8 and plans the job as
- * the render page does in Chromium. Build it with cargo (or take `STRUDELAND_HOST_BIN`). Every
- * process goes through an injectable `EngineProcessRunner`, so `bun test` covers this file without
- * cargo or a binary. No Playwright import.
+ * The headless host (`crates/strudeland-host`) as a `JobSource`: each job is one single-chunk
+ * `strudeland-host plan-render` process (`singleChunkRequest`), which evaluates the song in an
+ * embedded V8 and plans the chunk as the render page does in Chromium. Build it with cargo (or
+ * take `STRUDELAND_HOST_BIN`). Every process goes through an injectable `EngineProcessRunner`, so
+ * `bun test` covers this file without cargo or a binary. No Playwright import.
  *
- * Outcomes: exit 0 is the job (stdout, the exact text) and its info (stderr, the last non-empty
- * line, a JSON object; any earlier lines are the console lines `STRUDELAND_HOST_LOG=1` lets
- * through, and are ignored); exit 1 (a host error: the song failed, a planner error) or 2 (bad
- * input), a signal (a timeout), or an exit 0 without an info line, without a job object or with
- * a job whose length is not the info's `jsonLength`, is `HarnessError('render-failed')` with the
- * first 2000 characters of stderr. A binary that cannot be spawned is `HarnessError('build-missing')`.
+ * Outcomes: exit 0 is the plan on stdout (one JSON object with a `chunks` array of `{ json, plan
+ * }`); for a job it must hold exactly one chunk with its `info`, and the job is that chunk's
+ * `json` with `pageJobInfo` of the plan. Exit 1 (a host error: the song failed, a planner error)
+ * or 2 (bad input), a signal (a timeout), a stdout that is not such a plan, a job plan without
+ * exactly one chunk with `info`, or a job that is not an object, is
+ * `HarnessError('render-failed')` with the first 2000 characters of stderr (console lines
+ * `STRUDELAND_HOST_LOG=1` lets through go there). A binary that cannot be spawned is
+ * `HarnessError('build-missing')`.
  *
- * `planRender` runs `strudeland-host plan-render` (every chunk of a render in one process, for
- * `host:parity --batch`): exit 0 is the plan on stdout (one JSON object with a `chunks` array of
- * `{ json, plan }`); any other outcome, or a stdout that is not such a plan, is
- * `HarnessError('render-failed')` with the first 2000 characters of stderr.
+ * `planRender` runs the same `plan-render` with a whole-render request (every chunk in one
+ * process, for `host:parity --batch`).
  */
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { RenderRequest } from '../../src/lib/render/contract';
 import { isRecord, type EngineJob } from '../../src/lib/render/engine-job';
-import type { PlannedRender } from '../../src/lib/render/job-plan';
-import type { PageJobInfo } from '../../src/lib/render/page-job';
+import { singleChunkRequest, type PlannedRender } from '../../src/lib/render/job-plan';
+import { pageJobInfo, type PageJobInfo } from '../../src/lib/render/page-job';
 import { errorMessage } from '../../src/lib/errors';
 import type { JobSource } from './job-source';
 import {
@@ -66,19 +66,7 @@ export function findHostBinary(
   return findCrateBinary(env, 'STRUDELAND_HOST_BIN', HOST_PACKAGE, runner, cwd);
 }
 
-/** The host's request JSON: `req` without `code` (passed as the song file), `samples` and
- *  `mutation` (the planner reads neither; the host rejects unknown fields). */
-export function hostRequestJson(req: RenderRequest): string {
-  const { code: _code, samples: _samples, mutation: _mutation, ...rest } = req;
-  return JSON.stringify(rest);
-}
-
-/** The `strudeland-host` arguments that plan `req` from the song file `songPath`. */
-export function hostPlanArgs(req: RenderRequest, songPath: string): string[] {
-  return ['plan', '--song', songPath, '--request', hostRequestJson(req)];
-}
-
-/** The `strudeland-host` arguments that plan every chunk of a render of `songPath`. */
+/** The `strudeland-host` arguments that plan `requestJson` (a `RenderPlanRequest`) of `songPath`. */
 export function hostPlanRenderArgs(songPath: string, requestJson: string): string[] {
   return ['plan-render', '--song', songPath, '--request', requestJson];
 }
@@ -86,38 +74,25 @@ export function hostPlanRenderArgs(songPath: string, requestJson: string): strin
 const failure = (how: string, stderr: string): HarnessError =>
   new HarnessError('render-failed', `strudeland-host ${how}: ${firstChars(stderr, STDERR_CHARS)}`);
 
-/** The job and info of a finished `strudeland-host plan` run (module doc for the outcomes). The
- *  job text is only checked to be an object of the announced length here; `job` parses it on
- *  first read (once), and a text that is not JSON throws `HarnessError('render-failed')` then. */
-export function parsePlanOutput(res: ProcessResult): {
+/** The job of a finished single-chunk `plan-render` run (module doc for the outcomes): the one
+ *  chunk's text and `pageJobInfo`. The text is only checked to be an object here; `job` parses
+ *  it on first read (once), and a text that is not JSON throws `HarnessError('render-failed')`
+ *  then. */
+function parseJobOutput(res: ProcessResult): {
   readonly job: EngineJob;
   text: string;
   info: PageJobInfo;
 } {
-  if (res.code !== 0) throw failure(exitHow(res), res.stderr);
-  // The info is written last; console lines (STRUDELAND_HOST_LOG=1) come before it.
-  const last = res.stderr
-    .split('\n')
-    .filter((l) => l.trim() !== '')
-    .at(-1);
-  let info: unknown = null;
-  if (last !== undefined) {
-    try {
-      info = JSON.parse(last);
-    } catch {
-      info = null;
-    }
+  const planned = parsePlanRenderOutput(res);
+  let info: PageJobInfo;
+  try {
+    info = pageJobInfo(planned);
+  } catch (e) {
+    throw failure(`exited 0: ${errorMessage(e)}`, res.stderr);
   }
-  if (!isRecord(info)) throw failure('exited 0 without an info line on stderr', res.stderr);
-  const text = res.stdout;
+  const text = planned.chunks[0]!.json;
   if (!text.startsWith('{')) {
     throw failure('exited 0 with a job that is not an object', res.stderr);
-  }
-  if (info.jsonLength !== text.length) {
-    throw failure(
-      `exited 0 with a job of ${res.stdout.length} characters, its info announced ${String(info.jsonLength)}`,
-      res.stderr,
-    );
   }
   let job: EngineJob | undefined;
   return {
@@ -136,7 +111,7 @@ export function parsePlanOutput(res: ProcessResult): {
       return job;
     },
     text,
-    info: info as unknown as PageJobInfo,
+    info,
   };
 }
 
@@ -197,10 +172,11 @@ export class HostPlanner implements JobSource {
 
   async job(req: RenderRequest): Promise<{ job: EngineJob; text: string; info: PageJobInfo }> {
     const song = this.songFile(req.code);
-    const res = await spawnOrMissing(this.runner, this.o.bin, hostPlanArgs(req, song), {
+    const request = JSON.stringify(singleChunkRequest(req));
+    const res = await spawnOrMissing(this.runner, this.o.bin, hostPlanRenderArgs(song, request), {
       timeoutMs: HOST_TIMEOUT_MS,
     });
-    return parsePlanOutput(res);
+    return parseJobOutput(res);
   }
 
   /** Plans every chunk of a render of the song file `songPath` (`requestJson` is a

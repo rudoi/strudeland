@@ -1,8 +1,8 @@
 // Synthetic load for the scheduler, live dropout, callback allocation and IPC decode tests.
 // Regenerate the checked-in job from the repository root:
-// cargo run -p strudeland-host -- plan --song tests/bench/live-pressure.js \
-//   --request '{"layout":"linear","fromBar":0,"toBar":12,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}' \
-//   --out crates/strudeland-live/tests/data/live-pressure.job.json
+// cargo run -p strudeland-host -- plan-render --song tests/bench/live-pressure.js \
+//   --request '{"length":{"kind":"window","fromBar":0,"toBar":12,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}' \
+//   | jq -j '.chunks[0].json' > crates/strudeland-live/tests/data/live-pressure.job.json
 const meta = {
   title: 'Live pressure',
   bpm: 128,

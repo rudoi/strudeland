@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assembleSlices } from '../scripts/render/transfer';
 import { planEngineJob } from '../src/lib/render/engine-job';
+import type { PlannedRender } from '../src/lib/render/job-plan';
+import { pageJobInfo } from '../src/lib/render/page-job';
 import { eventSources, selectHaps, windowPlan } from '../src/lib/render/plan';
 import { eventsFromValues } from '../src/lib/render/schedule';
 import { buildStructure } from '../src/lib/strudel/structure';
@@ -119,6 +121,34 @@ describe('page job kind', () => {
     const planned = planEngineJob(schedule, schedule, plan, r, cps, 0);
     expect(planned.events).toEqual(eventsFromValues(eventSources(schedule), cps));
     expect(planned.events).toHaveLength(3);
+  });
+});
+
+describe('pageJobInfo', () => {
+  const { info, json, structure, plan, errors } = fakePage([
+    hap(0, 0.5, { s: 'sine', note: 60, orbit: 1 }),
+  ]);
+  const chunkPlan = { ...plan, fromBar: 0, toBar: 2, lookbackSec: 0 };
+  const planned = (chunks: PlannedRender['chunks']): PlannedRender => ({
+    window: { fromBar: 0, toBar: 2, layout: 'linear' },
+    musicFrames: plan.contentFrames,
+    cps: 0.5,
+    structure,
+    lookbackSec: 0,
+    errors,
+    chunks,
+  });
+  const one = { json, plan: chunkPlan, info: { events: info.events, stemPairs: info.stemPairs } };
+
+  test("one chunk with its info is the page's job info", () => {
+    expect(pageJobInfo(planned([one]))).toEqual({ ...info, plan: chunkPlan });
+  });
+
+  test('zero chunks, two chunks, or a chunk without info throw', () => {
+    expect(() => pageJobInfo(planned([]))).toThrow('not a single-chunk plan (0 chunk(s))');
+    expect(() => pageJobInfo(planned([one, one]))).toThrow('not a single-chunk plan (2 chunk(s))');
+    const { info: _, ...bare } = one;
+    expect(() => pageJobInfo(planned([bare]))).toThrow('not a single-chunk plan (1 chunk(s))');
   });
 });
 

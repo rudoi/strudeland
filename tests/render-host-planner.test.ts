@@ -14,16 +14,14 @@ import {
   buildHost,
   findHostBinary,
   HOST_TIMEOUT_MS,
-  hostPlanArgs,
   hostPlanRenderArgs,
   HostPlanner,
-  hostRequestJson,
-  parsePlanOutput,
   parsePlanRenderOutput,
 } from '../scripts/render/host-planner';
 import type { EngineProcessRunner, ProcessResult } from '../scripts/render/rust-engine';
 import { HarnessError } from '../scripts/render/transfer';
 import type { RenderRequest } from '../src/lib/render/contract';
+import { singleChunkRequest } from '../src/lib/render/job-plan';
 import { sha256 } from '../scripts/sha256';
 
 interface Call {
@@ -55,15 +53,22 @@ const res = (o: Partial<ProcessResult>): ProcessResult => ({
 });
 
 const JOB_TEXT = '{"schema":2,"haps":[]}';
-const infoLine = (o: Record<string, unknown> = {}): string =>
+const CHUNK_PLAN = { fromBar: 2, toBar: 6, c0: 1, c1: 7, frames: 100 };
+const ONE_CHUNK = {
+  json: JOB_TEXT,
+  plan: CHUNK_PLAN,
+  info: { events: [{ note: 'c3', tSec: 0 }], stemPairs: 2 },
+};
+/** A single-chunk `plan-render` output; `o` overrides the plan's keys. */
+const jobPlan = (o: Record<string, unknown> = {}): string =>
   JSON.stringify({
-    jsonLength: JOB_TEXT.length,
-    events: [],
-    errors: [],
-    plan: {},
+    window: { fromBar: 2, toBar: 6, layout: 'linear' },
+    musicFrames: 100,
     cps: 0.5,
-    structure: {},
-    stemPairs: 0,
+    structure: { bpm: 120 },
+    lookbackSec: 0,
+    errors: [{ kind: 'other', message: 'careful' }],
+    chunks: [ONE_CHUNK],
     ...o,
   });
 
@@ -87,117 +92,6 @@ const failureOf = (f: () => unknown): HarnessError => {
   }
   throw new Error('expected a HarnessError');
 };
-
-describe('hostRequestJson and hostPlanArgs', () => {
-  test('the request without code, samples and mutation, in its own key order', () => {
-    const req: RenderRequest = {
-      ...REQ,
-      samples: { bd: 'x' },
-      mutation: { kind: 'drop', fraction: 0.5 } as unknown as RenderRequest['mutation'],
-    };
-    expect(hostRequestJson(req)).toBe(
-      '{"layout":"linear","fromBar":2,"toBar":6,"overlapBars":1,"lookbackSec":"auto",' +
-        '"mode":"stems","sampleRate":44100}',
-    );
-  });
-
-  test('a numeric lookback stays a number', () => {
-    expect(JSON.parse(hostRequestJson({ ...REQ, lookbackSec: 1.25 })).lookbackSec).toBe(1.25);
-    expect(JSON.parse(hostRequestJson({ ...REQ, lookbackSec: 0 })).lookbackSec).toBe(0);
-  });
-
-  test('plan --song <file> --request <json>', () => {
-    expect(hostPlanArgs(REQ, '/o/host/abc.js')).toEqual([
-      'plan',
-      '--song',
-      '/o/host/abc.js',
-      '--request',
-      hostRequestJson(REQ),
-    ]);
-  });
-});
-
-describe('parsePlanOutput', () => {
-  test('exit 0 with one stderr JSON line: the exact stdout text, the job and the info', () => {
-    const out = parsePlanOutput(res({ stdout: JOB_TEXT, stderr: `${infoLine()}\n` }));
-    expect(out.text).toBe(JOB_TEXT);
-    expect(out.job).toEqual({ schema: 2, haps: [] } as unknown as typeof out.job);
-    expect(out.job).toBe(out.job); // parsed once
-    expect(out.info.cps).toBe(0.5);
-    expect(out.info.jsonLength).toBe(JOB_TEXT.length);
-  });
-
-  test('exit 1: render-failed with the stderr', () => {
-    const e = failureOf(() =>
-      parsePlanOutput(res({ code: 1, stderr: 'strudeland-host: eval: boom\n' })),
-    );
-    expect(e.code).toBe('render-failed');
-    expect(e.message).toBe('strudeland-host exited 1: strudeland-host: eval: boom');
-  });
-
-  test('exit 2: render-failed with the stderr', () => {
-    const e = failureOf(() =>
-      parsePlanOutput(res({ code: 2, stdout: JOB_TEXT, stderr: 'strudeland-host: bad\nusage' })),
-    );
-    expect(e.code).toBe('render-failed');
-    expect(e.message).toBe('strudeland-host exited 2: strudeland-host: bad\nusage');
-  });
-
-  test('a signal (the timeout kill)', () => {
-    const e = failureOf(() => parsePlanOutput(res({ code: null, signal: 'SIGKILL' })));
-    expect(e.code).toBe('render-failed');
-    expect(e.message).toBe('strudeland-host killed by SIGKILL: ');
-  });
-
-  test('keeps the first 2000 characters of stderr', () => {
-    const e = failureOf(() => parsePlanOutput(res({ code: 1, stderr: 'x'.repeat(5000) })));
-    expect(e.message).toBe(`strudeland-host exited 1: ${'x'.repeat(2000)}`);
-  });
-
-  test('exit 0 with console lines before the info (STRUDELAND_HOST_LOG=1): the last line is the info', () => {
-    const stderr = `console.warn: slider will only work\nconsole.error: a\nb\n${infoLine({ cps: 0.25 })}\n`;
-    const out = parsePlanOutput(res({ stdout: JOB_TEXT, stderr }));
-    expect(out.info.cps).toBe(0.25);
-    expect(out.text).toBe(JOB_TEXT);
-  });
-
-  test('exit 0 with stderr whose last line is not a JSON object', () => {
-    const msg = 'strudeland-host exited 0 without an info line on stderr';
-    for (const stderr of [
-      '',
-      '\n \n',
-      'not json',
-      `${infoLine()}\nconsole.warn: after`,
-      '[1,2]',
-      'null',
-    ]) {
-      const e = failureOf(() => parsePlanOutput(res({ stdout: JOB_TEXT, stderr })));
-      expect(e.code, stderr).toBe('render-failed');
-      expect(e.message.startsWith(msg), stderr).toBe(true);
-    }
-  });
-
-  test('exit 0 with a job that is not a JSON object', () => {
-    // Not JSON: found when the job is first read, not when the output is parsed.
-    const out = parsePlanOutput(res({ stdout: '{', stderr: infoLine({ jsonLength: 1 }) }));
-    expect(out.text).toBe('{');
-    const e1 = failureOf(() => out.job);
-    expect(e1.message).toStartWith('strudeland-host exited 0 with a job that is not JSON (');
-    const e2 = failureOf(() =>
-      parsePlanOutput(res({ stdout: '[]', stderr: infoLine({ jsonLength: 2 }) })),
-    );
-    expect(e2.message).toStartWith('strudeland-host exited 0 with a job that is not an object');
-  });
-
-  test('exit 0 with a job whose length is not the info jsonLength', () => {
-    const e = failureOf(() =>
-      parsePlanOutput(res({ stdout: JOB_TEXT, stderr: infoLine({ jsonLength: 3 }) })),
-    );
-    expect(e.message).toStartWith(
-      `strudeland-host exited 0 with a job of ${JOB_TEXT.length} characters, its info announced 3`,
-    );
-  });
-});
 
 const PLAN_TEXT = JSON.stringify({
   window: { fromBar: 0, toBar: 4, layout: 'linear' },
@@ -260,20 +154,127 @@ describe('parsePlanRenderOutput', () => {
   });
 });
 
-describe('HostPlanner', () => {
-  const withDir = (f: (dir: string) => Promise<void>) => async () => {
+const withDir = (f: (dir: string) => Promise<void>) => async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'host-planner-'));
+  try {
+    await f(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+describe('HostPlanner.job', () => {
+  /** `hp.job(req)` over a runner that answers `answer`: the result or its HarnessError, and the
+   *  calls. */
+  async function jobOf(answer: ProcessResult, req: RenderRequest = REQ) {
     const dir = mkdtempSync(join(tmpdir(), 'host-planner-'));
     try {
-      await f(dir);
+      const { runner, calls } = fakeRunner(() => answer);
+      const hp = new HostPlanner({ bin: '/bin/host', version: 'v', outDir: dir, runner });
+      const out = await hp.job(req).catch((e) => e);
+      return { out, calls, song: join(dir, 'host', `${sha256(req.code)}.js`) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  };
+  }
 
+  test('plan-render --song <file> --request <the single-chunk request>', async () => {
+    const req: RenderRequest = {
+      ...REQ,
+      samples: { bd: 'x' },
+      mutation: { kind: 'drop', fraction: 0.5 } as unknown as RenderRequest['mutation'],
+    };
+    const { calls, song } = await jobOf(res({ stdout: jobPlan() }), req);
+    expect(calls[0]!.args).toEqual([
+      'plan-render',
+      '--song',
+      song,
+      '--request',
+      '{"length":{"kind":"window","fromBar":2,"toBar":6,"layout":"linear"},' +
+        '"chunk":{"overlapBars":1,"lookbackSec":"auto","mode":"stems"}}',
+    ]);
+    expect(calls[0]!.opts?.timeoutMs).toBe(HOST_TIMEOUT_MS);
+    for (const lookbackSec of [1.25, 0]) {
+      const { calls } = await jobOf(res({ stdout: jobPlan() }), { ...REQ, lookbackSec });
+      expect(JSON.parse(calls[0]!.args[4]!).chunk.lookbackSec).toBe(lookbackSec);
+    }
+  });
+
+  test("exit 0: the one chunk's exact text, the lazily parsed job and pageJobInfo", async () => {
+    const { out } = await jobOf(res({ stdout: jobPlan(), stderr: 'console.warn: x\n' }));
+    expect(out.text).toBe(JOB_TEXT);
+    expect(out.job).toEqual({ schema: 2, haps: [] });
+    expect(out.job).toBe(out.job); // parsed once
+    expect(out.info).toEqual({
+      jsonLength: JOB_TEXT.length,
+      events: ONE_CHUNK.info.events,
+      errors: [{ kind: 'other', message: 'careful' }],
+      plan: CHUNK_PLAN,
+      cps: 0.5,
+      structure: { bpm: 120 },
+      stemPairs: 2,
+    });
+  });
+
+  test('exit 1 and 2 and a signal: render-failed with the stderr', async () => {
+    const cases: [ProcessResult, string][] = [
+      [
+        res({ code: 1, stderr: 'strudeland-host: eval: boom\n' }),
+        'strudeland-host exited 1: strudeland-host: eval: boom',
+      ],
+      [
+        res({ code: 2, stdout: jobPlan(), stderr: 'strudeland-host: bad\nusage' }),
+        'strudeland-host exited 2: strudeland-host: bad\nusage',
+      ],
+      [res({ code: null, signal: 'SIGKILL' }), 'strudeland-host killed by SIGKILL: '],
+      [res({ code: 1, stderr: 'x'.repeat(5000) }), `strudeland-host exited 1: ${'x'.repeat(2000)}`],
+    ];
+    for (const [answer, message] of cases) {
+      const { out } = await jobOf(answer);
+      expect(out).toBeInstanceOf(HarnessError);
+      expect(out.code).toBe('render-failed');
+      expect(out.message).toBe(message);
+    }
+  });
+
+  test('a plan without exactly one chunk with info is render-failed', async () => {
+    const { info: _, ...bare } = ONE_CHUNK;
+    const cases: [string, string][] = [
+      [jobPlan({ chunks: [ONE_CHUNK, ONE_CHUNK] }), 'not a single-chunk plan (2 chunk(s))'],
+      [jobPlan({ chunks: [] }), 'not a single-chunk plan (0 chunk(s))'],
+      [jobPlan({ chunks: [bare] }), 'not a single-chunk plan (1 chunk(s))'],
+    ];
+    for (const [stdout, why] of cases) {
+      const { out } = await jobOf(res({ stdout, stderr: 'err' }));
+      expect(out).toBeInstanceOf(HarnessError);
+      expect(out.code).toBe('render-failed');
+      expect(out.message).toBe(`strudeland-host exited 0: ${why}: err`);
+    }
+    const { out } = await jobOf(res({ stdout: '{"chunks":', stderr: 'err' }));
+    expect(out.message).toStartWith('strudeland-host exited 0 with a plan that is not JSON (');
+  });
+
+  test('exit 0 with a job that is not a JSON object', async () => {
+    // Not JSON: found when the job is first read, not when the output is parsed.
+    const { out } = await jobOf(
+      res({ stdout: jobPlan({ chunks: [{ ...ONE_CHUNK, json: '{' }] }) }),
+    );
+    expect(out.text).toBe('{');
+    const e1 = failureOf(() => out.job);
+    expect(e1.message).toStartWith('strudeland-host exited 0 with a job that is not JSON (');
+    const array = await jobOf(res({ stdout: jobPlan({ chunks: [{ ...ONE_CHUNK, json: '[]' }] }) }));
+    expect(array.out).toBeInstanceOf(HarnessError);
+    expect(array.out.message).toStartWith(
+      'strudeland-host exited 0 with a job that is not an object',
+    );
+  });
+});
+
+describe('HostPlanner', () => {
   test(
-    'writes the song by hash and runs plan with the timeout',
+    'writes the song by hash and runs a single-chunk plan-render with the timeout',
     withDir(async (dir) => {
-      const { runner, calls } = fakeRunner(() => res({ stdout: JOB_TEXT, stderr: infoLine() }));
+      const { runner, calls } = fakeRunner(() => res({ stdout: jobPlan() }));
       const hp = new HostPlanner({ bin: '/bin/host', version: 'v', outDir: dir, runner });
       const a = await hp.job(REQ);
       const b = await hp.job({ ...REQ, fromBar: 0 });
@@ -283,8 +284,10 @@ describe('HostPlanner', () => {
       expect(readFileSync(song, 'utf8')).toBe(REQ.code);
       expect(readdirSync(join(dir, 'host'))).toEqual([`${sha256(REQ.code)}.js`]);
       expect(calls.map((c) => c.cmd)).toEqual(['/bin/host', '/bin/host']);
-      expect(calls[0]!.args).toEqual(hostPlanArgs(REQ, song));
-      expect(calls[1]!.args).toEqual(hostPlanArgs({ ...REQ, fromBar: 0 }, song));
+      const args = (req: RenderRequest) =>
+        hostPlanRenderArgs(song, JSON.stringify(singleChunkRequest(req)));
+      expect(calls[0]!.args).toEqual(args(REQ));
+      expect(calls[1]!.args).toEqual(args({ ...REQ, fromBar: 0 }));
       expect(calls[0]!.opts?.timeoutMs).toBe(HOST_TIMEOUT_MS);
       expect(HOST_TIMEOUT_MS).toBe(600_000);
     }),
@@ -332,7 +335,7 @@ describe('HostPlanner', () => {
       const { runner } = fakeRunner(() => {
         // The host reads the whole song by the time it runs.
         expect(readFileSync(song, 'utf8')).toBe(REQ.code);
-        return res({ stdout: JOB_TEXT, stderr: infoLine() });
+        return res({ stdout: jobPlan() });
       });
       const hp = new HostPlanner({ bin: '/bin/host', version: 'v', outDir: dir, runner });
       await hp.job(REQ);
@@ -367,7 +370,7 @@ describe('HostPlanner', () => {
   test(
     'version is the given string; dispose leaves the song files',
     withDir(async (dir) => {
-      const { runner } = fakeRunner(() => res({ stdout: JOB_TEXT, stderr: infoLine() }));
+      const { runner } = fakeRunner(() => res({ stdout: jobPlan() }));
       const hp = new HostPlanner({
         bin: '/b',
         version: 'strudeland-host 0.1.0 (abc)',

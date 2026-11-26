@@ -1,7 +1,7 @@
 // The committed headless host bundle's entry (`src/host/main.ts`), evaluated in a bare `node:vm`
 // context: no DOM, no timers that fire, a zero clock and a throwing `Math.random`, as the embedded
 // runtime gives it. Each test gets a fresh context, as each host request does. Results come back
-// through the slots `__strudelandResult` and `__strudelandJob`. Strings in song code are single
+// through the slots `__strudelandResult` and `__strudelandRender`. Strings in song code are single
 // quoted where they must stay strings (the transpiler turns "..." into mini-notation).
 import { afterAll, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -10,25 +10,22 @@ import vm from 'node:vm';
 import { HOST_JS, REPO_ROOT } from '../scripts/host/build';
 import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
 import type { RenderRequest } from '../src/lib/render/contract';
+import { singleChunkRequest } from '../src/lib/render/job-plan';
 import { loggedError, loggerMessage } from '../src/lib/render/logged-errors';
 
 const HOST_SOURCE = readFileSync(join(REPO_ROOT, HOST_JS), 'utf8');
 const script = new vm.Script(HOST_SOURCE, { filename: 'host.js' });
 
-const REQUEST = {
-  layout: 'linear',
-  fromBar: 0,
-  toBar: 2,
-  overlapBars: 0,
-  lookbackSec: 'auto',
-  mode: 'mix',
-  sampleRate: 48000,
-};
+/** The single-chunk request of a two-bar linear window, 'auto' lookback, mix. */
+const REQUEST = JSON.stringify({
+  length: { kind: 'window', fromBar: 0, toBar: 2, layout: 'linear' },
+  chunk: { overlapBars: 0, lookbackSec: 'auto', mode: 'mix' },
+});
 const SONG = 'note("c e").s("sine")';
 
 interface Host {
   console: { level: string; text: string }[];
-  call(fn: 'planJob' | 'planRender' | 'query' | 'inspect', ...args: unknown[]): Promise<any>;
+  call(fn: 'planRender' | 'query' | 'inspect', ...args: unknown[]): Promise<any>;
   get(name: string): any;
 }
 
@@ -75,49 +72,54 @@ test('the bundle loads with no DOM and installs the entry only', () => {
   expect(vm.runInContext('typeof window + typeof document', vm.createContext({}))).toBe(
     'undefinedundefined',
   );
-  expect(typeof h.get('strudelandHost').planJob).toBe('function');
+  expect(Object.keys(h.get('strudelandHost')).sort()).toEqual(['inspect', 'planRender', 'query']);
   expect(typeof h.get('strudelandHost').planRender).toBe('function');
   expect(typeof h.get('strudelandHost').query).toBe('function');
   expect(typeof h.get('strudelandHost').inspect).toBe('function');
   expect(h.get('__strudelandResult')).toBeUndefined();
 });
 
-test('planJob: the job text in __strudelandJob and its info in the slot', async () => {
+/** `code` planned as the single chunk `REQUEST` (or `request`) through the bundle's `planRender`:
+ *  the settled result, the plan, and the host's console. */
+async function planOne(code: string, request = REQUEST) {
   const h = host();
-  const r = await h.call('planJob', SONG, JSON.stringify(REQUEST));
-  expect(r.ok).toBe(true);
-  const info = JSON.parse(r.value);
-  const json: string = h.get('__strudelandJob');
-  expect(info.jsonLength).toBe(json.length);
-  expect(info.cps).toBe(0.5);
-  expect(info.events.map((e: any) => e.note)).toEqual(['c', 'e', 'c', 'e']);
-  expect(info.errors).toEqual([]);
-  const job = JSON.parse(json);
+  const r = await h.call('planRender', code, request);
+  const planned = r.ok ? JSON.parse(h.get('__strudelandRender')) : undefined;
+  return { r, planned, console: h.console };
+}
+
+test('planRender with a chunk: one chunk, its job and its info', async () => {
+  const { r, planned } = await planOne(SONG);
+  expect(r).toEqual({ ok: true, value: 'ok' });
+  expect(planned.chunks).toHaveLength(1);
+  const [chunk] = planned.chunks;
+  expect(planned.cps).toBe(0.5);
+  expect(chunk.info.events.map((e: any) => e.note)).toEqual(['c', 'e', 'c', 'e']);
+  expect(chunk.info.stemPairs).toBe(1);
+  expect(planned.errors).toEqual([]);
+  expect(chunk.plan).toMatchObject({ fromBar: 0, toBar: 2, c0: 0, c1: 2 });
+  const job = JSON.parse(chunk.json);
   expect(job.schema).toBe(2);
-  expect(job.sampleRate).toBe(48000);
-  expect(/^[\x20-\x7e]*$/.test(json)).toBe(true);
+  expect(job.sampleRate).toBe(44100);
 });
 
-test('planJob: shims, stubs and the widgets plan without a DOM', async () => {
-  const h = host();
+test('planRender with a chunk: shims, stubs and the widgets plan without a DOM', async () => {
   const code = [
     'await samples({ x: "x.wav" })',
     'aliasBank("a", "b")',
     'note("c e").s("sine")._scope().pianoroll().markcss("color:red").gain(slider(0.5, 0, 1))',
   ].join('\n');
-  const r = await h.call('planJob', code, JSON.stringify(REQUEST));
+  const { r, planned } = await planOne(code);
   expect(r.ok).toBe(true);
-  const info = JSON.parse(r.value);
-  expect(info.events).toHaveLength(4);
-  expect(info.errors).toEqual([]);
+  expect(planned.chunks[0].info.events).toHaveLength(4);
+  expect(planned.errors).toEqual([]);
 });
 
-test('planJob: a console.warn while planning is captured into info.errors', async () => {
-  const h = host();
-  const r = await h.call('planJob', `console.warn('careful'); ${SONG}`, JSON.stringify(REQUEST));
+test('planRender with a chunk: a console.warn while planning is captured into errors', async () => {
+  const { r, planned, console } = await planOne(`console.warn('careful'); ${SONG}`);
   expect(r.ok).toBe(true);
-  expect(JSON.parse(r.value).errors).toEqual([{ kind: 'other', message: 'careful' }]);
-  expect(h.console).toContainEqual({ level: 'warn', text: 'careful' });
+  expect(planned.errors).toEqual([{ kind: 'other', message: 'careful' }]);
+  expect(console).toContainEqual({ level: 'warn', text: 'careful' });
 });
 
 /** A song whose inner query throws: core's `queryArc` logs `[query] error: …` and answers []. */
@@ -126,62 +128,38 @@ const QUERY_ERROR_SONG = [
   SONG,
 ].join('\n');
 
-test('planJob: a failure core logs is captured into info.errors as the page captures it', async () => {
-  const r = await host().call('planJob', QUERY_ERROR_SONG, JSON.stringify(REQUEST));
+test('planRender with a chunk: a failure core logs is captured as the page captures it', async () => {
+  const { r, planned } = await planOne(QUERY_ERROR_SONG);
   expect(r.ok).toBe(true);
-  const info = JSON.parse(r.value);
-  expect(info.events.map((e: any) => e.note)).toEqual(['c', 'e', 'c', 'e']);
-  expect(info.errors).toEqual(await pageCaptures(() => QUERY_ERROR_PATTERN().queryArc(0, 1)));
-  expect(info.errors).toEqual([{ kind: 'other', message: '[query] error: inner query broke' }]);
+  expect(planned.chunks[0].info.events.map((e: any) => e.note)).toEqual(['c', 'e', 'c', 'e']);
+  expect(planned.errors).toEqual(await pageCaptures(() => QUERY_ERROR_PATTERN().queryArc(0, 1)));
+  expect(planned.errors).toEqual([{ kind: 'other', message: '[query] error: inner query broke' }]);
 });
 
-test('planJob: other console.log output and non-failure log lines are not captured', async () => {
-  const h = host();
+test('planRender with a chunk: other console.log output and non-failure log lines are not captured', async () => {
   const code = `console.log('an error, but not the logger'); logger('[x] fine'); ${SONG}`;
-  const r = await h.call('planJob', code, JSON.stringify(REQUEST));
-  expect(JSON.parse(r.value).errors).toEqual([]);
-  expect(h.console).toContainEqual({ level: 'log', text: 'an error, but not the logger' });
+  const { planned, console } = await planOne(code);
+  expect(planned.errors).toEqual([]);
+  expect(console).toContainEqual({ level: 'log', text: 'an error, but not the logger' });
 });
 
-test('planJob: a logger failure known only by its type is page-only (documented)', async () => {
+test('planRender with a chunk: a logger failure known only by its type is page-only (documented)', async () => {
   // `scale` logs this with type 'error'; console.log does not carry the type and the text does
   // not match the rule, so the host does not see it as a failure.
-  const h = host();
-  const r = await h.call('planJob', `s('bd').scale('C:major')`, JSON.stringify(REQUEST));
+  const { r, planned, console } = await planOne(`s('bd').scale('C:major')`);
   expect(r.ok).toBe(true);
-  expect(JSON.parse(r.value).errors).toEqual([]);
-  expect(
-    h.console.some((l) => l.text.startsWith("%c[tonal] Invalid value format for 'scale'")),
-  ).toBe(true);
+  expect(planned.errors).toEqual([]);
+  expect(console.some((l) => l.text.startsWith("%c[tonal] Invalid value format for 'scale'"))).toBe(
+    true,
+  );
 });
 
-test('planJob: a bad request is kind plan', async () => {
-  for (const bad of ['{', '', 'null', '[1]', '3']) {
-    const r = await host().call('planJob', SONG, bad);
-    expect({ bad, ok: r.ok, kind: r.kind }).toEqual({ bad, ok: false, kind: 'plan' });
-    expect(r.error).toStartWith('bad request: ');
-  }
-});
-
-test('planJob: meta, eval and plan failures carry their kinds', async () => {
-  const req = JSON.stringify(REQUEST);
-  const meta = await host().call('planJob', 'const meta = { bpm: \'x\' };\nnote("c")', req);
-  expect([meta.ok, meta.kind]).toEqual([false, 'meta']);
-  expect(meta.error).toStartWith('meta: ');
-  const evalErr = await host().call('planJob', 'note("c").nope()', req);
-  // The message is the engine's own (JavaScriptCore here, the embedded runtime in the crate).
-  expect([evalErr.ok, evalErr.kind]).toEqual([false, 'eval']);
-  expect(evalErr.error).toContain('nope is not a function');
-  const empty = await host().call('planJob', '   ', req);
-  expect(empty.kind).toBe('eval');
-  const random = await host().call('planJob', 'Math.random(); note("c")', req);
-  expect(random).toEqual({ ok: false, kind: 'eval', error: 'Math.random is not available' });
-});
-
-test('planJob: a request without the window fields fails in the plan step', async () => {
-  const r = await host().call('planJob', SONG, '{}');
+test('planRender: a chunk without its fields fails in the plan step', async () => {
+  const request = JSON.stringify({ ...JSON.parse(REQUEST), chunk: {} });
+  const { r } = await planOne(SONG, request);
   expect(r.ok).toBe(false);
   expect(r.kind).toBe('plan');
+  expect(r.error).toStartWith('bad request: chunk.overlapBars');
 });
 
 const renderRequest = (length: object, o: object = {}) => JSON.stringify({ length, ...o });
@@ -236,7 +214,6 @@ test('planRender: the plan as ASCII JSON in __strudelandRender, ok in the slot',
     expect(JSON.parse(c.json).schema).toBe(2);
     expect(c.plan.c1).toBe(c.plan.toBar);
   }
-  expect(h.get('__strudelandJob')).toBeUndefined();
 });
 
 test('planRender: a non-ASCII string in the song is escaped in the plan', async () => {
@@ -318,15 +295,15 @@ test('planRender: a bad request is kind plan', async () => {
   }
 });
 
-/** Corpus songs with several chunks: every chunk planRender plans equals planJob's job for the
- *  same chunk request, both through the bundle (the host-side half of the batch parity). */
+/** Corpus songs with several chunks: every chunk planRender plans equals the single-chunk plan of
+ *  the same chunk request, both through the bundle (the host-side half of the batch parity). */
 test.each([
   ['song-linear', 0, 12, 'clip'],
   ['reverb-long', 0, 20, 'linear'],
   ['late-feedback', 136, 160, 'linear'],
   ['pad-seam', 0, 20, 'linear'],
 ] as const)(
-  "planRender: %s's chunk jobs equal planJob's",
+  "planRender: %s's chunk jobs equal their single-chunk plans",
   async (name, fromBar, toBar, layout) => {
     const code = readFileSync(join(REPO_ROOT, 'tests/render/corpus', `${name}.js`), 'utf8');
     const h = host();
@@ -357,17 +334,16 @@ test.each([
       sampleRate: 44100,
     };
     for (const [i, plan] of plans.entries()) {
-      const { code: _code, ...request } = chunkRequest(base, plan);
-      const one = host();
-      const p = await one.call('planJob', code, JSON.stringify(request));
-      expect(p.ok).toBe(true);
+      const one = await planOne(code, JSON.stringify(singleChunkRequest(chunkRequest(base, plan))));
+      expect(one.r.ok).toBe(true);
+      expect(one.planned.chunks).toHaveLength(1);
       expect({ name, i, json: planned.chunks[i].json }).toEqual({
         name,
         i,
-        json: one.get('__strudelandJob'),
+        json: one.planned.chunks[0].json,
       });
-      expect(planned.chunks[i].plan).toEqual({
-        ...JSON.parse(p.value).plan,
+      expect(one.planned.chunks[0].plan).toEqual(planned.chunks[i].plan);
+      expect(planned.chunks[i].plan).toMatchObject({
         fromBar: plan.contentStartBar,
         toBar: plan.contentEndBar,
         lookbackSec: plan.lookbackSec,
@@ -844,7 +820,7 @@ test('inspect and plan saved Expression and final-output edits on real generated
   );
   const fresh = JSON.parse((await inspection(host(), final, { to: 2 })).value).notes;
   expect(fresh.filter((h: any) => h.start === '0').map((h: any) => h.pitch)).toEqual([48]);
-  const job = await host().call('planJob', final, JSON.stringify(REQUEST));
+  const job = await host().call('planRender', final, REQUEST);
   expect(job.ok).toBe(true);
 });
 

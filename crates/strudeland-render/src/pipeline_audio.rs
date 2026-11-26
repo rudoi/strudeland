@@ -277,6 +277,7 @@ mod tests {
                 to_bar,
                 lookback_sec: 0.0,
             },
+            info: None,
         }
     }
 

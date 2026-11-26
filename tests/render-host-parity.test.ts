@@ -1,16 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  batchRequest,
   batchRequestJson,
   compareBatch,
   failureText,
   firstDifference,
   formatBatchDifference,
+  infoWithoutErrors,
   jsonPath,
   parseParityArgs,
   PARITY_USAGE,
   scheduleFailed,
   textDifference,
+  withoutErrors,
 } from '../src/lib/render/host-parity-lib';
+import type { PlannedRender } from '../src/lib/render/job-plan';
+import type { PageJobInfo } from '../src/lib/render/page-job';
 
 describe('jsonPath', () => {
   test('the a.b[2].c format', () => {
@@ -162,6 +167,12 @@ describe('--batch', () => {
     });
   });
 
+  test('batchRequestJson is the text of batchRequest', () => {
+    const window = { fromBar: 3, toBar: 9, layout: 'linear' } as const;
+    expect(batchRequest(window)).toEqual({ length: { kind: 'window', ...window } });
+    expect(batchRequestJson(window)).toBe(JSON.stringify(batchRequest(window)));
+  });
+
   const plans = [
     { fromBar: 0, toBar: 8 },
     { fromBar: 8, toBar: 20 },
@@ -250,5 +261,59 @@ describe('scheduleFailed', () => {
   test('failureText: the message or the errors', () => {
     expect(failureText({ ok: false, message: 'm' })).toBe('m');
     expect(failureText({ ok: true, errors: ['a', 'b'] })).toBe('a; b');
+  });
+});
+
+describe('withoutErrors and infoWithoutErrors', () => {
+  const errors = [{ kind: 'other' as const, message: 'page only' }];
+
+  test('a plan without its errors keeps every other key, and the input is unchanged', () => {
+    const plan = {
+      window: { fromBar: 0, toBar: 4, layout: 'linear' },
+      musicFrames: 10,
+      cps: 0.5,
+      structure: {},
+      lookbackSec: 0,
+      errors,
+      chunks: [],
+    } as unknown as PlannedRender;
+    const out = withoutErrors(plan);
+    expect('errors' in out).toBe(false);
+    expect(out as object).toEqual({
+      window: plan.window,
+      musicFrames: 10,
+      cps: 0.5,
+      structure: {},
+      lookbackSec: 0,
+      chunks: [],
+    });
+    expect(plan.errors).toBe(errors);
+    // Plans that differ only in their errors compare equal.
+    expect(firstDifference(withoutErrors(plan), withoutErrors({ ...plan, errors: [] }))).toBeNull();
+    expect(firstDifference(withoutErrors(plan), withoutErrors({ ...plan, cps: 1 }))).toBe('cps');
+  });
+
+  test('an info without its errors keeps every other key', () => {
+    const info = {
+      jsonLength: 3,
+      events: [],
+      errors,
+      plan: {},
+      cps: 0.5,
+      structure: {},
+      stemPairs: 1,
+    } as unknown as PageJobInfo;
+    const out = infoWithoutErrors(info);
+    expect('errors' in out).toBe(false);
+    expect(out as object).toEqual({
+      jsonLength: 3,
+      events: [],
+      plan: {},
+      cps: 0.5,
+      structure: {},
+      stemPairs: 1,
+    });
+    expect(firstDifference(out, infoWithoutErrors({ ...info, errors: [] }))).toBeNull();
+    expect(firstDifference(out, infoWithoutErrors({ ...info, stemPairs: 2 }))).toBe('stemPairs');
   });
 });

@@ -1,5 +1,5 @@
-//! strudeland's headless host: evaluates a Strudel song in an embedded V8 and plans its
-//! engine job (schema 2) byte for byte as the render page does in Chromium, without a browser.
+//! strudeland's headless host: evaluates a Strudel song in an embedded V8 and plans engine jobs
+//! (schema 2) byte for byte as the render page does in Chromium, without a browser.
 //!
 //! Each request runs in a fresh V8 isolate and context on the [`Host`]'s worker thread: the natives
 //! (`jsmath` `Math` overrides, a throwing `Math.random`, zero clocks, inert timers, console
@@ -23,15 +23,15 @@ mod request;
 
 pub use engine::v8_version;
 pub use error::HostError;
-pub use host::{Host, PlannedJob};
+pub use host::Host;
 pub use inspection::{
     InspectedNote, InspectionRequest, InspectionResult, InspectionView, SourceSpan,
 };
 pub use planned::{
-    ChunkWindow, LoopRange, Meter, MeterChange, PlanError, PlannedChunk, PlannedExport,
+    ChunkInfo, ChunkWindow, LoopRange, Meter, MeterChange, PlanError, PlannedChunk, PlannedExport,
     PlannedRender, PlannedRepeat, PlannedWindow, Section, Structure,
 };
 pub use request::{
     ExportPreset, Layout, LengthRequest, LookbackSec, MAX_BARS, MAX_TIMEOUT_SEC, Mode,
-    RenderPlanRequest, RenderRequest, SAMPLE_RATE, timeout_from_secs,
+    RenderPlanRequest, SAMPLE_RATE, SingleChunk, timeout_from_secs,
 };

@@ -1,7 +1,8 @@
 /**
  * The render page: evaluates one song with the app's runtime (offline backend, the app's
  * prebake), queries it, and renders one chunk through superdough into an `OfflineAudioContext`,
- * or (kind `job`) plans the chunk's engine job without rendering.
+ * or (kind `job`) plans the chunk's engine job with the shared planner, one-chunk request,
+ * without rendering.
  * The Playwright driver (`scripts/render/`) talks to it through `window.strudelandRender`
  * (`protocol.ts`). One page renders one request.
  */
@@ -19,13 +20,14 @@ import { get } from 'svelte/store';
 import type { RenderError } from '../lib/render/contract';
 import {
   evaluateSong,
-  planJob,
   planRender,
   querySong,
+  singleChunkRequest,
   type PlannedRender,
   type PlannerRuntime,
 } from '../lib/render/job-plan';
 import { lookbackSeconds } from '../lib/render/lookback';
+import { pageJobInfo } from '../lib/render/page-job';
 import { eventsFromValues } from '../lib/render/schedule';
 import { prebake } from '../lib/strudel/prebake';
 import { createRuntime } from '../lib/strudel/runtime';
@@ -152,8 +154,17 @@ async function run(args: StartArgs): Promise<void> {
     }
     const { request } = args;
     if (kind === 'job') {
-      // The shared planner: the same plan the render path gives renderOffline, without a context.
-      ({ info: jobInfo, json: jobJson } = await planJob(rt, request, captured, onPhase));
+      // The shared planner, one-chunk request: the same plan the render path gives
+      // renderOffline, without a context.
+      const planned = await planRender(
+        rt,
+        request.code,
+        singleChunkRequest(request),
+        captured,
+        onPhase,
+      );
+      jobJson = planned.chunks[0]!.json;
+      jobInfo = pageJobInfo(planned);
       phase = 'done';
       return;
     }

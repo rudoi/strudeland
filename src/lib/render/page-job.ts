@@ -1,10 +1,12 @@
 /**
  * A planned engine job as the render page and the headless host serve it: the job's ASCII JSON
- * and its `PageJobInfo`, plus the error bookkeeping both share. Pure: type-only imports.
+ * and its `PageJobInfo` (`pageJobInfo` for a single-chunk plan), plus the error bookkeeping
+ * both share. Pure: type-only imports.
  */
 
 import type { RenderError } from './contract';
 import type { PlannedJob } from './engine-job';
+import type { PlannedRender } from './job-plan';
 import type { WindowPlan } from './plan';
 import type { RenderEvent } from './schedule';
 import type { SongStructure } from '../strudel/structure';
@@ -62,5 +64,24 @@ export function pageJob(
       structure: rest.structure,
       stemPairs: planned.stemPairs,
     },
+  };
+}
+
+/** The `PageJobInfo` of a single-chunk plan (`RenderPlanRequest.chunk`): the one chunk's job
+ *  length, events, plan and stem pairs, with the plan's errors, tempo and structure. Throws
+ *  unless the plan has exactly one chunk with its `info`. */
+export function pageJobInfo(planned: PlannedRender): PageJobInfo {
+  const chunk = planned.chunks.length === 1 ? planned.chunks[0] : undefined;
+  if (!chunk?.info) {
+    throw new Error(`not a single-chunk plan (${planned.chunks.length} chunk(s))`);
+  }
+  return {
+    jsonLength: chunk.json.length,
+    events: chunk.info.events,
+    errors: planned.errors,
+    plan: chunk.plan,
+    cps: planned.cps,
+    structure: planned.structure,
+    stemPairs: chunk.info.stemPairs,
   };
 }

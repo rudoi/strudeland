@@ -77,7 +77,7 @@
     "node_modules/source-map/source-map.js": "dc098456c2d9ab90a4c0a17cca9be16665b9813df20906553a98b0088a157be7",
     "src/host/backend.ts": "25b2d9391bcfa7cc3cab8912460f9dbffaeb0d21d2a0d6e8804deadf784af7ab",
     "src/host/inspection.ts": "47911e6226a2845e3e355ef17178d8bd387752ef41b371bb7e829bb145418110",
-    "src/host/main.ts": "2a0ba92470ea21fb6107c9a441a657e4d13033cc01ba065a45c2af76b9306351",
+    "src/host/main.ts": "51c24e141ffcbba94d168f061c4a4df4d0871e4c5a1043025805916bb6acbac3",
     "src/host/prebake.ts": "5cdddf2c9241e8a70fbad9c41c2f548355e17cac9a6261ed5c2b7bc44527fd62",
     "src/host/shims.ts": "6af1da421ab0fdcf8a38fde7f7dbbd514b550d55204dfdee694b26f88b6039a3",
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
@@ -90,10 +90,10 @@
     "src/lib/render/engine-job.ts": "74f51e997b2df27e7084d7f18f2b3d87f5d2ac03c52842de2bbe0827197e600e",
     "src/lib/render/gates/stems.ts": "764c7fa27262d21ca39788c5079ce25fe46f5e4d248ef0a41f73c0625467b2f8",
     "src/lib/render/gates/types.ts": "8d76bb081146020dd471738cf7e7eac5c47b416ea81f21912c469102d851744e",
-    "src/lib/render/job-plan.ts": "b0370b3b173eaf877d7a079476f171dc6c8f5590bd73eb58839c62b4ea8a9cc6",
+    "src/lib/render/job-plan.ts": "415db5db1c4c8283b80192b0bd9acf4c89d7a7ea842a008371f4150fae06267a",
     "src/lib/render/logged-errors.ts": "4af126d11de1554b847eabbe2c49c735da7b1caca547458b16e5d605bab352f4",
     "src/lib/render/lookback.ts": "48bd60331a9740b81e84eb079e3b8d666eea6bf72adbb150d27484a010d6c9ea",
-    "src/lib/render/page-job.ts": "1266180090585333e5db6ac2d031b39c4e96d8372edf530f45cbb3f6b1e40216",
+    "src/lib/render/page-job.ts": "aec2af75ee3022bc4e37f808d3e329f00825c93911f77ce3c4cbf394c3911d20",
     "src/lib/render/plan.ts": "6c6fd8c6e8f8dd5a62b1cd19ddb52a0530ab948177d9e7413576553bd8846389",
     "src/lib/render/schedule.ts": "340315ab18bcd2a3a40f8c0d63c4c54fd2eb82112c63e03f68dc3e5f33484f0f",
     "src/lib/render/thresholds.ts": "5d724732d426a5e17e8a77af9b5f93916d816a286f2333fbbf67bd33c6dfe089",
@@ -155,5 +155,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "24b5a648bee9ee02d1b423be5502e02db824cdc0fcda578a96d3351e547e7f3c"
+  "combined": "ffe6f8cea5d5f19f8cd2fcd8d0c37ff2b86382a5ac1e11ec1c27d84d961e6dd0"
 }

@@ -7,7 +7,8 @@ use std::process::{Command, Output};
 use common::repo_root;
 use serde_json::Value;
 
-const REQUEST: &str = r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#;
+/// A single-chunk request: `[0, 4)` linear, no overlap or lookback, mix.
+const REQUEST: &str = r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}"#;
 
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_strudeland-host"))
@@ -39,50 +40,36 @@ fn temp_file(content: &str) -> tempfile::NamedTempFile {
 
 const SONG: &str = "tests/render/corpus/sine-basic.js";
 
-#[test]
-fn plan_writes_the_job_to_stdout_and_one_info_line() {
-    let out = run(&["plan", "--song", SONG, "--request", REQUEST]);
-    assert_eq!(out.status.code(), Some(0), "{out:?}");
-    let info: Value = serde_json::from_str(&one_line(&out)).unwrap();
-    assert_eq!(info["jsonLength"].as_u64(), Some(out.stdout.len() as u64));
-    let job: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(job["schema"], 2);
-    assert!(!out.stdout.ends_with(b"\n"));
+/// The one chunk of a single-chunk `plan-render` output.
+fn single_chunk(out: &Output) -> Value {
+    let planned: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let chunks = planned["chunks"].as_array().unwrap();
+    assert_eq!(chunks.len(), 1, "{planned}");
+    chunks[0].clone()
 }
 
 #[test]
-fn plan_reads_the_request_from_a_file_and_writes_out() {
-    let stdout_job = run(&["plan", "--song", SONG, "--request", REQUEST]).stdout;
-    let request = temp_file(REQUEST);
-    let dir = tempfile::tempdir().unwrap();
-    let job_path = dir.path().join("job.json");
-    let out = run(&[
-        "plan",
-        "--request",
-        request.path().to_str().unwrap(),
-        "--song",
-        SONG,
-        "--out",
-        job_path.to_str().unwrap(),
-    ]);
+fn plan_render_with_a_chunk_plans_one_chunk_with_its_info() {
+    let out = run(&["plan-render", "--song", SONG, "--request", REQUEST]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
-    assert!(out.stdout.is_empty());
-    let info: Value = serde_json::from_str(&one_line(&out)).unwrap();
-    let written = std::fs::read(&job_path).unwrap();
-    assert_eq!(written, stdout_job);
-    assert_eq!(info["jsonLength"].as_u64(), Some(written.len() as u64));
+    assert!(out.stderr.is_empty(), "{out:?}");
+    let chunk = single_chunk(&out);
+    let job: Value = serde_json::from_str(chunk["json"].as_str().unwrap()).unwrap();
+    assert_eq!(job["schema"], 2);
+    assert!(chunk["info"]["events"].is_array(), "{chunk}");
+    assert!(chunk["info"]["stemPairs"].is_u64(), "{chunk}");
     // JSON text with leading spaces is still JSON text, not a path.
     let spaced = format!("  \n{REQUEST}");
-    let out = run(&["plan", "--song", SONG, "--request", &spaced]);
-    assert_eq!(out.status.code(), Some(0), "{out:?}");
-    assert_eq!(out.stdout, stdout_job);
+    let again = run(&["plan-render", "--song", SONG, "--request", &spaced]);
+    assert_eq!(again.status.code(), Some(0), "{again:?}");
+    assert_eq!(again.stdout, out.stdout);
 }
 
 #[test]
-fn plan_host_errors_exit_1_with_the_kind() {
+fn plan_render_host_errors_exit_1_with_the_kind() {
     let syntax = temp_file("$: note(\"c\".s(\n");
     let out = run(&[
-        "plan",
+        "plan-render",
         "--song",
         syntax.path().to_str().unwrap(),
         "--request",
@@ -98,7 +85,7 @@ fn plan_host_errors_exit_1_with_the_kind() {
 
     let bad_meta = temp_file("const meta = { bpm: 'x' };\n$: note(\"c\")\n");
     let out = run(&[
-        "plan",
+        "plan-render",
         "--song",
         bad_meta.path().to_str().unwrap(),
         "--request",
@@ -109,7 +96,7 @@ fn plan_host_errors_exit_1_with_the_kind() {
 
     let waits = temp_file("await new Promise((r) => setTimeout(r, 5));\n$: note(\"c\")\n");
     let out = run(&[
-        "plan",
+        "plan-render",
         "--song",
         waits.path().to_str().unwrap(),
         "--request",
@@ -120,7 +107,7 @@ fn plan_host_errors_exit_1_with_the_kind() {
 
     let multiline = temp_file("throw new Error('line one\\nline two');\n");
     let out = run(&[
-        "plan",
+        "plan-render",
         "--song",
         multiline.path().to_str().unwrap(),
         "--request",
@@ -130,6 +117,14 @@ fn plan_host_errors_exit_1_with_the_kind() {
     assert!(one_line(&out).contains("line one\\nline two"));
 }
 
+#[test]
+fn plan_is_not_a_command() {
+    assert_bad_input(
+        &run(&["plan", "--song", "x", "--request", "{}"]),
+        "unknown command plan",
+    );
+}
+
 fn assert_bad_input(out: &Output, needle: &str) {
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     assert!(out.stdout.is_empty(), "{out:?}");
@@ -137,70 +132,42 @@ fn assert_bad_input(out: &Output, needle: &str) {
     let first = err.lines().next().unwrap_or_default();
     assert!(first.starts_with("strudeland-host: "), "{err}");
     assert!(first.contains(needle), "{needle}: {err}");
-    assert!(err.contains("usage: strudeland-host plan"), "{err}");
+    assert!(err.contains("usage: strudeland-host plan-render"), "{err}");
 }
 
 #[test]
 fn bad_input_exits_2_with_the_usage() {
     assert_bad_input(
-        &run(&["plan", "--song", "no/such/song.js", "--request", REQUEST]),
-        "no/such/song.js",
-    );
-    assert_bad_input(
-        &run(&["plan", "--song", SONG, "--request", "no/such/request.json"]),
-        "no/such/request.json",
-    );
-    assert_bad_input(
-        &run(&["plan", "--song", SONG, "--request", "{"]),
-        "invalid request",
-    );
-    assert_bad_input(
         &run(&[
-            "plan",
-            "--song",
-            SONG,
-            "--request",
-            r#"{"layout":"linear","fromBar":4,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
-        ]),
-        "fromBar",
-    );
-    assert_bad_input(
-        &run(&[
-            "plan",
-            "--song",
-            SONG,
-            "--request",
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100,"samples":{}}"#,
-        ]),
-        "samples",
-    );
-    assert_bad_input(&run(&["plan", "--song", SONG]), "missing --request");
-    assert_bad_input(&run(&["plan", "--request", REQUEST]), "missing --song");
-    assert_bad_input(
-        &run(&["plan", "--song", SONG, "--request", REQUEST, "--bogus", "1"]),
-        "unknown argument --bogus",
-    );
-    assert_bad_input(
-        &run(&["plan", "--song", SONG, "--song", SONG, "--request", REQUEST]),
-        "--song given twice",
-    );
-    assert_bad_input(&run(&["plan", "--song"]), "--song needs a value");
-    assert_bad_input(&run(&["render"]), "unknown command render");
-    assert_bad_input(&run(&[]), "missing command");
-    let dir = tempfile::tempdir().unwrap();
-    let unwritable = dir.path().join("missing-dir/job.json");
-    assert_bad_input(
-        &run(&[
-            "plan",
+            "plan-render",
             "--song",
             SONG,
             "--request",
             REQUEST,
-            "--out",
-            unwritable.to_str().unwrap(),
+            "--bogus",
+            "1",
         ]),
-        "writing",
+        "unknown argument --bogus",
     );
+    assert_bad_input(
+        &run(&[
+            "plan-render",
+            "--song",
+            SONG,
+            "--song",
+            SONG,
+            "--request",
+            REQUEST,
+        ]),
+        "--song given twice",
+    );
+    assert_bad_input(&run(&["plan-render", "--song"]), "--song needs a value");
+    assert_bad_input(
+        &run(&["plan-render", "--request", REQUEST]),
+        "missing --song",
+    );
+    assert_bad_input(&run(&["render"]), "unknown command render");
+    assert_bad_input(&run(&[]), "missing command");
 }
 
 #[test]
@@ -270,15 +237,16 @@ fn plan_render_writes_one_json_line_and_nothing_on_stderr() {
         let job: Value = serde_json::from_str(chunk["json"].as_str().unwrap()).unwrap();
         assert_eq!(job["schema"], 2);
     }
-    // The single chunk equals `plan` of its request.
+    // The single chunk equals the single-chunk plan of its request.
     if chunks.len() == 1 {
         let lookback = &chunks[0]["plan"]["lookbackSec"];
         let request = format!(
-            r#"{{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":{lookback},"mode":"mix","sampleRate":44100}}"#
+            r#"{{"length":{{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"}},"chunk":{{"overlapBars":0,"lookbackSec":{lookback},"mode":"mix"}}}}"#
         );
-        let single = run(&["plan", "--song", SONG, "--request", &request]);
+        let single = run(&["plan-render", "--song", SONG, "--request", &request]);
         assert_eq!(single.status.code(), Some(0), "{single:?}");
-        assert_eq!(text(&single.stdout), chunks[0]["json"].as_str().unwrap());
+        assert_eq!(single_chunk(&single)["json"], chunks[0]["json"]);
+        assert!(chunks[0].get("info").is_none(), "{planned}");
     }
 
     // From a request file, to --out.
@@ -369,6 +337,56 @@ fn plan_render_bad_input_exits_2_with_the_usage() {
         ),
         ("{", "invalid request"),
         ("no/such/request.json", "no/such/request.json"),
+        // A chunk the bundle refuses.
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":99997,"lookbackSec":0,"mode":"mix"}}"#,
+            "bad request: chunk.overlapBars must be an integer from 0 to 99996",
+        ),
+        (
+            r#"{"length":{"kind":"length","bars":4},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}"#,
+            "bad request: chunk needs a window length",
+        ),
+        (
+            r#"{"length":{"kind":"clip"},"preset":"one-shot","chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}"#,
+            "bad request: chunk needs a window length",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"preset":"one-shot","chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}"#,
+            "bad request: chunk cannot be combined with a preset",
+        ),
+        // The chunk values a typed `SingleChunk` cannot hold: serde refuses them.
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":-1,"lookbackSec":0,"mode":"mix"}}"#,
+            "invalid request",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0.5,"lookbackSec":0,"mode":"mix"}}"#,
+            "invalid request",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":"x","mode":"mix"}}"#,
+            "invalid request",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":null,"mode":"mix"}}"#,
+            "invalid request",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":[],"mode":"mix"}}"#,
+            "invalid request",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mono"}}"#,
+            "invalid request",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}}"#,
+            "unknown field `sampleRate`",
+        ),
+        (
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"},"chunk":3}"#,
+            "invalid request",
+        ),
     ] {
         let out = run(&["plan-render", "--song", SONG, "--request", request]);
         assert_bad_input(&out, needle);
@@ -414,30 +432,28 @@ fn plan_render_bad_input_exits_2_with_the_usage() {
 }
 
 #[test]
-fn plan_timeout_bounds_the_planning() {
-    let plain = run(&["plan", "--song", SONG, "--request", REQUEST]);
-    let timed = run(&[
-        "plan",
-        "--song",
-        SONG,
-        "--request",
-        REQUEST,
-        "--timeout",
-        "600",
-    ]);
+fn plan_render_timeout_sec_bounds_the_planning() {
+    let with_timeout =
+        |secs: &str| format!(r#"{},"timeoutSec":{secs}}}"#, &REQUEST[..REQUEST.len() - 1]);
+    let timed_request = with_timeout("600");
+    assert!(
+        timed_request.ends_with(r#""mode":"mix"},"timeoutSec":600}"#),
+        "{timed_request}"
+    );
+    let plain = run(&["plan-render", "--song", SONG, "--request", REQUEST]);
+    let timed = run(&["plan-render", "--song", SONG, "--request", &timed_request]);
     assert_eq!(timed.status.code(), Some(0), "{timed:?}");
     assert_eq!(timed.stdout, plain.stdout);
     assert_eq!(timed.stderr, plain.stderr);
 
     let spin = temp_file(SPIN);
+    let spin_request = with_timeout("0.5");
     let out = run(&[
-        "plan",
+        "plan-render",
         "--song",
         spin.path().to_str().unwrap(),
         "--request",
-        REQUEST,
-        "--timeout",
-        "0.5",
+        &spin_request,
     ]);
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(out.stdout.is_empty());
@@ -446,22 +462,26 @@ fn plan_timeout_bounds_the_planning() {
         "strudeland-host: timeout: planning did not finish within 0.5 s"
     );
 
-    for bad in ["0", "-1", "abc", "NaN", "inf", "86401", ""] {
+    for bad in ["0", "-1", "86401"] {
         assert_bad_input(
             &run(&[
-                "plan",
+                "plan-render",
                 "--song",
                 SONG,
                 "--request",
-                REQUEST,
-                "--timeout",
-                bad,
+                &with_timeout(bad),
             ]),
-            "--timeout must be a number of seconds greater than 0 and at most 86400",
+            "timeoutSec",
         );
     }
     assert_bad_input(
-        &run(&["plan", "--song", SONG, "--request", REQUEST, "--timeout"]),
-        "--timeout needs a value",
+        &run(&[
+            "plan-render",
+            "--song",
+            SONG,
+            "--request",
+            &with_timeout(r#""5""#),
+        ]),
+        "invalid request",
     );
 }

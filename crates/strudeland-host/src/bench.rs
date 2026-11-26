@@ -2,10 +2,11 @@
 //! times, the job's size and hash, peak memory and the performance budget. See [`BUDGET`] and
 //! the Performance section in the host README.
 //!
-//! Per song the request is `{ layout: linear, fromBar 0, toBar B, overlapBars 0, lookbackSec 0,
-//! mode mix, sampleRate 44100 }`, `B` the song's `--lengths` entry (its full length: the song
-//! enters budget item 1) or else `--bars`. Each of the [`RUNS`] runs uses a fresh [`Host`]: a
-//! timed `plan_job` (`planMs`, with the worker's `loadMs`), then a timed `query(code, 0, B,
+//! Per song the request is the single-chunk `plan_render` request `{ length: { kind: window,
+//! fromBar 0, toBar B, layout linear }, chunk: { overlapBars 0, lookbackSec 0, mode mix } }`, `B`
+//! the song's `--lengths` entry (its full length: the song enters budget item 1) or else
+//! `--bars`. Each of the [`RUNS`] runs uses a fresh [`Host`]: a timed `plan_render` (`planMs`,
+//! with the worker's `loadMs`; the job is the one chunk's), then a timed `query(code, 0, B,
 //! linear)` (`queryMs`). The reported numbers are the medians over the runs.
 
 use std::collections::BTreeMap;
@@ -17,7 +18,9 @@ use sha2::{Digest, Sha256};
 
 use crate::engine;
 use crate::host::PlanTimings;
-use crate::{Host, HostError, Layout, LookbackSec, Mode, RenderRequest, SAMPLE_RATE};
+use crate::{
+    Host, HostError, Layout, LengthRequest, LookbackSec, Mode, RenderPlanRequest, SingleChunk,
+};
 
 /// The performance budget, fixed before measuring (decision 25). Never loosened.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -319,16 +322,23 @@ fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-/// The linear mix request over `[0, bars)` with no lookback.
-pub fn request(bars: u32) -> RenderRequest {
-    RenderRequest {
-        layout: Layout::Linear,
-        from_bar: 0,
-        to_bar: bars,
-        overlap_bars: 0,
-        lookback_sec: LookbackSec::Seconds(0.0),
-        mode: Mode::Mix,
-        sample_rate: SAMPLE_RATE,
+/// The single-chunk linear mix request over `[0, bars)` with no lookback.
+pub fn request(bars: u32) -> RenderPlanRequest {
+    RenderPlanRequest {
+        instruments: Default::default(),
+        length: LengthRequest::Window {
+            from_bar: 0,
+            to_bar: bars,
+            layout: Layout::Linear,
+        },
+        preset: None,
+        include_events: None,
+        chunk: Some(SingleChunk {
+            overlap_bars: 0,
+            lookback_sec: LookbackSec::Seconds(0.0),
+            mode: Mode::Mix,
+        }),
+        timeout_sec: None,
     }
 }
 
@@ -372,10 +382,14 @@ fn one_run(code: &str, bars: u32, profile: bool) -> Result<Run, String> {
     let fail = |e: HostError| e.to_string();
     let host = Host::new().map_err(fail)?;
     let start = Instant::now();
-    let (job, timings) = host
-        .plan_job_timed(code, &request(bars), profile, None)
+    let (planned, timings) = host
+        .plan_render_timed(code, &request(bars), profile)
         .map_err(fail)?;
     let plan_ms = ms(start.elapsed());
+    let job = match <[_; 1]>::try_from(planned.chunks) {
+        Ok([chunk]) => chunk.json,
+        Err(chunks) => return Err(format!("the plan has {} chunks, not 1", chunks.len())),
+    };
     let start = Instant::now();
     host.query(code, 0.0, f64::from(bars), Layout::Linear)
         .map_err(fail)?;
@@ -386,7 +400,7 @@ fn one_run(code: &str, bars: u32, profile: bool) -> Result<Run, String> {
         None
     };
     Ok(Run {
-        job: job.json,
+        job,
         load_ms: ms(timings.load),
         plan_ms,
         query_ms,
@@ -832,7 +846,7 @@ mod tests {
         let r = request(42);
         assert_eq!(
             r.to_json().unwrap(),
-            r#"{"layout":"linear","fromBar":0,"toBar":42,"overlapBars":0,"lookbackSec":0.0,"mode":"mix","sampleRate":44100}"#
+            r#"{"length":{"kind":"window","fromBar":0,"toBar":42,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0.0,"mode":"mix"}}"#
         );
     }
 

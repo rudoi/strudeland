@@ -1,24 +1,24 @@
 //! `strudeland-host`: the headless host's harness binary (not a `strudeland` subcommand).
 //!
 //! ```text
-//! strudeland-host plan --song <file> --request <json|file> [--out <file>] [--timeout <secs>]
 //! strudeland-host plan-render --song <file> --request <json|file> [--out <file>]
 //! strudeland-host query --song <file> --from <c> --to <c> [--layout clip|linear]
 //! strudeland-host bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>
 //! ```
 //!
-//! `plan` writes the job JSON to `--out` (or stdout, no trailing newline) and exactly one line
-//! on stderr: the job's info JSON. `query` writes the events JSON on stdout. Exit codes: 0 ok;
-//! 1 host error (stderr one line `strudeland-host: <kind>: <message>`, nothing on stdout); 2 bad
-//! input (stderr `strudeland-host: <message>` and the usage). `--request` is JSON text when its
-//! first non-space character is `{`, else a file path. `plan --timeout` bounds the planning
-//! (seconds, greater than 0 and at most 86400; past it the host error is `timeout: …`).
-//!
 //! `plan-render` plans every chunk of a render in one call (`--request` is a `RenderPlanRequest`:
 //! `{"length":{"kind":"clip"|"section"|"length"|"window",…},"preset"?,"includeEvents"?,
-//! "timeoutSec"?,"instruments"?}`) and writes the plan as one JSON line to `--out` (or stdout, no
-//! trailing newline), nothing on stderr. A bad length request (the bundle's `bad request: …`) is
-//! bad input; a length the song cannot satisfy is a host error (`meta: …`, naming the flag).
+//! "chunk"?,"timeoutSec"?,"instruments"?}`) and writes the plan as one JSON line to `--out` (or
+//! stdout, no trailing newline), nothing on stderr. With `chunk` (`{"overlapBars","lookbackSec",
+//! "mode"}`, a window length only) it plans exactly that one chunk and the chunk carries its
+//! `info`. `timeoutSec` bounds the planning (seconds, greater than 0 and at most 86400; past it
+//! the host error is `timeout: …`, exit 1). A bad length request or chunk (the bundle's `bad
+//! request: …`) is bad input; a length the song cannot satisfy is a host error (`meta: …`, naming
+//! the flag). `query` writes the events JSON on stdout. `plan` is no longer a command.
+//!
+//! Exit codes: 0 ok; 1 host error (stderr one line `strudeland-host: <kind>: <message>`, nothing
+//! on stdout); 2 bad input (stderr `strudeland-host: <message>` and the usage). `--request` is
+//! JSON text when its first non-space character is `{`, else a file path.
 //!
 //! `bench` plans each song three times on fresh hosts and writes one JSON document on stdout
 //! (medians, job size and hash, peak memory, the budget report) and a table on stderr; exit 0 when
@@ -28,15 +28,12 @@
 use std::fs;
 use std::io::Write;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use strudeland_host::bench;
-use strudeland_host::{
-    Host, HostError, Layout, MAX_TIMEOUT_SEC, RenderPlanRequest, RenderRequest, timeout_from_secs,
-};
+use strudeland_host::{Host, HostError, Layout, RenderPlanRequest};
 
-const USAGE: &str = "usage: strudeland-host plan --song <file> --request <json|file> [--out <file>] [--timeout <secs>]\n       strudeland-host plan-render --song <file> --request <json|file> [--out <file>]\n       strudeland-host query --song <file> --from <c> --to <c> [--layout clip|linear]\n       strudeland-host bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>";
+const USAGE: &str = "usage: strudeland-host plan-render --song <file> --request <json|file> [--out <file>]\n       strudeland-host query --song <file> --from <c> --to <c> [--layout clip|linear]\n       strudeland-host bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>";
 
 /// How a command failed: bad input (the message, then the usage; exit 2) or a host error (one
 /// line; exit 1).
@@ -89,17 +86,6 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let rest = args.get(1..).unwrap_or_default();
     match args.first().map(String::as_str) {
-        Some("plan") => {
-            match parse_flags(rest, &["--song", "--request"], &["--out", "--timeout"]) {
-                Ok((req, opt)) => finish(run_plan(
-                    &req[0],
-                    &req[1],
-                    opt[0].as_deref(),
-                    opt[1].as_deref(),
-                )),
-                Err(e) => bad_input(e),
-            }
-        }
         Some("plan-render") => match parse_flags(rest, &["--song", "--request"], &["--out"]) {
             Ok((req, opt)) => finish(run_plan_render(&req[0], &req[1], opt[0].as_deref())),
             Err(e) => bad_input(e),
@@ -157,15 +143,6 @@ fn read_request_json<T: DeserializeOwned>(arg: &str) -> Result<T, String> {
     serde_json::from_str(&text).map_err(|e| format!("invalid request: {e}"))
 }
 
-/// `plan`'s request, validated.
-fn read_request(arg: &str) -> Result<RenderRequest, String> {
-    let request: RenderRequest = read_request_json(arg)?;
-    request
-        .validate()
-        .map_err(|e| format!("invalid request: {e}"))?;
-    Ok(request)
-}
-
 /// `plan-render`'s request, validated.
 fn read_plan_request(arg: &str) -> Result<RenderPlanRequest, String> {
     let request: RenderPlanRequest = read_request_json(arg)?;
@@ -173,19 +150,6 @@ fn read_plan_request(arg: &str) -> Result<RenderPlanRequest, String> {
         .validate()
         .map_err(|e| format!("invalid request: {e}"))?;
     Ok(request)
-}
-
-/// `--timeout`'s seconds: a number greater than 0 and at most [`MAX_TIMEOUT_SEC`].
-fn parse_timeout(text: &str) -> Result<Duration, String> {
-    text.trim()
-        .parse::<f64>()
-        .ok()
-        .and_then(timeout_from_secs)
-        .ok_or_else(|| {
-            format!(
-                "--timeout must be a number of seconds greater than 0 and at most {MAX_TIMEOUT_SEC}, got {text}"
-            )
-        })
 }
 
 /// Writes `text` to `out`, or to stdout without a trailing newline.
@@ -201,25 +165,6 @@ fn write_stdout(text: &str) -> Result<(), String> {
     out.write_all(text.as_bytes())
         .and_then(|()| out.flush())
         .map_err(|e| format!("writing stdout: {e}"))
-}
-
-fn run_plan(
-    song: &str,
-    request: &str,
-    out: Option<&str>,
-    timeout: Option<&str>,
-) -> Result<(), Exit> {
-    let code = read_text(song, "the song").map_err(Exit::BadInput)?;
-    let request = read_request(request).map_err(Exit::BadInput)?;
-    let timeout = timeout
-        .map(parse_timeout)
-        .transpose()
-        .map_err(Exit::BadInput)?;
-    let planned = Host::new()?.plan_job_with_timeout(&code, &request, timeout)?;
-    write_output(&planned.json, out).map_err(Exit::BadInput)?;
-    // The bundle's `JSON.stringify` of the info: one line.
-    eprintln!("{}", planned.info);
-    Ok(())
 }
 
 fn run_plan_render(song: &str, request: &str, out: Option<&str>) -> Result<(), Exit> {

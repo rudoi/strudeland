@@ -1,7 +1,7 @@
 # strudeland-host
 
 The headless pattern host: evaluates a strudeland song in an embedded V8 and plans its engine
-job (schema 2) exactly as the render page does in Chromium, without a browser. Both run the same
+jobs (schema 2) exactly as the render page does in Chromium, without a browser. Both run the same
 planner (`src/lib/render/job-plan.ts`, bundled into `js/host.js`), so the job text is byte-equal by
 construction; `bun run host:parity` proves it on the render corpus. It is the planning half
 of `strudeland render`. Its harness binary is invoked as `strudeland-host`.
@@ -12,25 +12,26 @@ module state leaks from one song to the next.
 
 ## Entry points
 
-- The library: `Host::new()`, then `Host::plan_job(code, &RenderRequest)` (the job JSON plus its
-  `info`), `Host::query(code, from, to, Layout)` (the events of a cycle window as JSON) and
-  `Host::plan_render(code, &RenderPlanRequest)` (every chunk's job of a render in one call, below)
-  and `Host::eval_script(source)` (a script in a fresh context, without the bundle). `Host` is
+- The library: `Host::new()`, then `Host::plan_render(code, &RenderPlanRequest)` (every chunk's
+  job of a render in one call, or with `chunk` exactly one chunk with its `info`, below),
+  `Host::query(code, from, to, Layout)` (the events of a cycle window as JSON) and
+  `Host::eval_script(source)` (a script in a fresh context, without the bundle). `Host` is
   `Send + Sync`; calls on one `Host` are served one at a time. Errors are `HostError`: `Meta`
   (`MetaFlag`: a `meta` failure of a render's length request that names the flag at fault),
   `Eval`, `Plan`, `Unsettled` (the song's promises never settled), `Timeout` and `Runtime`.
 - The `strudeland-host` binary, which `render:check --planner host` and `host:parity` run:
 
   ```
-  cargo run -p strudeland-host -- plan --song <file> --request <json|file> [--out <file>] [--timeout <secs>]
   cargo run -p strudeland-host -- plan-render --song <file> --request <json|file> [--out <file>]
   cargo run -p strudeland-host -- query --song <file> --from <c> --to <c> [--layout clip|linear]
   cargo run -p strudeland-host -- bench [--bars N] [--lengths FILE] [--profile] [--out-dir DIR] <song…>
   ```
 
-  `plan` writes the job to `--out` or stdout and one line of `info` JSON on stderr. Exit 0 ok, 1
-  host error (`strudeland-host: <kind>: <message>`), 2 bad input (the message and the usage).
-- `plan-render` is the library's `plan_render`: see "Batch planning".
+  Exit 0 ok, 1 host error (`strudeland-host: <kind>: <message>`), 2 bad input (the message and
+  the usage).
+- `plan-render` is the library's `plan_render`: see "Batch planning". It writes the plan as one
+  JSON line to `--out` or stdout. `render:check --planner host` and `host:parity` run it with a
+  single-chunk request per job.
 - `bench` (also `strudeland_host::bench`): plans each song three times on fresh hosts and reports
   medians, job size and hash, peak memory and the budget report (below).
 
@@ -55,7 +56,7 @@ snapshots.
 `plan_render` (`plan-render`) plans a whole render in one call, for `strudeland render`, instead of
 one request (and one evaluation of the song) per chunk. The request is a `RenderPlanRequest`:
 `{"length":{"kind":"clip"|"section"|"length"|"window",...},"preset"?,"includeEvents"?,
-"timeoutSec"?,"instruments"?}`. The optional `instruments` object maps
+"chunk"?,"timeoutSec"?,"instruments"?}`. The optional `instruments` object maps
 project pin IDs to validated instrument definitions. Requests without pins omit this field.
 The bundle's `planRender` (`src/lib/render/job-plan.ts`):
 
@@ -63,16 +64,19 @@ The bundle's `planRender` (`src/lib/render/job-plan.ts`):
    first N bars, or an explicit window); one the song cannot satisfy is `HostError::MetaFlag` and
    names the CLI flag (`--length`, `--section`, `--loops`);
 2. evaluates the song once and selects the schedule for its render window;
-3. cuts that schedule per chunk and plans each chunk's engine job (the chunk windows, seam overlap
-   and lookback are the same ones `renderChunkPlans` gives the harness).
+3. cuts that schedule at each chunk's end (the haps with an onset before it, original `index`
+   kept) and plans each chunk's engine job (the chunk windows, seam overlap and lookback are the
+   same ones `renderChunkPlans` gives the harness).
+
+`chunk` (`{"overlapBars","lookbackSec","mode"}`, with a `window` length and no `preset`) plans one
+chunk for the harness instead: exactly the job the window plus that overlap, lookback (`"auto"`:
+the schedule's) and mode would get, by the same pass code, with the chunk's `info` (its events and
+stem pairs). The bundle refuses a bad `chunk` with `bad request: …`; production never sends one.
 
 The result is the structure, the window and chunk windows, the song's errors, and one job text per
 chunk. It carries every frame measure, for every song: `musicFrames`, each chunk's
 `contentFrames` (and `overlapFrames` when a chunk renders overlap), and with a loop
-`loopStartFrame` and `repeat.musicFrames`. The schedule is reused by default (`BATCH_REUSE_SCHEDULE = true`): each chunk's selection is
-the full schedule cut at the chunk's end. Setting it to `false` makes each chunk query and select
-`[0, end)` itself, as `plan_job` does (quadratic, equal by construction); `host:parity --batch`
-found every corpus chunk job byte-equal with `true`, so the fallback is unused.
+`loopStartFrame` and `repeat.musicFrames`.
 
 The optional `preset` field accepts `tagged-loop`, `intro-loop`, `folded-loop` or `one-shot`.
 Loop presets take a plain clip request and set `export.loopStartBar` to the marked section's
@@ -101,11 +105,11 @@ markers need zero post-roll. The scratch buffer limit also applies to the extend
 
 ### Planning timeout
 
-A request may bound its planning: `plan --timeout <secs>` and `RenderPlanRequest.timeoutSec`
-(a number greater than 0 and at most 86400; anything else is rejected). A watchdog thread calls V8's
+A request may bound its planning with `RenderPlanRequest.timeoutSec` (a number greater than 0
+and at most 86400; anything else is rejected). A watchdog thread calls V8's
 `terminate_execution` on the isolate at the deadline and the request fails with `HostError::Timeout`
 (`timeout: planning did not finish within N s`). No timeout is the default of the library and of
-`plan`: a song with an infinite loop then hangs its request. `strudeland render` passes 120 s unless
+`plan-render`: a song with an infinite loop then hangs its request. `strudeland render` passes 120 s unless
 `--plan-timeout` says otherwise. The timeout covers the bundle load too.
 
 ## Runtime: V8
@@ -133,8 +137,16 @@ song stem to its bar count, for example `{"late-feedback": 160}`. Pass one or mo
 `tests/render/corpus/` or your own project. `--profile` splits the time into load, evaluate, query
 and JSON. The process exit code covers execution errors, and the report's `budget` records misses.
 
-The ignored [performance test](tests/perf_budget.rs) plans the widest corpus window three times
-on fresh hosts and asserts that the median meets the 2 s per-song limit. The current fixture,
+`bench` and `perf_budget` plan one chunk through `plan_render` (a single-chunk window request:
+linear, no overlap or lookback, mix); the reported job is that chunk's. `--profile`'s `queryMs`
+(the `querying` mark to the result slot) also covers building the plan, with the job text escaped
+inside it and the chunk's `info`; `jsonMs` is the read-out plus the serde parse of the plan.
+Neither is comparable with a figure from before the single-chunk request replaced `plan`.
+
+The ignored [performance test](tests/perf_budget.rs) plans the widest corpus window as one chunk
+three times on fresh hosts and asserts that the median meets the 2 s per-song limit. It times
+exactly that one `plan_render` call on a fresh host, not a production render, which plans every
+chunk. The current fixture,
 `late-feedback`, starts at bar 136 and queries the dense schedule through bar 160. Run the release
 build on a quiet machine.
 
@@ -155,7 +167,7 @@ Before `host.js` runs, the natives (`src/natives.rs`) install:
 - `console`: `log`, `info`, `debug`, `trace`, `dir` and the other standard methods (`assert`,
   `table`, `group`, `time`, `count`, …) are discarded; `warn` and `error` go to
   stderr only with `STRUDELAND_HOST_LOG=1` (the bundle's entry also captures them into
-  `info.errors` during a plan).
+  the plan's `errors` during a plan).
 - `__strudelandMark` (the phase marks of `bench --profile`).
 
 and remove `window`, `document`, `navigator`, `fetch`, `AudioContext`, `localStorage`,
@@ -195,22 +207,23 @@ and `JSON.stringify` of numbers against Chromium and the engine's `js` port.
 
 - Keyboard state: with no `window`, core's `getCurrentKeyboardState()` returns `undefined` where
   the page has `{}`; songs that read keyboard input are not offline-renderable.
-- `info` errors are not compared byte for byte. The page captures `strudel.log` DOM events (core's
+- A plan's `errors` are not compared. The page captures `strudel.log` DOM events (core's
   `logger`: `[query] error: …`, `[core] Modulation type … not found`, …) and `window` errors
   (unhandled rejections, page errors). The host has no DOM, but the logger also writes each
   message through `console.log`; the host captures the failures from there with the page's rule
-  (`src/lib/render/logged-errors.ts`), so they are in its `info.errors` with the same text. It
+  (`src/lib/render/logged-errors.ts`), so they are in its plan's `errors` with the same text. It
   also captures `console.warn`/`console.error` and thrown errors. Page-only: `window` errors, and
   logger messages that are failures only by their `type` argument, which `console.log` does not
   carry (`scale`'s `[tonal] Invalid value format …`). `render:check --planner host` reports what
   the host captured.
 - `getDrawContext`, `getAudioContext` and similar getters that return something a song then uses
   are not available: such a song fails with an `Eval` error.
-- The planning timeout is opt-in (`--timeout`, `timeoutSec`): without one a song with an infinite
+- The planning timeout is opt-in (`timeoutSec`): without one a song with an infinite
   loop hangs its request.
-- `plan_render`'s chunk jobs are byte-equal to `plan_job` of each chunk's request (`host:parity
-  --batch`), but `info` is not part of the comparison, as for `plan`. A song the page cannot
-  schedule must fail `plan_render` too.
+- `plan_render`'s chunk jobs are byte-equal to the single-chunk plan of each chunk's request
+  (`host:parity --batch`), and its whole plan equals the page's without `errors`. A single-chunk
+  `info` is compared without its `errors` (`host:parity`). A song the page cannot schedule must
+  fail `plan_render` too.
 
 ## The bundle
 

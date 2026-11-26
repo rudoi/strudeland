@@ -1,26 +1,19 @@
 /**
- * The headless host's entry: `globalThis.strudelandHost = { planJob, planRender, query, inspect }`,
+ * The headless host's entry: `globalThis.strudelandHost = { planRender, query, inspect }`,
  * bundled into `crates/strudeland-host/js/host.js` by `bun run host:build` and evaluated in an
  * embedded JS runtime with no DOM. The functions return at once and report through the result
- * slot (`globalThis.__strudelandResult`; for `planJob` the job text in
- * `globalThis.__strudelandJob` and for `planRender` the plan's ASCII JSON in
- * `globalThis.__strudelandRender`, each set first); the embedder drains microtasks and reads them. Each
+ * slot (`globalThis.__strudelandResult`; for `planRender` the plan's ASCII JSON in
+ * `globalThis.__strudelandRender`, set first); the embedder drains microtasks and reads them. Each
  * call creates its own runtime: the embedder gives every request a fresh context, so nothing
  * here is cached or reset.
  */
 
 import type { Readable } from 'svelte/store';
 import { errorMessage } from '../lib/errors';
-import type {
-  RenderError,
-  RenderPlanInput,
-  RenderRequest,
-  SegmentLayout,
-} from '../lib/render/contract';
+import type { RenderError, RenderPlanInput, SegmentLayout } from '../lib/render/contract';
 import { loggedError, loggerMessage } from '../lib/render/logged-errors';
 import {
   evaluateSong,
-  planJob,
   PlanJobError,
   planRender,
   querySong,
@@ -49,7 +42,6 @@ export type HostResult =
 export type Layout = SegmentLayout;
 
 export interface StrudelandHost {
-  planJob(code: string, requestJson: string): void;
   planRender(code: string, requestJson: string): void;
   query(code: string, from: number, to: number, layout: Layout): void;
   inspect(code: string, requestJson: string): void;
@@ -104,7 +96,7 @@ function hostRuntime() {
 
 /** The host adapter (`createRuntime` result to `PlannerRuntime`), the page adapter's four
  *  members. `evaluate` never rejects: a rejection (a failed prebake) becomes a failed evaluate
- *  whose message `evalError` reports, since `planJob` does not wrap `evaluate`. */
+ *  whose message `evalError` reports, since `planRender` does not wrap `evaluate`. */
 export function hostAdapter(
   runtime: ReturnType<typeof createRuntime>,
   instruments?: InstrumentSnapshot,
@@ -184,21 +176,9 @@ function parseRequest(requestJson: string): object {
   return parsed;
 }
 
-async function runPlanJob(code: string, requestJson: string): Promise<string> {
-  const request = { ...parseRequest(requestJson), code } as RenderRequest;
-  const captured: RenderError[] = [];
-  const restore = captureConsole(captured);
-  try {
-    const { info, json } = await planJob(hostAdapter(hostRuntime()), request, captured, mark);
-    g.__strudelandJob = json;
-    return JSON.stringify(info);
-  } finally {
-    restore();
-  }
-}
-
-/** Plans every chunk (`planRender` validates the request's fields) and stores the plan as one
- *  ASCII JSON text in `__strudelandRender`; the slot's value is unused. */
+/** Plans every chunk, or the request's one `chunk` (`planRender` validates the request's
+ *  fields), and stores the plan as one ASCII JSON text in `__strudelandRender`; the slot's value
+ *  is unused. */
 async function runPlanRender(code: string, requestJson: string): Promise<string> {
   const request = parseRequest(requestJson) as RenderPlanInput;
   const captured: RenderError[] = [];
@@ -278,9 +258,6 @@ async function runInspection(code: string, requestJson: string): Promise<string>
 }
 
 export const strudelandHost: StrudelandHost = {
-  planJob(code, requestJson) {
-    settle(() => runPlanJob(code, requestJson));
-  },
   planRender(code, requestJson) {
     settle(() => runPlanRender(code, requestJson));
   },

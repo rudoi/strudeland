@@ -2,9 +2,9 @@
 
 mod common;
 
-use common::{SONG, request};
+use common::{SONG, job, request};
 use strudeland_host::{
-    Host, HostError, Layout, LengthRequest, LookbackSec, RenderPlanRequest, RenderRequest,
+    Host, HostError, Layout, LengthRequest, LookbackSec, Mode, RenderPlanRequest, SingleChunk,
 };
 
 fn render_request(length: LengthRequest) -> RenderPlanRequest {
@@ -13,6 +13,7 @@ fn render_request(length: LengthRequest) -> RenderPlanRequest {
         instruments: Default::default(),
         preset: None,
         include_events: Some(true),
+        chunk: None,
         timeout_sec: None,
     }
 }
@@ -66,9 +67,8 @@ fn garbage() -> Vec<(&'static str, String)> {
 fn malformed_songs_return_without_panicking() {
     let host = Host::new().unwrap();
     for (name, code) in garbage() {
-        let planned = host.plan_job(&code, &request(2));
-        if let Ok(job) = &planned {
-            assert!(!job.json.is_empty(), "{name}");
+        if let Ok(planned) = host.plan_render(&code, &request(2)) {
+            assert!(!job(&planned).is_empty(), "{name}");
         }
         let _ = host.query(&code, 0.0, 1.0, Layout::Linear);
         let _ = host.query(&code, 0.0, 1.0, Layout::Clip);
@@ -84,7 +84,7 @@ fn malformed_songs_return_without_panicking() {
         }
     }
     // The host survives all of it.
-    assert!(host.plan_job(SONG, &request(2)).is_ok());
+    assert!(host.plan_render(SONG, &request(2)).is_ok());
 }
 
 #[test]
@@ -104,38 +104,53 @@ fn malformed_scripts_return_without_panicking() {
 #[test]
 fn odd_request_numbers_are_errors() {
     let host = Host::new().unwrap();
+    // The odd chunk values a typed `SingleChunk` can hold: the bundle refuses each (the values
+    // it cannot hold are serde errors, `tests/bin.rs`).
+    let chunk = |overlap_bars: u32, lookback: f64| {
+        Some(SingleChunk {
+            overlap_bars,
+            lookback_sec: LookbackSec::Seconds(lookback),
+            mode: Mode::Mix,
+        })
+    };
+    let window = |from_bar: u32, to_bar: u32| LengthRequest::Window {
+        from_bar,
+        to_bar,
+        layout: Layout::Linear,
+    };
     let cases = [
-        RenderRequest {
-            lookback_sec: LookbackSec::Seconds(f64::NAN),
+        RenderPlanRequest {
+            chunk: chunk(u32::MAX, 0.0),
             ..request(2)
         },
-        RenderRequest {
-            lookback_sec: LookbackSec::Seconds(f64::NEG_INFINITY),
+        RenderPlanRequest {
+            chunk: chunk(0, f64::NAN),
             ..request(2)
         },
-        RenderRequest {
-            lookback_sec: LookbackSec::Seconds(-0.5),
+        RenderPlanRequest {
+            chunk: chunk(0, f64::NEG_INFINITY),
             ..request(2)
         },
-        RenderRequest {
-            from_bar: u32::MAX,
-            to_bar: u32::MAX,
+        RenderPlanRequest {
+            chunk: chunk(0, -0.5),
             ..request(2)
         },
-        RenderRequest {
-            from_bar: 0,
-            to_bar: u32::MAX,
-            overlap_bars: u32::MAX,
+        RenderPlanRequest {
+            length: window(u32::MAX, u32::MAX),
             ..request(2)
         },
-        RenderRequest {
-            sample_rate: 0,
+        RenderPlanRequest {
+            length: window(0, u32::MAX),
+            chunk: chunk(u32::MAX, 0.0),
             ..request(2)
         },
     ];
     for req in cases {
         assert!(
-            matches!(host.plan_job(SONG, &req), Err(HostError::Plan(_))),
+            matches!(
+                host.plan_render(SONG, &req),
+                Err(HostError::Plan(ref m)) if m.starts_with("bad request:")
+            ),
             "{req:?}"
         );
     }
@@ -192,10 +207,10 @@ fn odd_request_numbers_are_errors() {
         );
     }
     // A huge but valid lookback is planned or refused, never a panic.
-    let _ = host.plan_job(
+    let _ = host.plan_render(
         SONG,
-        &RenderRequest {
-            lookback_sec: LookbackSec::Seconds(1e12),
+        &RenderPlanRequest {
+            chunk: chunk(0, 1e12),
             ..request(2)
         },
     );
@@ -217,21 +232,21 @@ fn odd_request_numbers_are_errors() {
 fn a_hundred_thousand_bar_window_returns() {
     let host = Host::new().unwrap();
     let sparse = "$: note(\"c\").s(\"sine\").slow(20000)\n";
-    let window = RenderRequest {
-        to_bar: 100_000,
-        ..request(2)
-    };
+    let window = request(100_000);
     // Planned or refused (the job may be too long for the planner), but it returns.
-    match host.plan_job(sparse, &window) {
-        Ok(job) => assert!(!job.json.is_empty()),
+    match host.plan_render(sparse, &window) {
+        Ok(planned) => assert!(!job(&planned).is_empty()),
         Err(e) => assert!(matches!(e, HostError::Plan(_)), "{e}"),
     }
-    let tail = RenderRequest {
-        from_bar: 99_999,
-        to_bar: 100_000,
+    let tail = RenderPlanRequest {
+        length: LengthRequest::Window {
+            from_bar: 99_999,
+            to_bar: 100_000,
+            layout: Layout::Linear,
+        },
         ..request(2)
     };
-    let _ = host.plan_job(sparse, &tail);
+    let _ = host.plan_render(sparse, &tail);
     // The batch planner over the widest window: planned or refused, but it returns.
     let widest = render_request(LengthRequest::Window {
         from_bar: 0,
@@ -250,7 +265,7 @@ fn exhausting_the_heap_is_a_runtime_error_not_an_abort() {
     let hog = "const a = [];\nwhile (true) a.push(new Array(1e5).fill(1.5));\n";
     for result in [
         host.eval_script(hog).map(|_| ()),
-        host.plan_job(hog, &request(2)).map(|_| ()),
+        host.plan_render(hog, &request(2)).map(|_| ()),
     ] {
         match result {
             Err(HostError::Runtime(m)) => assert!(m.contains("ran out of memory"), "{m}"),
@@ -258,5 +273,5 @@ fn exhausting_the_heap_is_a_runtime_error_not_an_abort() {
         }
     }
     // The next request gets a fresh heap.
-    assert!(host.plan_job(SONG, &request(2)).is_ok());
+    assert!(host.plan_render(SONG, &request(2)).is_ok());
 }

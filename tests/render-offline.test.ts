@@ -296,7 +296,9 @@ describe('windowPlan', () => {
     expect(windowPlan(req({ mode: 'mix', toBar: 100 }), cps, 0).frames * 2 * 4).toBeLessThan(
       MAX_BUFFER_BYTES,
     );
-    expect(() => windowPlan(req(), 0, 0)).toThrow('invalid cps');
+    for (const bad of [NaN, 0, -1]) {
+      expect(() => windowPlan(req(), bad, 0)).toThrow(new RangeError(`invalid cps ${bad}`));
+    }
     expect(() => windowPlan(req(), cps, -1)).toThrow('invalid lookback');
   });
 });

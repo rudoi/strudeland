@@ -11,21 +11,12 @@ use strudeland_project::InstrumentSnapshot;
 
 use crate::engine::{self, Arg, Session};
 use crate::inspection::{InspectionRequest, InspectionResult, MAX_ERROR_BYTES, MAX_RESULT_BYTES};
-use crate::{HostError, Layout, PlannedRender, RenderPlanRequest, RenderRequest, natives};
+use crate::{HostError, Layout, PlannedRender, RenderPlanRequest, natives};
 
 /// The worker thread's stack: deep enough for the transpiler on large songs.
 const WORKER_STACK: usize = 64 << 20;
 
-/// A planned job: the job's JSON text (ASCII, byte-equal to the render page's) and its
-/// `PageJobInfo` as the bundle's `JSON.stringify` wrote it (one line; not byte-compared with the
-/// page's: the page and the host capture errors differently). Parse `info` where it is read.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlannedJob {
-    pub json: String,
-    pub info: String,
-}
-
-/// Where one `plan_job`'s time went, measured on the worker (for `bench`).
+/// Where one `plan_render`'s time went, measured on the worker (for `bench`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlanTimings {
     /// The new isolate and context, the natives and the bundle's evaluation.
@@ -33,7 +24,7 @@ pub(crate) struct PlanTimings {
     /// The bundle's phase marks (`evaluating`, `querying`, `settled`) with their instants;
     /// empty unless profiling.
     pub marks: Vec<(String, Instant)>,
-    /// The result read-out.
+    /// From the drain to the parsed plan: the result read-out and the plan's serde parse.
     pub json: Duration,
 }
 
@@ -41,18 +32,12 @@ type Reply<T> = Sender<Result<T, HostError>>;
 
 /// One request for the worker, with the channel its typed reply goes back on.
 enum Work {
-    Plan {
+    PlanRender {
         code: String,
         request_json: String,
         profile: bool,
         timeout: Option<Duration>,
-        reply: Reply<(PlannedJob, PlanTimings)>,
-    },
-    PlanRender {
-        code: String,
-        request_json: String,
-        timeout: Option<Duration>,
-        reply: Reply<PlannedRender>,
+        reply: Reply<(PlannedRender, PlanTimings)>,
     },
     Query {
         code: String,
@@ -100,48 +85,11 @@ impl Host {
         })
     }
 
-    /// Plans `request`'s engine job for the song `code`.
-    pub fn plan_job(&self, code: &str, request: &RenderRequest) -> Result<PlannedJob, HostError> {
-        self.plan_job_with_timeout(code, request, None)
-    }
-
-    /// [`Host::plan_job`] that gives up with [`HostError::Timeout`] when the planning takes longer
-    /// than `timeout` (`None`: no limit). The same `Host` serves the next request afterwards.
-    pub fn plan_job_with_timeout(
-        &self,
-        code: &str,
-        request: &RenderRequest,
-        timeout: Option<Duration>,
-    ) -> Result<PlannedJob, HostError> {
-        self.plan_job_timed(code, request, false, timeout)
-            .map(|(job, _)| job)
-    }
-
-    /// [`Host::plan_job`] with the worker's timings; `profile` turns the bundle's phase marks on.
-    pub(crate) fn plan_job_timed(
-        &self,
-        code: &str,
-        request: &RenderRequest,
-        profile: bool,
-        timeout: Option<Duration>,
-    ) -> Result<(PlannedJob, PlanTimings), HostError> {
-        let request_json = request
-            .validate()
-            .and_then(|()| request.to_json())
-            .map_err(|e| HostError::Plan(format!("invalid request: {e}")))?;
-        self.send(|reply| Work::Plan {
-            code: code.to_string(),
-            request_json,
-            profile,
-            timeout,
-            reply,
-        })
-    }
-
     /// Plans every chunk of a render of the song `code` in one call: the bundle resolves the
     /// length request against the song's `meta`, evaluates the song once and plans each chunk's
-    /// engine job. Standard jobs match [`Host::plan_job`] byte for byte. Loop exports can also
-    /// plan an isolated repeat from the same selected body events. `request.timeout_sec` bounds
+    /// engine job; with `request.chunk` it plans exactly that one chunk of the window. Loop
+    /// exports can also plan an isolated repeat from the same selected body events.
+    /// `request.timeout_sec` bounds
     /// the whole call ([`HostError::Timeout`]). An invalid instrument snapshot or timeout is
     /// [`HostError::Plan`] `invalid request: …`; a bad length request is the bundle's
     /// [`HostError::Plan`] `bad request: …`; a length request the song cannot satisfy is
@@ -151,6 +99,18 @@ impl Host {
         code: &str,
         request: &RenderPlanRequest,
     ) -> Result<PlannedRender, HostError> {
+        self.plan_render_timed(code, request, false)
+            .map(|(planned, _)| planned)
+    }
+
+    /// [`Host::plan_render`] with the worker's timings; `profile` turns the bundle's phase marks
+    /// on.
+    pub(crate) fn plan_render_timed(
+        &self,
+        code: &str,
+        request: &RenderPlanRequest,
+        profile: bool,
+    ) -> Result<(PlannedRender, PlanTimings), HostError> {
         let request_json = request
             .validate()
             .and_then(|()| request.to_json())
@@ -159,6 +119,7 @@ impl Host {
         self.send(|reply| Work::PlanRender {
             code: code.to_string(),
             request_json,
+            profile,
             timeout,
             reply,
         })
@@ -298,7 +259,7 @@ fn serve(work: Work) {
     let start = Instant::now();
     let log = natives::log_enabled();
     match work {
-        Work::Plan {
+        Work::PlanRender {
             code,
             request_json,
             profile,
@@ -309,38 +270,11 @@ fn serve(work: Work) {
                 let load = load_bundle(engine, start)?;
                 engine.call_global(
                     "strudelandHost",
-                    "planJob",
-                    &[Arg::Str(&code), Arg::Str(&request_json)],
-                )?;
-                engine.drain_microtasks()?;
-                let drained = Instant::now();
-                let info = read_slot(&engine.eval_script(READ_SLOT)?)?;
-                let json = engine
-                    .read_global_string("__strudelandJob")?
-                    .ok_or_else(|| HostError::Runtime("planJob settled without a job".into()))?;
-                let timings = PlanTimings {
-                    load,
-                    marks: engine.take_marks(),
-                    json: drained.elapsed(),
-                };
-                Ok((PlannedJob { json, info }, timings))
-            });
-            let _ = reply.send(result);
-        }
-        Work::PlanRender {
-            code,
-            request_json,
-            timeout,
-            reply,
-        } => {
-            let result = engine::with_context(log, false, timeout, |engine| {
-                load_bundle(engine, start)?;
-                engine.call_global(
-                    "strudelandHost",
                     "planRender",
                     &[Arg::Str(&code), Arg::Str(&request_json)],
                 )?;
                 engine.drain_microtasks()?;
+                let drained = Instant::now();
                 // A failure is in the slot; its value is unused on success.
                 read_slot(&engine.eval_script(READ_SLOT)?)?;
                 let text = engine
@@ -348,8 +282,14 @@ fn serve(work: Work) {
                     .ok_or_else(|| {
                         HostError::Runtime("planRender settled without a plan".into())
                     })?;
-                serde_json::from_str::<PlannedRender>(&text)
-                    .map_err(|e| HostError::Runtime(format!("malformed plan: {e}")))
+                let planned = serde_json::from_str::<PlannedRender>(&text)
+                    .map_err(|e| HostError::Runtime(format!("malformed plan: {e}")))?;
+                let timings = PlanTimings {
+                    load,
+                    marks: engine.take_marks(),
+                    json: drained.elapsed(),
+                };
+                Ok((planned, timings))
             });
             let _ = reply.send(result);
         }

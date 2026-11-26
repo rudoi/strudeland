@@ -1,6 +1,7 @@
 /**
  * Where the Rust renderer gets its engine jobs: the render page in Chromium
- * (`SuperdoughRenderer`) or the headless host binary (`HostPlanner`). Type-only: no Playwright.
+ * (`SuperdoughRenderer`) or the headless host binary (`HostPlanner`: one single-chunk
+ * `plan-render` process per job). Type-only: no Playwright.
  */
 
 import type { RenderRequest } from '../../src/lib/render/contract';
