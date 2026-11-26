@@ -1,12 +1,11 @@
 <script lang="ts">
   import { createApp } from './lib/app';
-  import { listenForAppQuit, replyToAppQuit } from './lib/app-quit';
   import { createProjectActions } from './lib/project/actions';
-  import { onProjectMenu, type ProjectAction, type ProjectMenuAction } from './lib/project/api';
   import { matchShortcut, primaryModifier } from './lib/project/ui';
   import { resetHelp, startHelp } from './lib/help/targets';
-  import { exportApi, setExportMenuAvailable } from './lib/export/api';
-  import { captureExportSong, createExportDialog, type ExportSong } from './lib/export/controller';
+  import { exportApi } from './lib/export/api';
+  import { createShell } from './lib/shell';
+  import { menuPort, quitPort } from './lib/shell-ports';
   import ConflictBar from './components/ConflictBar.svelte';
   import Editor from './components/Editor.svelte';
   import ExportAudio from './components/ExportAudio.svelte';
@@ -30,6 +29,17 @@
   const store = session.store;
   const projectActions = createProjectActions(session);
   const newProjectFolder = projectActions.folder;
+  const shell = createShell({
+    session,
+    projectActions,
+    exportApi,
+    quit: quitPort,
+    menu: menuPort,
+    activeElement: () =>
+      document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  });
+  const shellStore = shell.store;
+  const modal = $derived($shellStore.modal);
   const prefs = app.prefs.store;
   const rollOpen = $derived($prefs.pianoRollOpen && $store.active !== null);
   const projectRoot = $derived($store.project?.root);
@@ -45,131 +55,37 @@
   const playingPath = $derived($pb.playing?.path ?? null);
 
   let newSongOpen = $state(false);
-  let instruments = $state.raw<{
-    root: string;
-    selection: ReturnType<typeof session.instrumentSelection>;
-    opener: HTMLButtonElement;
-  } | null>(null);
-  function openInstruments(opener: HTMLButtonElement) {
-    if ($store.project)
-      instruments = { root: $store.project.root, selection: session.instrumentSelection(), opener };
-  }
-  function closeInstruments(applied = false) {
-    const opener = instruments?.opener;
-    instruments = null;
-    void tick().then(() => (applied ? app.focusEditor() : opener?.focus()));
-  }
-  $effect(() => {
-    if (instruments && instruments.root !== $store.project?.root) instruments = null;
-  });
-  let projectsReady = $state(false);
-  let nativeMenuReady = $state(false);
-  let quitting = false;
-  let settings = $state.raw<{ opener: HTMLElement | null } | null>(null);
-  let exportDialog = $state.raw<{
-    song: ExportSong;
-    controller: ReturnType<typeof createExportDialog>;
-  } | null>(null);
   const conflict = $derived($store.songs.find((s) => s.path === $store.active)?.conflict ?? null);
-  const exportAvailable = $derived(
-    projectsReady && $store.project !== null && $store.active !== null,
-  );
 
-  $effect(() => {
-    if (nativeMenuReady) void setExportMenuAvailable(exportAvailable).catch(console.error);
-  });
-
-  function actionBlocked() {
-    return quitting || Boolean(exportDialog || instruments || settings);
-  }
-
-  function runProjectAction(action: ProjectAction) {
-    if (projectsReady && !actionBlocked()) void projectActions.run(action);
-  }
-
-  function openSettings(opener = document.activeElement) {
-    if (actionBlocked() || projectActions.isBusy()) return;
-    settings = { opener: opener instanceof HTMLElement ? opener : null };
+  function closeInstruments(applied = false) {
+    const target = shell.close('instruments', applied);
+    void tick().then(() => (target === 'editor' ? app.focusEditor() : target?.focus()));
   }
 
   async function closeSettings() {
-    const opener = settings?.opener;
-    settings = null;
+    const opener = shell.close('settings');
     await tick();
-    if (opener?.isConnected) opener.focus();
+    if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
   }
 
-  function onMenuAction(action: ProjectMenuAction) {
-    if (action === 'settings') {
-      openSettings();
-    } else if (action !== 'exportAudio') {
-      runProjectAction(action);
-    } else if (exportAvailable && !actionBlocked() && !projectActions.isBusy()) {
-      const song = captureExportSong($store, session.activeText());
-      if (song) exportDialog = { song, controller: createExportDialog(song, exportApi) };
-    }
-  }
-
-  async function onAppQuit(id: number) {
-    if (quitting) {
-      await replyToAppQuit(id, false);
-      return;
-    }
-    quitting = true;
-    const controller = exportDialog?.controller;
-    let approved = false;
-    try {
-      if (!controller || (await controller.requestQuit())) {
-        approved = await session.guardShutdown();
-      }
-    } finally {
-      try {
-        await replyToAppQuit(id, approved);
-      } finally {
-        controller?.finishQuit();
-        quitting = false;
-      }
-    }
-  }
-
-  // Reopen the last project before allowing the menu or shortcut to switch it.
   onMount(() => {
     const stopHelp = startHelp(document);
-    let destroyed = false;
-    let unlisten: (() => void) | undefined;
-    let unlistenQuit: (() => void) | undefined;
-    void session
-      .init(() => !quitting && (exportDialog?.controller.canClose() ?? true))
-      .then(async () => {
-        if (destroyed || !$store.available) return;
-        projectsReady = true;
-        const stop = await onProjectMenu(onMenuAction);
-        if (destroyed) {
-          stop();
-          return;
-        }
-        unlisten = stop;
-        nativeMenuReady = true;
-        const stopQuit = await listenForAppQuit((id) => {
-          if (!destroyed) void onAppQuit(id).catch(console.error);
-        });
-        if (destroyed) stopQuit();
-        else unlistenQuit = stopQuit;
-      })
-      .catch(console.error);
+    const stopShell = shell.start();
     return () => {
-      destroyed = true;
+      stopShell();
       stopHelp();
       projectActions.destroy();
-      unlisten?.();
-      unlistenQuit?.();
     };
   });
 
   // Drop the control listener when this instance goes away (HMR remounts the component), so the
   // old app does not answer requests too.
-  onDestroy(() => app.destroy());
-  import.meta.hot?.dispose(() => app.destroy());
+  const teardown = () => {
+    shell.destroy();
+    app.destroy();
+  };
+  onDestroy(teardown);
+  import.meta.hot?.dispose(teardown);
 
   // Unlock the editor's preview graph on its own gestures. Other gestures resume song audio.
   function onGesture(event: Event) {
@@ -191,9 +107,7 @@
     if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    if (actionBlocked()) return;
-    if (shortcut === 'openProject') runProjectAction(shortcut);
-    else if ($store.project && $newProjectFolder === null) newSongOpen = true;
+    if (shell.shortcut(shortcut)) newSongOpen = true;
   }
 </script>
 
@@ -203,7 +117,7 @@
   <main>
     {#if $store.project}
       <SongList
-        oninstruments={openInstruments}
+        oninstruments={shell.openInstruments}
         {session}
         state={$store}
         {playingPath}
@@ -218,10 +132,10 @@
       {#if !$store.project}
         <Welcome
           {session}
-          ready={projectsReady}
-          onnew={() => runProjectAction('newProject')}
-          onopen={() => runProjectAction('openProject')}
-          onrecent={(path) => void projectActions.openRecent(path)}
+          ready={$shellStore.ready}
+          onnew={() => shell.projectAction('newProject')}
+          onopen={() => shell.projectAction('openProject')}
+          onrecent={shell.openRecent}
         />
       {:else if $store.active === null}
         <section class="empty">
@@ -249,11 +163,11 @@
     vimMode={app.vimMode}
     recording={app.recording}
     memos={app.memos}
-    onsettings={openSettings}
+    onsettings={shell.openSettings}
   />
 </div>
 
-{#if settings}
+{#if modal?.kind === 'settings'}
   <Settings prefs={app.prefs} onclose={closeSettings} />
 {/if}
 
@@ -265,20 +179,20 @@
   />
 {/if}
 
-{#if instruments && instruments.root === $store.project?.root}
+{#if modal?.kind === 'instruments' && modal.root === $store.project?.root}
   <InstrumentBrowser
     {app}
-    root={instruments.root}
-    selection={instruments.selection}
+    root={modal.root}
+    selection={modal.selection}
     onclose={closeInstruments}
   />
 {/if}
 
-{#if exportDialog}
+{#if modal?.kind === 'export'}
   <ExportAudio
-    song={exportDialog.song}
-    controller={exportDialog.controller}
-    onclose={() => (exportDialog = null)}
+    song={modal.song}
+    controller={modal.controller}
+    onclose={() => shell.close('export')}
   />
 {/if}
 

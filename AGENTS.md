@@ -118,6 +118,11 @@ the V8 download the host brings.
   mean while a song, an audible memo, a take or an audition sounds. The toolbar, Cmd-Enter,
   the Timeline, the recording controls, the instrument browser, the audition gating and
   the control handler go through it.
+- `src/lib/shell.ts` the app shell: the open dialog and where focus returns, the Quit decision,
+  the window-close predicate it hands `session.init`, the gate table for menu items, shortcuts
+  and the welcome screen, and the Export Audio item's availability. `src/lib/shell-ports.ts`
+  wraps `app-quit.ts`, `onProjectMenu` and `setExportMenuAvailable`, which stay the only Tauri
+  callers for them; tests use `tests/helpers/fake-shell-ports.ts`.
 - `src/lib/project/` projects: `song-header.ts` (`readSongHeader`: the static song header read,
   its structure and evaluate options), `api.ts` (the only module that calls Tauri for projects:
   commands, events, dialogs, window), `session.ts` (open project, songs, dirty state, hot-reload
@@ -145,7 +150,7 @@ the V8 download the host brings.
   replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
   For stems, the dialog previews a new set directory and reports the published paths.
 - Application Quit on macOS starts in `src-tauri/src/app_quit.rs`. The AppKit callback defers to
-  the webview through `src/lib/app-quit.ts`. The export dialog shows the wait decision and final
+  the webview through `src/lib/app-quit.ts` and the shell's `onQuit`. The export dialog shows the wait decision and final
   outcome. The project session's `guardShutdown` shares the unsaved prompt with window close.
   An approved native exit holds the export permit through Tauri shutdown.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,

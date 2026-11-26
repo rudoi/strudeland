@@ -143,3 +143,23 @@ describe('app quit', () => {
     expect(core.calls).toEqual([{ cmd: 'app_quit_reply', args: { id: 3, approved: true } }]);
   });
 });
+
+describe('shell ports', () => {
+  test('the Tauri ports call through to the existing adapters', async () => {
+    const { quitPort, menuPort } = await import('../src/lib/shell-ports');
+    core.answer(() => undefined);
+    await quitPort.reply(3, true);
+    await menuPort.setExportAvailable(true);
+    const before = unlistened;
+    const stopQuit = await quitPort.listen(() => {});
+    const stopMenu = await menuPort.listen(() => {});
+    stopQuit();
+    stopMenu();
+    expect(unlistened).toBe(before + 2);
+    expect(core.calls).toEqual([
+      { cmd: 'app_quit_reply', args: { id: 3, approved: true } },
+      { cmd: 'export_audio_set_available', args: { available: true } },
+      { cmd: 'app_quit_listen', args: undefined },
+    ]);
+  });
+});

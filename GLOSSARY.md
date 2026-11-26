@@ -153,3 +153,12 @@ Paths in examples are Unix-style, so on Windows the app refuses them first; app-
 use platform-absolute paths (`std::env::temp_dir()`).
 _Avoid_: fixture (any test input), golden (the render harness's), schema (nothing is
 generated from them)
+
+**App shell**
+
+What the window does around the editor: which one modal is open (settings, the
+instrument browser, export), whether a Quit is being decided, and whether a menu item,
+shortcut or welcome button acts now. An item that cannot act is ignored, not disabled;
+only Export Audio is greyed out, until a song is open.
+_Avoid_: app (everything `createApp` builds), workspace (the editor and its panels), window
+(the native window)
