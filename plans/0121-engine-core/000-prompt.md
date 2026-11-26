@@ -51,7 +51,7 @@ The stages run in order. Each one is one commit, green with every gate below.
     `/private/tmp/claude-501/-Volumes-rudenet-code-strudeland-worktrees-poptart/2d85ebc3-84cd-4f6d-90b0-657c13b5df8a/scratchpad`,
     and `N` is the stage number. That path belongs to the session that wrote this plan. A later
     session has its own scratchpad: set `S` to it, and restore `$S/0121-baseline/` from
-    `~/.cache/strudeland-0121/` as [001-baseline.md](001-baseline.md#6-keep-a-copy-and-recover)
+    `~/.cache/strudeland-0121/` as [001-baseline.md](proposal.md)
     describes.
 
     ```sh
