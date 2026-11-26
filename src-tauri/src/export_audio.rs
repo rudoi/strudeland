@@ -7,14 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use strudeland_project::{
-    Project, atomic_create_bytes, atomic_write_bytes, render_exists, render_filename,
-};
-use strudeland_render::output::{export_suffix, render_suffix};
+use strudeland_project::Project;
+use strudeland_render::export;
 use strudeland_render::{
-    BitDepth, EncoderOptions, ExportFile, ExportPreset, ExportRole, Format, LengthRequest,
-    Loudness, MAX_BARS, OutputOptions, Progress, RenderOptions, StemGrouping, StemTarget, render,
-    render_export, render_stems, resolve_project_stem_output, resolve_stem_output_in,
+    EncoderOptions, ExportPreset, ExportRole, Format, LengthRequest, Loudness, MAX_BARS,
+    OutputOptions, Progress, StemGrouping,
 };
 use tauri::{Manager, State, WebviewWindow, ipc::Channel};
 use tauri_plugin_dialog::{
@@ -46,18 +43,8 @@ impl ExportState {
         {
             return Err(problem("choose the output folder again"));
         }
-        check_directory(folder)
+        export::check_chosen_folder(folder).map_err(export_error)
     }
-}
-
-fn check_directory(folder: &Path) -> Result<(), ExportError> {
-    if !folder.is_dir() || folder.canonicalize().map_err(problem)? != folder {
-        return Err(problem(format!(
-            "the selected output folder changed: {}",
-            folder.display()
-        )));
-    }
-    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,19 +76,20 @@ pub enum ExportPreview {
     Stems { directory: PathBuf },
 }
 
-#[derive(Debug)]
-enum Targets {
-    Mix(Vec<PreviewFile>),
-    Stems(StemGrouping, StemTarget),
-}
-
-impl Targets {
-    fn preview(&self) -> ExportPreview {
-        match self {
-            Self::Mix(files) => ExportPreview::Mix(files.clone()),
-            Self::Stems(_, target) => ExportPreview::Stems {
-                directory: target.path().into(),
-            },
+impl From<export::Preview> for ExportPreview {
+    fn from(preview: export::Preview) -> Self {
+        match preview {
+            export::Preview::Mix(files) => Self::Mix(
+                files
+                    .into_iter()
+                    .map(|file| PreviewFile {
+                        role: file.role,
+                        path: file.path,
+                        exists: file.exists,
+                    })
+                    .collect(),
+            ),
+            export::Preview::Stems { directory } => Self::Stems { directory },
         }
     }
 }
@@ -141,6 +129,40 @@ fn problem(error: impl Display) -> ExportError {
     }
 }
 
+/// The dialog's wording of an export module error.
+fn export_message(error: &export::Error) -> String {
+    match error {
+        export::Error::Render(e) => e.to_string(),
+        export::Error::Project { source, .. } => source.to_string(),
+        export::Error::FolderChanged { path } => {
+            format!("the selected output folder changed: {}", path.display())
+        }
+        export::Error::FolderUnreadable { source, .. } => source.to_string(),
+        export::Error::InvalidSongName => "invalid song filename".into(),
+        export::Error::RolesMismatch { .. } => "the rendered files do not match the preview".into(),
+        export::Error::PreviewMismatch => {
+            "the output files changed; review the new preview before exporting".into()
+        }
+        export::Error::ReplacementNotApproved => "replacement requires confirmation".into(),
+        export::Error::PreviewRequired => "the export has no preview".into(),
+    }
+}
+
+fn export_error(error: export::Error) -> ExportError {
+    ExportError {
+        message: export_message(&error),
+        written: Vec::new(),
+    }
+}
+
+/// A failed run, with the files already published when it stopped part way.
+fn run_error(error: export::RunError) -> ExportError {
+    ExportError {
+        message: export_message(&error.source),
+        written: error.written.into_iter().map(|w| w.path).collect(),
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ExportProgress {
@@ -165,15 +187,17 @@ impl From<Progress> for ExportProgress {
 }
 
 impl ExportRequest {
-    fn targets(&self, project: &Project, state: &ExportState) -> Result<Targets, ExportError> {
+    /// The checks the dialog shows, in the app's order, then the module's resolution and
+    /// preview. Creates nothing.
+    fn prepare(
+        &self,
+        project: &Project,
+        state: &ExportState,
+    ) -> Result<(export::Prepared, export::Preview), ExportError> {
+        export::check_length_for_preset(&self.length, self.preset)
+            .map_err(|_| problem("loop exports use the marked loop section"))?;
         match &self.length {
             LengthRequest::Clip { loops: None } => (),
-            _ if self
-                .preset
-                .is_some_and(|preset| preset != ExportPreset::OneShot) =>
-            {
-                return Err(problem("loop exports use the marked loop section"));
-            }
             LengthRequest::Section { name } if !name.is_empty() => (),
             LengthRequest::Length { bars } if (1..=MAX_BARS).contains(&u64::from(*bars)) => (),
             _ => return Err(problem("choose a valid clip, section, or length in bars")),
@@ -182,131 +206,54 @@ impl ExportRequest {
         if let Some(folder) = &self.folder {
             state.check_folder(folder)?;
         }
-        if let Some(grouping) = self.stems {
-            if self.preset.is_some() || self.format != Format::Wav {
-                return Err(problem("stem sets require a standard range and WAV format"));
-            }
-            let target = match &self.folder {
-                Some(folder) => resolve_stem_output_in(folder, &song, &self.length),
-                None => resolve_project_stem_output(project, &song, &self.length),
-            }
-            .map_err(problem)?;
-            target.check_available().map_err(problem)?;
-            return Ok(Targets::Stems(grouping, target));
-        }
-        let stem = song
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| problem("invalid song filename"))?;
-
-        let roles: &[ExportRole] = match self.preset {
-            Some(ExportPreset::IntroLoop) => &[ExportRole::Intro, ExportRole::Loop],
-            Some(ExportPreset::FoldedLoop) => &[ExportRole::Loop],
-            _ => &[ExportRole::Single],
-        };
-        roles
-            .iter()
-            .map(|&role| {
-                let suffix = match self.preset {
-                    Some(preset) => {
-                        Some(export_suffix(&self.length, preset, role).map_err(problem)?)
-                    }
-                    None => render_suffix(&self.length),
-                };
-                let path = match &self.folder {
-                    Some(folder) => folder.join(
-                        render_filename(stem, suffix.as_deref(), self.format.ext())
-                            .map_err(problem)?,
-                    ),
-                    None => project
-                        .render_path(stem, suffix.as_deref(), self.format.ext())
-                        .map_err(problem)?,
-                };
-                let exists = render_exists(&path).map_err(problem)?;
-                Ok(PreviewFile { role, path, exists })
-            })
-            .collect::<Result<_, _>>()
-            .map(Targets::Mix)
-    }
-
-    fn options(&self, instruments: strudeland_project::InstrumentSnapshot) -> RenderOptions {
-        RenderOptions {
-            length: self.length.clone(),
-            jobs: None,
-            plan_timeout: Some(Duration::from_secs(120)),
-            include_events: false,
-            instruments,
-            output: if self.stems.is_some() {
-                OutputOptions {
-                    loudness: Loudness::Off,
-                    encoder: EncoderOptions::Wav {
-                        bit_depth: BitDepth::F32,
-                    },
+        let kind = match self.stems {
+            Some(grouping) => {
+                if self.preset.is_some() || self.format != Format::Wav {
+                    return Err(problem("stem sets require a standard range and WAV format"));
                 }
-            } else {
-                OutputOptions {
+                export::Kind::Stems { grouping }
+            }
+            None => export::Kind::Mix {
+                preset: self.preset,
+                output: OutputOptions {
                     loudness: Loudness::default(),
                     encoder: EncoderOptions::default_for(self.format),
-                }
+                },
             },
-        }
-    }
-
-    fn render_mix(
-        &self,
-        source: &str,
-        options: &RenderOptions,
-        progress: &dyn Fn(Progress),
-    ) -> Result<Vec<ExportFile>, ExportError> {
-        if let Some(preset) = self.preset {
-            render_export(source, options, preset, progress).map_err(problem)
-        } else {
-            Ok(vec![ExportFile {
-                role: ExportRole::Single,
-                output: render(source, options, progress).map_err(problem)?,
-                loop_points: None,
-            }])
-        }
-    }
-
-    fn write(
-        &self,
-        project: &Project,
-        target: &PreviewFile,
-        bytes: &[u8],
-    ) -> Result<(), ExportError> {
-        let path = &target.path;
-        if let Some(folder) = &self.folder {
-            check_directory(folder)?;
-        }
-        if target.exists {
-            render_exists(path).map_err(problem)?;
-        }
-        match (&self.folder, target.exists) {
-            (Some(_), true) => atomic_write_bytes(path, bytes),
-            (Some(_), false) => atomic_create_bytes(path, bytes),
-            (None, true) => project.write_render(path, bytes),
-            (None, false) => project.create_render(path, bytes),
-        }
-        .map_err(problem)
+        };
+        let destination = match &self.folder {
+            Some(folder) => export::Destination::ChosenFolder(folder.clone()),
+            None => export::Destination::project(project.clone()),
+        };
+        export::prepare_previewed(
+            export::Request {
+                song,
+                length: self.length.clone(),
+                kind,
+                jobs: None,
+                plan_timeout: Some(Duration::from_secs(120)),
+            },
+            destination,
+        )
+        .map_err(export_error)
     }
 }
 
 /// Resolve and compare native targets before asking for approval and again before rendering.
-fn checked_targets(
+fn checked(
     projects: &ProjectState,
     state: &ExportState,
     request: &ExportRequest,
     preview: &ExportPreview,
-) -> Result<(Arc<Project>, Targets), ExportError> {
+) -> Result<(Arc<Project>, export::Prepared, export::Preview), ExportError> {
     let project = projects.current_for(&request.root).map_err(problem)?;
-    let targets = request.targets(&project, state)?;
-    if &targets.preview() != preview {
+    let (prepared, fresh) = request.prepare(&project, state)?;
+    if ExportPreview::from(fresh.clone()) != *preview {
         return Err(problem(
             "the output files changed; review the new preview before exporting",
         ));
     }
-    Ok((project, targets))
+    Ok((project, prepared, fresh))
 }
 
 fn run(
@@ -318,66 +265,46 @@ fn run(
     replacement_approved: bool,
     progress: &dyn Fn(ExportProgress),
 ) -> Result<ExportResult, ExportError> {
-    let (project, targets) = checked_targets(projects, state, request, preview)?;
-    let options = request.options(project.instrument_snapshot().map_err(problem)?);
-    let targets = match targets {
-        Targets::Mix(files) => files,
-        Targets::Stems(grouping, target) => {
-            let written = std::cell::RefCell::new(Vec::new());
-            let set = render_stems(source, &options, grouping, &target, &|event| {
-                if let Progress::Written { path } = &event {
-                    written.borrow_mut().push(path.clone());
-                }
-                progress(event.into());
-            })
-            .map_err(|error| ExportError {
-                message: error.to_string(),
-                written: written.into_inner(),
-            })?;
-            return Ok(ExportResult::Stems {
-                directory: set.directory,
-                paths: set.files,
-                warnings: set.summary.warnings,
-            });
-        }
-    };
-    if !replacement_approved && targets.iter().any(|file| file.exists) {
-        return Err(problem("replacement requires confirmation"));
-    }
-
-    let rendered = request.render_mix(source, &options, &|p| progress(p.into()))?;
-    if !rendered
-        .iter()
-        .map(|f| f.role)
-        .eq(targets.iter().map(|t| t.role))
-    {
-        return Err(problem("the rendered files do not match the preview"));
-    }
-    let mut files: Vec<FinishedFile> = Vec::new();
-    let mut warnings = Vec::new();
-    progress(ExportProgress::Writing);
-    for (file, target) in rendered.into_iter().zip(&targets) {
-        request
-            .write(&project, target, &file.output.bytes)
-            .map_err(|mut e| {
-                e.written = files.iter().map(|f| f.path.clone()).collect();
-                e
-            })?;
-        progress(ExportProgress::Written {
-            path: target.path.clone(),
-        });
-        files.push(FinishedFile {
-            role: file.role,
-            path: target.path.clone(),
-            godot_loop_offset: file.loop_points.map(|p| p.godot_loop_offset()),
-        });
-        for warning in file.output.summary.warnings {
-            if !warnings.contains(&warning) {
-                warnings.push(warning);
-            }
-        }
-    }
-    Ok(ExportResult::Mix { files, warnings })
+    let (project, prepared, fresh) = checked(projects, state, request, preview)?;
+    let instruments = project.instrument_snapshot().map_err(problem)?;
+    let finished = prepared
+        .run(
+            &mut export::RealPipeline,
+            source,
+            export::ReplacePolicy::CreateNew {
+                approved: replacement_approved,
+            },
+            Some(&fresh),
+            instruments,
+            &|event| match event {
+                export::Event::Pipeline(p) => progress(p.into()),
+                export::Event::Publishing => progress(ExportProgress::Writing),
+                export::Event::Written { file, .. } => progress(ExportProgress::Written {
+                    path: file.path.clone(),
+                }),
+            },
+        )
+        .map_err(run_error)?;
+    Ok(match finished {
+        export::Finished::Mix {
+            files, warnings, ..
+        } => ExportResult::Mix {
+            files: files
+                .into_iter()
+                .map(|file| FinishedFile {
+                    role: file.role,
+                    path: file.path,
+                    godot_loop_offset: file.loop_points.map(|p| p.godot_loop_offset()),
+                })
+                .collect(),
+            warnings,
+        },
+        export::Finished::Stems { export, .. } => ExportResult::Stems {
+            directory: export.directory,
+            paths: export.files,
+            warnings: export.summary.warnings,
+        },
+    })
 }
 
 #[tauri::command]
@@ -416,7 +343,9 @@ pub async fn export_audio_preview(
     request: ExportRequest,
 ) -> Result<ExportPreview, ExportError> {
     let project = projects.current_for(&request.root).map_err(problem)?;
-    Ok(request.targets(&project, &state)?.preview())
+    request
+        .prepare(&project, &state)
+        .map(|(_, preview)| preview.into())
 }
 
 const REPLACE: &str = "Replace";
@@ -455,7 +384,7 @@ pub async fn export_audio_start(
     on_progress: Channel<ExportProgress>,
 ) -> Result<Option<ExportResult>, ExportError> {
     let permit = window.state::<ExportState>().reserve()?;
-    checked_targets(
+    checked(
         &window.state::<ProjectState>(),
         &window.state::<ExportState>(),
         &request,
@@ -504,7 +433,6 @@ mod tests {
 
     use super::*;
     use strudeland_project::read_wav_header;
-    use strudeland_render::{resolve_export_output, resolve_output};
 
     struct Fixture {
         dir: tempfile::TempDir,
@@ -540,8 +468,8 @@ mod tests {
         }
 
         fn preview(&self) -> Vec<PreviewFile> {
-            match self.request.targets(&self.project, &self.state).unwrap() {
-                Targets::Mix(files) => files,
+            match ExportPreview::from(self.request.prepare(&self.project, &self.state).unwrap().1) {
+                ExportPreview::Mix(files) => files,
                 _ => panic!("expected mix files"),
             }
         }
@@ -572,81 +500,19 @@ mod tests {
     }
 
     #[test]
-    fn names_and_roles_match_cli_for_every_format_and_preset() {
-        use ExportPreset::*;
-        use ExportRole::*;
-        let mut f = Fixture::new();
-        let song = f.project.resolve(&f.request.song_path).unwrap();
-        let renders = f.project.root().join("renders");
-        fs::remove_dir(&renders).unwrap();
-        let section = LengthRequest::Section {
-            name: "the drop!".into(),
-        };
-        for format in Format::ALL {
-            for (preset, roles) in [
-                (None, vec![Single]),
-                (Some(OneShot), vec![Single]),
-                (Some(FoldedLoop), vec![Loop]),
-                (Some(TaggedLoop), vec![Single]),
-                (Some(IntroLoop), vec![Intro, Loop]),
-            ] {
-                f.request.format = format;
-                f.request.preset = preset;
-                f.request.length = if preset.is_none() || preset == Some(OneShot) {
-                    section.clone()
-                } else {
-                    LengthRequest::Clip { loops: None }
-                };
-                f.request.folder = None;
-                let outputs = f.preview();
-                assert_eq!(outputs.iter().map(|f| f.role).collect::<Vec<_>>(), roles);
-                for target in &outputs {
-                    let cli = match preset {
-                        Some(preset) => resolve_export_output(
-                            None,
-                            &song,
-                            &f.request.length,
-                            format,
-                            preset,
-                            target.role,
-                        ),
-                        None => resolve_output(None, &song, &f.request.length, format),
-                    }
-                    .unwrap();
-                    assert_eq!(target.path, cli.path());
-                    assert!(!target.exists);
-                }
-                f.pick();
-                for (custom, default) in f.preview().iter().zip(&outputs) {
-                    assert_eq!(custom.path.file_name(), default.path.file_name());
-                    assert_eq!(custom.path.parent(), f.request.folder.as_deref());
-                    assert!(!custom.exists);
-                }
-            }
-        }
-        assert!(!renders.exists());
-        fs::write(&renders, b"not a directory").unwrap();
-        assert_eq!(
-            f.preview().len(),
-            2,
-            "a picked folder is independent of project/renders"
-        );
-    }
-
-    #[test]
     fn folder_song_and_project_identity_are_checked() {
         let mut f = Fixture::new();
         f.request.folder = Some(f.dir.path().canonicalize().unwrap());
         assert!(
             f.request
-                .targets(&f.project, &f.state)
+                .prepare(&f.project, &f.state)
                 .unwrap_err()
                 .message
                 .contains("choose")
         );
         f.pick();
         f.request.song_path = "../escape.js".into();
-        assert!(f.request.targets(&f.project, &f.state).is_err());
+        assert!(f.request.prepare(&f.project, &f.state).is_err());
         f.request.song_path = "songs/main.js".into();
         let preview = f.preview();
         f.projects
@@ -705,17 +571,17 @@ mod tests {
     fn stem_preview_rejects_incompatible_settings_and_occupied_destinations() {
         let mut f = Fixture::new();
         f.request.stems = Some(StemGrouping::Voice);
-        assert!(f.request.targets(&f.project, &f.state).is_err(), "preset");
+        assert!(f.request.prepare(&f.project, &f.state).is_err(), "preset");
         f.request.preset = None;
         f.request.format = Format::Ogg;
         assert!(
-            f.request.targets(&f.project, &f.state).is_err(),
+            f.request.prepare(&f.project, &f.state).is_err(),
             "compressed format"
         );
         f.request.format = Format::Wav;
         // The editor still holds the buffer after an external deletion.
         fs::remove_file(f.project.resolve(&f.request.song_path).unwrap()).unwrap();
-        let preview = f.request.targets(&f.project, &f.state).unwrap().preview();
+        let preview = ExportPreview::from(f.request.prepare(&f.project, &f.state).unwrap().1);
         let ExportPreview::Stems { directory } = &preview else {
             panic!("expected stem set")
         };
@@ -738,7 +604,7 @@ mod tests {
         );
         assert_eq!(fs::read(marker).unwrap(), b"original");
         f.pick();
-        let picked = f.request.targets(&f.project, &f.state).unwrap().preview();
+        let picked = ExportPreview::from(f.request.prepare(&f.project, &f.state).unwrap().1);
         assert_eq!(
             picked,
             ExportPreview::Stems {
@@ -756,7 +622,7 @@ mod tests {
             if collision {
                 f.pick();
             }
-            let preview = f.request.targets(&f.project, &f.state).unwrap().preview();
+            let preview = ExportPreview::from(f.request.prepare(&f.project, &f.state).unwrap().1);
             let ExportPreview::Stems { directory } = &preview else {
                 panic!("expected stem set")
             };
@@ -886,5 +752,88 @@ mod tests {
             assert!(read_wav_header(&preview[0].path).is_some());
             assert_eq!(fs::read(collision).unwrap(), b"concurrent file");
         }
+    }
+
+    #[test]
+    fn export_messages_keep_their_wording() {
+        use std::io;
+        use strudeland_project::ProjectError;
+        use strudeland_render::RenderError;
+        let outside = ProjectError::PathOutsideProject("renders/x.wav".into());
+        let outside_text = outside.to_string();
+        let cases: Vec<(export::Error, &str)> = vec![
+            (
+                export::Error::Render(RenderError::Encode("boom".into())),
+                "encode failed: boom",
+            ),
+            (
+                export::Error::Project {
+                    at: "/p/renders".into(),
+                    source: outside,
+                },
+                &outside_text,
+            ),
+            (
+                export::Error::FolderChanged {
+                    path: "/out".into(),
+                },
+                "the selected output folder changed: /out",
+            ),
+            (
+                export::Error::FolderUnreadable {
+                    path: "/out".into(),
+                    source: io::Error::other("gone"),
+                },
+                "gone",
+            ),
+            (export::Error::InvalidSongName, "invalid song filename"),
+            (
+                export::Error::RolesMismatch { extra_intro: false },
+                "the rendered files do not match the preview",
+            ),
+            (
+                export::Error::PreviewMismatch,
+                "the output files changed; review the new preview before exporting",
+            ),
+            (
+                export::Error::ReplacementNotApproved,
+                "replacement requires confirmation",
+            ),
+            (export::Error::PreviewRequired, "the export has no preview"),
+        ];
+        for (error, text) in cases {
+            let label = format!("{error:?}");
+            let e = run_error(error.into());
+            assert_eq!(e.message, text, "{label}");
+            assert!(e.written.is_empty(), "{label}");
+        }
+        let e = run_error(export::RunError {
+            written: vec![export::WrittenPath {
+                path: "renders/main-intro.wav".into(),
+                absolute: "/abs/renders/main-intro.wav".into(),
+            }],
+            failed: Some("renders/main-loop.wav".into()),
+            source: Box::new(export::Error::RolesMismatch { extra_intro: true }),
+        });
+        assert_eq!(e.message, "the rendered files do not match the preview");
+        assert_eq!(e.written, [PathBuf::from("renders/main-intro.wav")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_order_is_the_apps() {
+        let f = Fixture::new();
+        let renders = f.project.root().join("renders");
+        let intro = renders.join("main-intro.wav");
+        fs::create_dir(&intro).unwrap();
+        let outside = f.dir.path().join("elsewhere.wav");
+        fs::write(&outside, b"x").unwrap();
+        std::os::unix::fs::symlink(&outside, renders.join("main-loop.wav")).unwrap();
+        let e = f.request.prepare(&f.project, &f.state).unwrap_err();
+        assert_eq!(
+            e.message,
+            format!("{}: not a regular output file", intro.display())
+        );
+        assert!(e.written.is_empty());
     }
 }

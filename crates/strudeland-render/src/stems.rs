@@ -69,7 +69,7 @@ impl StemTarget {
     }
 
     /// Check whether the destination could be reserved, without changing the filesystem.
-    pub fn check_available(&self) -> Result<(), RenderError> {
+    pub(crate) fn check_available(&self) -> Result<(), RenderError> {
         if let Destination::Project(project) = &self.destination {
             let Some(name) = self.path.file_name().and_then(|s| s.to_str()) else {
                 return Err(bad_output("a stem set needs a directory name"));
@@ -121,32 +121,19 @@ impl StemTarget {
     }
 }
 
-/// Resolve an explicit set directory or the default directory of a song within a project.
-pub fn resolve_stem_output(
-    out: Option<&Path>,
-    song: &Path,
-    length: &LengthRequest,
-) -> Result<StemTarget, RenderError> {
-    if let Some(path) = out {
-        if path.file_name().is_none() {
-            return Err(bad_output("a stem set needs a directory name for --out"));
-        }
-        return Ok(StemTarget {
-            path: path.to_owned(),
-            destination: Destination::Explicit,
-        });
+/// An explicit set directory (`--out`), which must name a directory.
+pub(crate) fn explicit_target(path: &Path) -> Result<StemTarget, RenderError> {
+    if path.file_name().is_none() {
+        return Err(bad_output("a stem set needs a directory name for --out"));
     }
-    let (project, stem) = Project::find(song).ok_or_else(|| {
-        bad_output(format!(
-            "--out is required: {} is not in a strudeland project",
-            song.display()
-        ))
-    })?;
-    project_target(&project, &stem, length)
+    Ok(StemTarget {
+        path: path.to_owned(),
+        destination: Destination::Explicit,
+    })
 }
 
 /// Resolve the default path under an already-open project, including for an unsaved editor buffer.
-pub fn resolve_project_stem_output(
+pub(crate) fn resolve_project_stem_output(
     project: &Project,
     song: &Path,
     length: &LengthRequest,
@@ -155,7 +142,7 @@ pub fn resolve_project_stem_output(
 }
 
 /// Resolve the default set name beneath an explicitly chosen parent folder.
-pub fn resolve_stem_output_in(
+pub(crate) fn resolve_stem_output_in(
     parent: &Path,
     song: &Path,
     length: &LengthRequest,
@@ -185,7 +172,7 @@ fn set_name(stem: &str, length: &LengthRequest) -> Result<String, RenderError> {
         .into_owned())
 }
 
-fn project_target(
+pub(crate) fn project_target(
     project: &Project,
     stem: &str,
     length: &LengthRequest,
@@ -320,7 +307,7 @@ impl From<&StemId> for ManifestGroup {
 
 /// Renders a standard window as a pre-master float WAV set. The mastering and encoder options
 /// in `opts` apply to mix exports. A stem set always writes raw 32-bit float PCM.
-pub fn render_stems(
+pub(crate) fn render_stems(
     code: &str,
     opts: &RenderOptions,
     grouping: StemGrouping,

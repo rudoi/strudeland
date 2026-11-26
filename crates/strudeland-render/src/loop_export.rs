@@ -6,6 +6,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::encode::{CORRECTION_MARGIN_DB, MAX_ENCODES, encode_once_with_loop, opus, verify};
+use crate::export::roles;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
 use crate::{
@@ -109,18 +110,21 @@ pub fn render_export(
     let loop_peak = program.true_peak_db.max(wrap);
     let parts = match preset {
         ExportPreset::IntroLoop => {
+            let &[intro, repeat_role] = roles(Some(ExportPreset::IntroLoop)) else {
+                return Err(render_error("invalid loop export roles"));
+            };
             for ch in &mut opening {
                 ch.truncate(end);
             }
             vec![
                 Part {
-                    role: ExportRole::Intro,
+                    role: intro,
                     channels: opening,
                     bars: window.from_bar..window.to_bar,
                     loop_range: None,
                 },
                 Part {
-                    role: ExportRole::Loop,
+                    role: repeat_role,
                     channels: repeat,
                     bars: start_bar..window.to_bar,
                     loop_range: Some(0..body_frames),
@@ -128,13 +132,12 @@ pub fn render_export(
             ]
         }
         ExportPreset::FoldedLoop | ExportPreset::TaggedLoop => {
+            let &[role] = roles(Some(preset)) else {
+                return Err(render_error("invalid loop export roles"));
+            };
             drop(repeat);
             vec![Part {
-                role: if preset == ExportPreset::FoldedLoop {
-                    ExportRole::Loop
-                } else {
-                    ExportRole::Single
-                },
+                role,
                 channels: opening,
                 bars: window.from_bar..window.to_bar,
                 loop_range: Some(repeat_range),

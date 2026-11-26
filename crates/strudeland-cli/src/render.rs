@@ -1,103 +1,22 @@
-//! `strudeland render`: option resolution, the backend seam, progress and the summary output.
+//! `strudeland render`: option resolution, the export adapter, progress and the summary output.
 //! It runs offline and never opens the control socket.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
+use strudeland_render::export::{
+    self, Destination, Event, Finished, Kind, Prepared, Request, RunError,
+};
 use strudeland_render::{
-    BitDepth, DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, ExportFile, ExportPreset,
-    ExportRole, Format, LengthRequest, LoopPoints, Loudness, OutputOptions, OutputTarget, Progress,
-    RenderError, RenderOptions, RenderOutput, StemExport, StemGrouping, StemTarget, Summary,
-    resolve_export_output, resolve_format, resolve_output, resolve_stem_output,
+    BitDepth, DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, ExportPreset, ExportRole,
+    Format, LengthRequest, LoopPoints, Loudness, OutputOptions, Progress, RenderError, StemExport,
+    StemGrouping, Summary, resolve_format,
 };
 
 use crate::cli::{OnOff, RenderArgs};
-
-/// What `render` needs from the render pipeline, so tests can inject a fake.
-pub trait RenderBackend {
-    /// Plans, renders, levels and encodes the song's code.
-    fn render(
-        &mut self,
-        code: &str,
-        opts: &RenderOptions,
-        progress: &dyn Fn(Progress),
-    ) -> Result<RenderOutput, RenderError>;
-
-    /// Plans, renders, levels and encodes every file for a preset.
-    fn render_export(
-        &mut self,
-        code: &str,
-        opts: &RenderOptions,
-        preset: ExportPreset,
-        progress: &dyn Fn(Progress),
-    ) -> Result<Vec<ExportFile>, RenderError>;
-
-    /// Plans, renders and writes a pre-master reference mix and its stems.
-    fn render_stems(
-        &mut self,
-        code: &str,
-        opts: &RenderOptions,
-        grouping: StemGrouping,
-        target: &StemTarget,
-        progress: &dyn Fn(Progress),
-    ) -> Result<StemExport, RenderError>;
-
-    /// Writes the encoded file and returns where it went.
-    fn write(
-        &mut self,
-        out: &RenderOutput,
-        target: &OutputTarget,
-        progress: &dyn Fn(Progress),
-    ) -> Result<PathBuf, RenderError>;
-}
-
-/// The real pipeline: `strudeland_render`.
-pub struct StrudelandBackend;
-
-impl RenderBackend for StrudelandBackend {
-    fn render(
-        &mut self,
-        code: &str,
-        opts: &RenderOptions,
-        progress: &dyn Fn(Progress),
-    ) -> Result<RenderOutput, RenderError> {
-        strudeland_render::render(code, opts, progress)
-    }
-
-    fn render_export(
-        &mut self,
-        code: &str,
-        opts: &RenderOptions,
-        preset: ExportPreset,
-        progress: &dyn Fn(Progress),
-    ) -> Result<Vec<ExportFile>, RenderError> {
-        strudeland_render::render_export(code, opts, preset, progress)
-    }
-
-    fn render_stems(
-        &mut self,
-        code: &str,
-        opts: &RenderOptions,
-        grouping: StemGrouping,
-        target: &StemTarget,
-        progress: &dyn Fn(Progress),
-    ) -> Result<StemExport, RenderError> {
-        strudeland_render::render_stems(code, opts, grouping, target, progress)
-    }
-
-    fn write(
-        &mut self,
-        out: &RenderOutput,
-        target: &OutputTarget,
-        progress: &dyn Fn(Progress),
-    ) -> Result<PathBuf, RenderError> {
-        strudeland_render::write_output(out, target, progress)
-    }
-}
 
 fn usage(flag: &'static str, message: impl Into<String>) -> RenderError {
     RenderError::Usage {
@@ -106,30 +25,9 @@ fn usage(flag: &'static str, message: impl Into<String>) -> RenderError {
     }
 }
 
-/// Everything the flags resolve to: the render options and destinations.
-pub struct Plan {
-    pub opts: RenderOptions,
-    pub destination: Destination,
-}
-
-pub enum Destination {
-    Standard(OutputTarget),
-    Export(ExportPlan),
-    Stems {
-        grouping: StemGrouping,
-        target: StemTarget,
-    },
-}
-
-pub struct ExportPlan {
-    pub preset: ExportPreset,
-    primary: OutputTarget,
-    intro: Option<OutputTarget>,
-}
-
-/// Resolves the flags before any work, so a bad flag or a missing `--out` fails fast. Creates
-/// nothing: a project's `renders/` is created only when the file is written.
-pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
+/// Resolves the flags and the destination before any work, so a bad flag or a missing `--out`
+/// fails fast. Creates nothing and never stats an explicit `--out`.
+pub fn prepare(args: &RenderArgs) -> Result<Prepared, RenderError> {
     let length = if let Some(name) = &args.section {
         LengthRequest::Section { name: name.clone() }
     } else if let Some(bars) = args.length {
@@ -137,56 +35,57 @@ pub fn plan(args: &RenderArgs) -> Result<Plan, RenderError> {
     } else {
         LengthRequest::Clip { loops: args.loops }
     };
-    let (output, destination) = if let Some(grouping) = args.stems {
-        let output = stem_options(args)?;
-        let target = resolve_stem_output(args.out.as_deref(), &args.song, &length)?;
-        (output, Destination::Stems { grouping, target })
+    let kind = if let Some(grouping) = args.stems {
+        stem_options(args)?;
+        Kind::Stems { grouping }
     } else {
         let preset = args.preset.map(ExportPreset::from);
-        if matches!(preset, Some(p) if p != ExportPreset::OneShot)
-            && (args.section.is_some() || args.length.is_some() || args.loops.is_some())
-        {
-            return Err(usage(
+        export::check_length_for_preset(&length, preset).map_err(|_| {
+            usage(
                 "--preset",
                 "loop presets select their own bars; omit --section, --length and --loops",
-            ));
+            )
+        })?;
+        Kind::Mix {
+            preset,
+            output: mix_options(args)?,
         }
-        let output = mix_options(args)?;
-        let format = output.encoder.format();
-        let out = args.out.as_deref();
-        let destination = if let Some(preset) = preset {
-            let resolve =
-                |role| resolve_export_output(out, &args.song, &length, format, preset, role);
-            let primary_role = match preset {
-                ExportPreset::IntroLoop | ExportPreset::FoldedLoop => ExportRole::Loop,
-                ExportPreset::TaggedLoop | ExportPreset::OneShot => ExportRole::Single,
-            };
-            Destination::Export(ExportPlan {
-                preset,
-                primary: resolve(primary_role)?,
-                intro: (preset == ExportPreset::IntroLoop)
-                    .then(|| resolve(ExportRole::Intro))
-                    .transpose()?,
-            })
-        } else {
-            Destination::Standard(resolve_output(out, &args.song, &length, format)?)
-        };
-        (output, destination)
     };
-    Ok(Plan {
-        opts: RenderOptions {
-            instruments: Default::default(),
+    let destination = Destination::from_out(args.out.as_deref(), &args.song).map_err(cli_error)?;
+    export::prepare(
+        Request {
+            song: args.song.clone(),
             length,
+            kind,
             jobs: args.jobs,
             plan_timeout: Some(args.plan_timeout),
-            include_events: false,
-            output,
         },
         destination,
-    })
+    )
+    .map_err(cli_error)
 }
 
-fn stem_options(args: &RenderArgs) -> Result<OutputOptions, RenderError> {
+/// The CLI's wording of an export error: the pipeline's, except an extra intro file, which the
+/// CLI words as an unexpected intro file.
+pub fn cli_error(e: export::Error) -> RenderError {
+    match e {
+        export::Error::RolesMismatch { extra_intro: true } => {
+            RenderError::Render("unexpected intro file".into())
+        }
+        other => other.into(),
+    }
+}
+
+/// Prints the partial-export line for a mix that wrote at least one file, and returns the error.
+pub fn failure(lines: &ProgressLines<'_>, e: RunError) -> RenderError {
+    if let (Some(failed), Some(last)) = (&e.failed, e.written.last()) {
+        lines.partial_write(&last.absolute, failed);
+    }
+    cli_error(*e.source)
+}
+
+/// The flags `--stems` rejects, checked in order. The stem output itself is fixed by the export.
+fn stem_options(args: &RenderArgs) -> Result<(), RenderError> {
     let conflicts = [
         (
             args.preset.is_some(),
@@ -218,16 +117,13 @@ fn stem_options(args: &RenderArgs) -> Result<OutputOptions, RenderError> {
     if let Some((_, flag, message)) = conflicts.into_iter().find(|(conflict, ..)| *conflict) {
         return Err(usage(flag, message));
     }
-    let encoder = EncoderOptions::from_flags(
+    EncoderOptions::from_flags(
         Format::Wav,
         Some(BitDepth::F32),
         args.mp3_mode,
         args.quality,
     )?;
-    Ok(OutputOptions {
-        loudness: Loudness::Off,
-        encoder,
-    })
+    Ok(())
 }
 
 fn mix_options(args: &RenderArgs) -> Result<OutputOptions, RenderError> {
@@ -292,7 +188,26 @@ impl<'a> ProgressLines<'a> {
         }
     }
 
-    fn partial_write(&self, completed: &Path, failed: &Path) {
+    /// Reports one export event: pipeline steps and each written file with its warnings, the
+    /// new ones only for a preset.
+    pub fn event(&self, event: Event<'_>, preset: bool) {
+        match event {
+            Event::Pipeline(p) => self.report(p),
+            Event::Publishing => {}
+            Event::Written { file, new_warnings } => {
+                self.report(Progress::Written {
+                    path: file.absolute.clone(),
+                });
+                if preset {
+                    self.warnings(new_warnings);
+                } else {
+                    self.warnings(&file.summary.warnings);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn partial_write(&self, completed: &Path, failed: &Path) {
         let _ = writeln!(
             self.stderr.borrow_mut(),
             "partial export: wrote {}, failed to write {}",
@@ -325,66 +240,60 @@ fn serialize_path<S: serde::Serializer>(path: &Path, serializer: S) -> Result<S:
     serializer.serialize_str(&path.to_string_lossy())
 }
 
-impl ExportPlan {
-    pub fn write(
-        self,
-        files: &[ExportFile],
-        backend: &mut dyn RenderBackend,
-        lines: &ProgressLines<'_>,
-        json: bool,
-    ) -> Result<String, RenderError> {
-        if self.intro.is_none() && files.iter().any(|file| file.role == ExportRole::Intro) {
-            return Err(RenderError::Render("unexpected intro file".into()));
-        }
-        let mut written: Vec<WrittenExport<'_>> = Vec::new();
-        let mut reported_warnings = HashSet::new();
-        for file in files {
-            let target = match (&self.intro, file.role) {
-                (Some(target), ExportRole::Intro) => target,
-                _ => &self.primary,
-            };
-            let path = backend
-                .write(&file.output, target, &|p| lines.report(p))
-                .inspect_err(|_| {
-                    if let Some(completed) = written.last() {
-                        lines.partial_write(&completed.path, target.path());
-                    }
-                })?;
-            let summary = &file.output.summary;
-            lines.warnings(
-                summary
-                    .warnings
-                    .iter()
-                    .filter(|warning| reported_warnings.insert(*warning)),
-            );
-            written.push(WrittenExport {
-                role: file.role,
-                path,
-                summary,
-                loop_points: file.loop_points.as_ref().map(|points| LoopReport {
-                    points,
-                    godot_loop_offset: points.godot_loop_offset(),
-                }),
-            });
-        }
-        if json {
-            return Ok(format!(
-                "{}\n",
-                serde_json::json!({"preset": self.preset, "files": written})
-            ));
-        }
-        let mut output = String::new();
-        for file in written {
-            output.push_str(&human_summary(file.summary, &file.path));
-            if let Some(loop_report) = file.loop_points {
-                let points = loop_report.points;
-                output.push_str(&format!(
-                    "  loop starts at frame {}, spans {} frames at {} Hz (Godot loop_offset {} s)\n",
-                    points.start_frame, points.length_frames, points.sample_rate, loop_report.godot_loop_offset,
-                ));
+/// The stdout summary of a finished export.
+pub fn summary(finished: &Finished, json: bool) -> String {
+    match finished {
+        Finished::Mix {
+            preset: None,
+            files,
+            ..
+        } => files
+            .iter()
+            .map(|f| {
+                if json {
+                    format!("{}\n", json_line(&f.summary, &f.absolute))
+                } else {
+                    human_summary(&f.summary, &f.absolute)
+                }
+            })
+            .collect(),
+        Finished::Mix {
+            preset: Some(preset),
+            files,
+            ..
+        } => {
+            let written: Vec<WrittenExport<'_>> = files
+                .iter()
+                .map(|f| WrittenExport {
+                    role: f.role,
+                    path: f.absolute.clone(),
+                    summary: &f.summary,
+                    loop_points: f.loop_points.as_ref().map(|points| LoopReport {
+                        points,
+                        godot_loop_offset: points.godot_loop_offset(),
+                    }),
+                })
+                .collect();
+            if json {
+                return format!(
+                    "{}\n",
+                    serde_json::json!({"preset": preset, "files": written})
+                );
             }
+            let mut output = String::new();
+            for file in written {
+                output.push_str(&human_summary(file.summary, &file.path));
+                if let Some(loop_report) = file.loop_points {
+                    let points = loop_report.points;
+                    output.push_str(&format!(
+                        "  loop starts at frame {}, spans {} frames at {} Hz (Godot loop_offset {} s)\n",
+                        points.start_frame, points.length_frames, points.sample_rate, loop_report.godot_loop_offset,
+                    ));
+                }
+            }
+            output
         }
-        Ok(output)
+        Finished::Stems { grouping, export } => stems_summary(export, *grouping, json),
     }
 }
 
@@ -495,6 +404,23 @@ pub fn human_summary(summary: &Summary, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_error_words_role_mismatches() {
+        let text = |e| cli_error(e).to_string();
+        assert!(
+            text(export::Error::RolesMismatch { extra_intro: true })
+                .ends_with("unexpected intro file")
+        );
+        assert!(
+            text(export::Error::RolesMismatch { extra_intro: false })
+                .ends_with("the rendered files do not match the destinations")
+        );
+        assert!(
+            text(export::Error::PreviewMismatch)
+                .ends_with("the approved preview does not match the destinations")
+        );
+    }
     use crate::cli::Cli;
     use crate::run::{Env, Transport, run_with};
     use clap::Parser;
@@ -503,7 +429,8 @@ mod tests {
     use strudeland_render::HostError;
     use strudeland_render::Mp3Mode;
     use strudeland_render::level::LoudnessSummary;
-    use strudeland_render::{Timings, Unsupported};
+    use strudeland_render::testing::FakePipeline;
+    use strudeland_render::{ExportFile, RenderOutput, Timings, Unsupported};
 
     struct NoTransport;
     impl Transport for NoTransport {
@@ -551,108 +478,25 @@ mod tests {
         }
     }
 
-    struct Fake {
-        result: Option<Result<RenderOutput, RenderError>>,
-        export: Option<Result<Vec<ExportFile>, RenderError>>,
-        stems: Option<Result<StemExport, RenderError>>,
-        preset: Option<ExportPreset>,
-        write_error: Option<RenderError>,
-        writes_before_error: usize,
-        seen: Vec<(String, RenderOptions)>,
-        written: Vec<PathBuf>,
-        events: Vec<Progress>,
+    fn ok() -> FakePipeline {
+        with(Ok(RenderOutput {
+            bytes: vec![1, 2, 3],
+            summary: summary(Format::Wav, false),
+        }))
     }
 
-    impl Fake {
-        fn ok() -> Fake {
-            Fake::with(Ok(RenderOutput {
-                bytes: vec![1, 2, 3],
-                summary: summary(Format::Wav, false),
-            }))
-        }
-        fn with(r: Result<RenderOutput, RenderError>) -> Fake {
-            Fake {
-                result: Some(r),
-                export: None,
-                stems: None,
-                preset: None,
-                write_error: None,
-                writes_before_error: 0,
-                seen: vec![],
-                written: vec![],
-                events: vec![],
-            }
-        }
-
-        fn with_export(files: Vec<ExportFile>) -> Fake {
-            Fake {
-                result: None,
-                export: Some(Ok(files)),
-                ..Fake::ok()
-            }
+    fn with(r: Result<RenderOutput, RenderError>) -> FakePipeline {
+        FakePipeline {
+            render: Some(r),
+            ..FakePipeline::default()
         }
     }
 
-    impl RenderBackend for Fake {
-        fn render(
-            &mut self,
-            code: &str,
-            opts: &RenderOptions,
-            progress: &dyn Fn(Progress),
-        ) -> Result<RenderOutput, RenderError> {
-            self.seen.push((code.to_string(), opts.clone()));
-            for p in &self.events {
-                progress(p.clone());
-            }
-            self.result.take().expect("one render")
-        }
-
-        fn render_export(
-            &mut self,
-            code: &str,
-            opts: &RenderOptions,
-            preset: ExportPreset,
-            progress: &dyn Fn(Progress),
-        ) -> Result<Vec<ExportFile>, RenderError> {
-            self.seen.push((code.to_string(), opts.clone()));
-            self.preset = Some(preset);
-            for p in &self.events {
-                progress(p.clone());
-            }
-            self.export.take().expect("one export")
-        }
-
-        fn render_stems(
-            &mut self,
-            _: &str,
-            _: &RenderOptions,
-            _: StemGrouping,
-            _: &StemTarget,
-            progress: &dyn Fn(Progress),
-        ) -> Result<StemExport, RenderError> {
-            for p in &self.events {
-                progress(p.clone());
-            }
-            self.stems.take().expect("one stem export")
-        }
-
-        fn write(
-            &mut self,
-            _: &RenderOutput,
-            target: &OutputTarget,
-            progress: &dyn Fn(Progress),
-        ) -> Result<PathBuf, RenderError> {
-            let path = target.path();
-            if self.written.len() == self.writes_before_error
-                && let Some(e) = self.write_error.take()
-            {
-                return Err(e);
-            }
-            self.written.push(path.to_path_buf());
-            progress(Progress::Written {
-                path: path.to_path_buf(),
-            });
-            Ok(path.to_path_buf())
+    fn with_export(files: Vec<ExportFile>) -> FakePipeline {
+        FakePipeline {
+            render: None,
+            export: Some(Ok(files)),
+            ..ok()
         }
     }
 
@@ -662,7 +506,7 @@ mod tests {
         stderr: String,
     }
 
-    fn run(args: &[&str], fake: &mut Fake) -> Out {
+    fn run(args: &[&str], fake: &mut FakePipeline) -> Out {
         let cli =
             Cli::try_parse_from(std::iter::once("strudeland").chain(args.iter().copied())).unwrap();
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
@@ -722,7 +566,7 @@ mod tests {
             "--preset",
             "tagged-loop",
         ];
-        let mut fake = Fake::with_export(files());
+        let mut fake = with_export(files());
         let o = run(&args, &mut fake);
         assert_eq!(o.code, 0, "{}", o.stderr);
         assert_eq!(fake.preset, Some(ExportPreset::TaggedLoop));
@@ -731,7 +575,7 @@ mod tests {
         ));
         let mut json_args = args.to_vec();
         json_args.push("--json");
-        let mut fake = Fake::with_export(files());
+        let mut fake = with_export(files());
         let o = run(&json_args, &mut fake);
         assert_eq!(o.code, 0, "{}", o.stderr);
         assert_eq!(o.stdout.lines().count(), 1);
@@ -777,7 +621,7 @@ mod tests {
             "--preset",
             "intro-loop",
         ];
-        let mut fake = Fake::with_export(pair());
+        let mut fake = with_export(pair());
         let success = run(&args, &mut fake);
         assert_eq!(success.code, 0, "{}", success.stderr);
         assert_eq!(success.stderr.matches("warning: w one").count(), 1);
@@ -791,15 +635,17 @@ mod tests {
         assert_eq!(json["files"][1]["loopPoints"]["startFrame"], 0);
         assert_eq!(json["files"][0]["warnings"][0], "w one");
         assert_eq!(json["files"][1]["warnings"][0], "w one");
-        let mut fake = Fake::with_export(pair());
-        fake.writes_before_error = 1;
-        fake.write_error = Some(RenderError::Io {
-            path: body.clone(),
-            source: std::io::Error::other("disk full"),
-        });
+        let mut fake = with_export(pair());
+        fake.publish_error = Some((
+            1,
+            export::Error::Render(RenderError::Io {
+                path: body.clone(),
+                source: std::io::Error::other("disk full"),
+            }),
+        ));
         let o = run(&args, &mut fake);
         assert_eq!(o.code, 1, "{}", o.stderr);
-        assert_eq!(fake.written, vec![intro.clone()]);
+        assert_eq!(fake.published, vec![intro.clone()]);
         assert!(o.stdout.is_empty());
         assert!(o.stderr.contains(&format!(
             "partial export: wrote {}, failed to write {}",
@@ -815,7 +661,7 @@ mod tests {
         let song = song(dir.path());
         for preset in ["tagged-loop", "intro-loop", "folded-loop"] {
             for (flag, value) in [("--section", "body"), ("--length", "2"), ("--loops", "3")] {
-                let mut fake = Fake::ok();
+                let mut fake = ok();
                 let o = run(
                     &[
                         "render", &song, "--out", "x.wav", "--preset", preset, flag, value,
@@ -825,7 +671,7 @@ mod tests {
                 assert_eq!(o.code, 4, "{}", o.stderr);
                 assert!(o.stderr.contains("loop presets select their own bars"));
                 assert!(fake.seen.is_empty());
-                assert!(fake.written.is_empty());
+                assert!(fake.published.is_empty());
             }
         }
         for (flag, value, expected) in [
@@ -839,7 +685,7 @@ mod tests {
             ("--length", "2", LengthRequest::Length { bars: 2 }),
             ("--loops", "3", LengthRequest::Clip { loops: Some(3) }),
         ] {
-            let mut fake = Fake::with_export(vec![export_file(ExportRole::Single, None)]);
+            let mut fake = with_export(vec![export_file(ExportRole::Single, None)]);
             let o = run(
                 &[
                     "--json", "render", &song, "--out", "x.wav", "--preset", "one-shot", flag,
@@ -859,7 +705,7 @@ mod tests {
     fn success_passes_the_defaults_and_prints_the_summary() {
         let dir = tempfile::tempdir().unwrap();
         let (song, out) = (song(dir.path()), dir.path().join("o.wav"));
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         fake.events = vec![
             Progress::Planned { chunks: 2 },
             Progress::ChunkRendered { index: 1, of: 2 },
@@ -889,7 +735,7 @@ mod tests {
                 },
             }
         );
-        assert_eq!(fake.written, vec![out.clone()]);
+        assert_eq!(fake.published, vec![out.clone()]);
         assert_eq!(
             o.stderr,
             format!(
@@ -910,7 +756,7 @@ mod tests {
     fn lossy_summary_has_the_decoded_peak_and_reencode_progress() {
         let dir = tempfile::tempdir().unwrap();
         let (song, out) = (song(dir.path()), dir.path().join("o.mp3"));
-        let mut fake = Fake::with(Ok(RenderOutput {
+        let mut fake = with(Ok(RenderOutput {
             bytes: vec![0],
             summary: summary(Format::Mp3, true),
         }));
@@ -945,7 +791,7 @@ mod tests {
             l.input_lufs = f64::NEG_INFINITY;
             l.input_true_peak_db = f64::NEG_INFINITY;
         }
-        let mut fake = Fake::with(Ok(RenderOutput {
+        let mut fake = with(Ok(RenderOutput {
             bytes: vec![0],
             summary: s,
         }));
@@ -974,7 +820,7 @@ mod tests {
     fn json_is_one_camel_case_line_with_the_path() {
         let dir = tempfile::tempdir().unwrap();
         let (song, out) = (song(dir.path()), dir.path().join("o.wav"));
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let o = run(
             &["--json", "render", &song, "--out", out.to_str().unwrap()],
             &mut fake,
@@ -1036,7 +882,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let song = song(dir.path());
         let out = dir.path().join("o.mp3");
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let o = run(
             &[
                 "render",
@@ -1091,14 +937,14 @@ mod tests {
         let song = song(dir.path());
         let out = dir.path().join("o.ogg");
         let out = out.to_str().unwrap();
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         run(&["render", &song, "--out", out, "--length", "4"], &mut fake);
         assert_eq!(fake.seen[0].1.length, LengthRequest::Length { bars: 4 });
         assert_eq!(
             fake.seen[0].1.output.encoder,
             EncoderOptions::Ogg { quality: 6 }
         );
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         run(&["render", &song, "--out", out, "--loops", "3"], &mut fake);
         assert_eq!(
             fake.seen[0].1.length,
@@ -1113,7 +959,7 @@ mod tests {
         std::fs::write(project.root().join("instruments/lead.json"), "{}").unwrap();
         let song = project.root().join("songs/main.js");
         let out = dir.path().join("mix.wav");
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let result = run(
             &[
                 "render",
@@ -1154,7 +1000,7 @@ mod tests {
             (&["--quality", "5"], "--quality does not apply to wav"),
         ];
         for (extra, want) in cases {
-            let mut fake = Fake::ok();
+            let mut fake = ok();
             let mut args = vec!["render", song.as_str(), "--out", out];
             args.extend(extra);
             let o = run(&args, &mut fake);
@@ -1192,7 +1038,7 @@ mod tests {
                     flag,
                     value,
                 ],
-                &mut Fake::ok(),
+                &mut ok(),
             );
             assert_eq!(o.code, 4, "{flag}: {}", o.stderr);
             assert!(o.stderr.contains(message), "{flag}: {}", o.stderr);
@@ -1207,34 +1053,41 @@ mod tests {
         let project = strudeland_project::Project::create(&dir.path().join("p"), "t").unwrap();
         let song = project.root().join("songs/main.js");
         std::fs::write(&song, "note('c3')").unwrap();
-        let cli = Cli::try_parse_from([
-            "strudeland",
-            "render",
-            song.to_str().unwrap(),
-            "--stems",
-            "instrument",
-            "--section",
-            "body",
-            "--format",
-            "wav",
-            "--bit-depth",
-            "32f",
-            "--loudness",
-            "off",
-        ])
-        .unwrap();
-        let crate::cli::Command::Render(args) = cli.command else {
-            unreachable!();
+        let directory = project.root().join("renders/main-body-stems");
+        let mut fake = FakePipeline {
+            stems: Some(Ok(StemExport {
+                directory: directory.clone(),
+                files: vec![],
+                summary: summary(Format::Wav, false),
+            })),
+            ..ok()
         };
-        let plan = plan(&args).unwrap();
+        let o = run(
+            &[
+                "render",
+                song.to_str().unwrap(),
+                "--stems",
+                "instrument",
+                "--section",
+                "body",
+                "--format",
+                "wav",
+                "--bit-depth",
+                "32f",
+                "--loudness",
+                "off",
+            ],
+            &mut fake,
+        );
+        assert_eq!(o.code, 0, "{}", o.stderr);
         assert_eq!(
-            plan.opts.length,
+            fake.seen[0].1.length,
             LengthRequest::Section {
                 name: "body".into()
             }
         );
         assert_eq!(
-            plan.opts.output,
+            fake.seen[0].1.output,
             OutputOptions {
                 loudness: Loudness::Off,
                 encoder: EncoderOptions::Wav {
@@ -1242,15 +1095,9 @@ mod tests {
                 },
             },
         );
-        let Destination::Stems { grouping, target } = plan.destination else {
-            panic!("expected a stem set destination");
-        };
-        assert_eq!(grouping, StemGrouping::Instrument);
-        assert_eq!(
-            target.path(),
-            project.root().join("renders/main-body-stems")
-        );
-        assert!(!target.path().exists());
+        assert_eq!(fake.grouping, Some(StemGrouping::Instrument));
+        assert_eq!(fake.stem_targets, vec![directory.clone()]);
+        assert!(!directory.exists());
     }
 
     #[test]
@@ -1268,13 +1115,13 @@ mod tests {
             "--stems",
             "voice",
         ];
-        let mut success = Fake {
+        let mut success = FakePipeline {
             stems: Some(Ok(StemExport {
                 directory: out.clone(),
                 files: vec![mix.clone(), manifest.clone()],
                 summary: summary(Format::Wav, false),
             })),
-            ..Fake::ok()
+            ..ok()
         };
         let o = run(&args, &mut success);
         assert_eq!(o.code, 0, "{}", o.stderr);
@@ -1283,13 +1130,13 @@ mod tests {
         assert!(o.stdout.contains(manifest.to_str().unwrap()));
         assert!(o.stderr.contains("warning: w one"));
 
-        let mut failure = Fake {
+        let mut failure = FakePipeline {
             stems: Some(Err(RenderError::Io {
                 path: manifest.clone(),
                 source: std::io::Error::other("disk full"),
             })),
             events: vec![Progress::Written { path: mix.clone() }],
-            ..Fake::ok()
+            ..ok()
         };
         let args: Vec<_> = ["--json"].into_iter().chain(args).collect();
         let o = run(&args, &mut failure);
@@ -1306,7 +1153,7 @@ mod tests {
     fn out_is_required_outside_a_project() {
         let dir = tempfile::tempdir().unwrap();
         let song = song(dir.path());
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let o = run(&["render", &song], &mut fake);
         assert_eq!(o.code, 4);
         assert!(
@@ -1328,7 +1175,7 @@ mod tests {
             .to_path_buf();
         let song = root.join("songs").join("main.js");
         std::fs::write(&song, "note('c3')").unwrap();
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let o = run(
             &[
                 "render",
@@ -1342,7 +1189,7 @@ mod tests {
         );
         assert_eq!(o.code, 0, "{}", o.stderr);
         assert_eq!(
-            fake.written,
+            fake.published,
             vec![root.join("renders").join("main-body.ogg")]
         );
         // --length and --loops name their own files, so they never replace the full render.
@@ -1351,7 +1198,7 @@ mod tests {
             (&["--length", "4"][..], "main-len4.wav"),
             (&["--loops", "2"][..], "main-loops2.wav"),
         ] {
-            let mut fake = Fake::ok();
+            let mut fake = ok();
             let args: Vec<&str> = ["render", song.to_str().unwrap()]
                 .into_iter()
                 .chain(flags.iter().copied())
@@ -1359,7 +1206,7 @@ mod tests {
             let o = run(&args, &mut fake);
             assert_eq!(o.code, 0, "{flags:?}: {}", o.stderr);
             assert_eq!(
-                fake.written,
+                fake.published,
                 vec![root.join("renders").join(name)],
                 "{flags:?}"
             );
@@ -1378,15 +1225,15 @@ mod tests {
             ("folded-loop", ExportRole::Loop, "main-folded-loop.wav"),
             ("one-shot", ExportRole::Single, "main-one-shot.wav"),
         ] {
-            let mut fake = Fake::with_export(vec![export_file(role, None)]);
+            let mut fake = with_export(vec![export_file(role, None)]);
             let out = run(
                 &["render", song.to_str().unwrap(), "--preset", preset],
                 &mut fake,
             );
             assert_eq!(out.code, 0, "{preset}: {}", out.stderr);
-            assert_eq!(fake.written, vec![renders.join(name)]);
+            assert_eq!(fake.published, vec![renders.join(name)]);
         }
-        let mut fake = Fake::with_export(vec![
+        let mut fake = with_export(vec![
             export_file(ExportRole::Intro, None),
             export_file(ExportRole::Loop, None),
         ]);
@@ -1396,7 +1243,7 @@ mod tests {
         );
         assert_eq!(out.code, 0, "{}", out.stderr);
         assert_eq!(
-            fake.written,
+            fake.published,
             vec![
                 renders.join("main-intro.wav"),
                 renders.join("main-loop.wav")
@@ -1419,12 +1266,12 @@ mod tests {
         .unwrap();
         let args = ["render", song.to_str().unwrap(), "--preset", "intro-loop"];
 
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let out = run(&args, &mut fake);
         assert_eq!(out.code, 1, "{}", out.stderr);
         assert!(out.stderr.contains("main-intro.wav"), "{}", out.stderr);
         assert!(fake.seen.is_empty());
-        assert!(fake.written.is_empty());
+        assert!(fake.published.is_empty());
     }
 
     #[test]
@@ -1438,10 +1285,10 @@ mod tests {
         std::fs::remove_dir(root.join("renders")).unwrap();
         let song = root.join("songs").join("main.js");
         std::fs::write(&song, "note('c3')").unwrap();
-        let mut fake = Fake::with(Err(RenderError::Render("chunk 0: boom".into())));
+        let mut fake = with(Err(RenderError::Render("chunk 0: boom".into())));
         let o = run(&["render", song.to_str().unwrap()], &mut fake);
         assert_eq!(o.code, 1, "{}", o.stderr);
-        assert!(fake.written.is_empty());
+        assert!(fake.published.is_empty());
         assert!(!root.join("renders").exists());
     }
 
@@ -1449,7 +1296,7 @@ mod tests {
     fn an_unreadable_song_is_a_usage_error() {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("nope.js");
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let o = run(
             &["render", missing.to_str().unwrap(), "--out", "x.wav"],
             &mut fake,
@@ -1471,12 +1318,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let song = song(dir.path());
         let out = dir.path().join("o.wav");
-        let mut fake = Fake::with(Err(e));
+        let mut fake = with(Err(e));
         let o = run(
             &["render", &song, "--out", out.to_str().unwrap()],
             &mut fake,
         );
-        assert!(fake.written.is_empty(), "nothing is written on failure");
+        assert!(fake.published.is_empty(), "nothing is written on failure");
         assert!(o.stdout.is_empty(), "no stdout on failure");
         o
     }
@@ -1541,11 +1388,14 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let (song, out) = (song(dir.path()), dir.path().join("o.wav"));
-        let mut fake = Fake::ok();
-        fake.write_error = Some(RenderError::Io {
-            path: out.clone(),
-            source: std::io::Error::other("disk full"),
-        });
+        let mut fake = ok();
+        fake.publish_error = Some((
+            0,
+            export::Error::Render(RenderError::Io {
+                path: out.clone(),
+                source: std::io::Error::other("disk full"),
+            }),
+        ));
         let o = run(
             &["render", &song, "--out", out.to_str().unwrap()],
             &mut fake,
@@ -1559,7 +1409,7 @@ mod tests {
     fn json_does_not_change_errors() {
         let dir = tempfile::tempdir().unwrap();
         let song = song(dir.path());
-        let mut fake = Fake::with(Err(RenderError::Render("x".into())));
+        let mut fake = with(Err(RenderError::Render("x".into())));
         let o = run(&["--json", "render", &song, "--out", "x.wav"], &mut fake);
         assert_eq!(o.code, 1);
         assert!(o.stdout.is_empty());
@@ -1570,7 +1420,7 @@ mod tests {
     fn global_timeout_and_socket_are_accepted_and_ignored() {
         let dir = tempfile::tempdir().unwrap();
         let (song, out) = (song(dir.path()), dir.path().join("o.wav"));
-        let mut fake = Fake::ok();
+        let mut fake = ok();
         let o = run(
             &[
                 "--timeout",
