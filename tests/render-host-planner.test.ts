@@ -17,6 +17,7 @@ import {
   hostPlanRenderArgs,
   HostPlanner,
   parsePlanRenderOutput,
+  SongFiles,
 } from '../scripts/render/host-planner';
 import type { EngineProcessRunner, ProcessResult } from '../scripts/render/rust-engine';
 import { HarnessError } from '../scripts/render/transfer';
@@ -454,4 +455,26 @@ describe('findHostBinary and buildHost', () => {
     expect(e3.code).toBe('build-missing');
     expect(e3.message).toStartWith('cannot run cargo: ');
   });
+});
+
+describe('SongFiles', () => {
+  test(
+    'names a song by its hash and writes it once per writer, replacing a stale file',
+    withDir(async (dir) => {
+      const songs = new SongFiles(join(dir, 'songs'));
+      const path = join(dir, 'songs', `${sha256('a')}.js`);
+      mkdirSync(join(dir, 'songs'));
+      writeFileSync(path, 'truncat');
+      expect(songs.file('a')).toEqual({ path, hash: sha256('a') });
+      expect(readFileSync(path, 'utf8')).toBe('a');
+      // Written once: a second ask leaves the file alone.
+      writeFileSync(path, 'edited');
+      expect(songs.file('a').path).toBe(path);
+      expect(readFileSync(path, 'utf8')).toBe('edited');
+      // A new writer (a new run) writes it again.
+      expect(new SongFiles(join(dir, 'songs')).file('a').path).toBe(path);
+      expect(readFileSync(path, 'utf8')).toBe('a');
+      expect(readdirSync(join(dir, 'songs'))).toEqual([`${sha256('a')}.js`]);
+    }),
+  );
 });

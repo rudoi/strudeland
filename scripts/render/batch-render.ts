@@ -44,10 +44,9 @@ import {
   spawnOrMissing,
   type EngineProcessRunner,
 } from './rust-engine';
-import { writeSongFile } from './host-planner';
+import { SongFiles } from './host-planner';
 import type { RustRenderer } from './rust-renderer';
 import { RenderFailedError } from './transfer';
-import { sha256 } from '../sha256';
 
 const RENDER_PACKAGE = 'strudeland-render';
 /** One batch render may take this long before it is killed. */
@@ -179,7 +178,8 @@ export type PipelineInner = Pick<
 export interface PipelineRendererOptions {
   inner: PipelineInner;
   batch: BatchRenderer;
-  /** The run's `--out` folder; song files go to `<outDir>/batch/<sha256(code)>.js`. */
+  /** The run's `--out` folder; song files go to `<outDir>/batch/<sha256(code)>.js`, each
+   *  written once per renderer. */
   outDir: string;
   /** The `strudeland-render` build, for the run header. */
   renderVersion: string;
@@ -190,9 +190,11 @@ export interface PipelineRendererOptions {
 export class PipelineRenderer implements Renderer {
   readonly engine = 'rust' as const;
   readonly renderVersion: string;
+  private readonly songs: SongFiles;
 
   constructor(private readonly o: PipelineRendererOptions) {
     this.renderVersion = o.renderVersion;
+    this.songs = new SongFiles(join(o.outDir, 'batch'));
   }
 
   schedule(req: RenderRequest): Promise<ScheduleResult> {
@@ -220,9 +222,7 @@ export class PipelineRenderer implements Renderer {
       layoutSegments(base.layout, sched.structure),
       sched.cps,
     );
-    const hash = sha256(base.code);
-    const songPath = join(this.o.outDir, 'batch', `${hash}.js`);
-    writeSongFile(songPath, base.code);
+    const { path: songPath, hash } = this.songs.file(base.code);
     return this.o.batch.window({
       name: `${hash.slice(0, 8)}-${base.fromBar}-${base.toBar}-${base.layout}`,
       songPath,

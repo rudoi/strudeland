@@ -166,20 +166,10 @@ export function batchRequest(window: ParityWindow): RenderPlanRequest {
   };
 }
 
-/** `batchRequest` as the host's `--request` text. */
-export function batchRequestJson(window: ParityWindow): string {
-  return JSON.stringify(batchRequest(window));
-}
-
-/** A whole plan without its `errors`, for the whole-plan comparison. */
-export function withoutErrors(p: PlannedRender): Omit<PlannedRender, 'errors'> {
-  const { errors: _errors, ...rest } = p;
-  return rest;
-}
-
-/** A single-chunk job's info without its `errors`, for the info comparison. */
-export function infoWithoutErrors(info: PageJobInfo): Omit<PageJobInfo, 'errors'> {
-  const { errors: _errors, ...rest } = info;
+/** `x` without its `errors`, for the whole-plan and info comparisons (the page-only and host-only
+ *  error sources differ). */
+export function withoutErrors<T extends { errors: unknown }>(x: T): Omit<T, 'errors'> {
+  const { errors: _errors, ...rest } = x;
   return rest;
 }
 

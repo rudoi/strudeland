@@ -205,7 +205,7 @@ pub fn window_frames(from_bar: u32, to_bar: u32, cps: f64) -> u64 {
 }
 
 /// `Math.round((bar * sampleRate) / cps)` as a frame index (`as` saturates; NaN is 0).
-pub fn frame_of(bar: u32, cps: f64) -> u64 {
+fn frame_of(bar: u32, cps: f64) -> u64 {
     ((f64::from(bar) * f64::from(SAMPLE_RATE)) / cps).round() as u64
 }
 

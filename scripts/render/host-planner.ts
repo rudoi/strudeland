@@ -143,14 +143,33 @@ export function parsePlanRenderOutput(res: ProcessResult): PlannedRender {
 
 let tmpCounter = 0;
 
-/** Writes `code` to `path` atomically (a temporary file in the same folder, then a rename), every
- *  time: a file left truncated by an interrupted run, or edited since, is replaced, and a host
- *  process reading the path sees either the old file or the whole new one. */
-export function writeSongFile(path: string, code: string): void {
+/** Writes `code` to `path` atomically (a temporary file in the same folder, then a rename): a file
+ *  left truncated by an interrupted run, or edited since, is replaced, and a process reading the
+ *  path sees either the old file or the whole new one. */
+function writeSongFile(path: string, code: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${tmpCounter++}.tmp`;
   writeFileSync(tmp, code);
   renameSync(tmp, path);
+}
+
+/** The harness's song files, named by content: `<dir>/<sha256(code)>.js`, each written
+ *  (atomically) the first time this writer is asked for it, so once per run. */
+export class SongFiles {
+  private readonly written = new Set<string>();
+
+  constructor(private readonly dir: string) {}
+
+  /** The song file for `code` and its hash, written first unless this writer already wrote it. */
+  file(code: string): { path: string; hash: string } {
+    const hash = sha256(code);
+    const path = join(this.dir, `${hash}.js`);
+    if (!this.written.has(path)) {
+      writeSongFile(path, code);
+      this.written.add(path);
+    }
+    return { path, hash };
+  }
 }
 
 export interface HostPlannerOptions {
@@ -165,9 +184,11 @@ export interface HostPlannerOptions {
 
 export class HostPlanner implements JobSource {
   private readonly runner: EngineProcessRunner;
+  private readonly songs: SongFiles;
 
   constructor(private readonly o: HostPlannerOptions) {
     this.runner = o.runner ?? bunRunner;
+    this.songs = new SongFiles(join(o.outDir, 'host'));
   }
 
   async job(req: RenderRequest): Promise<{ job: EngineJob; text: string; info: PageJobInfo }> {
@@ -191,11 +212,9 @@ export class HostPlanner implements JobSource {
     return parsePlanRenderOutput(res);
   }
 
-  /** The song file `job` plans from for `code`, written (atomically) first. */
+  /** The song file `job` plans from for `code`, written (atomically) once per planner. */
   songFile(code: string): string {
-    const song = join(this.o.outDir, 'host', `${sha256(code)}.js`);
-    writeSongFile(song, code);
-    return song;
+    return this.songs.file(code).path;
   }
 
   version(): Promise<string> {

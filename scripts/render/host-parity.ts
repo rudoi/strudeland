@@ -33,12 +33,10 @@ import { SAMPLE_RATE, type RenderRequest } from '../../src/lib/render/contract';
 import type { FixtureEntry } from '../../src/lib/render/corpus';
 import {
   batchRequest,
-  batchRequestJson,
   compareBatch,
   failureText,
   firstDifference,
   formatBatchDifference,
-  infoWithoutErrors,
   parseParityArgs,
   PARITY_USAGE,
   scheduleFailed,
@@ -92,7 +90,9 @@ async function planBatch(
 ): Promise<{ ok: true; planned: PlannedRender } | { ok: false; message: string }> {
   try {
     const song = host.songFile(code);
-    const planned = await limit.run(() => host.planRender(song, batchRequestJson(window)));
+    const planned = await limit.run(() =>
+      host.planRender(song, JSON.stringify(batchRequest(window))),
+    );
     return { ok: true, planned };
   } catch (e) {
     if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
@@ -121,8 +121,8 @@ function jobDifference(
     }
     return `first difference at ${where}`;
   }
-  const pi = infoWithoutErrors(p.info);
-  const hi = infoWithoutErrors(h.info);
+  const pi = withoutErrors(p.info);
+  const hi = withoutErrors(h.info);
   const where = firstDifference(pi, hi);
   if (where === null) return null;
   mkdirSync(dir, { recursive: true });

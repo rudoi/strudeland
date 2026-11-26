@@ -1,12 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
   batchRequest,
-  batchRequestJson,
   compareBatch,
   failureText,
   firstDifference,
   formatBatchDifference,
-  infoWithoutErrors,
   jsonPath,
   parseParityArgs,
   PARITY_USAGE,
@@ -159,18 +157,12 @@ describe('--batch', () => {
   });
 
   test('the request is the window kind, in the host spelling', () => {
-    expect(batchRequestJson({ fromBar: 40, toBar: 60, layout: 'linear' })).toBe(
+    expect(JSON.stringify(batchRequest({ fromBar: 40, toBar: 60, layout: 'linear' }))).toBe(
       '{"length":{"kind":"window","fromBar":40,"toBar":60,"layout":"linear"}}',
     );
-    expect(JSON.parse(batchRequestJson({ fromBar: 0, toBar: 12, layout: 'clip' }))).toEqual({
+    expect(batchRequest({ fromBar: 0, toBar: 12, layout: 'clip' })).toEqual({
       length: { kind: 'window', fromBar: 0, toBar: 12, layout: 'clip' },
     });
-  });
-
-  test('batchRequestJson is the text of batchRequest', () => {
-    const window = { fromBar: 3, toBar: 9, layout: 'linear' } as const;
-    expect(batchRequest(window)).toEqual({ length: { kind: 'window', ...window } });
-    expect(batchRequestJson(window)).toBe(JSON.stringify(batchRequest(window)));
   });
 
   const plans = [
@@ -264,7 +256,7 @@ describe('scheduleFailed', () => {
   });
 });
 
-describe('withoutErrors and infoWithoutErrors', () => {
+describe('withoutErrors', () => {
   const errors = [{ kind: 'other' as const, message: 'page only' }];
 
   test('a plan without its errors keeps every other key, and the input is unchanged', () => {
@@ -303,7 +295,7 @@ describe('withoutErrors and infoWithoutErrors', () => {
       structure: {},
       stemPairs: 1,
     } as unknown as PageJobInfo;
-    const out = infoWithoutErrors(info);
+    const out = withoutErrors(info);
     expect('errors' in out).toBe(false);
     expect(out as object).toEqual({
       jsonLength: 3,
@@ -313,7 +305,7 @@ describe('withoutErrors and infoWithoutErrors', () => {
       structure: {},
       stemPairs: 1,
     });
-    expect(firstDifference(out, infoWithoutErrors({ ...info, errors: [] }))).toBeNull();
-    expect(firstDifference(out, infoWithoutErrors({ ...info, stemPairs: 2 }))).toBe('stemPairs');
+    expect(firstDifference(out, withoutErrors({ ...info, errors: [] }))).toBeNull();
+    expect(firstDifference(out, withoutErrors({ ...info, stemPairs: 2 }))).toBe('stemPairs');
   });
 });
