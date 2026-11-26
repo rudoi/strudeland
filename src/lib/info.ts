@@ -1,5 +1,6 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { invokeCommand } from './ipc/invoke';
 
 export interface AppInfo {
   version: string;
@@ -25,7 +26,7 @@ export function formatStrudel(s: AppInfo['strudel']): string {
 export async function getAppInfo(): Promise<AppInfo | null> {
   if (!isTauri()) return null;
   try {
-    return await invoke<AppInfo>('app_info');
+    return (await invokeCommand('app_info')) as AppInfo;
   } catch (e) {
     console.error('app_info failed', e); // a real Rust/IPC error, not "no Tauri"
     return null;

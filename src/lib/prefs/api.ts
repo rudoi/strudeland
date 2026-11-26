@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invokeCommand } from '../ipc/invoke';
 
 // The only module that calls Tauri for app preferences. Mirrors the Rust `Prefs`.
 export interface Prefs {
@@ -23,7 +23,7 @@ export interface PrefsApi {
 
 export function createTauriPrefsApi(): PrefsApi {
   return {
-    get: () => invoke<Prefs>('prefs_get'),
-    set: (prefs) => invoke<void>('prefs_set', { prefs }),
+    get: () => invokeCommand('prefs_get') as Promise<Prefs>,
+    set: (prefs) => invokeCommand('prefs_set', { prefs }) as Promise<void>,
   };
 }

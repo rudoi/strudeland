@@ -1,6 +1,8 @@
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Wry};
 
+use crate::command_error::CommandError;
+
 const NEW_PROJECT: &str = "newProject";
 const EXPORT_AUDIO: &str = "exportAudio";
 const OPEN_PROJECT: &str = "openProject";
@@ -67,17 +69,17 @@ pub fn dispatch(app: &AppHandle<Wry>, event: tauri::menu::MenuEvent) {
 }
 
 #[tauri::command]
-pub fn export_audio_set_available(app: AppHandle, available: bool) -> Result<(), String> {
-    let menu = app.menu().ok_or("no application menu")?;
-    let items = menu.items().map_err(|error| error.to_string())?;
+pub fn export_audio_set_available(app: AppHandle, available: bool) -> Result<(), CommandError> {
+    let menu = app
+        .menu()
+        .ok_or_else(|| CommandError::other("no application menu"))?;
+    let items = menu.items().map_err(CommandError::other)?;
     for submenu in items.iter().filter_map(|item| item.as_submenu()) {
         if let Some(export) = submenu.get(EXPORT_AUDIO)
             && let Some(item) = export.as_menuitem()
         {
-            return item
-                .set_enabled(available)
-                .map_err(|error| error.to_string());
+            return item.set_enabled(available).map_err(CommandError::other);
         }
     }
-    Err("the export menu item is unavailable".into())
+    Err(CommandError::other("the export menu item is unavailable"))
 }

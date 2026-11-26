@@ -1,6 +1,7 @@
 mod app_quit;
 #[cfg(target_os = "macos")]
 mod cli_install;
+mod command_error;
 mod commands;
 mod control;
 mod export_audio;

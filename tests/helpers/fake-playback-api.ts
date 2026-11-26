@@ -60,7 +60,7 @@ export function fakePlaybackApi(opts: { hostNs?: () => bigint } = {}) {
     if (failure && (failure.method === null || failure.method === method)) {
       const { kind } = failure;
       failure = null;
-      throw new PlaybackError(kind, `fake ${method} failed (${kind})`);
+      throw new PlaybackError(`fake ${method} failed (${kind})`, kind);
     }
   };
 
