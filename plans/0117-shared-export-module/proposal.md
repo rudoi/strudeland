@@ -31,7 +31,7 @@ The typed planner errors and the loop export button are #144 (PR B), approved by
 
 ## Background
 
-The [re-verification](0117-shared-export-module/reverify.md) has the evidence. The refine review
+The [re-verification](reverify.md) has the evidence. The refine review
 added the eight must-fix findings this revision folds in. The
 [loss check](0117-shared-export-module/loss-check.md) maps them.
 

@@ -1,7 +1,7 @@
 # 0117 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0117-shared-export-module`.
-- **Proposal:** [../0117-shared-export-module.md](../0117-shared-export-module.md). It is the
+- **Proposal:** [proposal.md](proposal.md). It is the
   contract: interface, order, wording tables and publish rule.
 - **Evidence:** [reverify.md](reverify.md).
 - **What changed in the refine:** [loss-check.md](loss-check.md).
