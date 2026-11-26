@@ -26,12 +26,13 @@ before starting the next.
    engine edit**, then snapshotted. Commits nothing.
 2. [002-stage-walk.md](002-stage-walk.md): `StageSpec` and `VoiceParams::entry`; `NodeTable`
    stores specs; `Voice::build` plans first and walks; `build_stage`. Deleted: `build_entry`,
-   `StageKind::of`, the debug assertion and `the_plan_names_the_built_stages`. Also the README
-   and AGENTS.md.
+   `push_stage`, `push_shaper`, the debug assertion and `the_plan_names_the_built_stages`
+   (`StageKind::of` becomes test-only). The walk's error-order test. Also the README and
+   AGENTS.md.
 3. [003-fm-steps.md](003-fm-steps.md): `FmStep`, and `apply_fm` built from the planned walk.
 4. [004-node-names.md](004-node-names.md): `NodeName`, and the `TARGETS` cross-check.
 5. [005-tests.md](005-tests.md): the structural tests on the pure plan. Deleted: `kind()` and its
-   helpers. The error-order test, and the README re-read.
+   helpers. The voice-level throw-order test, and the README re-read.
 
 ## Rules for every stage
 

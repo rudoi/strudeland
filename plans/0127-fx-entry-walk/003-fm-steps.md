@@ -74,8 +74,14 @@ Stage 002 committed, its A/B log at `0 differences`.
      (helpers.mjs:429-512). It builds each modulator at its planned first use and checks each
      side's `gainNode(amt)` and `gainNode(modfreq)` as superdough builds them. It skips a
      connection the plan marks as not connecting (a noise target).
-   - Today's code never reads `amount`/`freq` back from a side other than the source, so keep
-     only what the connection needs: the source side's values, and the target's position.
+   - Steps 2-4 run on every side, the target side included. The connection reads only the
+     source side's `amount` and `freq` and the target's position, and the target's `freq`
+     write repeats the value that modulator's own source side writes (`modfreq` is per
+     modulator). So the target side's values are discarded, but both of its `idl_float` calls
+     must still run, for their throws. `y48` pins it: `fmi13: 1` onto a white-noise modulator 3
+     with `fmh3: "x"` throws `gain` from the target side's `idl_float(modfreq, "gain")`, before
+     the noise skip. Do not skip the target side's calls, and do not move them after the
+     `connects` check.
 5. **The builders.** `build_oscillator` and `build_worklet_synth` take `fm: &[FmStep]` after
    `params` and pass it to `apply_fm`. Everything else in them is unchanged, the vibrato built
    before the FM included. In `Voice::build` both calls pass `node_table.fm_steps()`. The plan
@@ -114,13 +120,13 @@ Stage 002 committed, its A/B log at `0 differences`.
 ## Gates
 
 [000-prompt.md](000-prompt.md) "Test cadence", with `N=003`. The guard jobs for this stage are
-`y02`-`y04`, `y33`-`y37`, `y43` and `y44`, and the refs FM jobs. All of them are in the
+`y02`-`y04`, `y33`-`y37`, `y43`, `y44` and `y48`, and the refs FM jobs. All of them are in the
 0-difference check.
 
 ## STOP conditions
 
 - Any A/B difference, an FM error text above all (`y35`-`y37`: `gain`, `frequency`, and `gain`
-  after the vibrato).
+  after the vibrato; `y48`: `gain` from a noise target's side).
 - The `debug_assert_eq!` on a planned position fires.
 - A built FM test needs a different expected value.
 - `steps.len() != params.fm.entries.len()` for any voice. The zip would silently drop an entry;

@@ -69,8 +69,9 @@ In:
 
 1. **The A/B guard** (stage 001), built before any engine edit and checked after every stage.
 2. **`StageSpec` and the stage walk** (stage 002): `NodeTable` stores specs, `Voice::build`
-   walks them through `build_stage`. Deleted: `build_entry`, `StageKind::of`, the debug
-   assertion and `the_plan_names_the_built_stages`.
+   walks them through `build_stage`. Deleted: `build_entry`, `push_stage`, `push_shaper`, the
+   debug assertion and `the_plan_names_the_built_stages`. `StageKind::of` becomes
+   `#[cfg(test)]`: the replacement plan test keeps comparing built and planned kinds.
 3. **`FmStep`** (stage 003): the planned FM walk, and `apply_fm` built from it.
 4. **`NodeName`** (stage 004): typed node table names, with a cross-check against
    `modulate::TARGETS`.
@@ -309,16 +310,19 @@ The full list is in [005-tests.md](0127-fx-entry-walk/005-tests.md). In short:
   `build_entry` go through a test helper, `walk_entry`, that walks
   `NodeTable::entry_plan(FxKey::Main, …)` through `build_stage`. Their assertions stay.
   `the_plan_names_the_built_stages` is replaced by `the_plan_lists_every_source_and_stage`: the
-  same six voices, their spec lists pinned, and `voice.stages().len() == specs().len()` on the
-  built voices. `VoiceParams::entry` gets a unit test.
+  same six voices plus a chain entry with a local delay and reverb, their spec lists pinned, and
+  the built stages' `StageKind::of` equal to the specs' `kind()` on the built voices.
+  `build_entry_errors_leave_the_earlier_stages` becomes `the_walk_throws_at_the_first_planned_site`
+  on `walk_entry`: one site per row, its text and the stages built before it.
+  `VoiceParams::entry` gets a unit test.
 - **Stage 003** adds `fm_steps_follow_the_matrix_walk` (positions, first use, the noise skip and
   `connects`, on the matrices of `fm_gain_node_table_last_writer`). The FM value tests stay.
 - **Stage 004** adds the `NodeName` text test and the `TARGETS` cross-check. The tests that call
   `t.set(…, "gain", …)` take `NodeName`s.
 - **Stage 005** moves the structural tests onto the pure plan: spec lists and registrations
   instead of `kind()` over built stages. It deletes `kind()`, `kinds()` and `voice_kinds()`.
-  `build_entry_errors_leave_the_earlier_stages` becomes an error-order test of the walk and of
-  `Voice::build`. Built-voice assertions stay where they check values (`output_channels`,
+  It adds `voice_build_throws_in_plan_order` (a chain entry before the main entry, the entries
+  before Release, Release before Post, `pw_lfo` before the entries). Built-voice assertions stay where they check values (`output_channels`,
   `send_levels`, param values, envelope events). `node_table()` stays: `modulate`'s nine tests
   read the table the voice's own modulator loop wrote, beside `mods()` from the same run.
   `mods()` and the value tests over `stages()` are untouched.
@@ -327,13 +331,15 @@ The full list is in [005-tests.md](0127-fx-entry-walk/005-tests.md). In short:
 
 Each item names the guard that proves it.
 
-- **Sound bits.** Offline: the A/B guard's WAV sha256 for 271 jobs (the 181 refs and 90 extra
+- **Sound bits.** Offline: the A/B guard's WAV sha256 for 276 jobs (the 181 refs and 95 extra
   jobs). Live and stems: its digest, 10 variants per job (7 live, 3 stems).
 - **Error texts and throw order.** The guard's stdout (`errors` JSON, `renderMs` removed), the
   stderr text and its sha256, and the exit code, for every job. The throw-site jobs `y08`-`y32`
-  make each site the first thrower. Where two sites share a text (`value is not a finite`, the
-  AudioParam `value` text), stage 005's walk test tells them apart by the stages built before
-  the throw.
+  make each site the first thrower, and `y46`-`y50` pin the order between sites with different
+  texts (Release before Post, a chain entry before Release, a noise FM target's `gain`,
+  `pw_lfo` before the entries, the local delay before the local reverb). Where two sites share
+  a text (`value is not a finite`, the AudioParam `value` text), stage 002's walk test tells
+  them apart by the stages built before the throw.
 - **The "Available targets" order.** The guard's `y01`-`y07` (oscillator, both worklet synths,
   a chain entry, the main sends, every key), plus the refs jobs with modulators. Live logs go
   into the digest.
@@ -354,7 +360,7 @@ merge of #121's `ab.sh` and #122's `eq.sh`, with `BASE_SRC=416caa6`. The draft i
 
 - **`baseline`** refuses unless `git diff --quiet 416caa6 -- 'crates/*/src/*'
   crates/strudeland-engine/tests/refs` holds. It builds the release engine binary and the #121
-  digest crate (with the workspace `Cargo.lock`), writes the 90 extra jobs and records into
+  digest crate (with the workspace `Cargo.lock`), writes the 95 extra jobs and records into
   `base/`:
   - `controls --json` with its stderr and exit code;
   - per job (refs and extra): `signatures` output with its exit code (`sig/<job>.txt`), and the
@@ -368,15 +374,16 @@ merge of #121's `ab.sh` and #122's `eq.sh`, with `BASE_SRC=416caa6`. The draft i
   - the dump holds 20 sounds and 91 targets;
   - `y01`-`y07` log "Available targets", and `y02`, `y03`, `y04` and `y07` log their exact
     lists;
-  - `y08` and `y13` log their throws, and `y34` is refused;
+  - `y08`, `y13` and `y46`-`y50` log their throws, and `y34` is refused;
   - no digest variant panics.
 
   Finally it snapshots `ab.sh`, `digest/` (without `target/`), `base/` and the HEAD sha to
   `~/.cache/strudeland-0127/`.
-- **`check`** refuses if `tests/refs` differs from `416caa6`. It rebuilds both from the working
+- **`check`** refuses if `tests/refs` differs from `416caa6`, or if `digest/src/main.rs`
+  differs from the snapshot's copy (or the snapshot has none). It rebuilds both from the working
   tree, records into `cur/` and runs `diff -r base cur`. It exits 0 only with no difference.
-- **`restore`** copies `digest/` and `base/` back from the cache. `check` needs no baseline
-  binary, so a cleared scratchpad costs one rsync.
+- **`restore`** copies `digest/` and `base/` back from the cache (`ab.sh` itself is copied by
+  hand first). `check` needs no baseline binary, so a cleared scratchpad costs one rsync.
 - **Recorded twice:** `baseline`, then `check` straight away, must report 0 differences.
   Otherwise the guard varies run to run and cannot be used.
 
@@ -418,12 +425,12 @@ merge of #121's `ab.sh` and #122's `eq.sh`, with `BASE_SRC=416caa6`. The draft i
   planned under one key and built from another would build other values. The tests cover it:
   stage 002's `walk_entry` uses `Main`, and the chain-entry tests (`a_chain_entry_with_every_key…`'s
   gains `[0.25, 0.4, 0.5]`, `a_chain_entry_gain_stage`, `the_24db_doubling…`'s entry drive) build from `Index(n)`. So does
-  the guard's `y07`, `y13`, `y21`, `y22`, `y39` and `y40`.
+  the guard's `y07`, `y13`, `y21`, `y22`, `y39`, `y40`, `y47` and `y50`.
 - **`Filter` per copy.** The 24 dB copies were one loop iteration each. They are now two specs,
   built the same way (`create_filter`, then `filter_lfo`, per copy). `y45` and the refs'
   24 dB jobs check the bits.
 - **Shared error texts.** The guard cannot tell `coarse` from `shapevol` by text (`value is not
-  a finite …`). Stage 005's walk test pins the number of stages built before each throw.
+  a finite …`). Stage 002's walk test pins the number of stages built before each throw.
 - **The scratchpad is per session and can be cleared.** The guard snapshots to
   `~/.cache/strudeland-0127/` and has a `restore` command. If the cache is lost too, 001 gives
   the rebuild from `416caa6`.

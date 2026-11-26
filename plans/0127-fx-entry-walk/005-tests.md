@@ -8,8 +8,8 @@ longer build a voice and classify its stages with the `kind()` helper. Tests of 
 values, envelope events, channel counts, sends, rendered output) keep building. The `kind()`,
 `kinds()` and `voice_kinds()` helpers are deleted.
 
-`build_entry_errors_leave_the_earlier_stages` becomes an error-order test of the walk and of
-`Voice::build`.
+The walk's error-order test, `the_walk_throws_at_the_first_planned_site`, already landed in
+stage 002. This stage adds its voice-level twin, `voice_build_throws_in_plan_order`.
 
 This stage changes no production code. Replace each assertion; do not add a plan assertion
 beside the built one it replaces.
@@ -120,15 +120,21 @@ table instead of `voice.node_table()`. Their expected values are unchanged.
   - `chain_entry_channel_rules`: `voice_kinds(&v)[3..6]` becomes `specs()[3..6] ==
     [Filter{X0, Lowpass, false}, LocalDelay(X0), EntryGain(X1)]`. The channel sequence stays
     built.
-- **Delete** `kind()`, `kinds()` and `voice_kinds()`. `rg -n 'fn kind\(|fn kinds\(|fn voice_kinds\(' crates/strudeland-engine/src`
-  prints nothing.
+- **Delete** `kind()`, `kinds()` and `voice_kinds()`.
+  `rg -n 'fn kind\(|fn kinds\(|fn voice_kinds\(' crates/strudeland-engine/src/chain.rs` prints
+  nothing. The search is scoped to `chain.rs`: `voice.rs`'s test helper
+  `fn kinds(v: &Voice) -> Vec<FilterKind>` (voice.rs:3042) reads built filters, and it stays for
+  the built assertions below.
 
 ### `voice.rs`
 
 - **`filters_follow_superdough_order_and_24db_doubles_them`.** The `ftype` table and the
-  presence cases read the plan: the `FilterKind`s of its `Filter` specs, in order. Keep one
-  built assertion: for the `all` value, `v.filters()` kinds equal the plan's filter kinds. That
-  pins `build_stage` turning the spec's kind into the biquad's.
+  presence cases read the plan: the `FilterKind`s of its `Filter` specs, in order. Keep two
+  built assertions, through `voice.rs`'s `kinds(&voice(…))`: the `all` value
+  (`[Lowpass, Highpass, Bandpass]`), and the `all` value with `ftype: "24db"`
+  (`[Lowpass, Lowpass, Highpass, Highpass, Bandpass, Bandpass]`), each equal to the plan's
+  filter kinds. They pin `build_stage` turning the spec's kind into the biquad's, once per copy
+  of a doubled filter too.
 - **`worklet_synth_node_table_entries`.** Every assertion reads `planned(…)` instead of
   `voice(…).node_table()`. Same values.
 - **`the_pulse_width_lfo`.** The three `pw_lfo` registration assertions (no LFO: `[None]`;
@@ -139,56 +145,34 @@ table instead of `voice.node_table()`. Their expected values are unchanged.
   and pulse. Stays built: the envelope peaks (`stages()[0]` is `EnvGain` in the plan) and
   `output_channels()`.
 
-## The error-order test
+## The error-order tests
 
-`build_entry_errors_leave_the_earlier_stages` (chain.rs) becomes
-`the_walk_throws_at_the_first_planned_site`, on `walk_entry` (which returns the stages built
-before the throw). One base value arms every main-entry stage with a valid value:
+`the_walk_throws_at_the_first_planned_site` (chain.rs) and `entry_plan_registers_under_its_key`
+landed in stage 002, in place of `build_entry_errors_leave_the_earlier_stages`. This stage does
+not change them; it may only move them beside the other plan tests, under the same names, with
+the same rows. Its rows sit on `walk_entry` and one entry, so they cannot see the order between
+entries, Release and Post.
 
-```json
-{ "transient": 0.5, "cutoff": 500, "vowel": "a", "coarse": 2, "crush": 4, "shape": 0.3,
-  "distort": 0.5, "tremolo": 2, "compressor": -10, "pan": 0.3, "phaserrate": 2 }
-```
+Add `voice_build_throws_in_plan_order` in `voice.rs`, through `try_voice`. Each case arms two
+sites whose texts differ, so the text names the first thrower:
 
-Its entry plan is `[Transient, EntryGain, Filter{Lowpass, false}, Vowel, Coarse, Crush, Shape,
-Distort, Tremolo, Compressor, Pan, Phaser]` (all under `M`). Assert that first, and that the
-base walks without a throw. Then each row makes one site throw, with every earlier site present
-and valid. The row asserts the error text and the number of stages built before it, which is
-the throwing spec's index in the plan:
-
-| Change to the base | Error contains | Built before |
+| Value | Error contains | Order it pins |
 |---|---|---|
-| `velocity: "x"` | `gain is not a finite` | 1 |
-| `resonance: "x"` | `Q is not a finite` | 2 |
-| `lprate: "x"` (the filter LFO, after its biquad) | `'value' on 'AudioParam'` | 2 |
-| `vowel: "zz"` | `unknown vowel zz` | 3 |
-| `coarse: "x"` | `value is not a finite` | 4 |
-| `shapevol: "x"` | `value is not a finite` | 6 |
-| `distortvol: "x"` | `value is not a finite` | 7 |
-| `tremolodepth: "x"` | `'gain' on 'AudioParam'` | 8 |
-| `compressor: {"$num": "NaN"}` | `'value' on 'AudioParam'` | 9 |
-| `pan: "x"` | `pan is not a finite` | 10 |
-| `phaserrate: "x"` | `'value' on 'AudioParam'` | 11 |
+| `{ "s": "sine", "FX": [{ "pan": "x" }], "cutoff": 100, "resonance": "x" }` | `pan is not a finite` | a chain entry before the main entry |
+| `{ "s": "sine", "FX": [{ "pan": "x" }], "FXrelease": Infinity }` | `pan is not a finite` | the entries before Release |
+| `{ "s": "sine", "FXrelease": Infinity, "postgain": "x" }` | `linearRampToValueAtTime` | Release before Post |
+| `{ "s": "pulse", "pwsweep": "x", "velocity": "x" }` | `'value' on 'AudioParam'` | `pw_lfo` before the entries |
 
-The texts are the ones the planning dry run recorded at `416caa6` (the guard's `y08`, `y09`,
-`y10`, `y11`, `y12`, `y15`-`y20`). The counts are what separates sites that share a text. A
-row that disagrees is a STOP: the guard pins the texts against `416caa6`, and the count pins
-the order.
+`Infinity` is written `{ "$num": "Infinity" }` in the `json!` value, as voice.rs's tests
+already do (`"release": { "$num": "Infinity" }`). These are the guard's `y13`, `y47`, `y46` and `y49`, which record the same texts at `416caa6`.
 
-Keep the old test's two plan assertions (`gain` at stage 0 and `lpf` at stage 1 of the plan
-that throws), and its third case as a plan-only test, `entry_plan_registers_under_its_key`.
-`pan` under `Index(1)` is `Stage(StageId(1))`, and there is none under `Main`.
+Two values are not used, on purpose:
 
-Add `voice_build_throws_in_plan_order` in `voice.rs`. Through `try_voice`:
-
-- a chain entry's throw comes before the main entry's (`{ FX: [{ pan: "x" }], cutoff: 100,
-  resonance: "x" }`: `pan`);
-- `postgain: "x"` throws `gain` after the entries;
-- `{ FXrelease: 0.5, release: Infinity }` throws the ramp's `linearRampToValueAtTime` text;
-- `{ s: "pulse", pwsweep: "x" }` throws before any entry (`TypeError`, with a `velocity: "x"`
-  that would throw later).
-
-These are the guard's `y13`, `y14`, `y23` and `y41`.
+- `{ "postgain": "x" }` alone throws `gain`, the same text as the main entry's gain stage, so
+  it cannot show that Post comes after the entries;
+- `{ "FXrelease": 0.5, "release": Infinity }` (`y23`) never builds a Release stage
+  (`FXrelease` is not above the release), and its ramp text is the amp envelope's, in the
+  head.
 
 ## Left as they are
 
@@ -202,8 +186,9 @@ These are the guard's `y13`, `y14`, `y23` and `y41`.
 - README `:191-198`: the paragraph names the plan, `build_stage` and `NodeName` (stages 002 and
   004). It still says the chain is "built per FX entry in superdough's order", which stays true.
 - AGENTS.md: the `chain` item names the stage plan.
-- `rg -n 'build_entry|StageKind::of|the plan names the built' crates/strudeland-engine AGENTS.md`
-  prints nothing.
+- `rg -n 'build_entry|the plan names the built' crates/strudeland-engine AGENTS.md` prints
+  nothing. `rg -n 'StageKind::of' crates/strudeland-engine/src` finds only the `#[cfg(test)]`
+  impl and `the_plan_lists_every_source_and_stage`.
 
 ## Gates
 
@@ -217,7 +202,8 @@ test merged, never because a case was dropped.
   touched: every hunk of `git diff HEAD~1 -- crates/strudeland-engine/src` must sit inside a
   `mod tests`.
 - A plan list or registration that disagrees with what the old built assertion said.
-- A row of the error-order table that disagrees.
+- A row of `voice_build_throws_in_plan_order` that disagrees, or a stage 002 error-order row
+  that has to change.
 
 ## Commit message
 
@@ -227,8 +213,8 @@ test(engine): check the stage plan directly instead of built stages
 The structural tests built a voice and classified its stages to check
 which ones exist and in what order. They now read the planned specs and
 registrations, which is what decides both, and keep building only where
-they check values. The build error test now checks that each site throws
-first in plan order.
+they check values. A voice-level test checks that the chain entries,
+Release and Post throw in plan order.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ```

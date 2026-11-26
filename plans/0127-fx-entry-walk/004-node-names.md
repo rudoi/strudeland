@@ -87,7 +87,9 @@ Stage 003 committed, its A/B log at `0 differences`.
   mismatch. Report it; do not add a `TARGETS` row (that would change `modulatable_targets` and
   the dump).
 - **Changed access path only:** tests that call `NodeTable::set` with a string literal take the
-  variant. `chain.rs`'s node table unit test (around chain.rs:1830-1846) writes
+  variant. `chain.rs`'s node table unit test,
+  `node_table_set_replaces_push_appends_and_a_missing_key_is_none` (its `set` calls at
+  chain.rs:1772-1846), writes
   `"lpf"`/`"lpf_lfo"`/`"gain"`/`"hpf"`. Same assertions. A test that needs a name the enum does
   not have uses `NodeName::Mod`, with a comment.
 - **Unchanged:** every `get(…, "name")` and `keys(…)` assertion, and every modulate

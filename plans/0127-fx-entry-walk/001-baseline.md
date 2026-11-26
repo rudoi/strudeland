@@ -53,7 +53,7 @@ Throughout:
    ```
 
    It must end `exit 0`, after a line that reads
-   `baseline: 271 jobs, 2710 digest lines, 20 sounds, 91 targets`. That is 181 refs jobs and 90
+   `baseline: 276 jobs, 2760 digest lines, 20 sounds, 91 targets`. That is 181 refs jobs and 95
    extra jobs, with 10 digest lines per job. Any of its refusals (exit 2) is a STOP: report the
    message.
 3. **Record again, and compare.**
@@ -63,7 +63,9 @@ Throughout:
    ```
 
    It must end `exit 0` after a line starting `0 differences`. That proves the renders, the
-   signatures, the dump and the digest are reproducible run to run. A difference here is a
+   signatures, the dump and the digest are reproducible run to run. `check` refuses (exit 2)
+   when `$B/digest/src/main.rs` differs from the snapshot's `~/.cache/strudeland-0127/digest/`
+   copy, or the snapshot has none: the check must build the baseline's digest. A difference here is a
    STOP: a guard that varies by itself cannot be used. Report the first lines of `$B/diff.txt`.
 4. **Check the snapshot.** `~/.cache/strudeland-0127/` holds `ab.sh`, `digest/` (no `target/`),
    `base/` and `BASE` (the HEAD sha). `diff -r "$B/base" ~/.cache/strudeland-0127/base` prints
@@ -72,7 +74,7 @@ Throughout:
    - the baseline line;
    - the `y01`-`y07` "Available targets" messages, copied from `$B/base/render.tsv` (the
      stdout column);
-   - the `y08`-`y32` error messages, one per job;
+   - the `y08`-`y32` and `y46`-`y50` error messages, one per job;
    - the `skip` count in the digests (`grep -c 'skip$' "$B"/base/digest-*.txt`).
 
 ## The extra jobs
@@ -102,7 +104,9 @@ cps 1, duration 0.25, one stereo orbit. That is #122's shape.
   - `coarse`, `shapevol`, `distortvol`;
   - the compressor, the phaser;
   - the local delay, the local reverb;
-  - the release ramp.
+  - the amp envelope's release ramp (`release: Infinity`). Its `FXrelease: 0.5` is not above
+    the release, so no Release stage is built and this job never reaches the FXrelease gain;
+    `y46` and `y47` do.
 - **`y24`-`y32`: the throw ladder.** The first job arms every site. Each next job drops the
   first armed site, so each site in turn is the first to throw.
 - **`y33`-`y37`: the FM matrix.**
@@ -118,9 +122,21 @@ cps 1, duration 0.25, one stereo orbit. That is #122's shape.
 - **`y41`-`y44`: the pulse and the worklet synths.**
   - `y41`, `y42`: the pulse with a NaN `pwsweep`, and with a NaN `pwrate`;
   - `y43`, `y44`: the worklet synths with vib and FM under an `lfo` on `vib` and on `vibmod`.
+- **`y46`-`y50`: the order between sites, by text.** Each arms two sites whose texts differ, so
+  the first thrower shows:
+  - `y46`: `FXrelease: Infinity` and `postgain: "x"`. The Release stage's ramp to
+    `endWithRelease = Infinity` throws the `linearRampToValueAtTime` text before post's `gain`;
+  - `y47`: a chain entry's `pan: "x"` and `FXrelease: Infinity`. The entry's `pan` throws before
+    the Release stage;
+  - `y48`: `fmi13: 1` onto a white-noise modulator 3 with `fmh3: "x"`. The target side's
+    `idl_float(modfreq, "gain")` throws `gain`, before the noise skip;
+  - `y49`: the pulse with `pwsweep: "x"` and `velocity: "x"`. `pw_lfo` throws the AudioParam
+    `value` text before the entry gain's `gain`;
+  - `y50`: a chain entry with `room: 1e300` and `delaytime: 1e300`. The local delay throws the
+    AudioParam `value` text before the local reverb's `gain` (`y22`'s text).
 
-The planning dry run (release binary at `416caa6`) rendered all 45 `y` jobs, with `signatures`
-exit 0 on each. It gave:
+The planning dry run (release binary at `416caa6`) rendered all 50 `y` jobs, with `signatures`
+exit 0 on each, and the #121 digest ran over `y46`-`y50` without a panic. It gave:
 
 - **`y02`:** `Available targets: source, vib, vib_gain, fm_1, fm_1_gain, fm_2, fm_2_gain, gain, post`.
 - **`y03`:** `… source, fm_1, fm_1_gain, fm_2, fm_2_gain, vib, vib_gain, gain, post`.
@@ -130,6 +146,9 @@ exit 0 on each. It gave:
   AudioParam `gain` text, the AudioParam `value` text, `pan`, the AudioParam `value` text,
   `gain`.
 - **`y34`:** `s=sine keys=lfo:fmh3`.
+- **`y23`:** the `linearRampToValueAtTime` text, from the amp envelope.
+- **`y46`-`y50`:** the `linearRampToValueAtTime` text, `pan`, `gain`, the AudioParam `value`
+  text, the AudioParam `value` text.
 
 ## The script
 
@@ -141,9 +160,10 @@ The draft is in the planning scratchpad (`$S/0127-draft/ab.sh`). Copied here in 
 #   baseline  build the engine binary and the digest crate from an unedited tree (416caa6's
 #             crates/*/src) and record every output into base/
 #   check     build both from the working tree, record into cur/, diff -r against base/
-#   restore   copy ab.sh, digest/ (no target/) and base/ back from ~/.cache/strudeland-0127/
+#   restore   copy digest/ (no target/) and base/ back from ~/.cache/strudeland-0127/ (copy
+#             ab.sh itself from there first)
 # Merges #121's ab.sh (refs renders, the live and stems digest) and #122's eq.sh (the
-# controls --json dump, signatures per job, the x01-x45 jobs) and adds the y01-y45 jobs.
+# controls --json dump, signatures per job, the x01-x45 jobs) and adds the y01-y50 jobs.
 set -eu
 
 B=$(cd "$(dirname "$0")" && pwd)
@@ -237,11 +257,15 @@ extra_jobs() {
 EOF
 	# y01-y07: an lfo at a missing node ("Available targets", the registration order: y02 the
 	# oscillator's vib before its FM, y03/y04 the worklet synths' vib after it, y05/y07 a chain
-	# entry's keys, y06 the main entry's sends and djf). y08-y23: one throw site each. y24-y32:
-	# the throw ladder (every site armed, then the first one dropped, job by job). y33-y37: the
-	# FM matrix (a noise target, fmi/fmh modulators, throws). y38-y40, y45: ladders, 24 dB and
-	# a chain entry with every key. y41-y44: the pulse's NaN width LFO and worklet synths with
-	# vib and FM under modulators.
+	# entry's keys, y06 the main entry's sends and djf). y08-y23: one throw site each (y23 is
+	# the amp envelope's release ramp: with release Infinity no FXrelease gain is built).
+	# y24-y32: the throw ladder (every site armed, then the first one dropped, job by job).
+	# y33-y37: the FM matrix (a noise target, fmi/fmh modulators, throws). y38-y40, y45:
+	# ladders, 24 dB and a chain entry with every key. y41-y44: the pulse's NaN width LFO and
+	# worklet synths with vib and FM under modulators. y46-y50: the order between sites that
+	# share a text: the FXrelease gain's ramp before post (y46), a chain entry before the
+	# FXrelease gain (y47), a noise FM target's modfreq gain (y48), pw_lfo before the entries
+	# (y49), a chain entry's local delay before its local reverb (y50).
 	write_jobs y <<'EOF'
 [{"s":"sawtooth","cutoff":500,"pan":0.3,"lfo":{"__ids":{"$set":[0]},"0":{"control":"hcutoff"}}}]
 [{"s":"sawtooth","vib":2,"vibmod":0.5,"fmi":1,"fmi2":0.5,"lfo":{"__ids":{"$set":[0]},"0":{"control":"hcutoff"}}}]
@@ -288,6 +312,11 @@ EOF
 [{"s":"supersaw","vib":3,"vibmod":0.5,"fmi":1.5,"fmh":2,"fmi13":1,"fmwave3":"white","lfo":{"__ids":{"$set":[0]},"0":{"control":"vib"}}}]
 [{"s":"pulse","vib":3,"vibmod":0.5,"fmi":1.5,"fmi2":0.7,"pwrate":2,"lfo":{"__ids":{"$set":[0]},"0":{"control":"vibmod"}}}]
 [{"s":"sawtooth","cutoff":500,"hcutoff":300,"ftype":"24db","lprate":2,"hprate":2,"FX":[{"bandf":700,"bprate":1}]}]
+[{"s":"sine","FXrelease":{"$num":"Infinity"},"postgain":"x"}]
+[{"s":"sine","FX":[{"pan":"x"}],"FXrelease":{"$num":"Infinity"}}]
+[{"s":"sine","fmi13":1,"fmwave3":"white","fmh3":"x"}]
+[{"s":"pulse","pwsweep":"x","velocity":"x"}]
+[{"s":"sine","FX":[{"room":1e300,"roomsize":0.1,"delay":0.3,"delaytime":1e300}]}]
 EOF
 }
 
@@ -373,6 +402,11 @@ baseline)
 	expect y08 "Q is not a finite"
 	expect y13 "pan is not a finite"
 	expect y34 "lfo:fmh3"
+	expect y46 "linearRampToValueAtTime"
+	expect y47 "pan is not a finite"
+	expect y48 "gain is not a finite"
+	expect y49 "'value' on 'AudioParam'"
+	expect y50 "'value' on 'AudioParam'"
 	panics=$(cat "$B/base/digest-refs.txt" "$B/base/digest-extra.txt" | grep -c 'panic$' || true)
 	if [ "$panics" != 0 ]; then
 		echo "ab.sh: $panics digest variants panic on the baseline" >&2
@@ -392,6 +426,10 @@ check)
 	fi
 	if ! git -C "$REPO" diff --quiet "$BASE_SRC" -- crates/strudeland-engine/tests/refs; then
 		echo "ab.sh: tests/refs differs from $BASE_SRC; the guard compares against unchanged refs" >&2
+		exit 2
+	fi
+	if ! cmp -s "$B/digest/src/main.rs" "$CACHE/digest/src/main.rs"; then
+		echo "ab.sh: digest/src/main.rs differs from (or is missing in) $CACHE; the check builds the baseline's digest" >&2
 		exit 2
 	fi
 	build current
