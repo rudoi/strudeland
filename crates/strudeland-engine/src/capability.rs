@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use crate::chain::SourceKind;
 use crate::coerce::{js_to_string, js_truthy};
 use crate::job::{EngineJob, Value, ValueMap, bar_of};
-use crate::params::{SILENCE, is_silence, sound_of};
+use crate::params::{SILENCE, is_silence, is_silence_str, sound_of};
 
 /// Every key the engine accepts: the `implemented` and `ignored` rows of `controls.md`, sorted
 /// by byte order.
@@ -623,7 +623,7 @@ fn signature_with(map: &ValueMap, bus_cycle: bool, cps: f64) -> Option<(String, 
     bad.extend(crate::modulate::unsupported_targets(map, cps));
     // The silence half keeps a non-string `s` whose JS string is a marker (`["-"]`) accepted;
     // `is_silence` sees only strings.
-    let sound_ok = SourceKind::of(&s).is_some() || SILENCE.contains(&s.as_str());
+    let sound_ok = SourceKind::of(&s).is_some() || is_silence_str(&s);
     if sound_ok && bad.is_empty() {
         return None;
     }
@@ -742,15 +742,12 @@ pub fn controls_json() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::job::value_map as map;
     use crate::params::{
         BANDPASS_KEYS, BANDPASS_LFO_KEYS, FM_MODULATORS, HIGHPASS_KEYS, HIGHPASS_LFO_KEYS,
         LOWPASS_KEYS, LOWPASS_LFO_KEYS, fm_control_name, fm_suffix, parse_entry_params,
     };
     use serde_json::json;
-
-    fn map(v: serde_json::Value) -> ValueMap {
-        serde_json::from_value(v).unwrap()
-    }
 
     #[test]
     fn a_non_scalar_distorttype_is_unsupported() {
@@ -1394,7 +1391,14 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["schema"], 2);
         assert_eq!(v["keys"].as_array().unwrap().len(), ALLOWED_KEYS.len());
-        assert_eq!(v["sounds"], json!(allowed_sounds()));
+        assert_eq!(
+            v["sounds"],
+            json!([
+                "-", "_", "brown", "bus", "crackle", "one", "pink", "pulse", "saw", "sawtooth",
+                "sin", "sine", "sqr", "square", "supersaw", "tri", "triangle", "user", "white",
+                "~",
+            ])
+        );
         assert_eq!(v["unsupportedValues"], json!({}));
         assert_eq!(v["chainKeys"], json!(CHAIN_KEYS));
         for (t, keys) in MODULATOR_KEYS {
@@ -1402,7 +1406,7 @@ mod tests {
         }
         assert_eq!(
             v["modulatorTargets"],
-            json!(crate::modulate::modulatable_targets())
+            json!(crate::modulate::tests::TODAY.as_slice())
         );
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
         assert_eq!(keys.len(), 7);

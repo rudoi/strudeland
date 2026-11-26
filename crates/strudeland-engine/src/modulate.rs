@@ -1366,9 +1366,10 @@ fn build_bmod(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::chain::StageId;
+    use crate::job::value_map as map;
     use crate::job::{ErrorKind, OrbitSpec};
     use crate::noise::NoiseCache;
     use crate::orbit::{Orbit, OrbitInputs};
@@ -1378,10 +1379,6 @@ mod tests {
     use serde_json::json;
 
     use crate::QUANTUM_U64 as Q;
-
-    fn map(v: serde_json::Value) -> ValueMap {
-        serde_json::from_value(v).unwrap()
-    }
 
     /// A modulator value holding `configs` under the ids 0, 1, ...
     fn ids(configs: &[serde_json::Value]) -> serde_json::Value {
@@ -2473,7 +2470,7 @@ mod tests {
     /// `controls.md` classifies keys and lists no targets; it catches a probe that shrinks (a
     /// `NodeTable::plan` change that stops exposing a node on the probe voices) or grows.
     /// Changing it is a deliberate edit, in the same diff as the dump change it causes.
-    const TODAY: [&str; 91] = [
+    pub(crate) const TODAY: [&str; 91] = [
         "bandf",
         "bandq",
         "bpdc",

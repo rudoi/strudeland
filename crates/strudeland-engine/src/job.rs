@@ -94,6 +94,12 @@ fn optional_number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<
 /// A control map with sorted keys.
 pub type ValueMap = BTreeMap<String, Value>;
 
+/// A [`ValueMap`] from a JSON object (tests only).
+#[cfg(test)]
+pub(crate) fn value_map(v: serde_json::Value) -> ValueMap {
+    serde_json::from_value(v).unwrap()
+}
+
 /// A decoded control value. `{"$num": ...}` wrappers are decoded to `Num`, `{"$unsupported":
 /// type}` markers to `Unsupported`, `{"$set": [...]}` wrappers (a JS `Set`, members in insertion
 /// order) to `Set`.

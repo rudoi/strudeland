@@ -838,8 +838,12 @@ pub fn sound_of(map: &ValueMap) -> Value {
 
 /// The superdough silence markers.
 pub const SILENCE: &[&str] = &["-", "~", "_"];
+/// Whether `s` is a superdough silence marker.
+pub(crate) fn is_silence_str(s: &str) -> bool {
+    SILENCE.contains(&s)
+}
 pub(crate) fn is_silence(s: &Value) -> bool {
-    matches!(s, Value::Str(x) if SILENCE.contains(&x.as_str()))
+    matches!(s, Value::Str(x) if is_silence_str(x))
 }
 
 /// Superdough's mutation of a hap value before `voiceSeed` (superdough.mjs:483-566):
@@ -868,11 +872,8 @@ pub fn prepare_value(map: &ValueMap, hap_duration: f64) -> Option<ValueMap> {
 mod tests {
     use super::*;
     use crate::capability::ALLOWED_KEYS;
+    use crate::job::value_map as map;
     use serde_json::json;
-
-    fn map(v: serde_json::Value) -> ValueMap {
-        serde_json::from_value(v).unwrap()
-    }
 
     fn params(v: serde_json::Value) -> VoiceParams {
         parse_voice_params(&map(v), 0.5, 0.5).unwrap()
