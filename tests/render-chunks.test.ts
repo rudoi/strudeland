@@ -302,6 +302,12 @@ function chunkResult(
     sampleRate: SR,
     frames,
     windowStartFrame,
+    contentFrames: windowFrames(p.contentStartBar, p.contentEndBar, cps, SR),
+    ...(p.overlapBars > 0
+      ? {
+          overlapFrames: windowFrames(p.contentEndBar, p.contentEndBar + p.overlapBars, cps, SR),
+        }
+      : {}),
     lookbackSecUsed: p.lookbackSec,
     bufferStartSec: p.contentStartBar / cps - p.lookbackSec,
     cps,
@@ -462,6 +468,22 @@ describe('contentOf, overlapOf, headOf', () => {
     expect(overlapOf(chunkResult(ps[ps.length - 1]!))[0]!.length).toBe(0);
   });
 
+  test('overlapOf reads the planned overlapFrames: none without overlap, a throw when absent', () => {
+    const [p0] = plans();
+    const r = chunkResult(p0!);
+    expect(r.request.overlapBars).toBeGreaterThan(0);
+    // No overlap bars: empty, whatever the result carries.
+    const none = { ...r, request: { ...r.request, overlapBars: 0 }, overlapFrames: 5 };
+    expect(overlapOf(none)[0]!.length).toBe(0);
+    // The planned count is the one sliced, not a recompute from the bars.
+    expect(overlapOf({ ...r, overlapFrames: 7 })[0]!.length).toBe(7);
+    const missing = { ...r };
+    delete missing.overlapFrames;
+    expect(() => overlapOf(missing)).toThrow(
+      `overlapOf: no overlapFrames for ${r.request.overlapBars} overlap bar(s)`,
+    );
+  });
+
   test('headOf 0 bars is empty, past the content throws', () => {
     const r = chunkResult(plans()[1]!);
     expect(headOf(r, 0)[0]!.length).toBe(0);
@@ -508,6 +530,16 @@ describe('assembleWindow', () => {
     expect(w.timing).toEqual({ evalMs: 3, renderMs: 6, totalMs: 9 });
     expect(w.request).toEqual({ ...rs[0]!.request, toBar: 13, overlapBars: 0, lookbackSec: 0 });
     expect(w.stemPairs).toBe(1);
+  });
+
+  test("the window starts at the first chunk's content and keeps its planned frames", () => {
+    const ps = plans();
+    const rs = ps.map((p) => chunkResult(p));
+    // An odd buffer start and lookback: bufferStartSec is their sum, not fromBar / cps.
+    rs[0] = { ...rs[0]!, bufferStartSec: 0.125, lookbackSecUsed: 0.25 };
+    const w = assembleWindow(rs, []);
+    expect(w.bufferStartSec).toBe(0.375);
+    expect(w.contentFrames).toBe(w.frames);
   });
 
   test('a single chunk has no seams', () => {

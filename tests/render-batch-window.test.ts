@@ -19,9 +19,9 @@ const INFO = {
   errors: [],
   events: EVENTS,
   chunks: [
-    { c0: 0, c1: 8, fromBar: 0, toBar: 8, lookbackSec: 0 },
-    { c0: 8, c1: 16, fromBar: 8, toBar: 16, lookbackSec: 0.25 },
-    { c0: 16, c1: 20, fromBar: 16, toBar: 20, lookbackSec: 0.25 },
+    { c0: 0, c1: 8, fromBar: 0, toBar: 8, lookbackSec: 0, contentFrames: 705600 },
+    { c0: 8, c1: 16, fromBar: 8, toBar: 16, lookbackSec: 0.25, contentFrames: 705600 },
+    { c0: 16, c1: 20, fromBar: 16, toBar: 20, lookbackSec: 0.25, contentFrames: 352800 },
   ],
   summary: { frames: 1764000 },
 };
@@ -49,9 +49,9 @@ describe('parseBatchInfo', () => {
       errors: [],
       events: EVENTS,
       chunks: [
-        { fromBar: 0, toBar: 8 },
-        { fromBar: 8, toBar: 16 },
-        { fromBar: 16, toBar: 20 },
+        { fromBar: 0, toBar: 8, contentFrames: 705600 },
+        { fromBar: 8, toBar: 16, contentFrames: 705600 },
+        { fromBar: 16, toBar: 20, contentFrames: 352800 },
       ],
     });
     const withErrors = info({ errors: [{ kind: 'hap', message: 'm', bar: 3 }] });
@@ -65,6 +65,7 @@ describe('parseBatchInfo', () => {
   });
 
   test('missing keys and wrong types name the key', () => {
+    const CHUNK = 'chunks[0] must be a chunk window with fromBar, toBar and contentFrames';
     const cases: [Record<string, unknown>, string][] = [
       [{ window: undefined }, 'window must be an object'],
       [{ window: { ...INFO.window, fromBar: -1 } }, 'window.fromBar must be a bar'],
@@ -80,7 +81,11 @@ describe('parseBatchInfo', () => {
       [{ events: undefined }, 'events must be an array'],
       [{ events: [ev(), 3] }, 'events[1] must be an object'],
       [{ chunks: null }, 'chunks must be an array'],
-      [{ chunks: [{ fromBar: 0 }] }, 'chunks[0] must be a chunk window with fromBar and toBar'],
+      [{ chunks: [{ fromBar: 0, contentFrames: 1 }] }, CHUNK],
+      [{ chunks: [{ fromBar: 0, toBar: 8 }] }, CHUNK],
+      [{ chunks: [{ fromBar: 0, toBar: 8, contentFrames: -1 }] }, CHUNK],
+      [{ chunks: [{ fromBar: 0, toBar: 8, contentFrames: 1.5 }] }, CHUNK],
+      [{ chunks: [{ fromBar: 0, toBar: 8, contentFrames: '705600' }] }, CHUNK],
     ];
     for (const [patch, want] of cases) {
       expect(() => info(patch)).toThrow(`batch info: ${want}`);
@@ -129,7 +134,7 @@ describe('batchCrossChecks', () => {
 
   test('chunks that do not tile the window', () => {
     const tile = (chunks: { fromBar: number; toBar: number }[]) =>
-      batchCrossChecks(info({ chunks }), fx);
+      batchCrossChecks(info({ chunks: chunks.map((c) => ({ ...c, contentFrames: 0 })) }), fx);
     expect(tile([])).toEqual(['batch: the chunks (none) do not tile the window [0, 20)']);
     expect(
       tile([
@@ -166,6 +171,7 @@ describe('batchAssembled', () => {
     expect(a).toMatchObject({
       sampleRate: 44100,
       frames,
+      contentFrames: frames,
       windowStartFrame: 0,
       lookbackSecUsed: 0,
       bufferStartSec: 0,
@@ -187,8 +193,8 @@ describe('batchAssembled', () => {
       cps,
       window: { fromBar: 3, toBar: 10, layout: 'linear' },
       chunks: [
-        { fromBar: 3, toBar: 7 },
-        { fromBar: 7, toBar: 10 },
+        { fromBar: 3, toBar: 7, contentFrames: windowFrames(3, 7, cps, 44100) },
+        { fromBar: 7, toBar: 10, contentFrames: windowFrames(7, 10, cps, 44100) },
       ],
     });
     const n = windowFrames(3, 10, cps, 44100);
@@ -198,6 +204,25 @@ describe('batchAssembled', () => {
     expect(batchSeamSecs(i)).toEqual([windowFrames(3, 7, cps, 44100) / 44100]);
     expect(a.seamSecs).toEqual(batchSeamSecs(i));
     expect(a.request).toMatchObject({ fromBar: 3, toBar: 10 });
+  });
+
+  test("the frames and seams are the chunks' contentFrames, not a recompute", () => {
+    // Planned counts that no rounding of the bars gives: the info file is the only source.
+    const i = info({
+      chunks: [
+        { fromBar: 0, toBar: 8, contentFrames: 1000 },
+        { fromBar: 8, toBar: 16, contentFrames: 2000 },
+        { fromBar: 16, toBar: 20, contentFrames: 500 },
+      ],
+    });
+    expect(batchSeamSecs(i)).toEqual([1000 / 44100, 3000 / 44100]);
+    const a = batchAssembled(wav(3500), i, BASE, EVENTS, 0);
+    expect(a.frames).toBe(3500);
+    expect(a.contentFrames).toBe(3500);
+    expect(a.seamSecs).toEqual(batchSeamSecs(i));
+    expect(() => batchAssembled(wav(frames), i, BASE, EVENTS, 0)).toThrow(
+      `batch: the WAV has ${frames}/${frames} frames, the window 3500`,
+    );
   });
 
   test('a WAV of the wrong shape is a RangeError', () => {

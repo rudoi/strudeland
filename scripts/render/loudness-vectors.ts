@@ -5,8 +5,9 @@
  * (`src/lib/render/loudness.ts`) of each; `tests/loudness_vectors.rs` rebuilds every signal from
  * its recipe and checks the Rust port within 1e-6 LU. `joiner.json` runs the real
  * `assembleWindow` (`src/lib/render/chunks.ts`) over synthetic chunk buffers and stores each
- * case's frame count and the FNV-1a 64-bit hash of the joined audio; `tests/joiner_vectors.rs`
- * rebuilds the same buffers and checks the Rust joiner against them. No browser: `bun test`
+ * chunk's planned `contentFrames` and buffer `frames`, and each case's frame count and the FNV-1a
+ * 64-bit hash of the joined audio; `tests/joiner_vectors.rs` rebuilds the same buffers from those
+ * frame counts (computing none) and checks the Rust joiner against them. No browser: `bun test`
  * regenerates the files in memory and byte-compares them with the committed ones
  * (`tests/render-vectors.test.ts`).
  *
@@ -151,6 +152,17 @@ function chunkResult(k: number, chunk: JoinerChunk, cps: number): RenderResult {
     sampleRate: SAMPLE_RATE,
     frames,
     windowStartFrame: chunk.windowStartFrame,
+    contentFrames: windowFrames(chunk.fromBar, chunk.toBar, cps, SAMPLE_RATE),
+    ...(chunk.overlapBars > 0
+      ? {
+          overlapFrames: windowFrames(
+            chunk.toBar,
+            chunk.toBar + chunk.overlapBars,
+            cps,
+            SAMPLE_RATE,
+          ),
+        }
+      : {}),
     lookbackSecUsed: chunk.windowStartFrame / SAMPLE_RATE,
     bufferStartSec: 0,
     cps,
@@ -174,11 +186,18 @@ function chunkResult(k: number, chunk: JoinerChunk, cps: number): RenderResult {
 
 function joinerCases(): object[] {
   return JOINER_CASES.map((c) => {
-    const joined = assembleWindow(
-      c.chunks.map((chunk, k) => chunkResult(k, chunk, c.cps)),
-      [],
-    );
-    return { ...c, frames: joined.frames, fnv1a64: fnv1a64(joined.channels) };
+    const results = c.chunks.map((chunk, k) => chunkResult(k, chunk, c.cps));
+    const joined = assembleWindow(results, []);
+    return {
+      ...c,
+      chunks: c.chunks.map((ch, k) => ({
+        ...ch,
+        contentFrames: results[k]!.contentFrames,
+        frames: results[k]!.frames,
+      })),
+      frames: joined.frames,
+      fnv1a64: fnv1a64(joined.channels),
+    };
   });
 }
 

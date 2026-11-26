@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use strudeland_host::{Layout, Meter, PlannedWindow, Structure};
+use strudeland_host::{Layout, Meter, PlannedWindow, SAMPLE_RATE, Structure};
 
 use crate::export::{Error, Pipeline, PublishStep, publish_file};
 use crate::{
@@ -192,4 +192,68 @@ pub fn lcg_noise(seed: u32, frames: usize, amp: f32) -> Vec<Vec<f32>> {
     let l: Vec<f32> = (0..frames).map(|_| next()).collect();
     let r: Vec<f32> = (0..frames).map(|_| next()).collect();
     vec![l, r]
+}
+
+/// The test helper for a plan's frame counts (the pipeline reads them from the plan):
+/// `round(to * sr / cps) - round(from * sr / cps)`: `Math.round((toBar * sampleRate) / cps)` minus
+/// the same for `fromBar`. Operands are non-negative, so `f64::round` (ties away from zero) equals
+/// JS `Math.round` (ties up). Multiply first, then divide, exactly as the TS does. The rounding is
+/// applied to each bar's absolute frame, so the lengths of contiguous windows add up exactly.
+/// Saturates at 0 when `to_bar` comes before `from_bar` (or `cps` is not a positive number).
+pub fn window_frames(from_bar: u32, to_bar: u32, cps: f64) -> u64 {
+    frame_of(to_bar, cps).saturating_sub(frame_of(from_bar, cps))
+}
+
+/// `Math.round((bar * sampleRate) / cps)` as a frame index (`as` saturates; NaN is 0).
+pub fn frame_of(bar: u32, cps: f64) -> u64 {
+    ((f64::from(bar) * f64::from(SAMPLE_RATE)) / cps).round() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The TS `windowFrames` evaluated by hand (Math.round of `bar * 44100 / cps`).
+    #[test]
+    fn window_frames_matches_the_ts_rounding() {
+        // (from, to, cps, expected)
+        let cases: [(u32, u32, f64, u64); 10] = [
+            (0, 2, 0.5, 176_400),
+            (0, 4, 0.5, 352_800),
+            (3, 8, 0.5, 441_000),
+            // cps = 0.5625: a bar is 78400 frames exactly.
+            (0, 1, 0.5625, 78_400),
+            (5, 7, 0.5625, 156_800),
+            // cps = 4/3: a bar is 33075 frames.
+            (0, 1, 4.0 / 3.0, 33_075),
+            (1, 2, 4.0 / 3.0, 33_075),
+            // cps = 0.4375: bar k at round(k * 100800) exactly; 3 / 0.4375 = 302400.
+            (0, 3, 0.4375, 302_400),
+            // cps = 0.7: bar 1 = 63000, bar 2 = 126000; 1/0.7 rounds, the sums telescope.
+            (1, 3, 0.7, 126_000),
+            (2, 2, 0.5, 0),
+        ];
+        for (from, to, cps, want) in cases {
+            assert_eq!(
+                window_frames(from, to, cps),
+                want,
+                "[{from}, {to}) at {cps}"
+            );
+        }
+        // A non-whole bar length: cps = 0.3 gives 147000.00000000003 per bar.
+        assert_eq!(frame_of(1, 0.3), 147_000);
+        // A tie rounds up (JS Math.round), as f64::round does for positive numbers: cps = 88200
+        // makes bar 1 frame 0.5.
+        assert_eq!(frame_of(1, 88_200.0), 1);
+        assert_eq!(frame_of(3, 88_200.0), 2);
+        // Reversed, NaN and non-positive cps saturate instead of panicking.
+        assert_eq!(window_frames(4, 2, 0.5), 0);
+        assert_eq!(window_frames(0, 4, f64::NAN), 0);
+        assert_eq!(window_frames(0, 4, -1.0), 0);
+        // Telescoping: contiguous windows add up to the whole window at awkward tempos.
+        for cps in [0.4375, 4.0 / 3.0, 0.7, 0.3, 0.5625, 0.123_456_789] {
+            let parts: u64 = (0..37).map(|b| window_frames(b, b + 1, cps)).sum();
+            assert_eq!(parts, window_frames(0, 37, cps), "cps {cps}");
+        }
+    }
 }

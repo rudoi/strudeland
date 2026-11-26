@@ -17,8 +17,10 @@ passes and stems share this snapshot. Standalone sources use an empty snapshot.
    the list `s=... keys=... first at bar N`, before anything is rendered.
 2. **Render** (`render`): the chunk jobs render in parallel on a scoped worker pool, one engine per
    worker (`--jobs`, default `min(cores, 4)`).
-3. **Join** (`join`): each chunk's lookback head and overlap tail are dropped and the contents are
-   concatenated sample-exactly (a port of `assembleWindow`; `render:vectors` checks it). The
+3. **Join** (`join`): each chunk's content is cut at the planner's `windowStartFrame` and
+   `contentFrames` (its lookback head and overlap tail dropped), the contents are concatenated
+   sample-exactly (a port of `assembleWindow`; `render:vectors` checks it), and the joiner checks
+   that they add up to the plan's `musicFrames`. It recomputes no frame count. The
    window is allocated up front and each chunk is copied in as it finishes and then freed, so the
    render holds the window and the chunks in flight, not every chunk at once.
 4. **Level** (`level/`): `loudness` (BS.1770-4 integrated loudness, a port of

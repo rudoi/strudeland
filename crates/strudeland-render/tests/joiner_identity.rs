@@ -45,7 +45,14 @@ fn batch_and_per_chunk_renders_join_bit_identically() {
     assert_eq!(planned.chunks.len(), audio.chunks.len());
     assert_eq!(planned.cps.to_bits(), audio.cps.to_bits());
 
-    let mut joiner = Joiner::for_plans(&audio.summary.window, audio.cps, &audio.chunks, 2).unwrap();
+    let mut joiner = Joiner::for_plans(
+        &audio.summary.window,
+        &audio.chunks,
+        2,
+        audio.music_frames,
+        0,
+    )
+    .unwrap();
     for (k, (plan, batch)) in audio.chunks.iter().zip(&planned.chunks).enumerate() {
         assert_eq!(&batch.plan, plan, "chunk {k}: the window");
         let request = RenderRequest {

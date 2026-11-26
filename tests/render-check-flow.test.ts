@@ -171,6 +171,10 @@ class FakeRenderer implements Renderer {
       sampleRate: SR,
       frames,
       windowStartFrame: head,
+      contentFrames: windowFrames(req.fromBar, req.toBar, CPS, SR),
+      ...(req.overlapBars > 0
+        ? { overlapFrames: windowFrames(req.toBar, req.toBar + req.overlapBars, CPS, SR) }
+        : {}),
       lookbackSecUsed: lb,
       bufferStartSec: req.fromBar / CPS - lb,
       cps: CPS,

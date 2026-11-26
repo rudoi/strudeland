@@ -163,8 +163,8 @@ function busSendsOf(bus: unknown): string[] {
   return k === null ? [] : [k];
 }
 
-/** Numeric controls as read by the engine (controls.rs js_to_number). Only reverb also
- *  converts arrays through their string representation (js_to_number_full). */
+/** Numeric controls as read by the engine (`coerce.rs` `js_to_number`). Only reverb also
+ *  converts arrays through their string representation (`js_to_number_full`). */
 function engineNum(value: unknown): number | null {
   if (value === null || typeof value === 'boolean') return Number(value);
   if (typeof value === 'string') return num(Number(value));

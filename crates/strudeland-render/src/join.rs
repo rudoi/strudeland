@@ -1,39 +1,20 @@
-//! The joiner: ports of `windowFrames` (`src/lib/render/contract.ts`), `contentOf` and the
-//! concatenation in `assembleWindow` (`src/lib/render/chunks.ts`). Every check is an error, never
-//! a panic.
+//! The joiner: ports of `contentOf` and the concatenation in `assembleWindow`
+//! (`src/lib/render/chunks.ts`). Every frame count is the planner's (`contentFrames`,
+//! `musicFrames`); nothing here recomputes one. Every check is an error, never a panic.
 
-use strudeland_host::{ChunkWindow, MAX_BARS, PlannedWindow, SAMPLE_RATE};
+use strudeland_host::{ChunkWindow, MAX_BARS, PlannedWindow};
 
 use crate::RenderError;
-
-/// `round(to * sr / cps) - round(from * sr / cps)`: `Math.round((toBar * sampleRate) / cps)` minus
-/// the same for `fromBar`. Operands are non-negative, so `f64::round` (ties away from zero) equals
-/// JS `Math.round` (ties up). Multiply first, then divide, exactly as the TS does. The rounding is
-/// applied to each bar's absolute frame, so the lengths of contiguous windows add up exactly.
-/// Saturates at 0 when `to_bar` comes before `from_bar` (or `cps` is not a positive number).
-pub fn window_frames(from_bar: u32, to_bar: u32, cps: f64) -> u64 {
-    frame_of(to_bar, cps).saturating_sub(frame_of(from_bar, cps))
-}
-
-/// `Math.round((bar * sampleRate) / cps)` as a frame index (`as` saturates; NaN is 0).
-fn frame_of(bar: u32, cps: f64) -> u64 {
-    ((f64::from(bar) * f64::from(SAMPLE_RATE)) / cps).round() as u64
-}
 
 fn to_usize(n: u64, what: &str) -> Result<usize, RenderError> {
     usize::try_from(n).map_err(|_| RenderError::Render(format!("{what} ({n}) is too large")))
 }
 
-fn content_frames(plan: &ChunkWindow, cps: f64) -> u64 {
-    plan.content_frames
-        .unwrap_or_else(|| window_frames(plan.from_bar, plan.to_bar, cps))
-}
-
 /// The frames of a chunk's buffer that its content keeps: `plan.window_start_frame` frames from
 /// the head, then the musical content length from the plan.
-fn kept_range(plan: &ChunkWindow, cps: f64) -> Result<std::ops::Range<usize>, RenderError> {
+fn kept_range(plan: &ChunkWindow) -> Result<std::ops::Range<usize>, RenderError> {
     let start = to_usize(plan.window_start_frame, "windowStartFrame")?;
-    let len = to_usize(content_frames(plan, cps), "content frames")?;
+    let len = to_usize(plan.content_frames, "content frames")?;
     let end = start
         .checked_add(len)
         .ok_or_else(|| RenderError::Render("content end overflows".into()))?;
@@ -42,12 +23,8 @@ fn kept_range(plan: &ChunkWindow, cps: f64) -> Result<std::ops::Range<usize>, Re
 
 /// The kept part of each channel ([`kept_range`]): a port of `contentOf`. A short channel is a
 /// `Render` error.
-fn kept<'a>(
-    plan: &ChunkWindow,
-    cps: f64,
-    channels: &'a [Vec<f32>],
-) -> Result<Vec<&'a [f32]>, RenderError> {
-    let range = kept_range(plan, cps)?;
+fn kept<'a>(plan: &ChunkWindow, channels: &'a [Vec<f32>]) -> Result<Vec<&'a [f32]>, RenderError> {
+    let range = kept_range(plan)?;
     channels
         .iter()
         .enumerate()
@@ -83,7 +60,6 @@ pub struct Joiner {
     out: Vec<Vec<f32>>,
     total: usize,
     tail: usize,
-    cps: f64,
 }
 
 impl Joiner {
@@ -91,24 +67,16 @@ impl Joiner {
         self.out.len()
     }
 
-    /// Checks the chunks' bars against the window and allocates it. Errors (`Render`) when the
-    /// window ends past [`MAX_BARS`] or cannot be allocated, there is no chunk, the first does not start at `window.from_bar`, two chunks leave a gap or
-    /// overlap, a chunk is empty, the channel counts differ, the last does not end at
-    /// `window.to_bar`, or the chunks' frames do not add up to
-    /// `window_frames(window.from_bar, window.to_bar, cps)`.
-    pub fn new(window: &PlannedWindow, cps: f64, spans: &[Span]) -> Result<Self, RenderError> {
-        let chunks = spans
-            .iter()
-            .map(|span| (*span, window_frames(span.from_bar, span.to_bar, cps)))
-            .collect::<Vec<_>>();
-        Self::with_tail(window, cps, &chunks, None, 0)
-    }
-
-    fn with_tail(
+    /// Checks the chunks' bars against the window and allocates it, with `tail_frames` after the
+    /// music. Each span carries its planned content frames. Errors (`Render`) when the window ends
+    /// past [`MAX_BARS`] or cannot be allocated, there is no chunk, the first does not start at
+    /// `window.from_bar`, two chunks leave a gap or overlap, a chunk is empty, the channel counts
+    /// differ, the last does not end at `window.to_bar`, or the chunks' frames do not add up to
+    /// the plan's `music_frames`.
+    pub fn new(
         window: &PlannedWindow,
-        cps: f64,
         spans: &[(Span, u64)],
-        music_frames: Option<u64>,
+        music_frames: u64,
         tail_frames: u64,
     ) -> Result<Self, RenderError> {
         // The planner refuses such a window; checked again before anything is allocated.
@@ -166,11 +134,9 @@ impl Joiner {
                 .checked_add(len)
                 .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
         }
-        if let Some(expected) = music_frames
-            && expected != total as u64
-        {
+        if music_frames != total as u64 {
             return join_err(format!(
-                "the chunks hold {total} frames, the window is {expected}"
+                "the chunks hold {total} frames, the window is {music_frames}"
             ));
         }
         let tail = to_usize(tail_frames, "tail frames")?;
@@ -194,27 +160,16 @@ impl Joiner {
             out,
             total,
             tail,
-            cps,
         })
     }
 
-    /// [`Joiner::new`] for the chunks of `plans`, each of `channels` channels: the joiner the
-    /// pipeline renders into.
+    /// [`Joiner::new`] for the chunks of `plans` (their planned `content_frames`), each of
+    /// `channels` channels: the joiner the pipeline renders into.
     pub fn for_plans(
         window: &PlannedWindow,
-        cps: f64,
         plans: &[ChunkWindow],
         channels: usize,
-    ) -> Result<Self, RenderError> {
-        Self::for_plans_with_tail(window, cps, plans, channels, None, 0)
-    }
-
-    pub(crate) fn for_plans_with_tail(
-        window: &PlannedWindow,
-        cps: f64,
-        plans: &[ChunkWindow],
-        channels: usize,
-        music_frames: Option<u64>,
+        music_frames: u64,
         tail_frames: u64,
     ) -> Result<Self, RenderError> {
         let spans: Vec<_> = plans
@@ -225,10 +180,10 @@ impl Joiner {
                     to_bar: p.to_bar,
                     channels,
                 };
-                (span, content_frames(p, cps))
+                (span, p.content_frames)
             })
             .collect();
-        Joiner::with_tail(window, cps, &spans, music_frames, tail_frames)
+        Joiner::new(window, &spans, music_frames, tail_frames)
     }
 
     /// Places chunk `index` from its whole rendered buffer: drops `plan.window_start_frame`
@@ -249,12 +204,12 @@ impl Joiner {
                 span.from_bar, span.to_bar, plan.from_bar, plan.to_bar
             ));
         }
-        let content = kept(plan, self.cps, channels).map_err(|e| match e {
+        let content = kept(plan, channels).map_err(|e| match e {
             RenderError::Render(m) => RenderError::Render(format!("chunk {index}: {m}")),
             other => other,
         })?;
         if self.tail != 0 && index == self.chunks.len() - 1 {
-            let start = kept_range(plan, self.cps)?.end;
+            let start = kept_range(plan)?.end;
             let end = start
                 .checked_add(self.tail)
                 .ok_or_else(|| RenderError::Render("tail end overflows".into()))?;
@@ -324,58 +279,16 @@ fn join_err<T>(m: String) -> Result<T, RenderError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::window_frames;
     use strudeland_host::Layout;
-
-    /// The TS `windowFrames` evaluated by hand (Math.round of `bar * 44100 / cps`).
-    #[test]
-    fn window_frames_matches_the_ts_rounding() {
-        // (from, to, cps, expected)
-        let cases: [(u32, u32, f64, u64); 10] = [
-            (0, 2, 0.5, 176_400),
-            (0, 4, 0.5, 352_800),
-            (3, 8, 0.5, 441_000),
-            // cps = 0.5625: a bar is 78400 frames exactly.
-            (0, 1, 0.5625, 78_400),
-            (5, 7, 0.5625, 156_800),
-            // cps = 4/3: a bar is 33075 frames.
-            (0, 1, 4.0 / 3.0, 33_075),
-            (1, 2, 4.0 / 3.0, 33_075),
-            // cps = 0.4375: bar k at round(k * 100800) exactly; 3 / 0.4375 = 302400.
-            (0, 3, 0.4375, 302_400),
-            // cps = 0.7: bar 1 = 63000, bar 2 = 126000; 1/0.7 rounds, the sums telescope.
-            (1, 3, 0.7, 126_000),
-            (2, 2, 0.5, 0),
-        ];
-        for (from, to, cps, want) in cases {
-            assert_eq!(
-                window_frames(from, to, cps),
-                want,
-                "[{from}, {to}) at {cps}"
-            );
-        }
-        // A non-whole bar length: cps = 0.3 gives 147000.00000000003 per bar.
-        assert_eq!(frame_of(1, 0.3), 147_000);
-        // A tie rounds up (JS Math.round), as f64::round does for positive numbers: cps = 88200
-        // makes bar 1 frame 0.5.
-        assert_eq!(frame_of(1, 88_200.0), 1);
-        assert_eq!(frame_of(3, 88_200.0), 2);
-        // Reversed, NaN and non-positive cps saturate instead of panicking.
-        assert_eq!(window_frames(4, 2, 0.5), 0);
-        assert_eq!(window_frames(0, 4, f64::NAN), 0);
-        assert_eq!(window_frames(0, 4, -1.0), 0);
-        // Telescoping: contiguous windows add up to the whole window at awkward tempos.
-        for cps in [0.4375, 4.0 / 3.0, 0.7, 0.3, 0.5625, 0.123_456_789] {
-            let parts: u64 = (0..37).map(|b| window_frames(b, b + 1, cps)).sum();
-            assert_eq!(parts, window_frames(0, 37, cps), "cps {cps}");
-        }
-    }
 
     fn plan(from_bar: u32, to_bar: u32, window_start_frame: u64) -> ChunkWindow {
         ChunkWindow {
             c0: from_bar,
             c1: to_bar,
             lookback_sec_used: 0.0,
-            content_frames: None,
+            content_frames: u64::from(to_bar - from_bar),
+            overlap_frames: None,
             window_start_frame,
             buffer_start_sec: 0.0,
             frames: 0,
@@ -389,11 +302,13 @@ mod tests {
         (0..n).map(|i| base + i as f32).collect()
     }
 
-    // cps 44100: one bar is one frame, so offsets are easy to read.
-    const CPS1: f64 = 44_100.0;
+    /// One frame per bar, so offsets are easy to read (the frames [`plan`] gives a chunk).
+    fn one_per_bar(from_bar: u32, to_bar: u32) -> u64 {
+        u64::from(to_bar - from_bar)
+    }
 
-    fn kept_vecs(plan: &ChunkWindow, cps: f64, channels: &[Vec<f32>]) -> Vec<Vec<f32>> {
-        kept(plan, cps, channels)
+    fn kept_vecs(plan: &ChunkWindow, channels: &[Vec<f32>]) -> Vec<Vec<f32>> {
+        kept(plan, channels)
             .unwrap()
             .into_iter()
             .map(<[f32]>::to_vec)
@@ -402,40 +317,40 @@ mod tests {
 
     #[test]
     fn kept_drops_the_head_and_the_tail() {
-        let c = kept_vecs(&plan(2, 5, 4), CPS1, &[ramp(10, 0.0), ramp(10, 100.0)]);
+        let c = kept_vecs(&plan(2, 5, 4), &[ramp(10, 0.0), ramp(10, 100.0)]);
         assert_eq!(c, vec![vec![4.0, 5.0, 6.0], vec![104.0, 105.0, 106.0]]);
         // Exactly long enough.
-        let c = kept_vecs(&plan(0, 3, 2), CPS1, &[ramp(5, 0.0)]);
+        let c = kept_vecs(&plan(0, 3, 2), &[ramp(5, 0.0)]);
         assert_eq!(c, vec![vec![2.0, 3.0, 4.0]]);
         // No lookback.
-        let c = kept_vecs(&plan(0, 2, 0), CPS1, &[ramp(2, 0.0)]);
+        let c = kept_vecs(&plan(0, 2, 0), &[ramp(2, 0.0)]);
         assert_eq!(c, vec![vec![0.0, 1.0]]);
     }
 
     #[test]
     fn kept_rejects_a_short_buffer() {
-        let e = kept(&plan(0, 3, 2), CPS1, &[ramp(5, 0.0), ramp(4, 0.0)]).unwrap_err();
+        let e = kept(&plan(0, 3, 2), &[ramp(5, 0.0), ramp(4, 0.0)]).unwrap_err();
         assert_eq!(
             e.to_string(),
             "render failed: contentOf: channel 1 has 4 frames, needs 5 (2 + 3)"
         );
-        let e = kept(&plan(0, 1, u64::MAX), CPS1, &[ramp(5, 0.0)]).unwrap_err();
+        let e = kept(&plan(0, 1, u64::MAX), &[ramp(5, 0.0)]).unwrap_err();
         assert!(matches!(e, RenderError::Render(_)), "{e}");
     }
 
     #[test]
     fn explicit_frames_tile_the_window_and_locate_its_tail() {
         let mut plans = [plan(0, 1, 1), plan(1, 2, 2)];
-        plans[0].content_frames = Some(3);
-        plans[1].content_frames = Some(1);
+        plans[0].content_frames = 3;
+        plans[1].content_frames = 1;
         let w = window(0, 2);
-        let mut j = Joiner::for_plans_with_tail(&w, CPS1, &plans, 1, Some(4), 2).unwrap();
+        let mut j = Joiner::for_plans(&w, &plans, 1, 4, 2).unwrap();
         j.place_rendered(1, &plans[1], &[vec![0., 0., 4., 5., 6.]])
             .unwrap();
         j.place_rendered(0, &plans[0], &[vec![0., 1., 2., 3., 0.]])
             .unwrap();
         assert_eq!(j.finish().unwrap(), vec![vec![1., 2., 3., 4., 5., 6.]]);
-        assert!(Joiner::for_plans_with_tail(&w, CPS1, &plans, 1, Some(5), 0).is_err());
+        assert!(Joiner::for_plans(&w, &plans, 1, 5, 0).is_err());
     }
 
     #[test]
@@ -443,7 +358,7 @@ mod tests {
         // Chunks [0, 2) and [2, 3) with 1 and 2 frames of lookback and a frame of tail each,
         // placed out of order.
         let plans = [plan(0, 2, 1), plan(2, 3, 2)];
-        let mut j = Joiner::for_plans(&window(0, 3), CPS1, &plans, 2).unwrap();
+        let mut j = Joiner::for_plans(&window(0, 3), &plans, 2, 3, 0).unwrap();
         j.place_rendered(1, &plans[1], &[ramp(4, 20.0), ramp(4, 120.0)])
             .unwrap();
         j.place_rendered(0, &plans[0], &[ramp(4, 10.0), ramp(4, 110.0)])
@@ -453,7 +368,7 @@ mod tests {
             vec![vec![11.0, 12.0, 22.0], vec![111.0, 112.0, 122.0]]
         );
         // A short buffer names the chunk; a plan for other bars is refused.
-        let mut j = Joiner::for_plans(&window(0, 3), CPS1, &plans, 2).unwrap();
+        let mut j = Joiner::for_plans(&window(0, 3), &plans, 2, 3, 0).unwrap();
         let e = j
             .place_rendered(1, &plans[1], &[ramp(4, 0.0), ramp(2, 0.0)])
             .unwrap_err();
@@ -478,21 +393,26 @@ mod tests {
         channels: Vec<Vec<f32>>,
     }
 
-    /// `contents` placed in chunk order into a [`Joiner`].
+    /// `contents` placed in chunk order into a [`Joiner`], each planned at `frames(from, to)`
+    /// content frames and the window at their sum.
     fn join(
         window: &PlannedWindow,
-        cps: f64,
+        frames: impl Fn(u32, u32) -> u64,
         contents: Vec<Content>,
     ) -> Result<Vec<Vec<f32>>, RenderError> {
-        let spans: Vec<Span> = contents
+        let spans: Vec<(Span, u64)> = contents
             .iter()
-            .map(|c| Span {
-                from_bar: c.from_bar,
-                to_bar: c.to_bar,
-                channels: c.channels.len(),
+            .map(|c| {
+                let span = Span {
+                    from_bar: c.from_bar,
+                    to_bar: c.to_bar,
+                    channels: c.channels.len(),
+                };
+                (span, frames(c.from_bar, c.to_bar))
             })
             .collect();
-        let mut joiner = Joiner::new(window, cps, &spans)?;
+        let music = spans.iter().map(|(_, n)| n).sum();
+        let mut joiner = Joiner::new(window, &spans, music, 0)?;
         for (i, c) in contents.iter().enumerate() {
             let slices: Vec<&[f32]> = c.channels.iter().map(Vec::as_slice).collect();
             joiner.place(i, &slices)?;
@@ -523,7 +443,7 @@ mod tests {
     fn join_concatenates_at_the_bar_offsets() {
         let out = join(
             &window(1, 6),
-            CPS1,
+            one_per_bar,
             vec![
                 content(1, 3, 2, 10.0),
                 content(3, 4, 2, 20.0),
@@ -539,7 +459,7 @@ mod tests {
             ]
         );
         // A single chunk is the window.
-        let out = join(&window(0, 3), CPS1, vec![content(0, 3, 2, 0.0)]).unwrap();
+        let out = join(&window(0, 3), one_per_bar, vec![content(0, 3, 2, 0.0)]).unwrap();
         assert_eq!(out[0], vec![0.0, 1.0, 2.0]);
     }
 
@@ -557,7 +477,7 @@ mod tests {
                     channels: vec![vec![k as f32; window_frames(a, b, cps) as usize]; 2],
                 })
                 .collect();
-            let out = join(&w, cps, contents).unwrap();
+            let out = join(&w, |a, b| window_frames(a, b, cps), contents).unwrap();
             let total = window_frames(0, 5, cps) as usize;
             assert_eq!(out[0].len(), total, "cps {cps}");
             let off1 = window_frames(0, 2, cps) as usize;
@@ -641,7 +561,7 @@ mod tests {
             ),
         ];
         for (name, w, contents, want) in cases {
-            let e = join(&w, CPS1, contents).unwrap_err();
+            let e = join(&w, one_per_bar, contents).unwrap_err();
             assert!(matches!(e, RenderError::Render(_)), "{name}");
             assert_eq!(e.to_string(), format!("render failed: {want}"), "{name}");
         }
@@ -649,17 +569,20 @@ mod tests {
 
     #[test]
     fn joiner_places_chunks_in_any_order_and_needs_every_one() {
-        let spans = [(1, 3), (3, 4), (4, 6)].map(|(from_bar, to_bar)| Span {
-            from_bar,
-            to_bar,
-            channels: 2,
+        let spans = [(1, 3), (3, 4), (4, 6)].map(|(from_bar, to_bar)| {
+            let span = Span {
+                from_bar,
+                to_bar,
+                channels: 2,
+            };
+            (span, one_per_bar(from_bar, to_bar))
         });
         let contents = [
             content(1, 3, 2, 10.0),
             content(3, 4, 2, 20.0),
             content(4, 6, 2, 30.0),
         ];
-        let mut j = Joiner::new(&window(1, 6), CPS1, &spans).unwrap();
+        let mut j = Joiner::new(&window(1, 6), &spans, 5, 0).unwrap();
         for i in [2, 0, 1] {
             let c = &contents[i];
             let slices: Vec<&[f32]> = c.channels.iter().map(Vec::as_slice).collect();
@@ -667,10 +590,10 @@ mod tests {
         }
         assert_eq!(
             j.finish().unwrap(),
-            join(&window(1, 6), CPS1, contents.to_vec()).unwrap()
+            join(&window(1, 6), one_per_bar, contents.to_vec()).unwrap()
         );
 
-        let mut j = Joiner::new(&window(1, 6), CPS1, &spans).unwrap();
+        let mut j = Joiner::new(&window(1, 6), &spans, 5, 0).unwrap();
         let c = &contents[0];
         j.place(0, &[&c.channels[0], &c.channels[1]]).unwrap();
         let e = j.place(1, &[&c.channels[0]]).unwrap_err();
@@ -688,25 +611,27 @@ mod tests {
     #[test]
     fn a_window_past_the_render_limit_is_an_error_not_an_allocation() {
         let to_bar = MAX_BARS as u32 + 1;
-        let spans = [Span {
+        // cps 0.5: about 8.8e9 frames, which would abort the process if allocated.
+        let frames = window_frames(0, to_bar, 0.5);
+        let span = Span {
             from_bar: 0,
             to_bar,
             channels: 2,
-        }];
-        // cps 0.5: about 8.8e9 frames, which would abort the process if allocated.
-        let e = Joiner::new(&window(0, to_bar), 0.5, &spans).unwrap_err();
+        };
+        let e = Joiner::new(&window(0, to_bar), &[(span, frames)], frames, 0).unwrap_err();
         assert!(matches!(e, RenderError::Render(_)), "{e:?}");
         assert_eq!(
             e.to_string(),
             "render failed: join: the window [0, 100001) ends past the render limit of 100000 bars"
         );
         // A window that fits the bars but not the memory is an error too, never an abort.
-        let spans = [Span {
+        let frames = window_frames(0, 4, 1e-12);
+        let span = Span {
             from_bar: 0,
             to_bar: 4,
             channels: 2,
-        }];
-        let e = Joiner::new(&window(0, 4), 1e-12, &spans).unwrap_err();
+        };
+        let e = Joiner::new(&window(0, 4), &[(span, frames)], frames, 0).unwrap_err();
         assert!(
             e.to_string()
                 .starts_with("render failed: join: cannot allocate the window"),
@@ -715,12 +640,15 @@ mod tests {
     }
 
     #[test]
-    fn join_with_a_bad_cps_is_an_error_not_a_panic() {
-        // A cps that is not a positive number makes every length 0: the contents do not fit.
-        let e = join(&window(0, 2), f64::NAN, vec![content(0, 2, 2, 0.0)]).unwrap_err();
-        assert_eq!(
-            e.to_string(),
-            "render failed: join: chunk 0 channel 0 has 2 frames, bars [0, 2) are 0"
-        );
+    fn joiner_rejects_music_frames_that_differ_from_the_chunks() {
+        let plans = [plan(0, 2, 0), plan(2, 3, 0)];
+        for music in [2, 4] {
+            let e = Joiner::for_plans(&window(0, 3), &plans, 2, music, 0).unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                format!("render failed: join: the chunks hold 3 frames, the window is {music}")
+            );
+        }
+        assert!(Joiner::for_plans(&window(0, 3), &plans, 2, 3, 0).is_ok());
     }
 }

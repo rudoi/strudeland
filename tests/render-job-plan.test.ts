@@ -881,6 +881,12 @@ describe('planRender chunks', () => {
         expect(Object.is(got.chunks[i]!.plan.lookbackSec, request.lookbackSec)).toBe(true);
       }
       expect(got.lookbackSec).toBe(lookbackSeconds(events));
+      const { fromBar, toBar } = got.window;
+      expect(got.musicFrames).toBe(windowFrames(fromBar, toBar, 0.5, 44100));
+      expect(got.chunks.reduce((n, c) => n + c.plan.contentFrames, 0)).toBe(got.musicFrames);
+      for (const c of got.chunks) {
+        expect(c.plan.contentFrames).toBe(windowFrames(c.plan.fromBar, c.plan.toBar, 0.5, 44100));
+      }
     },
   );
 
@@ -924,6 +930,7 @@ describe('planRender chunks', () => {
           'bufferStartSec',
           'c0',
           'c1',
+          'contentFrames',
           'frames',
           'fromBar',
           'lookbackSec',
@@ -1215,11 +1222,21 @@ describe('loop export windows and decay', () => {
     expect(split.chunks[0]!.plan.toBar).toBeGreaterThan(3);
     const tailFrames = folded.export!.tailFrames;
     expect(tailFrames).toBeGreaterThan(0);
+    const frames = (from: number, to: number) => windowFrames(from, to, cps, 44100);
     expect(split.export).toEqual({
       loopStartBar: 3,
+      loopStartFrame: frames(0, 3),
       tailFrames: 0,
-      repeat: { chunks: folded.chunks, tailFrames },
+      repeat: { chunks: folded.chunks, tailFrames, musicFrames: frames(3, 30) },
     });
+    expect(split.musicFrames).toBe(frames(0, 30));
+    expect(folded.musicFrames).toBe(frames(3, 30));
+    expect(folded.export?.loopStartFrame).toBe(0);
+    const contentSum = (chunks: { plan: { contentFrames: number } }[]) =>
+      chunks.reduce((n, { plan }) => n + plan.contentFrames, 0);
+    expect(contentSum(split.chunks)).toBe(split.musicFrames);
+    expect(contentSum(folded.chunks)).toBe(folded.musicFrames);
+    expect(contentSum(split.export!.repeat!.chunks)).toBe(split.export!.repeat!.musicFrames);
     for (const { plan } of split.chunks) {
       const musical = windowFrames(plan.fromBar, plan.toBar, cps, 44100);
       expect(plan.frames - plan.windowStartFrame).toBe(musical);

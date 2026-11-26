@@ -256,14 +256,16 @@ export type ChunkWindowPlan = WindowPlan & { fromBar: number; toBar: number; loo
 interface RenderPass {
   chunks: { json: string; plan: ChunkWindowPlan }[];
   tailFrames: number;
-  musicFrames?: number;
+  /** Mapped musical frames of the pass, excluding the lookback and the tail. */
+  musicFrames: number;
 }
 
 export interface PlannedRender {
   /** Extra frames on the last job and the isolated body when the opening includes an intro. */
   export?: {
     loopStartBar?: number;
-    /** Mapped musical frame offset from the opening's start. */
+    /** Mapped musical frame offset from the opening's start; present exactly when
+     *  `loopStartBar` is. */
     loopStartFrame?: number;
     tailFrames: number;
     /** The body from `loopStartBar` to `window.toBar`, with its own effect state. */
@@ -271,7 +273,7 @@ export interface PlannedRender {
   };
   window: { fromBar: number; toBar: number; layout: SegmentLayout };
   /** Mapped musical frames in the opening or standard render. */
-  musicFrames?: number;
+  musicFrames: number;
   cps: number;
   structure: SongStructure;
   /** `lookbackSeconds(events)` of the full schedule (the 'auto' lookback). */
@@ -669,7 +671,7 @@ export async function planRender(
       : undefined;
     return {
       window,
-      ...(timing ? { musicFrames: musicalFrames } : {}),
+      musicFrames: musicalFrames,
       cps,
       structure,
       lookbackSec,
@@ -678,17 +680,16 @@ export async function planRender(
       ...(request.preset
         ? {
             export: {
-              ...(loopStartBar === undefined ? {} : { loopStartBar }),
-              ...(timing && loopStartBar !== undefined
-                ? { loopStartFrame: framesBetween(fromBar, loopStartBar) }
-                : {}),
+              ...(loopStartBar === undefined
+                ? {}
+                : { loopStartBar, loopStartFrame: framesBetween(fromBar, loopStartBar) }),
               tailFrames: opening.tailFrames,
               ...(repeat
                 ? {
                     repeat: {
                       chunks: repeat.chunks,
                       tailFrames: repeat.tailFrames,
-                      ...(timing ? { musicFrames: bodyFrames } : {}),
+                      musicFrames: bodyFrames,
                     },
                   }
                 : {}),

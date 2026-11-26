@@ -352,7 +352,8 @@ mod tests {
                 c0: i as u32,
                 c1: i as u32 + 1,
                 lookback_sec_used: 0.0,
-                content_frames: None,
+                content_frames: 1,
+                overlap_frames: None,
                 window_start_frame: 1,
                 buffer_start_sec: 0.0,
                 frames: 3,
@@ -389,7 +390,7 @@ mod tests {
             to_bar: n as u32,
             layout: Layout::Linear,
         };
-        Joiner::for_plans(&window, 44_100.0, &plans(n), 2).unwrap()
+        Joiner::for_plans(&window, &plans(n), 2, n as u64, 0).unwrap()
     }
 
     fn render_with<F>(jobs: Vec<Fake>, plans: &[ChunkWindow], workers: usize, render: F) -> Pooled

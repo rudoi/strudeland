@@ -17,7 +17,7 @@ import {
 import type { EventSource, RenderEvent } from './schedule';
 import { orbitPair } from './gates/stems';
 import { STEMS_MAX_PAIRS } from './thresholds';
-import { historyStart, type RenderTiming } from './timing';
+import { historyStart, renderWindowFrames, type RenderTiming } from './timing';
 
 /** Pause this long before each bar line to schedule the next bar (see `pauseSchedule`). */
 export const LEAD_SEC = 0.05;
@@ -103,9 +103,11 @@ export interface WindowPlan {
   /** Layout seconds of the first frame. */
   bufferStartSec: number;
   frames: number;
-  /** Mapped musical content in the request's range, excluding lookback and overlap. */
-  contentFrames?: number;
-  /** Mapped frames after content, excluding any export tail. */
+  /** Mapped musical content frames in the request's range, excluding lookback and overlap; every
+   *  planner sets it. */
+  contentFrames: number;
+  /** Mapped frames after content, excluding any export tail; present exactly when
+   *  `overlapBars > 0`. */
   overlapFrames?: number;
 }
 
@@ -140,10 +142,13 @@ export function windowPlan(
     : Math.max(0, req.fromBar - Math.ceil(lookbackSec * cps - 1e-9));
   const c1 = req.toBar + req.overlapBars;
   if (c1 <= c0) throw new RangeError(`empty render window [${c0}, ${c1})`);
+  const contentFrames = renderWindowFrames(req.fromBar, req.toBar, cps, req.sampleRate, timing);
+  const overlapFrames = req.overlapBars
+    ? renderWindowFrames(req.toBar, c1, cps, req.sampleRate, timing)
+    : undefined;
   if (timing) {
     const start = timing.frameAt(c0, req.sampleRate);
     const from = timing.frameAt(req.fromBar, req.sampleRate);
-    const to = timing.frameAt(req.toBar, req.sampleRate);
     const end = timing.frameAt(c1, req.sampleRate);
     const frames = end - start + tailFrames;
     checkBufferFrames(frames, req.mode);
@@ -154,8 +159,8 @@ export function windowPlan(
       windowStartFrame: from - start,
       bufferStartSec: start / req.sampleRate,
       frames,
-      contentFrames: to - from,
-      ...(req.overlapBars ? { overlapFrames: end - to } : {}),
+      contentFrames,
+      ...(overlapFrames === undefined ? {} : { overlapFrames }),
     };
   }
   const lookbackSecUsed = (req.fromBar - c0) / cps;
@@ -168,6 +173,8 @@ export function windowPlan(
     windowStartFrame: Math.round(lookbackSecUsed * req.sampleRate),
     bufferStartSec: c0 / cps,
     frames,
+    contentFrames,
+    ...(overlapFrames === undefined ? {} : { overlapFrames }),
   };
 }
 

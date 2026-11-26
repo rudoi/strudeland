@@ -511,7 +511,7 @@ export function assembleResult(a: AssembleArgs): RenderResult {
     sampleRate: req.sampleRate,
     frames,
     windowStartFrame: info.plan.windowStartFrame,
-    ...(info.plan.contentFrames === undefined ? {} : { contentFrames: info.plan.contentFrames }),
+    contentFrames: info.plan.contentFrames,
     ...(info.plan.overlapFrames === undefined ? {} : { overlapFrames: info.plan.overlapFrames }),
     lookbackSecUsed: info.plan.lookbackSecUsed,
     bufferStartSec: info.plan.bufferStartSec,

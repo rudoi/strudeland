@@ -205,7 +205,7 @@ async function run(args: StartArgs): Promise<void> {
       sampleRate: request.sampleRate,
       frames: plan.frames,
       windowStartFrame: plan.windowStartFrame,
-      ...(plan.contentFrames === undefined ? {} : { contentFrames: plan.contentFrames }),
+      contentFrames: plan.contentFrames,
       ...(plan.overlapFrames === undefined ? {} : { overlapFrames: plan.overlapFrames }),
       lookbackSecUsed: plan.lookbackSecUsed,
       bufferStartSec: plan.bufferStartSec,

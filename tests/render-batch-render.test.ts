@@ -73,8 +73,8 @@ const INFO = {
   errors: [],
   events: EVENTS,
   chunks: [
-    { fromBar: 2, toBar: 4 },
-    { fromBar: 4, toBar: 6 },
+    { fromBar: 2, toBar: 4, contentFrames: windowFrames(2, 4, 0.5, 44100) },
+    { fromBar: 4, toBar: 6, contentFrames: windowFrames(4, 6, 0.5, 44100) },
   ],
   summary: {},
 };

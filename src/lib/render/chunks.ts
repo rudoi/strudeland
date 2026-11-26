@@ -6,7 +6,7 @@
  * harness's planner over [fromBar, toBar) with overlap added).
  */
 
-import { windowFrames, type RenderRequest, type RenderResult } from './contract';
+import type { RenderRequest, RenderResult } from './contract';
 import { lookbackBars, lookbackSeconds, scaleChunkBars } from './lookback';
 import type { RenderEvent } from './schedule';
 import { CHUNK_MIN_BARS, SEAM_OVERLAP_BARS, SEAM_SEARCH_BARS } from './thresholds';
@@ -214,20 +214,22 @@ function slice(r: RenderResult, start: number, len: number, what: string): Float
   return r.channels.map((ch) => ch.subarray(start, start + len));
 }
 
-function contentFrames(r: RenderResult): number {
-  return r.contentFrames ?? windowFrames(r.request.fromBar, r.request.toBar, r.cps, r.sampleRate);
-}
-
 /** The kept content [fromBar, toBar): lookback and overlap removed. Throws on a short buffer. */
 export function contentOf(r: RenderResult): Float32Array[] {
-  return slice(r, r.windowStartFrame, contentFrames(r), 'contentOf');
+  return slice(r, r.windowStartFrame, r.contentFrames, 'contentOf');
 }
 
 /** The `request.overlapBars` bars rendered after the content: the seam gate's `tail`. */
 export function overlapOf(r: RenderResult): Float32Array[] {
-  const { toBar, overlapBars } = r.request;
-  const m = r.overlapFrames ?? windowFrames(toBar, toBar + overlapBars, r.cps, r.sampleRate);
-  return slice(r, r.windowStartFrame + contentFrames(r), m, 'overlapOf');
+  const { overlapBars } = r.request;
+  let m = 0;
+  if (overlapBars !== 0) {
+    if (r.overlapFrames === undefined) {
+      throw new RangeError(`overlapOf: no overlapFrames for ${overlapBars} overlap bar(s)`);
+    }
+    m = r.overlapFrames;
+  }
+  return slice(r, r.windowStartFrame + r.contentFrames, m, 'overlapOf');
 }
 
 /** The first `bars` bars of the content: the seam gate's `head` (bars = the previous chunk's
@@ -270,7 +272,7 @@ export function assembleWindow(results: RenderResult[], events: RenderEvent[]): 
   }
 
   const contents = results.map(contentOf);
-  const sizes = results.map(contentFrames);
+  const sizes = results.map((r) => r.contentFrames);
   const frames = sizes.reduce((n, s) => n + s, 0);
   const channels = Array.from({ length: nch }, () => new Float32Array(frames));
   const seamSecs: number[] = [];
@@ -287,11 +289,8 @@ export function assembleWindow(results: RenderResult[], events: RenderEvent[]): 
     frames,
     windowStartFrame: 0,
     lookbackSecUsed: 0,
-    bufferStartSec:
-      first.contentFrames === undefined
-        ? first.request.fromBar / first.cps
-        : first.bufferStartSec + first.lookbackSecUsed,
-    ...(first.contentFrames === undefined ? {} : { contentFrames: frames }),
+    bufferStartSec: first.bufferStartSec + first.lookbackSecUsed,
+    contentFrames: frames,
     cps: first.cps,
     events,
     stemPairs: first.stemPairs,

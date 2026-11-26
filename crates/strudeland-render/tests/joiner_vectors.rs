@@ -1,12 +1,14 @@
 //! The Rust joiner the pipeline renders into (`Joiner::for_plans` + `Joiner::place_rendered`)
 //! against the TypeScript `assembleWindow`: the vectors in `tests/vectors/joiner.json` (from
-//! `bun run render:vectors`) hold each case's frame count and the FNV-1a 64 hash of the joined
-//! audio; this test rebuilds the same synthetic chunk buffers, places them in several orders (the
-//! workers finish in any order) and compares.
+//! `bun run render:vectors`) hold each chunk's planned `contentFrames` and buffer `frames`, and
+//! each case's frame count and the FNV-1a 64 hash of the joined audio; this test rebuilds the
+//! same synthetic chunk buffers from those counts (computing none), places them in several orders
+//! (the workers finish in any order) and compares.
 
 use serde::Deserialize;
 use strudeland_host::{ChunkWindow, Layout, PlannedWindow};
-use strudeland_render::join::{Joiner, window_frames};
+use strudeland_render::join::Joiner;
+use strudeland_render::testing::window_frames;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,8 @@ struct Chunk {
     to_bar: u32,
     window_start_frame: u64,
     overlap_bars: u32,
+    content_frames: u64,
+    frames: u64,
 }
 
 #[derive(Deserialize)]
@@ -71,13 +75,13 @@ fn the_rust_joiner_matches_assemble_window() {
             .iter()
             .enumerate()
             .map(|(k, ch)| {
-                let frames = ch.window_start_frame
-                    + window_frames(ch.from_bar, ch.to_bar + ch.overlap_bars, case.cps);
+                let frames = ch.frames;
                 let plan = ChunkWindow {
                     c0: ch.from_bar,
                     c1: ch.to_bar + ch.overlap_bars,
                     lookback_sec_used: ch.window_start_frame as f64 / 44_100.0,
-                    content_frames: None,
+                    content_frames: ch.content_frames,
+                    overlap_frames: None,
                     window_start_frame: ch.window_start_frame,
                     buffer_start_sec: 0.0,
                     frames,
@@ -112,7 +116,7 @@ fn the_rust_joiner_matches_assemble_window() {
                 .collect(),
         ];
         for order in orders {
-            let mut joiner = Joiner::for_plans(&window, case.cps, &plans, 2)
+            let mut joiner = Joiner::for_plans(&window, &plans, 2, case.frames, 0)
                 .unwrap_or_else(|e| panic!("{name}: {e}"));
             for &i in &order {
                 joiner

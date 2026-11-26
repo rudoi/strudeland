@@ -12189,10 +12189,11 @@
     const c1 = req.toBar + req.overlapBars;
     if (c1 <= c0)
       throw new RangeError(`empty render window [${c0}, ${c1})`);
+    const contentFrames = renderWindowFrames(req.fromBar, req.toBar, cps, req.sampleRate, timing);
+    const overlapFrames = req.overlapBars ? renderWindowFrames(req.toBar, c1, cps, req.sampleRate, timing) : undefined;
     if (timing) {
       const start = timing.frameAt(c0, req.sampleRate);
       const from = timing.frameAt(req.fromBar, req.sampleRate);
-      const to = timing.frameAt(req.toBar, req.sampleRate);
       const end = timing.frameAt(c1, req.sampleRate);
       const frames2 = end - start + tailFrames;
       checkBufferFrames(frames2, req.mode);
@@ -12203,8 +12204,8 @@
         windowStartFrame: from - start,
         bufferStartSec: start / req.sampleRate,
         frames: frames2,
-        contentFrames: to - from,
-        ...req.overlapBars ? { overlapFrames: end - to } : {}
+        contentFrames,
+        ...overlapFrames === undefined ? {} : { overlapFrames }
       };
     }
     const lookbackSecUsed = (req.fromBar - c0) / cps;
@@ -12216,7 +12217,9 @@
       lookbackSecUsed,
       windowStartFrame: Math.round(lookbackSecUsed * req.sampleRate),
       bufferStartSec: c0 / cps,
-      frames
+      frames,
+      contentFrames,
+      ...overlapFrames === undefined ? {} : { overlapFrames }
     };
   }
   var orbitNumber = (value) => {
@@ -18877,7 +18880,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       }, loopStartBar, loopStartBar, true) : undefined;
       return {
         window: window2,
-        ...timing ? { musicFrames: musicalFrames } : {},
+        musicFrames: musicalFrames,
         cps,
         structure,
         lookbackSec,
@@ -18885,14 +18888,13 @@ Defaulting to 2020, but this will stop working in the future.`);
         ...request.includeEvents === true ? { events: opening.events } : {},
         ...request.preset ? {
           export: {
-            ...loopStartBar === undefined ? {} : { loopStartBar },
-            ...timing && loopStartBar !== undefined ? { loopStartFrame: framesBetween(fromBar, loopStartBar) } : {},
+            ...loopStartBar === undefined ? {} : { loopStartBar, loopStartFrame: framesBetween(fromBar, loopStartBar) },
             tailFrames: opening.tailFrames,
             ...repeat ? {
               repeat: {
                 chunks: repeat.chunks,
                 tailFrames: repeat.tailFrames,
-                ...timing ? { musicFrames: bodyFrames } : {}
+                musicFrames: bodyFrames
               }
             } : {}
           }

@@ -67,9 +67,10 @@ export interface RenderResult {
   frames: number;
   /** Frame index of fromBar inside `channels`. */
   windowStartFrame: number;
-  /** Mapped frames between fromBar and toBar, excluding lookback and overlap. */
-  contentFrames?: number;
-  /** Mapped frames after content. */
+  /** Mapped frames between fromBar and toBar, excluding lookback and overlap (the plan's
+   *  `contentFrames`). */
+  contentFrames: number;
+  /** Mapped frames after content; present exactly when `request.overlapBars > 0`. */
   overlapFrames?: number;
   /** Lookback actually rendered, seconds, never negative. */
   lookbackSecUsed: number;

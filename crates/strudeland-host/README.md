@@ -67,7 +67,9 @@ The bundle's `planRender` (`src/lib/render/job-plan.ts`):
    and lookback are the same ones `renderChunkPlans` gives the harness).
 
 The result is the structure, the window and chunk windows, the song's errors, and one job text per
-chunk. The schedule is reused by default (`BATCH_REUSE_SCHEDULE = true`): each chunk's selection is
+chunk. It carries every frame measure, for every song: `musicFrames`, each chunk's
+`contentFrames` (and `overlapFrames` when a chunk renders overlap), and with a loop
+`loopStartFrame` and `repeat.musicFrames`. The schedule is reused by default (`BATCH_REUSE_SCHEDULE = true`): each chunk's selection is
 the full schedule cut at the chunk's end. Setting it to `false` makes each chunk query and select
 `[0, end)` itself, as `plan_job` does (quadratic, equal by construction); `host:parity --batch`
 found every corpus chunk job byte-equal with `true`, so the fallback is unused.

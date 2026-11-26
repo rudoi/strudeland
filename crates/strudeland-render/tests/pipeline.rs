@@ -8,8 +8,8 @@ use strudeland_engine::wav::read_f32;
 use strudeland_host::{HostError, Layout, LengthRequest};
 use strudeland_render::encode::verify::decode;
 use strudeland_render::encode::{EncodeRequest, encode_once};
-use strudeland_render::join::window_frames;
 use strudeland_render::level::{integrated_lufs, true_peak_db};
+use strudeland_render::testing::window_frames;
 use strudeland_render::{
     BitDepth, EncoderOptions, ExitClass, Format, Loudness, OutputOptions, OutputTarget, Progress,
     RenderError, RenderOptions, finish, render, render_audio, write_output,
