@@ -8,7 +8,7 @@
 //!    worker ([`strudeland_engine::render`]).
 //! 4. **Join**: each chunk's lookback head and overlap tail are dropped and the contents are
 //!    copied sample-exactly into the window as the chunks finish ([`join`]).
-//! 5. **Level** and 6. **encode** ([`finish`]).
+//! 5. **Finish**: level, encode, verify and correct each file cut ([`finish`], [`render_export`]).
 //!
 //! Nothing here may panic on data from the song, the plan or a file: the release profile is
 //! `panic = "abort"`.
