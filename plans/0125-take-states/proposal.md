@@ -26,7 +26,7 @@ and later stages leave its expected JSON unchanged.
 
 ## Background
 
-[reverify.md](0125-take-states/reverify.md) has the evidence at `d38b30e`: the field table, the
+[reverify.md](reverify.md) has the evidence at `d38b30e`: the field table, the
 event table for every flow, the call sites to keep, the threading rules and the quirks. In
 short:
 
@@ -408,7 +408,7 @@ log lines that print a message stay identical.
   (15 off macOS): the wire shapes, the error table, the bundle and capability checks, the
   library commands, the background repair, the transcript, and one stop test that pins
   `app.version` to the app's version. The full mapping is in
-  [003](0125-take-states/003-takes-module.md).
+  [003](proposal.md).
 
 ## What must not change
 

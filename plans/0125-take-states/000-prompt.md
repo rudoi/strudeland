@@ -1,7 +1,7 @@
 # 0125 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0125-take-states`.
-- **Plan:** [the proposal](../0125-take-states.md). It is the contract: the state enum,
+- **Plan:** [the proposal](proposal.md). It is the contract: the state enum,
   `leave`, `Takes` and its ports, `TakeError`, the module layout, the rejected options and the
   decisions.
 - **Base:** `d38b30e`. Diff against it, never against a local `main`: it is stale.
@@ -17,12 +17,12 @@
 
 The stages run in order, and each one is one commit that is green with every gate below.
 
-1. [001-transcript.md](001-transcript.md): the shared test rig file and the characterization
+1. [001-transcript.md](proposal.md): the shared test rig file and the characterization
    transcript of every take flow. No production code changes.
-2. [002-state-enum.md](002-state-enum.md): `TakeState`, `leave`, `settle_ended`,
+2. [002-state-enum.md](proposal.md): `TakeState`, `leave`, `settle_ended`,
    `saved_channel` and `pending_loss_stem`, in place in `recording.rs`. The transcript is
    unchanged.
-3. [003-takes-module.md](003-takes-module.md): the move to `strudeland-record::takes` with
+3. [003-takes-module.md](proposal.md): the move to `strudeland-record::takes` with
    `TakeError`, `TakeEvent`, the injected `app_version`, the fakes in `testing`, the test
    move, and the docs.
 
