@@ -27,3 +27,5 @@ crates/strudeland-render/tests/vectors/
 crates/strudeland-render/tests/golden/
 # The live crate's committed engine job fixture
 crates/strudeland-live/tests/data/
+# The generated IPC bindings (bun run ipc:build)
+src/lib/ipc/bindings.ts
