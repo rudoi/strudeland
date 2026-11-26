@@ -76,6 +76,9 @@ the V8 download the host brings.
   `transport.ts` (pure logical-cycle to song-position mapping: `locate`, segments, section
   ranges, quantization, `LINEAR_SEGMENTS` for the linear song timeline), `timing.ts` (maps
   logical layout cycles to reference-clock cycles for mixed meter, including repeated ranges),
+  `live-clock.ts` (the live clock: the audible playhead and cps across live tempo and meter
+  edits, over a `ClockPort` the runtime builds on the scheduler; the edit history and phase
+  offset, snapshotted as one value; no Strudel imports),
   `song.ts` (the `song(meta, parts)` pattern, registered in the eval scope; it follows the live
   transport segments unless a query passes its own in `controls._segments`, as `runtime.query`
   does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the

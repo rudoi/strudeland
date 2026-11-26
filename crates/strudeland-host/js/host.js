@@ -29200,6 +29200,108 @@ Please check with "npm ls @strudel/core".`);
     };
   }
 
+  // src/lib/strudel/live-clock.ts
+  function createLiveClock(port) {
+    let structure = null;
+    let map2 = null;
+    let history = [];
+    let phaseOffsetSec = 0;
+    const toCycle = (reference) => {
+      const previous = history.find((h2) => reference < h2.end.clock);
+      return (previous ? previous.map : map2)?.toCycle(reference) ?? reference;
+    };
+    const toClock = (cycle) => {
+      const previous = history.find((h2) => cycle < h2.end.cycle);
+      return (previous ? previous.map : map2)?.toClock(cycle) ?? cycle;
+    };
+    const audibleReference = () => {
+      const latest = history.at(-1);
+      const current3 = port.now();
+      if (!port.started || !latest || port.lastBegin >= latest.end.clock && current3 >= latest.end.clock) {
+        return current3;
+      }
+      let reference = Number(port.lastEnd);
+      let seconds2 = port.lastTick + 2 * port.tickDuration - port.getTime();
+      let cps2 = port.cps;
+      for (let i3 = history.length - 1;i3 >= 0; i3--) {
+        const previous = history[i3];
+        const sinceEdit = (reference - previous.end.clock) / cps2;
+        if (seconds2 <= sinceEdit)
+          break;
+        seconds2 -= sinceEdit;
+        reference = previous.end.clock;
+        cps2 = previous.cps;
+      }
+      return reference - seconds2 * cps2;
+    };
+    const cpsNow = () => {
+      if (!port.started || !map2 && history.length === 0)
+        return port.cps;
+      const reference = audibleReference();
+      const previous = history.find((h2) => reference < h2.end.clock);
+      const at2 = previous ? previous.map : map2;
+      const base2 = previous ? previous.referenceMeter : structure?.meter;
+      const cps2 = previous?.cps ?? port.cps;
+      return base2 && at2 ? cpsAtMeter(cps2, base2, at2.meterAt(at2.toCycle(reference))) : cps2;
+    };
+    const setLayout = (next, anchor3) => {
+      const needsClock = structure?.meterChanges?.length || anchor3 && anchor3.cycle !== anchor3.clock;
+      map2 = structure && needsClock ? layoutClock(structure, next, anchor3) : null;
+    };
+    const anchor2 = () => {
+      const reference = Number(port.lastEnd);
+      return { cycle: toCycle(reference), clock: reference };
+    };
+    const now = () => Math.max(0, toCycle(audibleReference()));
+    const edit = (e) => {
+      const a = port.started ? anchor2() : undefined;
+      if (a && (map2 || e.structure?.meterChanges?.length)) {
+        const audible = audibleReference();
+        const next = history.filter((h2) => h2.end.clock > audible);
+        if (next.at(-1)?.end.clock !== a.clock) {
+          next.push({ end: a, map: map2, cps: port.cps, referenceMeter: structure?.meter });
+        }
+        history = next;
+      }
+      if (a && !e.codeSetCps) {
+        phaseOffsetSec += a.clock / port.cps - a.clock / e.nextCps;
+      }
+      structure = e.structure ?? (a && a.cycle !== a.clock ? buildStructure({ meter: meterString(e.meter) }) : null);
+      setLayout(e.segments, a);
+      return a;
+    };
+    return {
+      get structure() {
+        return structure;
+      },
+      get map() {
+        return map2;
+      },
+      get phaseOffsetSec() {
+        return phaseOffsetSec;
+      },
+      toCycle,
+      toClock,
+      audibleReference,
+      now,
+      cpsNow,
+      anchor: anchor2,
+      setLayout,
+      edit,
+      reset: () => {
+        phaseOffsetSec = 0;
+        history = [];
+      },
+      snapshot: () => ({ structure, map: map2, history, phaseOffsetSec }),
+      restore: (s2) => {
+        structure = s2.structure;
+        map2 = s2.map;
+        history = s2.history;
+        phaseOffsetSec = s2.phaseOffsetSec;
+      }
+    };
+  }
+
   // src/lib/strudel/seed.ts
   var applySeed = (pattern3, seed2) => seed2 === undefined ? pattern3 : pattern3.seed(seed2);
 
@@ -29741,58 +29843,32 @@ Please check with "npm ls @strudel/core".`);
     let codeSetCps = false;
     let segments = INITIAL_SEGMENTS;
     setSegmentSource(() => segments);
-    let liveStructure = null;
-    let clock = null;
-    let audibleHistory = [];
-    let phaseOffsetSec = 0;
-    const toCycle = (reference) => {
-      const previous = audibleHistory.find((h2) => reference < h2.end.clock);
-      return (previous ? previous.map : clock)?.toCycle(reference) ?? reference;
-    };
-    const toClock = (cycle) => {
-      const previous = audibleHistory.find((h2) => cycle < h2.end.cycle);
-      return (previous ? previous.map : clock)?.toClock(cycle) ?? cycle;
-    };
-    function audibleReference() {
-      const sch = r.scheduler;
-      const latest = audibleHistory.at(-1);
-      const current3 = sch.now();
-      if (!sch.started || !latest || sch.lastBegin >= latest.end.clock && current3 >= latest.end.clock) {
-        return current3;
+    const port = {
+      get started() {
+        return r.scheduler.started;
+      },
+      now: () => r.scheduler.now(),
+      get lastBegin() {
+        return r.scheduler.lastBegin;
+      },
+      get lastEnd() {
+        return r.scheduler.lastEnd;
+      },
+      get lastTick() {
+        return r.scheduler.lastTick;
+      },
+      get tickDuration() {
+        return r.scheduler.clock.duration;
+      },
+      getTime: () => r.scheduler.getTime(),
+      get cps() {
+        return r.scheduler.cps;
       }
-      let reference = Number(sch.lastEnd);
-      let seconds2 = sch.lastTick + 2 * sch.clock.duration - sch.getTime();
-      let cps2 = sch.cps;
-      for (let i3 = audibleHistory.length - 1;i3 >= 0; i3--) {
-        const previous = audibleHistory[i3];
-        const sinceEdit = (reference - previous.end.clock) / cps2;
-        if (seconds2 <= sinceEdit)
-          break;
-        seconds2 -= sinceEdit;
-        reference = previous.end.clock;
-        cps2 = previous.cps;
-      }
-      return reference - seconds2 * cps2;
-    }
-    function audibleCps() {
-      const sch = r.scheduler;
-      if (!sch.started || !clock && audibleHistory.length === 0)
-        return sch.cps;
-      const reference = audibleReference();
-      const previous = audibleHistory.find((h2) => reference < h2.end.clock);
-      const map2 = previous ? previous.map : clock;
-      const base2 = previous ? previous.referenceMeter : liveStructure?.meter;
-      const cps2 = previous?.cps ?? sch.cps;
-      return base2 && map2 ? cpsAtMeter(cps2, base2, map2.meterAt(map2.toCycle(reference))) : cps2;
-    }
+    };
+    const liveClock = createLiveClock(port);
     function setLiveLayout(next, anchor2) {
       segments = next;
-      const needsClock = liveStructure?.meterChanges?.length || anchor2 && anchor2.cycle !== anchor2.clock;
-      clock = liveStructure && needsClock ? layoutClock(liveStructure, next, anchor2) : null;
-    }
-    function scheduledAnchor() {
-      const reference = Number(r.scheduler.lastEnd);
-      return { cycle: toCycle(reference), clock: reference };
+      liveClock.setLayout(next, anchor2);
     }
     const startedSubscribers = new Set;
     const startedToggles = {
@@ -29833,10 +29909,7 @@ Please check with "npm ls @strudel/core".`);
         const edited = eventSpec ? editPatternEvents(pattern3, eventSpec, structure ? { structure, segments: () => segments, cps: () => r.scheduler.cps } : undefined) : pattern3;
         const seeded = applySeed(edited, pending.seed);
         const previous = {
-          liveStructure,
-          clock,
-          phaseOffsetSec,
-          audibleHistory,
+          clock: liveClock.snapshot(),
           evaluatedPattern,
           unseededPattern,
           playbackPattern,
@@ -29844,46 +29917,28 @@ Please check with "npm ls @strudel/core".`);
           schedulerPattern: r.scheduler.pattern
         };
         undoInstall = () => {
-          ({
-            liveStructure,
-            clock,
-            phaseOffsetSec,
-            audibleHistory,
-            evaluatedPattern,
-            unseededPattern,
-            playbackPattern,
-            playError
-          } = previous);
+          liveClock.restore(previous.clock);
+          ({ evaluatedPattern, unseededPattern, playbackPattern, playError } = previous);
           r.scheduler.pattern = previous.schedulerPattern;
           active().setSeed(state2.seed ?? 0);
         };
-        const anchor2 = r.scheduler.started ? scheduledAnchor() : undefined;
-        if (anchor2 && (clock || structure?.meterChanges?.length)) {
-          const audible = audibleReference();
-          audibleHistory = audibleHistory.filter((h2) => h2.end.clock > audible);
-          if (audibleHistory.at(-1)?.end.clock !== anchor2.clock) {
-            audibleHistory.push({
-              end: anchor2,
-              map: clock,
-              cps: r.scheduler.cps,
-              referenceMeter: liveStructure?.meter
-            });
-          }
-        }
-        if (anchor2 && !codeSetCps) {
-          phaseOffsetSec += anchor2.clock / r.scheduler.cps - anchor2.clock / pending.cps;
-        }
-        liveStructure = structure ?? (anchor2 && anchor2.cycle !== anchor2.clock ? buildStructure({ meter: meterString(pending.meter) }) : null);
-        setLiveLayout(segments, anchor2);
-        if (anchor2 && clock && structure?.meterChanges?.length) {
-          const end2 = clock.toCycle(anchor2.clock + r.scheduler.clock.duration * pending.cps);
+        const anchor2 = liveClock.edit({
+          structure,
+          meter: pending.meter,
+          nextCps: pending.cps,
+          codeSetCps,
+          segments
+        });
+        const map2 = liveClock.map;
+        if (anchor2 && map2 && structure?.meterChanges?.length) {
+          const end2 = map2.toCycle(anchor2.clock + r.scheduler.clock.duration * pending.cps);
           const imminent = new State(new TimeSpan(anchor2.cycle, end2), { cyclist: "cyclist" });
-          queryMetered(seeded, imminent, structure, clock, pending.cps);
+          queryMetered(seeded, imminent, structure, map2, pending.cps);
         }
         evaluatedPattern = seeded;
         unseededPattern = edited;
         playError = null;
-        playbackPattern = clock && liveStructure ? meteredPlayback(seeded, liveStructure, () => clock, () => phaseOffsetSec, (error) => {
+        playbackPattern = liveClock.map && liveClock.structure ? meteredPlayback(seeded, liveClock.structure, () => liveClock.map, () => liveClock.phaseOffsetSec, (error) => {
           playError = errorMessage(error);
           patch({ outputError: playError });
         }) : seeded;
@@ -29893,8 +29948,8 @@ Please check with "npm ls @strudel/core".`);
       setInterval: opts.setInterval,
       clearInterval: opts.clearInterval,
       beforeEval: async () => {
-        setTime(() => toCycle(audibleReference()));
-        setCpsFunc(audibleCps);
+        setTime(() => liveClock.toCycle(liveClock.audibleReference()));
+        setCpsFunc(liveClock.cpsNow);
         await ensurePrebaked();
         await hooks?.beforeEval?.();
         useRNG("legacy");
@@ -29956,7 +30011,7 @@ Please check with "npm ls @strudel/core".`);
         codeSetCps = true;
         if (pending.expectedStructure?.meterChanges)
           throw new Error(MIXED_CPS_ERROR);
-      } else if (liveStructure?.meterChanges?.length) {
+      } else if (liveClock.structure?.meterChanges?.length) {
         patch({ outputError: MIXED_CPS_ERROR });
         throw new Error(MIXED_CPS_ERROR);
       }
@@ -30082,11 +30137,11 @@ Please check with "npm ls @strudel/core".`);
       }
       return swapTo(to, drain);
     };
-    const now = () => Math.max(0, toCycle(audibleReference()));
+    const now = liveClock.now;
     const pruneAt = (cycle) => {
       const next = prune(segments, cycle - HISTORY_CYCLES);
       if (next !== segments)
-        setLiveLayout(next, scheduledAnchor());
+        setLiveLayout(next, liveClock.anchor());
     };
     function position() {
       const cycle = now();
@@ -30098,25 +30153,23 @@ Please check with "npm ls @strudel/core".`);
       started: startedToggles,
       structure: () => state2.structure,
       boundary: {
-        horizon: () => toCycle(r.scheduler.lastEnd),
+        horizon: () => liveClock.toCycle(r.scheduler.lastEnd),
         segments: () => segments,
         install(next, started) {
-          setLiveLayout(next, started ? scheduledAnchor() : undefined);
-          if (!started) {
-            phaseOffsetSec = 0;
-            audibleHistory = [];
-          }
+          setLiveLayout(next, started ? liveClock.anchor() : undefined);
+          if (!started)
+            liveClock.reset();
         },
         prune: pruneAt
       },
       now
     });
-    function query(fromCycle, toCycle2, segments2 = LINEAR_SEGMENTS, seedOverride) {
+    function query(fromCycle, toCycle, segments2 = LINEAR_SEGMENTS, seedOverride) {
       if (evaluatedPattern === null)
         return null;
       const pattern3 = seedOverride === undefined ? evaluatedPattern : applySeed(unseededPattern, seedOverride);
       const controls2 = { _cps: r.scheduler.cps, cyclist: "cyclist", _segments: segments2 };
-      const span = new State(new TimeSpan(fromCycle, toCycle2), controls2);
+      const span = new State(new TimeSpan(fromCycle, toCycle), controls2);
       const structure = state2.structure;
       if (structure?.meterChanges?.length) {
         return queryMetered(pattern3, span, structure, layoutClock(structure, segments2), r.scheduler.cps);
@@ -30148,16 +30201,15 @@ Please check with "npm ls @strudel/core".`);
         const sch = r.scheduler;
         const handoff = sch.lastEnd;
         const prev = active();
-        const at2 = cycleTime(toCycle(handoff));
+        const at2 = cycleTime(liveClock.toCycle(handoff));
         const lead = at2 === null ? 0 : Math.max(0, at2 - prev.getTime());
         const firstSound = (sch.clock?.minLatency ?? 0) + sch.latency;
         const early2 = Math.max(0, lead - firstSound) * sch.cps;
         const from = {
-          cycle: Math.max(0, handoff - early2),
+          ...liveClock.snapshot(),
           segments,
-          anchor: scheduledAnchor(),
-          audibleHistory,
-          phaseOffsetSec,
+          anchor: liveClock.anchor(),
+          cycle: Math.max(0, handoff - early2),
           onsetsFrom: handoff
         };
         if (!stop(swap.to, lead))
@@ -30183,10 +30235,7 @@ Please check with "npm ls @strudel/core".`);
         return false;
       }
       const countIn = startOpts?.countIn === true;
-      const savedSegments = segments;
-      const savedClock = clock;
-      const savedPhaseOffset = phaseOffsetSec;
-      const savedHistory = audibleHistory;
+      const saved = { ...liveClock.snapshot(), segments };
       const savedPattern = r.scheduler.pattern;
       try {
         let pattern3 = countIn && state2.structure === null ? evaluatedPattern.late(1).filterHaps((h2) => (h2.whole ?? h2.part).begin.gte(1)) : playbackPattern;
@@ -30199,9 +30248,8 @@ Please check with "npm ls @strudel/core".`);
         if (countIn && state2.structure !== null)
           setLiveLayout(withCountIn(segments));
         if (from) {
+          liveClock.restore({ ...from, structure: liveClock.structure });
           setLiveLayout(from.segments, from.anchor);
-          phaseOffsetSec = from.phaseOffsetSec;
-          audibleHistory = from.audibleHistory;
           r.scheduler.lastEnd = from.cycle;
         }
         await r.scheduler.start();
@@ -30211,10 +30259,8 @@ Please check with "npm ls @strudel/core".`);
         if (r.scheduler.started)
           r.stop();
         else {
-          segments = savedSegments;
-          clock = savedClock;
-          phaseOffsetSec = savedPhaseOffset;
-          audibleHistory = savedHistory;
+          segments = saved.segments;
+          liveClock.restore({ ...saved, structure: liveClock.structure });
           r.scheduler.lastEnd = 0;
         }
         if (r.scheduler.pattern !== savedPattern)
@@ -30228,7 +30274,7 @@ Please check with "npm ls @strudel/core".`);
         return null;
       if (sch.num_ticks_since_checkpoint === 0 && sch.checkpoint === staleCheckpoint)
         return null;
-      const t = (toClock(cycle) - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
+      const t = (liveClock.toClock(cycle) - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
       return Number.isFinite(t) ? t : null;
     }
     let queue = Promise.resolve();
@@ -30239,13 +30285,13 @@ Please check with "npm ls @strudel/core".`);
     return {
       scheduler: r.scheduler,
       get drawingScheduler() {
-        if (!clock || !liveStructure)
+        if (!liveClock.map || !liveClock.structure)
           return r.scheduler;
         const logical = evaluatedPattern;
-        const structure = liveStructure;
+        const structure = liveClock.structure;
         return {
           now,
-          pattern: new Pattern((state3) => queryMetered(logical, state3, structure, clock, r.scheduler.cps))
+          pattern: new Pattern((state3) => queryMetered(logical, state3, structure, liveClock.map, r.scheduler.cps))
         };
       },
       store: {
