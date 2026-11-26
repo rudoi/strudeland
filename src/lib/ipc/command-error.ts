@@ -17,9 +17,9 @@ export class CommandError<K extends string = CommandErrorKind> extends Error {
   }
 }
 
-/** `kind` if it is in `allowed`, else `fallback`. */
-export function narrowKind<K extends string>(kind: string, allowed: readonly K[], fallback: K): K {
-  return (allowed as readonly string[]).includes(kind) ? (kind as K) : fallback;
+/** `kind` if it is in `allowed`, else `fallback` (also for a non-string). */
+export function narrowKind<K extends string>(kind: unknown, allowed: readonly K[], fallback: K): K {
+  return (allowed as readonly unknown[]).includes(kind) ? (kind as K) : fallback;
 }
 
 /** Any rejection as a CommandError: `{ kind, message }` keeps a known kind (unknown → other),
@@ -29,9 +29,24 @@ export function toCommandError(e: unknown): CommandError {
   if (typeof e === 'object' && e !== null && !(e instanceof Error)) {
     const { kind, message } = e as { kind?: unknown; message?: unknown };
     if (typeof message === 'string') {
-      const known = narrowKind(typeof kind === 'string' ? kind : '', COMMAND_ERROR_KINDS, 'other');
-      return new CommandError(message, known, { cause: e });
+      return new CommandError(message, narrowKind(kind, COMMAND_ERROR_KINDS, 'other'), {
+        cause: e,
+      });
     }
   }
   return new CommandError(errorMessage(e), 'other', { cause: e });
+}
+
+/** Any rejection as an adapter's `Error` subclass: an instance of it is kept, anything else goes
+ *  through `toCommandError` and keeps its kind if it is in `allowed`, else `fallback`. The raw
+ *  value stays the `cause`. */
+export function narrowError<K extends string, E extends CommandError<K>>(
+  e: unknown,
+  Make: new (message: string, kind: K, options?: ErrorOptions) => E,
+  allowed: readonly K[],
+  fallback: K,
+): E {
+  if (e instanceof Make) return e;
+  const c = toCommandError(e);
+  return new Make(c.message, narrowKind(c.kind, allowed, fallback), { cause: c.cause });
 }

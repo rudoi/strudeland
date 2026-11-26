@@ -1,6 +1,6 @@
 import { Channel } from '@tauri-apps/api/core';
 import { errorMessage } from '../errors';
-import { CommandError, narrowKind, toCommandError } from '../ipc/command-error';
+import { CommandError, narrowError } from '../ipc/command-error';
 import type { CommandErrorKind, CommandName } from '../ipc/bindings';
 import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import { hostNowNs as recordingHostNowNs } from '../recording/api';
@@ -61,7 +61,7 @@ export const PLAYBACK_ERROR_KINDS = [
 export type PlaybackErrorKind = (typeof PLAYBACK_ERROR_KINDS)[number];
 
 export class PlaybackError extends CommandError<PlaybackErrorKind> {
-  constructor(kind: PlaybackErrorKind, message: string, options?: ErrorOptions) {
+  constructor(message: string, kind: PlaybackErrorKind, options?: ErrorOptions) {
     super(message, kind, options);
     this.name = 'PlaybackError';
   }
@@ -85,11 +85,7 @@ export interface PlaybackApi {
  * else kind `engine` (also for an unknown kind) with whatever was thrown as text.
  */
 export function toPlaybackError(e: unknown): PlaybackError {
-  if (e instanceof PlaybackError) return e;
-  const c = toCommandError(e);
-  return new PlaybackError(narrowKind(c.kind, PLAYBACK_ERROR_KINDS, 'engine'), c.message, {
-    cause: c.cause,
-  });
+  return narrowError(e, PlaybackError, PLAYBACK_ERROR_KINDS, 'engine');
 }
 
 async function call<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown> {
@@ -117,7 +113,7 @@ export const tauriPlaybackApi: PlaybackApi = {
       return await recordingHostNowNs();
     } catch (e) {
       // Whatever went wrong (a bad value, a failed invoke) is the engine's clock failing.
-      throw new PlaybackError('engine', errorMessage(e));
+      throw new PlaybackError(errorMessage(e), 'engine');
     }
   },
 };

@@ -81,23 +81,23 @@ function isComment(line: string): boolean {
 
 /** The one-based line of `offset` in `text`. */
 function lineAt(text: string, offset: number): number {
-  let line = 1;
-  for (let i = 0; i < offset; i++) if (text[i] === '\n') line++;
-  return line;
+  return text.slice(0, offset).split('\n').length;
 }
 
 /** `device_id` → `deviceId`, as Tauri renames command arguments. */
 export function camelCase(snake: string): string {
-  const parts = snake.split('_').filter((p) => p !== '');
-  return parts.map((p, i) => (i === 0 ? p : p[0]!.toUpperCase() + p.slice(1))).join('');
+  return joinCamel(snake.split('_').filter((p) => p !== ''));
 }
 
 /** `project://changed` → `projectChanged`. */
 export function eventKey(value: string): string {
   const parts = value.split(/[^A-Za-z0-9]+/).filter((p) => p !== '');
-  return parts
-    .map((p, i) => (i === 0 ? p.toLowerCase() : p[0]!.toUpperCase() + p.slice(1).toLowerCase()))
-    .join('');
+  return joinCamel(parts.map((p) => p.toLowerCase()));
+}
+
+/** The first part as it is, then each later part with its first letter upper-cased. */
+function joinCamel(parts: string[]): string {
+  return parts.map((p, i) => (i === 0 ? p : p[0]!.toUpperCase() + p.slice(1))).join('');
 }
 
 /** `CommandErrorKind` → `COMMAND_ERROR_KINDS`. */

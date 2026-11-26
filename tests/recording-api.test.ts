@@ -1,18 +1,12 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
 import { RECORDING_ERROR_KINDS, RecordingError } from '../src/lib/recording/types';
+import { mockTauriCore } from './helpers/tauri-core-mock';
 
-const calls: { cmd: string; args: unknown }[] = [];
-let invokeImpl: (cmd: string, args: unknown) => unknown = () => undefined;
+const core = mockTauriCore();
 const listeners: { event: string; handler: (e: { payload: unknown }) => void }[] = [];
 let unlistened = 0;
 
-mock.module('@tauri-apps/api/core', () => ({
-  invoke: async (cmd: string, args: unknown) => {
-    calls.push({ cmd, args });
-    return invokeImpl(cmd, args);
-  },
-}));
 mock.module('@tauri-apps/api/event', () => ({
   listen: async (event: string, handler: (e: { payload: unknown }) => void) => {
     listeners.push({ event, handler });
@@ -29,10 +23,9 @@ async function invoked(
   fn: (api: ReturnType<typeof createTauriRecordingApi>) => Promise<unknown>,
   impl: (cmd: string, args: unknown) => unknown = () => undefined,
 ) {
-  calls.length = 0;
-  invokeImpl = impl;
+  core.answer(impl);
   const result = await fn(createTauriRecordingApi());
-  return { result, calls: [...calls] };
+  return { result, calls: [...core.calls] };
 }
 
 async function rejection(p: Promise<unknown>): Promise<unknown> {

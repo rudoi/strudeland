@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { message, open } from '@tauri-apps/plugin-dialog';
-import { CommandError, narrowKind, toCommandError } from '../ipc/command-error';
+import { CommandError, narrowError } from '../ipc/command-error';
 import { EVENTS, type CommandErrorKind, type CommandName } from '../ipc/bindings';
 import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import type { InstrumentSnapshot } from '../strudel/instruments';
@@ -174,11 +174,7 @@ export function pickedFolder(result: unknown): string | null {
  * text with kind `other`.
  */
 export function toProjectError(e: unknown): ProjectError {
-  if (e instanceof ProjectError) return e;
-  const c = toCommandError(e);
-  return new ProjectError(c.message, narrowKind(c.kind, PROJECT_ERROR_KINDS, 'other'), {
-    cause: c.cause,
-  });
+  return narrowError(e, ProjectError, PROJECT_ERROR_KINDS, 'other');
 }
 
 async function songInvoke<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown> {

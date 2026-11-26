@@ -1,9 +1,9 @@
 /**
  * The recording payloads as they cross IPC (camelCase, host nanoseconds as decimal strings,
  * channels 0-based), the sidecar fields the webview builds, and the controller's UI state. Mirrors
- * the Rust `recording.rs` and `strudeland-project` types. Pure types and one error class; the
- * only imports are `../ipc/command-error` and the generated `../ipc/bindings`, neither of which
- * imports Tauri.
+ * the Rust `recording.rs` and `strudeland-project` types. Pure types plus the error kind list,
+ * the error class and the fixed-meter backing message; the only imports are
+ * `../ipc/command-error` and the generated `../ipc/bindings`, neither of which imports Tauri.
  */
 
 import type { CommandErrorKind } from '../ipc/bindings';

@@ -1,5 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
-import { narrowKind, toCommandError } from '../ipc/command-error';
+import { narrowError, narrowKind } from '../ipc/command-error';
 import { EVENTS, type CommandName } from '../ipc/bindings';
 import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import { hostNsOrNull } from '../host-ns';
@@ -51,11 +51,7 @@ export interface RecordingApi {
  * else whatever was thrown as text with kind `other` (also for an unknown kind).
  */
 export function toRecordingError(e: unknown): RecordingError {
-  if (e instanceof RecordingError) return e;
-  const c = toCommandError(e);
-  return new RecordingError(c.message, narrowKind(c.kind, RECORDING_ERROR_KINDS, 'other'), {
-    cause: c.cause,
-  });
+  return narrowError(e, RecordingError, RECORDING_ERROR_KINDS, 'other');
 }
 
 /** `args` without its undefined values (an absent optional argument, not a `null` one). */
@@ -115,7 +111,7 @@ export function createTauriRecordingApi(): RecordingApi {
                 ...payload,
                 error: {
                   ...error,
-                  kind: narrowKind(String(error.kind), RECORDING_ERROR_KINDS, 'other'),
+                  kind: narrowKind(error.kind, RECORDING_ERROR_KINDS, 'other'),
                 },
               }
             : payload,

@@ -1,20 +1,8 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
+import { FakeChannel, mockTauriCore } from './helpers/tauri-core-mock';
 
-const calls: { cmd: string; args: any }[] = [];
-let invokeImpl: (cmd: string, args: unknown) => unknown = () => undefined;
-
-class FakeChannel<T> {
-  onmessage: (m: T) => void = () => {};
-}
-
-mock.module('@tauri-apps/api/core', () => ({
-  invoke: async (cmd: string, args: unknown) => {
-    calls.push({ cmd, args });
-    return invokeImpl(cmd, args);
-  },
-  Channel: FakeChannel,
-}));
+const core = mockTauriCore();
 // The host clock comes through the recording API, which also imports `listen`.
 mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 
@@ -25,10 +13,9 @@ async function invoked(
   fn: () => Promise<unknown>,
   impl: (cmd: string, args: unknown) => unknown = () => undefined,
 ) {
-  calls.length = 0;
-  invokeImpl = impl;
+  core.answer(impl);
   const result = await fn();
-  return { result, calls: [...calls] };
+  return { result, calls: [...core.calls] };
 }
 
 async function rejection(p: Promise<unknown>): Promise<unknown> {
@@ -42,7 +29,7 @@ async function rejection(p: Promise<unknown>): Promise<unknown> {
 
 describe('PlaybackError', () => {
   test('is an Error carrying its kind', () => {
-    const e = new PlaybackError('stale', 'the playback session ended');
+    const e = new PlaybackError('the playback session ended', 'stale');
     expect(e).toBeInstanceOf(Error);
     expect(e.name).toBe('PlaybackError');
     expect(e.kind).toBe('stale');
@@ -63,7 +50,7 @@ describe('toPlaybackError', () => {
     expect([plain.kind, plain.message]).toEqual(['engine', 'boom']);
     const text = toPlaybackError('just text');
     expect([text.kind, text.message]).toEqual(['engine', 'just text']);
-    const same = new PlaybackError('output', 'no device');
+    const same = new PlaybackError('no device', 'output');
     expect(toPlaybackError(same)).toBe(same);
   });
 });
@@ -79,9 +66,10 @@ describe('tauriPlaybackApi', () => {
     expect(result).toBe(3);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.cmd).toBe('playback_start');
-    expect(Object.keys(calls[0]!.args).sort()).toEqual(['channel', 'seed']);
-    expect(calls[0]!.args.seed).toBe(7);
-    const channel = calls[0]!.args.channel as FakeChannel<unknown>;
+    const args = calls[0]!.args as { seed: number; channel: FakeChannel<unknown> };
+    expect(Object.keys(args).sort()).toEqual(['channel', 'seed']);
+    expect(args.seed).toBe(7);
+    const channel = args.channel;
     expect(channel).toBeInstanceOf(FakeChannel);
     channel.onmessage({ kind: 'anchor', frame: 1, hostNs: '2' });
     expect(events).toEqual([{ kind: 'anchor', frame: 1, hostNs: '2' }]);
@@ -147,9 +135,7 @@ describe('tauriPlaybackApi', () => {
       ['a string', 'engine', 'a string'],
     ];
     for (const [thrown, kind, message] of cases) {
-      invokeImpl = () => {
-        throw thrown;
-      };
+      core.reject(thrown);
       const e = await rejection(tauriPlaybackApi.stop(1));
       expect(e).toBeInstanceOf(PlaybackError);
       expect([(e as InstanceType<typeof PlaybackError>).kind, (e as Error).message]).toEqual([
@@ -158,6 +144,6 @@ describe('tauriPlaybackApi', () => {
       ]);
       expect(errorMessage(e)).toBe(message);
     }
-    invokeImpl = () => undefined;
+    core.answer(() => undefined);
   });
 });

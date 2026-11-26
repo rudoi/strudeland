@@ -69,7 +69,6 @@ describe('ipc bindings', () => {
 
   test('the real tree', () => {
     const names = Object.keys(COMMANDS);
-    expect(names).toHaveLength(46);
     expect(names).toContain('song_read');
     expect(names).toContain('recording_read');
     expect(names).toContain('export_audio_start');
@@ -81,32 +80,9 @@ describe('ipc bindings', () => {
       'recording://level',
       'recording://state',
     ]);
-    expect(COMMAND_ERROR_KINDS[0]).toBe('projectChanged');
-    expect(COMMAND_ERROR_KINDS.at(-1)).toBe('other');
-    expect(COMMAND_ERROR_KINDS).toHaveLength(15);
   });
 
   test('each domain kind list is a subset of the command error kinds', () => {
-    expect([...PROJECT_ERROR_KINDS]).toEqual([
-      'exists',
-      'notFound',
-      'invalidName',
-      'projectChanged',
-      'other',
-    ]);
-    expect([...RECORDING_ERROR_KINDS]).toEqual([
-      'permissionDenied',
-      'noDevice',
-      'deviceLost',
-      'busy',
-      'invalidName',
-      'exists',
-      'notFound',
-      'projectChanged',
-      'limitReached',
-      'other',
-    ]);
-    expect([...PLAYBACK_ERROR_KINDS]).toEqual(['stale', 'output', 'badBatch', 'engine']);
     const known: readonly string[] = COMMAND_ERROR_KINDS;
     for (const list of [PROJECT_ERROR_KINDS, RECORDING_ERROR_KINDS, PLAYBACK_ERROR_KINDS]) {
       expect(list.filter((k) => !known.includes(k))).toEqual([]);

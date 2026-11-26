@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
+import { mockTauriCore } from './helpers/tauri-core-mock';
 import {
   isProjectMenuAction,
   pickedFolder,
@@ -45,14 +46,7 @@ test('the folder picker result is one path or null', () => {
 
 // ---------------------------------------------------------------- song command errors
 
-const calls: { cmd: string; args: unknown }[] = [];
-let invokeImpl: (cmd: string, args: unknown) => unknown = () => undefined;
-mock.module('@tauri-apps/api/core', () => ({
-  invoke: async (cmd: string, args: unknown) => {
-    calls.push({ cmd, args });
-    return invokeImpl(cmd, args);
-  },
-}));
+const core = mockTauriCore();
 const listened: string[] = [];
 mock.module('@tauri-apps/api/event', () => ({
   listen: async (event: string) => {
@@ -111,14 +105,13 @@ describe('ProjectError', () => {
 
 describe('createTauriProjectApi song commands', () => {
   test('invoke names and argument keys', async () => {
-    calls.length = 0;
-    invokeImpl = (cmd) => (cmd === 'song_delete' ? undefined : 'songs/x.js');
+    core.answer((cmd) => (cmd === 'song_delete' ? undefined : 'songs/x.js'));
     const api = createTauriProjectApi();
     expect(await api.createSong('/r', 'x')).toBe('songs/x.js');
     expect(await api.renameSong('/r', 'songs/a.js', 'x')).toBe('songs/x.js');
     await api.deleteSong('/r', 'songs/a.js');
     await api.projectRootOf('/some/dir');
-    expect(calls).toEqual([
+    expect(core.calls).toEqual([
       { cmd: 'song_create', args: { root: '/r', stem: 'x' } },
       { cmd: 'song_rename', args: { root: '/r', path: 'songs/a.js', stem: 'x' } },
       { cmd: 'song_delete', args: { root: '/r', path: 'songs/a.js' } },
@@ -128,9 +121,7 @@ describe('createTauriProjectApi song commands', () => {
 
   test('create, rename and delete reject with a ProjectError', async () => {
     const api = createTauriProjectApi();
-    invokeImpl = () => {
-      throw { kind: 'exists', message: 'song songs/x.js already exists' };
-    };
+    core.reject({ kind: 'exists', message: 'song songs/x.js already exists' });
     for (const call of [
       () => api.createSong('/r', 'x'),
       () => api.renameSong('/r', 'songs/a.js', 'x'),
@@ -140,9 +131,7 @@ describe('createTauriProjectApi song commands', () => {
       expect(e).toBeInstanceOf(ProjectError);
       expect((e as InstanceType<typeof ProjectError>).kind).toBe('exists');
     }
-    invokeImpl = () => {
-      throw 'plain string';
-    };
+    core.reject('plain string');
     const e = (await api.deleteSong('/r', 'songs/a.js').catch((err: unknown) => err)) as Error;
     expect(e).toBeInstanceOf(ProjectError);
     expect(e.message).toBe('plain string');
@@ -150,9 +139,7 @@ describe('createTauriProjectApi song commands', () => {
 
   test('saveSong and projectRootOf reject with a CommandError that is not a ProjectError', async () => {
     const api = createTauriProjectApi();
-    invokeImpl = () => {
-      throw { kind: 'projectChanged', message: 'the project changed' };
-    };
+    core.reject({ kind: 'projectChanged', message: 'the project changed' });
     for (const call of [
       () => api.saveSong('/r', 'songs/a.js', 'x'),
       () => api.projectRootOf('/d'),
@@ -168,15 +155,11 @@ describe('createTauriProjectApi song commands', () => {
 
   test('a rejection of any project command is an Error with the same message', async () => {
     const api = createTauriProjectApi();
-    invokeImpl = () => {
-      throw { kind: 'other', message: 'invalid project.json: bad' };
-    };
+    core.reject({ kind: 'other', message: 'invalid project.json: bad' });
     const e = await api.info('/r').catch((err: unknown) => err);
     expect(e).toBeInstanceOf(Error);
     expect(errorMessage(e)).toBe('invalid project.json: bad');
-    invokeImpl = () => {
-      throw 'a string';
-    };
+    core.reject('a string');
     expect(errorMessage(await api.open('/d').catch((err: unknown) => err))).toBe('a string');
   });
 });
