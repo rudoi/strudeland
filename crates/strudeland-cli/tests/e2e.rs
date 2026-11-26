@@ -12,6 +12,8 @@ use std::thread::JoinHandle;
 use serde_json::Value;
 #[cfg(unix)]
 use serde_json::json;
+#[cfg(unix)]
+use strudeland_ctl::{Method, wire_fixtures};
 
 /// Binds `path`, accepts one connection and answers each request line with the script entry
 /// whose method matches: `{"error": {...}}` is sent as an error, anything else as the result.
@@ -66,23 +68,13 @@ fn state_against_a_fake_server() {
     let sock = dir.path().join("s");
     let server = spawn_fake_server(
         &sock,
-        vec![(
-            "state",
-            json!({
-                "project": {"name": "demo", "root": "/tmp/demo"},
-                "songs": [{"path": "songs/main.js", "title": "Main", "dirty": false, "conflict": null}],
-                "active": "songs/main.js",
-                "playing": null,
-                "started": false, "cps": 0.5, "bpm": 120, "meter": "4/4", "audio": "suspended",
-                "evalError": null, "metaError": null, "tempoOverride": false
-            }),
-        )],
+        vec![("state", wire_fixtures::result(Method::State, "minimal"))],
     );
     let out = strudeland(&sock, &["state"]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(
         String::from_utf8(out.stdout).unwrap(),
-        "project: demo (/tmp/demo)\nsongs:\n    main  \"Main\"   active\ntempo: 120 bpm 4/4\naudio: suspended\nplaying: stopped\n"
+        "project: demo (/Users/me/demo)\nsongs:\n  ● main   \"Main Theme\"   active, playing\n    verse  \"Verse\"        conflict: changed\ntempo: 120 bpm 4/4\naudio: running\nplaying: Main Theme\n"
     );
     assert!(out.stderr.is_empty());
     server.join().unwrap();
@@ -141,17 +133,7 @@ fn usage_errors_exit_4_and_help_exits_0() {
 fn events_against_a_fake_server() {
     let dir = short_dir();
     let sock = dir.path().join("s");
-    let result = json!({
-        "song": {"path": "songs/main.js", "title": "Main"},
-        "from": 1, "to": 2, "stale": false, "truncated": true, "meter": "4/4",
-        "tempoOverride": false,
-        "events": [{
-            "bar": 1, "beat": 1.0, "begin": 0.0, "end": 0.25, "onset": true,
-            "section": {"name": "intro", "bar": 1},
-            "value": {"s": "bd"},
-            "locations": [{"line": 2, "col": 5, "endLine": 2, "endCol": 7, "text": "s(\"bd\")"}]
-        }]
-    });
+    let result = wire_fixtures::result(Method::Events, "truncated");
     let server = spawn_fake_server(&sock, vec![("events", result)]);
     let out = strudeland(&sock, &["events", "--bars", "1-2", "--all", "--limit", "5"]);
     assert_eq!(out.status.code(), Some(0));
