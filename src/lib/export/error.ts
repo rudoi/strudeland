@@ -16,13 +16,12 @@ export class ExportError extends CommandError {
   }
 }
 
-/** A rejection of an export command to an `ExportError`: `written` comes off the raw
- *  `{ kind, message, written }` the `CommandError` keeps as its cause, else it is empty. */
+/** A rejection of an export command to an `ExportError`: `written` is the string entries of
+ *  the raw `{ kind, message, written }` the `CommandError` keeps as its cause, else empty. */
 export function toExportError(e: unknown): ExportError {
   if (e instanceof ExportError) return e;
   const c = e instanceof CommandError ? (e as CommandError) : toCommandError(e);
   const raw = (c.cause as { written?: unknown } | null | undefined)?.written;
-  const written =
-    Array.isArray(raw) && raw.every((p) => typeof p === 'string') ? (raw as string[]) : [];
+  const written = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [];
   return new ExportError(c.message, c.kind, written, { cause: c.cause });
 }

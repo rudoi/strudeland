@@ -105,10 +105,16 @@ describe('toExportError', () => {
     expect([e.name, e.kind, e.message, e.written]).toEqual(['ExportError', 'other', 'x', ['/a']]);
   });
 
-  test('a written holding a non-string, or none, is empty', () => {
-    expect(
-      toExportError(toCommandError({ kind: 'other', message: 'x', written: ['/a', 1] })).written,
-    ).toEqual([]);
+  test('the non-string entries of written are dropped, and the paths kept', () => {
+    const written = (w: unknown) =>
+      toExportError(toCommandError({ kind: 'other', message: 'x', written: w })).written;
+    expect(written(['/a.wav', null])).toEqual(['/a.wav']);
+    expect(written(['/a', 1, '/b'])).toEqual(['/a', '/b']);
+    expect(written([null])).toEqual([]);
+    expect(written('/a')).toEqual([]);
+  });
+
+  test('no written is empty', () => {
     expect(toExportError(toCommandError({ kind: 'busy', message: 'b' }))).toMatchObject({
       kind: 'busy',
       written: [],
