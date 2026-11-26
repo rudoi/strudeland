@@ -7,7 +7,7 @@ use common::{Recorder, corpus_song, options, window};
 use strudeland_engine::wav::read_f32;
 use strudeland_host::{HostError, Layout, LengthRequest};
 use strudeland_render::encode::verify::decode;
-use strudeland_render::encode::{EncodeRequest, Mp3Flush, encode_once};
+use strudeland_render::encode::{EncodeRequest, encode_once};
 use strudeland_render::join::window_frames;
 use strudeland_render::level::{integrated_lufs, true_peak_db};
 use strudeland_render::{
@@ -548,14 +548,7 @@ fn loudness_off_reports_the_measures_and_leaves_the_audio_untouched() {
         assert_eq!(l.input_lufs, integrated_lufs(&audio.channels, 44_100));
         assert_eq!(
             out.bytes,
-            encode_once(&EncodeRequest {
-                channels: &audio.channels,
-                sample_rate: 44_100,
-                encoder: &encoder,
-                mp3_flush: Mp3Flush::NoGap,
-                loop_range: None,
-            })
-            .unwrap()
+            encode_once(&EncodeRequest::plain(&audio.channels, 44_100, &encoder)).unwrap()
         );
         if encoder.format() == Format::Wav {
             assert_eq!(l.decoded_true_peak_db, None);

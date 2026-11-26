@@ -9,7 +9,7 @@ use strudeland_host::PlannedWindow;
 use crate::export::roles;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{Measure, check_input, measure, true_peak_db};
-use crate::{ExportPreset, ExportRole, LoopAudio, RenderError};
+use crate::{ExportPreset, ExportRole, LoopAudio, RenderError, RenderedAudio};
 
 /// The PCM of one file a render will finish.
 pub(crate) struct FileCut<'a> {
@@ -19,6 +19,18 @@ pub(crate) struct FileCut<'a> {
     pub bars: Range<u32>,
     /// The loop in input-rate frames (exclusive end).
     pub loop_range: Option<Range<usize>>,
+}
+
+impl<'a> FileCut<'a> {
+    /// The whole joined window as one file: role `Single`, the window's bars, no loop.
+    pub(crate) fn whole(audio: &'a RenderedAudio) -> FileCut<'a> {
+        FileCut {
+            role: ExportRole::Single,
+            channels: Cow::Borrowed(&audio.channels),
+            bars: audio.summary.window.from_bar..audio.summary.window.to_bar,
+            loop_range: None,
+        }
+    }
 }
 
 /// A loop preset's file cuts and the peak the shared gain must respect.
@@ -46,18 +58,21 @@ pub(crate) fn splice(
         isolated_body,
     } = loop_audio;
     if !(window.from_bar..window.to_bar).contains(&start_bar) {
-        return Err(render_error("loop start is outside the planned window"));
+        return Err(RenderError::render(
+            "loop start is outside the planned window",
+        ));
     }
     let start =
-        usize::try_from(start_frame).map_err(|_| render_error("loop start is too large"))?;
-    let end = usize::try_from(music_frames).map_err(|_| render_error("loop end is too large"))?;
+        usize::try_from(start_frame).map_err(|_| RenderError::render("loop start is too large"))?;
+    let end =
+        usize::try_from(music_frames).map_err(|_| RenderError::render("loop end is too large"))?;
     if end <= start {
-        return Err(render_error("loop has no frames"));
+        return Err(RenderError::render("loop has no frames"));
     }
     let body_frames = end - start;
     let combined_frames = end
         .checked_add(body_frames)
-        .ok_or_else(|| render_error("the combined loop is too large"))?;
+        .ok_or_else(|| RenderError::render("the combined loop is too large"))?;
     let repeat_range = end..combined_frames;
     let (mut opening, mut repeat) = match isolated_body {
         Some(body) if start > 0 => (channels, body),
@@ -68,7 +83,11 @@ pub(crate) fn splice(
                 .collect::<Result<Vec<_>, _>>()?;
             (opening, channels)
         }
-        _ => return Err(render_error("the plan has inconsistent loop history")),
+        _ => {
+            return Err(RenderError::render(
+                "the plan has inconsistent loop history",
+            ));
+        }
     };
     fold_tail(&mut repeat, body_frames)?;
     join_opening(&mut opening, &repeat, end, sample_rate)?;
@@ -80,7 +99,7 @@ pub(crate) fn splice(
     let cuts = match preset {
         ExportPreset::IntroLoop => {
             let &[intro, repeat_role] = roles(Some(ExportPreset::IntroLoop)) else {
-                return Err(render_error("invalid loop export roles"));
+                return Err(RenderError::render("invalid loop export roles"));
             };
             for ch in &mut opening {
                 ch.truncate(end);
@@ -102,7 +121,7 @@ pub(crate) fn splice(
         }
         ExportPreset::FoldedLoop | ExportPreset::TaggedLoop => {
             let &[role] = roles(Some(preset)) else {
-                return Err(render_error("invalid loop export roles"));
+                return Err(RenderError::render("invalid loop export roles"));
             };
             drop(repeat);
             vec![FileCut {
@@ -112,17 +131,13 @@ pub(crate) fn splice(
                 loop_range: Some(repeat_range),
             }]
         }
-        ExportPreset::OneShot => return Err(render_error("unexpected one-shot preset")),
+        ExportPreset::OneShot => return Err(RenderError::render("unexpected one-shot preset")),
     };
     Ok(Splice {
         cuts,
         program,
         peak_db,
     })
-}
-
-fn render_error(message: &str) -> RenderError {
-    RenderError::Render(message.into())
 }
 
 fn copy_opening(
@@ -132,10 +147,10 @@ fn copy_opening(
 ) -> Result<Vec<f32>, RenderError> {
     let opening = channel
         .get(..frames)
-        .ok_or_else(|| render_error("opening extends past the rendered PCM"))?;
+        .ok_or_else(|| RenderError::render("opening extends past the rendered PCM"))?;
     let mut copy = Vec::new();
     copy.try_reserve_exact(total_frames)
-        .map_err(|_| render_error("cannot allocate the loop opening"))?;
+        .map_err(|_| RenderError::render("cannot allocate the loop opening"))?;
     copy.extend_from_slice(opening);
     Ok(copy)
 }
@@ -149,11 +164,13 @@ fn join_opening(
     sample_rate: u32,
 ) -> Result<(), RenderError> {
     if opening.len() != repeat.len() {
-        return Err(render_error("opening and repeat channel counts differ"));
+        return Err(RenderError::render(
+            "opening and repeat channel counts differ",
+        ));
     }
     for (first, periodic) in opening.iter_mut().zip(repeat) {
         if first.len() != opening_frames || first.len() < periodic.len() {
-            return Err(render_error("invalid loop opening length"));
+            return Err(RenderError::render("invalid loop opening length"));
         }
         // 10 ms, limited to the latter half of even a very short loop.
         let blend_frames = (sample_rate as usize / 100).min(periodic.len() / 2);
@@ -170,7 +187,7 @@ fn join_opening(
         }
         first
             .try_reserve_exact(periodic.len())
-            .map_err(|_| render_error("cannot allocate the combined loop export"))?;
+            .map_err(|_| RenderError::render("cannot allocate the combined loop export"))?;
         first.extend_from_slice(periodic);
     }
     Ok(())
@@ -178,12 +195,12 @@ fn join_opening(
 
 fn fold_tail(channels: &mut [Vec<f32>], body_frames: usize) -> Result<(), RenderError> {
     if body_frames == 0 {
-        return Err(render_error("cannot fold into an empty loop"));
+        return Err(RenderError::render("cannot fold into an empty loop"));
     }
     for channel in channels {
         let (body, tail) = channel
             .split_at_mut_checked(body_frames)
-            .ok_or_else(|| render_error("loop extends past the rendered PCM"))?;
+            .ok_or_else(|| RenderError::render("loop extends past the rendered PCM"))?;
         for cycle in tail.chunks(body_frames) {
             for (sample, tail) in body.iter_mut().zip(cycle) {
                 *sample += *tail;

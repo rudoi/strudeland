@@ -54,6 +54,11 @@ pub enum ExitClass {
 }
 
 impl RenderError {
+    /// A [`RenderError::Render`] with `message`.
+    pub(crate) fn render(message: impl Into<String>) -> RenderError {
+        RenderError::Render(message.into())
+    }
+
     /// `Usage` for [`RenderError::Usage`] and a planning failure that names a flag
     /// ([`HostError::MetaFlag`]); `Failed` for everything else.
     pub fn exit_class(&self) -> ExitClass {

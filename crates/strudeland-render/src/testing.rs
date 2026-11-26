@@ -180,3 +180,16 @@ pub fn audio(channels: Vec<Vec<f32>>, sample_rate: u32) -> RenderedAudio {
         },
     }
 }
+
+/// Seeded stereo noise from an LCG: `frames` frames of the left channel, then the right, each
+/// sample uniform in `-amp..amp`.
+pub fn lcg_noise(seed: u32, frames: usize, amp: f32) -> Vec<Vec<f32>> {
+    let mut state = seed;
+    let mut next = move || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (f64::from(state) / f64::from(u32::MAX) * 2.0 - 1.0) as f32 * amp
+    };
+    let l: Vec<f32> = (0..frames).map(|_| next()).collect();
+    let r: Vec<f32> = (0..frames).map(|_| next()).collect();
+    vec![l, r]
+}

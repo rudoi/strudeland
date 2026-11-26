@@ -85,7 +85,7 @@ pub(crate) fn finish_export(
         );
     }
 
-    let loop_audio = loop_audio.ok_or_else(|| render_error("the plan has no loop start"))?;
+    let loop_audio = loop_audio.ok_or_else(|| RenderError::render("the plan has no loop start"))?;
     let measure_start = Instant::now();
     let spliced = splice(
         audio.channels,
@@ -113,14 +113,10 @@ pub(crate) fn finish_export(
     )
 }
 
-fn render_error(message: &str) -> RenderError {
-    RenderError::Render(message.into())
-}
-
 fn trim_silent_post_roll(audio: &mut RenderedAudio) -> Result<(), RenderError> {
     let started = Instant::now();
     let musical = usize::try_from(audio.music_frames)
-        .map_err(|_| render_error("one-shot window is too large"))?;
+        .map_err(|_| RenderError::render("one-shot window is too large"))?;
     // Seek back from the end so quiet gaps before late echoes stay in the output.
     let tail = audio
         .channels

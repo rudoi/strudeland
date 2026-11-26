@@ -142,7 +142,7 @@ pub fn finish(
     let mut files = files.into_iter();
     match (files.next(), files.next()) {
         (Some(file), None) => Ok(file.output),
-        _ => Err(RenderError::Render("finishing returned no file".into())),
+        _ => Err(RenderError::render("finishing returned no file")),
     }
 }
 

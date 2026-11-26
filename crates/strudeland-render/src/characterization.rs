@@ -35,25 +35,13 @@ fn secs(s: f64) -> usize {
     (s * f64::from(SR)).round() as usize
 }
 
-/// LCG noise, left channel then right, scaled to `amp` (the `encode` tests' generator).
-fn lcg_noise(seed: u32, frames: usize, amp: f32) -> Vec<Vec<f32>> {
-    let mut state = seed;
-    let mut next = move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (f64::from(state) / f64::from(u32::MAX) * 2.0 - 1.0) as f32 * amp
-    };
-    let l: Vec<f32> = (0..frames).map(|_| next()).collect();
-    let r: Vec<f32> = (0..frames).map(|_| next()).collect();
-    vec![l, r]
-}
-
 fn sine(hz: f64, n: usize) -> f64 {
     (2.0 * std::f64::consts::PI * hz * n as f64 / f64::from(SR)).sin()
 }
 
 /// 2 s stereo: noise at 0.05 under 220 Hz (left) and 330 Hz (right) at 0.3.
 fn bed() -> Vec<Vec<f32>> {
-    let mut channels = lcg_noise(0x1234_5678, secs(2.0), 0.05);
+    let mut channels = testing::lcg_noise(0x1234_5678, secs(2.0), 0.05);
     for (channel, hz) in channels.iter_mut().zip([220.0, 330.0]) {
         for (n, sample) in channel.iter_mut().enumerate() {
             *sample += (0.3 * sine(hz, n)) as f32;
@@ -76,7 +64,7 @@ fn silence() -> Vec<Vec<f32>> {
 
 /// Dense noise at 0.5 for 3 s (the `tests/encode.rs` `noise(3)` recipe): lossy encodes overshoot.
 fn dense() -> Vec<Vec<f32>> {
-    lcg_noise(0x5eed_0001, secs(3.0), 0.5)
+    testing::lcg_noise(0x5eed_0001, secs(3.0), 0.5)
 }
 
 /// `bed()` with a NaN in the first second.

@@ -27,6 +27,23 @@ pub struct EncodeRequest<'a> {
     pub loop_range: Option<Range<u64>>,
 }
 
+impl<'a> EncodeRequest<'a> {
+    /// A plain encode of `channels`: the no-gap MP3 flush and no loop.
+    pub fn plain(
+        channels: &'a [Vec<f32>],
+        sample_rate: u32,
+        encoder: &'a EncoderOptions,
+    ) -> EncodeRequest<'a> {
+        EncodeRequest {
+            channels,
+            sample_rate,
+            encoder,
+            mp3_flush: Mp3Flush::NoGap,
+            loop_range: None,
+        }
+    }
+}
+
 /// Encodes `request.channels` once with `request.encoder`, with loop metadata where requested.
 /// No leveling, no verification.
 pub fn encode_once(request: &EncodeRequest<'_>) -> Result<Vec<u8>, RenderError> {
@@ -79,7 +96,7 @@ pub(crate) fn loop_points(
 }
 
 /// Encode passes at most: the first encode and two corrections.
-pub const MAX_ENCODES: u32 = 3;
+pub(crate) const MAX_ENCODES: u32 = 3;
 
 /// The margin added to a lossy overshoot when the limiter ceiling or the shared gain is lowered,
 /// in dB.

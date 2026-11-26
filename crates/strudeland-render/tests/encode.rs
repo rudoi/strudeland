@@ -20,13 +20,7 @@ fn once(
     sample_rate: u32,
     encoder: &EncoderOptions,
 ) -> Result<Vec<u8>, RenderError> {
-    encode_once(&EncodeRequest {
-        channels,
-        sample_rate,
-        encoder,
-        mp3_flush: Mp3Flush::NoGap,
-        loop_range: None,
-    })
+    encode_once(&EncodeRequest::plain(channels, sample_rate, encoder))
 }
 
 /// A stereo sine: left at `hz`, right at `1.5 * hz`, amplitude `amp`.
@@ -801,19 +795,11 @@ fn encode_decode_errors() {
 
 /// Dense seeded noise (an LCG), `seconds` long at amplitude 0.5.
 fn noise(seconds: usize) -> Vec<Vec<f32>> {
-    let mut state: u32 = 0x5eed_0001;
-    let mut next = move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (f64::from(state) / f64::from(u32::MAX) * 2.0 - 1.0) as f32 * 0.5
-    };
-    let frames = seconds * SR as usize;
-    let l: Vec<f32> = (0..frames).map(|_| next()).collect();
-    let r: Vec<f32> = (0..frames).map(|_| next()).collect();
-    vec![l, r]
+    strudeland_render::testing::lcg_noise(0x5eed_0001, seconds * SR as usize, 0.5)
 }
 
 /// Finishes `input` as a plain render: the output, the loudness, the progress and the warnings.
-fn encode_loop(
+fn finish_plain(
     input: &[Vec<f32>],
     loudness: strudeland_render::Loudness,
     encoder: EncoderOptions,
@@ -836,7 +822,7 @@ fn encode_loop(
 }
 
 #[test]
-fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
+fn finish_corrects_a_lossy_overshoot_within_two_passes() {
     use strudeland_render::Loudness;
     use strudeland_render::level::level;
     let input = noise(3);
@@ -862,7 +848,7 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
         let dp = true_peak_db(&decode(encoder.format(), &bytes).unwrap().channels);
         assert!(dp > -1.0, "{encoder:?}: the first pass decodes at {dp}");
 
-        let (e, loudness, events, warnings) = encode_loop(&input, loudness, encoder);
+        let (e, loudness, events, warnings) = finish_plain(&input, loudness, encoder);
         let n = loudness.encodes;
         assert!((2..=3).contains(&n), "{encoder:?}: {n} encodes");
         assert_eq!(
@@ -888,7 +874,7 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
 }
 
 #[test]
-fn encode_loop_reports_but_never_corrects_with_loudness_off() {
+fn finish_reports_but_never_corrects_with_loudness_off() {
     use strudeland_render::Loudness;
     // Loud enough that the decoded file is over -1 dBTP.
     let input: Vec<Vec<f32>> = noise(2)
@@ -902,7 +888,7 @@ fn encode_loop_reports_but_never_corrects_with_loudness_off() {
             vbr_quality: 0,
         },
     ] {
-        let (e, loudness, events, warnings) = encode_loop(&input, Loudness::Off, encoder);
+        let (e, loudness, events, warnings) = finish_plain(&input, Loudness::Off, encoder);
         assert_eq!(loudness.encodes, 1, "{encoder:?}");
         assert_eq!(
             events,

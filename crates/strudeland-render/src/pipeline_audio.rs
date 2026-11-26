@@ -91,7 +91,7 @@ pub(crate) fn render_planned(
     let workers = render::workers_for(opts.jobs, chunks.len());
     let frames = music_frames
         .checked_add(tail_frames)
-        .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
+        .ok_or_else(|| RenderError::render("joined frame count overflows"))?;
     let (stems, channels) = if let AudioMode::Stems(grouping) = mode {
         let layout = StemLayout::for_jobs(&jobs, grouping.into());
         let channels = stems::validate_budget(layout.ids().len(), frames, &chunks, workers)?;
@@ -122,13 +122,13 @@ pub(crate) fn render_planned(
     let (isolated_body, repeat_workers) =
         if let Some(repeat) = export.and_then(|export| export.repeat) {
             let (from_bar, start_frame) = loop_start
-                .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
+                .ok_or_else(|| RenderError::render("the isolated body has no loop start"))?;
             let expected = music_frames
                 .checked_sub(start_frame)
-                .ok_or_else(|| RenderError::Render("loop begins past the opening".into()))?;
+                .ok_or_else(|| RenderError::render("loop begins past the opening"))?;
             if repeat.music_frames.is_some_and(|frames| frames != expected) {
-                return Err(RenderError::Render(
-                    "isolated body length differs from the opening loop".into(),
+                return Err(RenderError::render(
+                    "isolated body length differs from the opening loop",
                 ));
             }
             let body_window = PlannedWindow { from_bar, ..window };

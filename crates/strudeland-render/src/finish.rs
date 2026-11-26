@@ -7,11 +7,13 @@ use std::time::Instant;
 use crate::encode::{
     CORRECTION_MARGIN_DB, Codec, EncodeRequest, MAX_ENCODES, Mp3Flush, loop_points,
 };
-use crate::level::{Leveled, LoudnessSummary, Measure, Prepared, measure, prepare};
+use crate::level::{
+    Leveled, LoudnessSummary, Measure, Prepared, apply_static_gain, measure, prepare,
+};
 use crate::splice::FileCut;
 use crate::{
-    ExportFile, ExportRole, Format, Loudness, OutputOptions, Progress, RenderError, RenderOutput,
-    RenderedAudio, Summary, ms_since,
+    ExportFile, Format, Loudness, OutputOptions, Progress, RenderError, RenderOutput, Summary,
+    ms_since,
 };
 
 /// How finishing sets a render's level.
@@ -31,18 +33,6 @@ pub(crate) struct Finishing<'a> {
     pub summary: Summary,
     pub leveling: Leveling,
     pub mp3_flush: Mp3Flush,
-}
-
-impl<'a> FileCut<'a> {
-    /// The whole joined window as one file: role `Single`, the window's bars, no loop.
-    pub(crate) fn whole(audio: &'a RenderedAudio) -> FileCut<'a> {
-        FileCut {
-            role: ExportRole::Single,
-            channels: Cow::Borrowed(&audio.channels),
-            bars: audio.summary.window.from_bar..audio.summary.window.to_bar,
-            loop_range: None,
-        }
-    }
 }
 
 const MP3_LOOP_WARNING: &str =
@@ -66,26 +56,31 @@ enum Level<'a> {
 }
 
 impl<'a> Level<'a> {
-    /// Checks and measures the cuts once and works out the gain; setup warnings go to `warnings`.
-    fn setup(
+    /// Checks and measures the one cut of `cuts` and works out its static gain.
+    fn limited(
         cuts: &'a [FileCut<'_>],
-        leveling: Leveling,
+        out: &OutputOptions,
+        sample_rate: u32,
+    ) -> Result<Self, RenderError> {
+        let [cut] = cuts else {
+            return Err(RenderError::render("limited leveling finishes one file"));
+        };
+        Ok(Level::Limited {
+            prepared: prepare(&cut.channels, sample_rate, &out.loudness)?,
+            trim: 0.0,
+        })
+    }
+
+    /// Measures every cut once and works out the gain they share, capped by `program_peak` and
+    /// each cut's own peak; setup warnings go to `warnings`.
+    fn repeat_safe(
+        cuts: &[FileCut<'_>],
+        program: Measure,
+        program_peak: f64,
         out: &OutputOptions,
         sample_rate: u32,
         warnings: &mut Vec<String>,
-    ) -> Result<Self, RenderError> {
-        let (program, program_peak) = match leveling {
-            Leveling::Limited => {
-                let [cut] = cuts else {
-                    return Err(render_error("limited leveling finishes one file"));
-                };
-                return Ok(Level::Limited {
-                    prepared: prepare(&cut.channels, sample_rate, &out.loudness)?,
-                    trim: 0.0,
-                });
-            }
-            Leveling::RepeatSafeStatic { program, peak_db } => (program, peak_db),
-        };
+    ) -> Self {
         let before = if cuts.len() == 1 {
             vec![program]
         } else {
@@ -125,12 +120,31 @@ impl<'a> Level<'a> {
                 )
             }
         };
-        Ok(Level::Static {
+        Level::Static {
             before,
             gain_db,
             target,
             ceiling,
-        })
+        }
+    }
+
+    /// Whether each pass's `Progress::Encoded` follows each encode (Limited) or the whole pass's
+    /// encodes and decodes (Static).
+    fn emits_after_each_encode(&self) -> bool {
+        matches!(self, Level::Limited { .. })
+    }
+
+    /// A file's summary before its format, size and loudness: `base` with the cut's bars and
+    /// `frames` (Static). Limited keeps the base summary's window and frames.
+    fn file_summary(&self, base: &Summary, cut: &FileCut<'_>, frames: u64) -> Summary {
+        let mut summary = base.clone();
+        if let Level::Static { .. } = self {
+            summary.window.from_bar = cut.bars.start;
+            summary.window.to_bar = cut.bars.end;
+            summary.frames = frames;
+            summary.seconds = frames as f64 / f64::from(base.sample_rate);
+        }
+        summary
     }
 
     /// Levels cut `index`: its channels (borrowed when nothing changed them) and its loudness,
@@ -153,19 +167,14 @@ impl<'a> Level<'a> {
                 let before = before
                     .get(index)
                     .copied()
-                    .ok_or_else(|| render_error("a file cut has no measure"))?;
+                    .ok_or_else(|| RenderError::render("a file cut has no measure"))?;
                 let gain_db = *gain_db;
-                let (channels, after) = if gain_db == 0.0 {
-                    (Cow::Borrowed(&*cut.channels), before)
-                } else {
-                    let gain = 10f64.powf(gain_db / 20.0);
-                    let gained: Vec<Vec<f32>> = cut
-                        .channels
-                        .iter()
-                        .map(|ch| ch.iter().map(|&x| (f64::from(x) * gain) as f32).collect())
-                        .collect();
-                    let after = measure(&gained, sample_rate);
-                    (Cow::Owned(gained), after)
+                let (channels, after) = match apply_static_gain(&cut.channels, gain_db) {
+                    None => (Cow::Borrowed(&*cut.channels), before),
+                    Some(gained) => {
+                        let after = measure(&gained, sample_rate);
+                        (Cow::Owned(gained), after)
+                    }
                 };
                 Ok(Leveled {
                     channels,
@@ -219,11 +228,20 @@ pub(crate) fn finish_files(
     } = finishing;
     let sample_rate = base.sample_rate;
     let format = out.encoder.format();
-    let limited = matches!(leveling, Leveling::Limited);
 
     let mut setup_warnings = Vec::new();
     let started = Instant::now();
-    let mut level = Level::setup(&cuts, leveling, out, sample_rate, &mut setup_warnings)?;
+    let mut level = match leveling {
+        Leveling::Limited => Level::limited(&cuts, out, sample_rate)?,
+        Leveling::RepeatSafeStatic { program, peak_db } => Level::repeat_safe(
+            &cuts,
+            program,
+            peak_db,
+            out,
+            sample_rate,
+            &mut setup_warnings,
+        ),
+    };
     let mut level_ms = ms_since(started);
     if format == Format::Mp3 && cuts.iter().any(|cut| cut.loop_range.is_some()) {
         setup_warnings.push(MP3_LOOP_WARNING.into());
@@ -257,7 +275,7 @@ pub(crate) fn finish_files(
                 mp3_flush,
                 loop_range: range,
             })?;
-            if limited {
+            if level.emits_after_each_encode() {
                 progress(Progress::Encoded { pass });
             }
             let frames = channels.first().map_or(0, Vec::len) as u64;
@@ -270,13 +288,7 @@ pub(crate) fn finish_files(
             }
             encode_ms += ms_since(started);
 
-            let mut summary = base.clone();
-            if !limited {
-                summary.window.from_bar = cut.bars.start;
-                summary.window.to_bar = cut.bars.end;
-                summary.frames = frames;
-                summary.seconds = frames as f64 / f64::from(sample_rate);
-            }
+            let mut summary = level.file_summary(&base, cut, frames);
             summary.format = Some(format);
             summary.bytes = Some(bytes.len() as u64);
             loudness.encodes = pass;
@@ -287,7 +299,7 @@ pub(crate) fn finish_files(
                 loop_points,
             });
         }
-        if !limited {
+        if !level.emits_after_each_encode() {
             progress(Progress::Encoded { pass });
         }
 
@@ -318,11 +330,7 @@ pub(crate) fn finish_files(
         }
         return Ok(files);
     }
-    Err(render_error("no export encode pass was attempted"))
-}
-
-fn render_error(message: &str) -> RenderError {
-    RenderError::Render(message.into())
+    Err(RenderError::render("no export encode pass was attempted"))
 }
 
 #[cfg(test)]
@@ -332,7 +340,7 @@ mod tests {
 
     use super::*;
     use crate::level::{SILENCE_WARNING, level, true_peak_db};
-    use crate::{BitDepth, EncoderOptions, LoopPoints, Mp3Mode, testing};
+    use crate::{BitDepth, EncoderOptions, ExportRole, LoopPoints, Mp3Mode, testing};
 
     type Recorded = (usize, Option<Range<u64>>, Mp3Flush);
 
@@ -404,17 +412,10 @@ mod tests {
 
     const SR: u32 = 44_100;
 
-    /// Dense seeded noise (an LCG) of `frames` frames at amplitude 0.5, loud enough that leveling
-    /// to -3 LUFS needs the limiter.
+    /// Dense seeded noise of `frames` frames at amplitude 0.5, loud enough that leveling to -3
+    /// LUFS needs the limiter.
     fn noise_frames(seed: u32, frames: usize) -> Vec<Vec<f32>> {
-        let mut state = seed;
-        let mut next = move || {
-            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            (f64::from(state) / f64::from(u32::MAX) * 2.0 - 1.0) as f32 * 0.5
-        };
-        let l: Vec<f32> = (0..frames).map(|_| next()).collect();
-        let r: Vec<f32> = (0..frames).map(|_| next()).collect();
-        vec![l, r]
+        testing::lcg_noise(seed, frames, 0.5)
     }
 
     /// Two seconds of [`noise_frames`].
@@ -578,13 +579,7 @@ mod tests {
 
     /// A plain request at 44.1 kHz.
     fn request<'a>(channels: &'a [Vec<f32>], encoder: &'a EncoderOptions) -> EncodeRequest<'a> {
-        EncodeRequest {
-            channels,
-            sample_rate: SR,
-            encoder,
-            mp3_flush: Mp3Flush::NoGap,
-            loop_range: None,
-        }
+        EncodeRequest::plain(channels, SR, encoder)
     }
 
     #[test]
