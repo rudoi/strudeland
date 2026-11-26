@@ -105,7 +105,12 @@ impl CommandError {
     /// A recording command's project error: as `From`, except that a song's name error is
     /// `other` (memo-ui shows `other` as a notice and hides the memo name kinds).
     pub fn for_memos(e: ProjectError) -> Self {
-        let kind = match project_kind(&e) {
+        CommandError::for_memo_error(&e)
+    }
+
+    /// [`CommandError::for_memos`] by reference (the take lifecycle shares its memo errors).
+    pub fn for_memo_error(e: &ProjectError) -> Self {
+        let kind = match project_kind(e) {
             (_, Some(Subject::Song)) => CommandErrorKind::Other,
             (kind, _) => kind,
         };

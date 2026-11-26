@@ -295,10 +295,15 @@ the V8 download the host brings.
 - Voice memos: `crates/strudeland-record/` microphone capture
   (cpal input to a mono f32 WAV through rtrb rings and a writer thread, levels, anchors from frame
   index to mach host time; `Source` seam with `CpalSource` and `testing::FakeSource`; its README has
-  the threads, format and the capture-timestamp decision). `crates/strudeland-project/src/recordings.rs`
+  the threads, format and the capture-timestamp decision).
+  `crates/strudeland-record/src/takes/` the take lifecycle (`Takes` over the `Platform`,
+  `Sink` and `RecorderMaker` ports; `TakeState`, idle, armed, recording or ended; the
+  sidecar build, the device prefs file and the repair skip; `TakeError`; the fakes in
+  `testing`). `crates/strudeland-project/src/recordings.rs`
   names, lists, renames and deletes memos, owns the sidecar (schema 1) and repairs `.partial` files.
-  `src-tauri/src/recording.rs` the recording commands, events, `RecorderState`
-  and the microphone permission (device prefs in `recording.json` in the app data dir);
+  `src-tauri/src/recording.rs` the wire types, the mapping of `TakeError` and `TakeEvent` to
+  `CommandError` and `recording://state`, `SystemPlatform` (the microphone permission),
+  `AppSink`, `RecorderState` and the commands (device prefs in `recording.json` in the app data dir);
   `src-tauri/Info.plist` (`NSMicrophoneUsageDescription`) and `Entitlements.plist` (audio input).
   `src/lib/recording/`: `api.ts` (the only Tauri caller for recording), `controller.ts` (the take
   state machine), `backing.ts`, `sync.ts`, `memos.ts`, `memo-ui.ts`, `types.ts`. `src/lib/audio/`

@@ -4,7 +4,8 @@
 //! The [`Recorder`] owns a control thread (the source and all state transitions) and, while
 //! armed, a writer thread (the rings, the WAV, levels). The audio callback only touches atomics
 //! and preallocated lock-free rings. Audio comes through the [`Source`] seam: [`CpalSource`] in
-//! the app, [`testing::FakeSource`] in tests.
+//! the app, [`testing::FakeSource`] in tests. [`takes`] runs the take lifecycle over the
+//! recorder: [`takes::Takes`], its state, its ports and the memo files it publishes.
 
 mod anchors;
 pub mod clock;
@@ -14,6 +15,7 @@ mod levels;
 mod pipeline;
 mod recorder;
 mod source;
+pub mod takes;
 mod writer;
 
 pub use anchors::{Anchor, frame_at};
@@ -31,9 +33,15 @@ pub use source::{
 };
 pub use writer::max_frames;
 
-/// The fake source and test limits, for this crate's tests and the app's.
+/// The fake source, test limits, the take lifecycle's fakes and the rig over them, for this
+/// crate's tests and the app's. It is compiled into normal builds, as `FakeSource` always was,
+/// because the app's tests use it across the crate boundary; nothing outside tests calls it.
 #[doc(hidden)]
 pub mod testing {
     pub use crate::recorder::Limits;
     pub use crate::source::{FakeHandle, FakeSource};
+    pub use crate::takes::testing::{
+        CollectingSink, FakePlatform, RATE, T0, TakesRig, WAIT, block_publication, fake_maker,
+        sidecar_of, start_fields,
+    };
 }

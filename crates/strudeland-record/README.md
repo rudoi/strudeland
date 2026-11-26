@@ -2,8 +2,8 @@
 
 Microphone capture for voice memos: one input channel written to a mono 32-bit float WAV at the
 device's own rate, with level readings and clock anchors (frame index to host time). No Tauri
-dependency. The app wiring is `src-tauri/src/recording.rs`; the sidecar and file naming live in
-`strudeland-project`.
+dependency. The take lifecycle is `takes`; the app wiring (wire types, permission, commands) is
+`src-tauri/src/recording.rs`; the sidecar and file naming live in `strudeland-project`.
 
 ## Threads
 
@@ -15,6 +15,32 @@ dependency. The app wiring is `src-tauri/src/recording.rs`; the sidecar and file
 
 Audio comes through the `Source` seam: `CpalSource` in the app, `testing::FakeSource` in tests, so
 no test touches hardware or asks for permission.
+
+## Takes
+
+`takes::Takes` runs the takes over the `Recorder`: one value of `TakeState` under one lock.
+
+- **Idle**: no stream. Left by a successful arm. `stream_denied` records that the last arm's
+  stream open was refused (desktops without an in-app prompt learn access from it).
+- **Armed**: a stream, no take. Left by start (recording), disarm, reload and quit (idle), a
+  stream failure (idle), and a re-arm the recorder refuses (idle, with no event).
+- **Recording**: a take runs. Left by stop, by an ending the recorder reached itself (cap, write
+  error, device loss: ended), and by reload and quit (the take is published, then idle).
+- **Ended**: a take the recorder finalized, or a stop whose publish failed, kept for the
+  webview's stop; it keeps the armed input unless the stream is gone. Left by stop (armed or
+  idle), and by arm, start, disarm, reload and quit.
+
+Every way out of `Ended` goes through `leave`, which publishes an ended take that is not yet
+published with the fallback sidecar. A stop moves its ended take out first, so only a successful publish leaves
+`Ended` without that fallback. `pending_loss_stem` bridges a `TakeEnded(DeviceLost)` and the
+`Failed` the recorder sends after it: the stem that `Failed`'s idle event carries. It sits beside
+the state, not in it, because a stop or a disarm can run in between.
+
+The lock is held across arm (the recorder's arm), start (up to the start timeout) and stop.
+Levels and the permission request run outside it, the request behind a `requesting` flag. The
+event forwarder thread holds a `Weak<Takes>`, and shutdown joins it outside the lock. The app
+passes its own version in `TakesConfig`, so the sidecar's `app.version` is the app's, not this
+crate's.
 
 ## File format
 
@@ -54,5 +80,5 @@ cargo run -p strudeland-record --example probe -- [--list] [--device ID] [--seco
 
 ## Licences
 
-cpal (Apache-2.0), hound (Apache-2.0), rtrb (MIT or Apache-2.0), thiserror and mach2 (MIT or
-Apache-2.0). The crate is AGPL-3.0-or-later.
+cpal (Apache-2.0), hound (Apache-2.0), rtrb (MIT or Apache-2.0), thiserror, mach2, serde,
+serde_json and libc (Linux only) (MIT or Apache-2.0). The crate is AGPL-3.0-or-later.
