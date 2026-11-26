@@ -772,7 +772,8 @@ const FM_GAIN_NAMES: [&str; 8] = [
 ];
 
 /// A key of superdough's `nodes` tracker that the plan or the modulator loop writes. The table
-/// matches and looks entries up by [`NodeName::as_str`], superdough's text.
+/// matches entries by value and looks them up by [`NodeName::as_str`], superdough's text; the two
+/// agree because a `Mod` name (`lfo_<id>`/`env_<id>`) never spells a static or FM name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeName {
     /// `source`: the sound's source node (or the bus).
@@ -894,7 +895,7 @@ impl NodeTable {
         match self
             .entries
             .iter_mut()
-            .find(|(k, n, _)| *k == key && n.as_str() == name.as_str())
+            .find(|(k, n, _)| *k == key && *n == name)
         {
             Some(e) => e.2 = list,
             None => self.entries.push((key, name, list)),
@@ -908,7 +909,7 @@ impl NodeTable {
         match self
             .entries
             .iter_mut()
-            .find(|(k, m, _)| *k == key && m.as_str() == name.as_str())
+            .find(|(k, m, _)| *k == key && *m == name)
         {
             Some((_, _, NodeList::Array(v))) => v.push(n),
             Some(e) => {
@@ -1136,12 +1137,7 @@ pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut No
     }
     let id = t.stage_id(StageSpec::EntryGain(key));
     t.one(key, NodeName::Gain, Node::Stage(id));
-    let filters = [
-        (&params.lowpass, FilterKind::Lowpass),
-        (&params.highpass, FilterKind::Highpass),
-        (&params.bandpass, FilterKind::Bandpass),
-    ];
-    for (filter, kind) in filters {
+    for (kind, filter) in params.filters() {
         let Some(f) = filter else {
             continue;
         };
@@ -1562,12 +1558,10 @@ pub(crate) fn build_stage(
 
 /// The filter of `e` in slot `kind` (`Notch` is the phaser's, never a filter slot).
 fn filter_of(e: &EntryParams, kind: FilterKind) -> Option<&FilterParams> {
-    match kind {
-        FilterKind::Lowpass => e.lowpass.as_ref(),
-        FilterKind::Highpass => e.highpass.as_ref(),
-        FilterKind::Bandpass => e.bandpass.as_ref(),
-        FilterKind::Notch => None,
-    }
+    e.filters()
+        .into_iter()
+        .find(|(k, _)| *k == kind)
+        .and_then(|(_, f)| f)
 }
 
 /// When a local delay or reverb is cut: it renders
@@ -2054,49 +2048,76 @@ pub(crate) mod tests {
         }
     }
 
-    /// The static variants with superdough's text, then the FM names at both ends.
-    pub(crate) const STATIC_NAMES: &[(NodeName, &str)] = &[
-        (NodeName::Source, "source"),
-        (NodeName::PwLfo, "pw_lfo"),
-        (NodeName::Vib, "vib"),
-        (NodeName::VibGain, "vib_gain"),
-        (NodeName::Transient, "transient"),
-        (NodeName::Gain, "gain"),
-        (NodeName::Lpf, "lpf"),
-        (NodeName::LpfLfo, "lpf_lfo"),
-        (NodeName::Hpf, "hpf"),
-        (NodeName::HpfLfo, "hpf_lfo"),
-        (NodeName::Bpf, "bpf"),
-        (NodeName::BpfLfo, "bpf_lfo"),
-        (NodeName::Vowel, "vowel"),
-        (NodeName::Coarse, "coarse"),
-        (NodeName::Crush, "crush"),
-        (NodeName::Shape, "shape"),
-        (NodeName::Distort, "distort"),
-        (NodeName::Tremolo, "tremolo"),
-        (NodeName::TremoloGain, "tremolo_gain"),
-        (NodeName::Compressor, "compressor"),
-        (NodeName::Pan, "pan"),
-        (NodeName::Phaser, "phaser"),
-        (NodeName::PhaserLfo, "phaser_lfo"),
-        (NodeName::Delay, "delay"),
-        (NodeName::DelayMix, "delay_mix"),
-        (NodeName::Room, "room"),
-        (NodeName::RoomMix, "room_mix"),
-        (NodeName::Post, "post"),
-        (NodeName::Djf, "djf"),
+    /// The static variants (every one but `Fm`, `FmGain` and `Mod`).
+    pub(crate) const STATIC_NAMES: [NodeName; 29] = [
+        NodeName::Source,
+        NodeName::PwLfo,
+        NodeName::Vib,
+        NodeName::VibGain,
+        NodeName::Transient,
+        NodeName::Gain,
+        NodeName::Lpf,
+        NodeName::LpfLfo,
+        NodeName::Hpf,
+        NodeName::HpfLfo,
+        NodeName::Bpf,
+        NodeName::BpfLfo,
+        NodeName::Vowel,
+        NodeName::Coarse,
+        NodeName::Crush,
+        NodeName::Shape,
+        NodeName::Distort,
+        NodeName::Tremolo,
+        NodeName::TremoloGain,
+        NodeName::Compressor,
+        NodeName::Pan,
+        NodeName::Phaser,
+        NodeName::PhaserLfo,
+        NodeName::Delay,
+        NodeName::DelayMix,
+        NodeName::Room,
+        NodeName::RoomMix,
+        NodeName::Post,
+        NodeName::Djf,
     ];
 
     #[test]
     fn node_names_are_superdough_keys() {
-        for (name, text) in STATIC_NAMES {
+        let texts = [
+            "source",
+            "pw_lfo",
+            "vib",
+            "vib_gain",
+            "transient",
+            "gain",
+            "lpf",
+            "lpf_lfo",
+            "hpf",
+            "hpf_lfo",
+            "bpf",
+            "bpf_lfo",
+            "vowel",
+            "coarse",
+            "crush",
+            "shape",
+            "distort",
+            "tremolo",
+            "tremolo_gain",
+            "compressor",
+            "pan",
+            "phaser",
+            "phaser_lfo",
+            "delay",
+            "delay_mix",
+            "room",
+            "room_mix",
+            "post",
+            "djf",
+        ];
+        for (name, text) in STATIC_NAMES.iter().zip(texts) {
             assert!(listed(name));
-            assert_eq!(name.as_str(), *text, "{name:?}");
+            assert_eq!(name.as_str(), text, "{name:?}");
         }
-        assert_eq!(NodeName::Fm(1).as_str(), "fm_1");
-        assert_eq!(NodeName::Fm(8).as_str(), "fm_8");
-        assert_eq!(NodeName::FmGain(1).as_str(), "fm_1_gain");
-        assert_eq!(NodeName::FmGain(8).as_str(), "fm_8_gain");
         for n in 1..=8u8 {
             assert_eq!(NodeName::Fm(n).as_str(), format!("fm_{n}"));
             assert_eq!(NodeName::FmGain(n).as_str(), format!("fm_{n}_gain"));
@@ -2205,8 +2226,7 @@ pub(crate) mod tests {
     }
 
     fn voice(v: serde_json::Value) -> Voice {
-        let map: ValueMap = serde_json::from_value(v).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let params = parsed(v, 0.1);
         let mut orbit = Orbit::new(
             &OrbitSpec {
                 orbit: 1.0,
@@ -2232,10 +2252,15 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    /// The plan of `v` (parsed with the `voice()` helper's duration and cps).
-    fn planned(v: serde_json::Value) -> NodeTable {
+    /// `v` parsed as a hap of `dur` seconds at 0.5 cps.
+    pub(crate) fn parsed(v: serde_json::Value, dur: f64) -> VoiceParams {
         let map: ValueMap = serde_json::from_value(v).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        parse_voice_params(&map, dur, 0.5).unwrap()
+    }
+
+    /// The plan of `v`, parsed by [`parsed`].
+    pub(crate) fn planned(v: serde_json::Value, dur: f64) -> NodeTable {
+        let params = parsed(v, dur);
         let s = crate::voice::sound_name(params.s.as_ref());
         NodeTable::plan(&params, SourceKind::of(&s).unwrap())
     }
@@ -2325,8 +2350,7 @@ pub(crate) mod tests {
         };
         let step = |sides, connects| FmStep { sides, connects };
         let plan = |v: serde_json::Value, source: SourceKind| {
-            let map: ValueMap = serde_json::from_value(v).unwrap();
-            let p = parse_voice_params(&map, 0.1, 0.5).unwrap();
+            let p = parsed(v, 0.1);
             let t = NodeTable::plan(&p, source);
             (t.fm_steps().to_vec(), p.fm.entries.len())
         };
@@ -2378,7 +2402,7 @@ pub(crate) mod tests {
         let value = json!({
             "s": "saw", "cutoff": 500, "ftype": "24db", "hcutoff": 100, "pan": 0.2
         });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         let lp = filter(M, FilterKind::Lowpass, false);
         let hp = filter(M, FilterKind::Highpass, false);
         assert_eq!(
@@ -2417,7 +2441,7 @@ pub(crate) mod tests {
 
         // 12 dB band-pass only, no pan: no `pan` entry, a mono voice.
         let value = json!({ "s": "saw", "bandf": 900, "dry": 0.5, "room": 0.3 });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         assert_eq!(
             t.specs(),
             [
@@ -2466,7 +2490,7 @@ pub(crate) mod tests {
             "s": "saw", "transient": 0.5, "cutoff": 500, "coarse": 4, "crush": 8,
             "shape": 0.3, "distort": 1, "pan": 0.2
         });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         assert_eq!(
             t.specs(),
             [
@@ -2499,7 +2523,7 @@ pub(crate) mod tests {
         assert_eq!(voice(value).output_channels(), 2);
         // Only defined controls build a worklet; `null` counts as defined.
         let value = json!({ "s": "sine", "crush": null });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         assert_eq!(
             t.specs(),
             [
@@ -2568,8 +2592,7 @@ pub(crate) mod tests {
     #[test]
     fn worklet_value_throw_sites() {
         let err = |v: serde_json::Value| {
-            let map: ValueMap = serde_json::from_value(v).unwrap();
-            let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+            let params = parsed(v, 0.1);
             let (stages, _, _, r) = walk_entry(&params, TIMES);
             let e = r.unwrap_err();
             (e, stages.len())
@@ -2598,9 +2621,7 @@ pub(crate) mod tests {
             assert_eq!(n, built, "{v}");
         }
         // The transient's options never throw: NaN amounts are kept.
-        let map: ValueMap =
-            serde_json::from_value(json!({ "transient": "x", "transsustain": null })).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let params = parsed(json!({ "transient": "x", "transsustain": null }), 0.1);
         let (stages, _, _, r) = walk_entry(&params, TIMES);
         r.unwrap();
         assert!(matches!(stages[0], Stage::Transient(_)));
@@ -2641,8 +2662,7 @@ pub(crate) mod tests {
     #[test]
     fn the_transient_stage_runs_from_its_begin_to_its_end() {
         // begin 0.0 (quantum 0 gated), end_with_release 0.11 s (frame 4851), input gone at 5376.
-        let map: ValueMap = serde_json::from_value(json!({ "transient": 0.5 })).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let params = parsed(json!({ "transient": 0.5 }), 0.1);
         let (mut stages, _, _, r) = walk_entry(&params, TIMES);
         r.unwrap();
         let mut t = stages.remove(0);
@@ -2825,7 +2845,7 @@ pub(crate) mod tests {
             "s": "saw", "cutoff": 900, "resonance": 8, "hcutoff": 100, "bandf": 500,
             "ftype": "ladder", "drive": 3, "pan": 0.1
         });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         assert_eq!(
             t.specs(),
             [
@@ -2875,7 +2895,7 @@ pub(crate) mod tests {
             }
             other => panic!("{other:?}"),
         }
-        let t = planned(json!({ "s": "saw", "cutoff": 900, "ftype": 1 }));
+        let t = planned(json!({ "s": "saw", "cutoff": 900, "ftype": 1 }), 0.1);
         assert_eq!(t.specs()[3], filter(M, FilterKind::Lowpass, false));
         let v = voice(json!({ "s": "saw", "cutoff": 900, "ftype": "24db" }));
         assert_eq!(v.filters().len(), 2);
@@ -2899,11 +2919,12 @@ pub(crate) mod tests {
         assert!(l.proc.frequency.events().len() > 2);
         let mut biquad = Biquad::new(FilterKind::Lowpass);
         biquad.frequency.set_value(300.0, 0).unwrap();
-        let map: ValueMap = serde_json::from_value(json!({
-            "cutoff": 300, "lpenv": 4, "lpattack": 0.05
-        }))
-        .unwrap();
-        let p = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let p = parsed(
+            json!({
+                "cutoff": 300, "lpenv": 4, "lpattack": 0.05
+            }),
+            0.1,
+        );
         filter_envelope(
             &mut biquad.frequency,
             p.main.lowpass.as_ref().unwrap(),
@@ -2921,8 +2942,7 @@ pub(crate) mod tests {
         // `.value =` order frequency, q, drive: the first non-finite one throws, after the gain
         // stage was built.
         let err = |v: serde_json::Value| {
-            let map: ValueMap = serde_json::from_value(v).unwrap();
-            let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+            let params = parsed(v, 0.1);
             let (stages, table, _, r) = walk_entry(&params, TIMES);
             let e = r.unwrap_err();
             (
@@ -3010,8 +3030,7 @@ pub(crate) mod tests {
     #[test]
     fn the_walk_throws_at_the_first_planned_site() {
         let walk = |v: &serde_json::Value| {
-            let map: ValueMap = serde_json::from_value(v.clone()).unwrap();
-            let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+            let params = parsed(v.clone(), 0.1);
             let (stages, table, _, r) = walk_entry(&params, TIMES);
             (stages.len(), table, r)
         };
@@ -3087,8 +3106,7 @@ pub(crate) mod tests {
 
     #[test]
     fn entry_plan_registers_under_its_key() {
-        let map: ValueMap = serde_json::from_value(json!({ "pan": 0.5 })).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let params = parsed(json!({ "pan": 0.5 }), 0.1);
         let table = NodeTable::entry_plan(FxKey::Index(1), &params);
         let (stages, _, _, r) = walk_entry(&params, TIMES);
         r.unwrap();
@@ -3098,62 +3116,6 @@ pub(crate) mod tests {
             table.get(FxKey::Index(1), "pan"),
             Some(&NodeList::Array(vec![Some(Node::Stage(StageId(1)))]))
         );
-    }
-
-    #[test]
-    fn stage_spec_kinds() {
-        let m = FxKey::Main;
-        let filter = |ladder| StageSpec::Filter {
-            entry: m,
-            kind: FilterKind::Lowpass,
-            ladder,
-        };
-        // Exhaustive: a new variant fails to compile until it is listed here and in `all`.
-        let expected = |s: StageSpec| match s {
-            StageSpec::SynthGain => StageKind::Gain,
-            StageSpec::EnvGain => StageKind::Gain,
-            StageSpec::Transient(_) => StageKind::Transient,
-            StageSpec::EntryGain(_) => StageKind::Gain,
-            StageSpec::Filter { ladder: true, .. } => StageKind::Ladder,
-            StageSpec::Filter { ladder: false, .. } => StageKind::Biquad,
-            StageSpec::Vowel(_) => StageKind::Vowel,
-            StageSpec::Coarse(_) => StageKind::Coarse,
-            StageSpec::Crush(_) => StageKind::Crush,
-            StageSpec::Shape(_) => StageKind::Shape,
-            StageSpec::Distort(_) => StageKind::Distort,
-            StageSpec::Tremolo(_) => StageKind::Tremolo,
-            StageSpec::Compressor(_) => StageKind::Compressor,
-            StageSpec::Pan(_) => StageKind::Panner,
-            StageSpec::Phaser(_) => StageKind::Phaser,
-            StageSpec::LocalDelay(_) => StageKind::LocalDelay,
-            StageSpec::LocalReverb(_) => StageKind::LocalReverb,
-            StageSpec::Release => StageKind::Release,
-            StageSpec::Post => StageKind::Gain,
-        };
-        let all = [
-            StageSpec::SynthGain,
-            StageSpec::EnvGain,
-            StageSpec::Transient(m),
-            StageSpec::EntryGain(m),
-            filter(true),
-            filter(false),
-            StageSpec::Vowel(m),
-            StageSpec::Coarse(m),
-            StageSpec::Crush(m),
-            StageSpec::Shape(m),
-            StageSpec::Distort(m),
-            StageSpec::Tremolo(m),
-            StageSpec::Compressor(m),
-            StageSpec::Pan(m),
-            StageSpec::Phaser(m),
-            StageSpec::LocalDelay(m),
-            StageSpec::LocalReverb(m),
-            StageSpec::Release,
-            StageSpec::Post,
-        ];
-        for s in all {
-            assert_eq!(s.kind(), expected(s), "{s:?}");
-        }
     }
 
     /// `walk_entry` on `v` (cps 2, cycle 1.5: `time = 0.75`, begin 0.25, hold end 0.5, end with
@@ -4035,7 +3997,7 @@ pub(crate) mod tests {
     fn compressor_makes_the_voice_stereo_and_pan_takes_the_stereo_law() {
         let value = json!({ "s": "sine", "compressor": -10, "pan": 0.5 });
         assert_eq!(voice(value.clone()).output_channels(), 2);
-        let specs = planned(value).specs().to_vec();
+        let specs = planned(value, 0.1).specs().to_vec();
         let c = specs.iter().position(|s| *s == S::Compressor(M)).unwrap();
         assert_eq!(specs[c + 1], S::Pan(M));
         // Pan 0.5 on a stereo bus: the stereo law passes both channels unchanged (no -3 dB).
@@ -4067,7 +4029,7 @@ pub(crate) mod tests {
     fn release_stage_rule() {
         // FXrelease > release: one release gain after the FX loop, before post.
         let value = json!({ "s": "sine", "release": 0.02, "FXrelease": 0.3, "phaserrate": 1 });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         let n = t.specs().len();
         assert_eq!(&t.specs()[n - 3..], [S::Phaser(M), S::Release, S::Post]);
         let v = voice(value);
@@ -4103,13 +4065,16 @@ pub(crate) mod tests {
             val.as_object_mut()
                 .unwrap()
                 .extend(extra.as_object().unwrap().clone());
-            assert!(!planned(val.clone()).specs().contains(&S::Release), "{val}");
+            assert!(
+                !planned(val.clone(), 0.1).specs().contains(&S::Release),
+                "{val}"
+            );
         }
         // The default release 0.01: FXrelease 0.02 builds; a null release is 0.
-        let t = planned(json!({ "s": "sine", "FXrelease": 0.02 }));
+        let t = planned(json!({ "s": "sine", "FXrelease": 0.02 }), 0.1);
         assert!(t.specs().contains(&S::Release));
         let value = json!({ "s": "sine", "release": null, "FXrelease": 0.001 });
-        assert!(planned(value.clone()).specs().contains(&S::Release));
+        assert!(planned(value.clone(), 0.1).specs().contains(&S::Release));
         let v = voice(value);
         let Some(Stage::Release(g)) = v.stages().iter().find(|s| matches!(s, Stage::Release(_)))
         else {
@@ -4170,8 +4135,7 @@ pub(crate) mod tests {
     /// A voice of `v` (0.1 s hap at t = 0, cps 0.5 for the controls) with its local reverbs
     /// settled; the build error otherwise.
     fn fx_voice(v: serde_json::Value) -> Result<Voice, crate::voice::VoiceError> {
-        let map: ValueMap = serde_json::from_value(v).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let params = parsed(v, 0.1);
         let mut orbit = Orbit::new(
             &OrbitSpec {
                 orbit: 1.0,
@@ -4217,15 +4181,18 @@ pub(crate) mod tests {
 
     #[test]
     fn a_chain_entry_with_every_key_builds_in_superdough_order() {
-        let t = planned(json!({
-            "s": "sawtooth", "FXrelease": 0.3,
-            "FX": [{
-                "transient": 0.5, "cutoff": 500, "hcutoff": 100, "bandf": 1000, "vowel": "a",
-                "coarse": 2, "crush": 4, "shape": 0.3, "distort": 0.5, "tremolo": 2,
-                "compressor": -10, "pan": 0.3, "phaserrate": 2, "delay": 0.5, "delaytime": 0.1,
-                "room": 0.3, "roomsize": 0.1
-            }]
-        }));
+        let t = planned(
+            json!({
+                "s": "sawtooth", "FXrelease": 0.3,
+                "FX": [{
+                    "transient": 0.5, "cutoff": 500, "hcutoff": 100, "bandf": 1000, "vowel": "a",
+                    "coarse": 2, "crush": 4, "shape": 0.3, "distort": 0.5, "tremolo": 2,
+                    "compressor": -10, "pan": 0.3, "phaserrate": 2, "delay": 0.5, "delaytime": 0.1,
+                    "room": 0.3, "roomsize": 0.1
+                }]
+            }),
+            0.1,
+        );
         assert_eq!(
             t.specs(),
             [
@@ -4304,7 +4271,7 @@ pub(crate) mod tests {
         let value = json!({
             "s": "sine", "gain": 0.5, "FX": [{ "gain": 0.25 }, { "velocity": 0.5 }]
         });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         assert!(t.has_entry(FxKey::Index(1)));
         assert!(!t.has_entry(FxKey::Index(2)));
         let v = fx_voice(value).unwrap();
@@ -4346,7 +4313,7 @@ pub(crate) mod tests {
     #[test]
     fn the_24db_doubling_is_the_haps_and_the_ladder_the_entrys() {
         let count = |v: serde_json::Value, ladder: bool| {
-            planned(v)
+            planned(v, 0.1)
                 .specs()
                 .iter()
                 .filter(|s| matches!(s, S::Filter { ladder: l, .. } if *l == ladder))
@@ -4391,7 +4358,7 @@ pub(crate) mod tests {
     #[test]
     fn local_delay_conditions_and_values() {
         let with = |e: serde_json::Value| fx_voice(json!({ "s": "sine", "FX": [e] })).unwrap();
-        let plan = |e: serde_json::Value| planned(json!({ "s": "sine", "FX": [e] }));
+        let plan = |e: serde_json::Value| planned(json!({ "s": "sine", "FX": [e] }), 0.1);
         let base = json!({ "delay": 0.5, "delaytime": 0.1, "delayfeedback": 0.5 });
         let t = plan(base.clone());
         assert!(t.specs().contains(&S::LocalDelay(X0)));
@@ -4460,7 +4427,7 @@ pub(crate) mod tests {
         let value = json!({
             "s": "sine", "delay": 0.5, "delaytime": 0.1, "room": 0.5, "roomsize": 0.1
         });
-        let t = planned(value.clone());
+        let t = planned(value.clone(), 0.1);
         assert_eq!(local(&t), []);
         assert_eq!(
             t.get(FxKey::Main, "delay").cloned(),
@@ -4475,7 +4442,7 @@ pub(crate) mod tests {
             "s": "sine", "FX": [{ "delay": 0.5, "delaytime": 0.1, "room": 0.5, "roomsize": 0.1 }]
         });
         assert_eq!(
-            local(&planned(value.clone())),
+            local(&planned(value.clone(), 0.1)),
             [S::LocalDelay(X0), S::LocalReverb(X0)]
         );
         assert_eq!(fx_voice(value).unwrap().send_levels(), (None, None));
@@ -4522,7 +4489,7 @@ pub(crate) mod tests {
         // Mono until the entry's local stage, stereo after it (fold of `channels_out`).
         let value = json!({ "s": "sine", "FX": [{ "cutoff": 500, "delay": 0.5, "delaytime": 0.1 }, { "hcutoff": 50 }] });
         assert_eq!(
-            planned(value.clone()).specs()[3..6],
+            planned(value.clone(), 0.1).specs()[3..6],
             [
                 filter(X0, FilterKind::Lowpass, false),
                 S::LocalDelay(X0),

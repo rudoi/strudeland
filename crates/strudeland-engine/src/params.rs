@@ -2,6 +2,7 @@
 //! with the defaults that sit outside a node, and superdough's mutation of a hap value
 //! (`prepare_value`).
 
+use crate::biquad::FilterKind;
 use crate::chain::{DEFAULT_SOUND, FxKey};
 use crate::coerce::*;
 use crate::compressor::CompressorParams;
@@ -270,6 +271,18 @@ pub struct EntryParams {
     pub tremolo: Option<TremoloParams>,
     /// The entry's `lfo`, `env` and `bmod` values as given (the modulator loop reads them).
     pub modulators: ValueMap,
+}
+
+impl EntryParams {
+    /// The filter slots in superdough's order (lowpass, highpass, bandpass), each with its filter
+    /// when it is present.
+    pub fn filters(&self) -> [(FilterKind, Option<&FilterParams>); 3] {
+        [
+            (FilterKind::Lowpass, self.lowpass.as_ref()),
+            (FilterKind::Highpass, self.highpass.as_ref()),
+            (FilterKind::Bandpass, self.bandpass.as_ref()),
+        ]
+    }
 }
 
 /// One hap's tremolo, as superdough's FX loop reads it.

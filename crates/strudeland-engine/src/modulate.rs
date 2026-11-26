@@ -2592,7 +2592,10 @@ pub(crate) mod tests {
             );
         }
         // The probe reaches every name the plan can register.
-        let mut every: Vec<String> = STATIC_NAMES.iter().map(|(_, t)| t.to_string()).collect();
+        let mut every: Vec<String> = STATIC_NAMES
+            .iter()
+            .map(|n| n.as_str().to_string())
+            .collect();
         for n in 1..=8u8 {
             every.push(NodeName::Fm(n).as_str().to_string());
             every.push(NodeName::FmGain(n).as_str().to_string());

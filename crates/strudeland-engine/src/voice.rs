@@ -2247,23 +2247,17 @@ pub fn sound_name(s: Option<&Value>) -> String {
 #[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
+    use crate::chain::tests::{parsed as params, planned};
     use crate::chain::{FxKey, NodeList};
     use crate::job::OrbitSpec;
-    use crate::job::ValueMap;
     use crate::lfo;
     use crate::noise::NoiseCache;
     use crate::param::RampKind;
-    use crate::params::parse_voice_params;
     use crate::periodic::{WaveKind, WaveTables};
     use crate::render::frame_for_buffer_start;
     use serde_json::json;
 
     use crate::SAMPLE_RATE_F64 as SR;
-
-    fn params(v: serde_json::Value, dur: f64) -> VoiceParams {
-        let map: ValueMap = serde_json::from_value(v).unwrap();
-        parse_voice_params(&map, dur, 0.5).unwrap()
-    }
 
     fn start(t: f64, dur: f64) -> StartInfo {
         StartInfo {
@@ -2676,12 +2670,6 @@ mod tests {
             Source::Osc(o) => o,
             other => panic!("not an oscillator: {other:?}"),
         }
-    }
-
-    /// The plan of `v` (parsed with the `params()` helper's cps).
-    fn planned(v: serde_json::Value, dur: f64) -> NodeTable {
-        let p = params(v, dur);
-        NodeTable::plan(&p, SourceKind::of(&sound_name(p.s.as_ref())).unwrap())
     }
 
     fn try_voice(v: serde_json::Value, dur: f64) -> Result<Voice, VoiceError> {
