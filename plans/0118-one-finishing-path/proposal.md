@@ -13,7 +13,7 @@ permanent characterization test, added first, proves it after every stage.
 
 ## Background
 
-The [re-verification](0118-one-finishing-path/reverify.md) has the evidence, with file and line.
+The [re-verification](reverify.md) has the evidence, with file and line.
 
 - **Three finishing paths share one job and little code.** A plain render, a one-shot and a loop
   preset each level, encode, verify and correct. Each does so in its own function, with its own

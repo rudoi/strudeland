@@ -1,7 +1,7 @@
 # 0118 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0118-one-finishing-path`.
-- **Proposal:** [../0118-one-finishing-path.md](../0118-one-finishing-path.md). It is the
+- **Proposal:** [proposal.md](proposal.md). It is the
   contract: the interface, the finishing sequence, the byte-identity arguments and the
   decisions.
 - **Evidence:** [reverify.md](reverify.md), with file and line at the plan commit.
