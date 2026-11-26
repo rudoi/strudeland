@@ -1238,8 +1238,6 @@ mod tests {
         }
     }
 
-    /// A job with one pause per value: hap `j` plays value `j` at cycle `j + 0.5` (bar `j`).
-    /// `tests/bin.rs` builds the same job for the binary.
     /// `CHAIN_KEYS` both ways: an allowed key is a chain key exactly when some probe value
     /// changes what an FX entry reads (`parse_entry_params`), on a base that switches every
     /// family on and on the same base without `delaytime`.
@@ -1349,6 +1347,8 @@ mod tests {
         }
     }
 
+    /// A job with one pause per value: hap `j` plays value `j` at cycle `j + 0.5` (bar `j`).
+    /// `tests/bin.rs` builds the same job for the binary.
     fn table_job(values: &serde_json::Value) -> EngineJob {
         let n = values.as_array().unwrap().len();
         let pauses: Vec<_> = (0..n)
