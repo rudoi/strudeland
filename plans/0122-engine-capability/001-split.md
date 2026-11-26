@@ -16,6 +16,7 @@
 **Not one line of logic changes.** Code moves between files. The only other edits are these:
 
 - `use` lines and module docs;
+- `SILENCE` moved beside `is_silence` in `params`;
 - two visibility changes: `is_silence`, and the six filter key consts;
 - the `bus_controls` test split in two;
 - test helpers copied where both sides call them.
@@ -23,7 +24,8 @@
 ## Prerequisites
 
 - On `llm/andrew/strudeland/0122-engine-capability`.
-- `git diff --quiet 385724a -- crates` holds: no engine edit yet.
+- `git diff --quiet 385724a -- crates` holds: no engine edit yet. Always diff against the hash
+  `385724a` (`origin/main`), never `main`: the local `main` can be stale.
 - `jq`, `shasum` and a working `cargo build --release -p strudeland-engine`.
 
 ## Implementation
@@ -35,22 +37,36 @@ A copy of it is in `~/.cache/strudeland-0122/`.
 
 1. **Install the script.** Create `$S/0122-baseline/eq.sh` with the text below and
    `chmod +x` it. A draft of the same script was dry-run while planning, at
-   `$S/0122-draft/eq.sh`. It ran against an existing binary and showed:
-   - 217 jobs;
+   `$S/0122-draft/eq.sh` (with the `~/.cache` copy left out). It built the binary from the
+   unedited tree, and `baseline` then `check` showed:
+   - 226 jobs: the 181 refs and 45 extra jobs;
    - 20 sounds and 91 targets in the dump;
-   - every extra job accepted by `signatures`;
-   - `{"s":["-"]}` accepted, with the render error `sound - not found`.
+   - every extra job's `signatures` run exits 0, and every sound job `x04`-`x21` renders with
+     exit 0;
+   - `{"s":["-"]}` accepted, with the render error `sound - not found`;
+   - `null`, `""`, `true`, `"Sine"`, `"sine "` and `{"bank":"x"}` (as `x_triangle`) refused, and
+     `[["sine"]]` and `{"s":"sine","bank":""}` accepted and rendered;
+   - the noise `lfo` refused as `lfo:note`;
+   - the findings `x05 bus with a writer: sounding`, `x06 bus alone: silent` and
+     `x07 crackle: sounding`;
+   - `check` on the same tree: `equal`.
 2. **Record the baseline.** Run `"$S/0122-baseline/eq.sh" baseline`. It refuses unless the
-   tree's `crates/` equals `385724a`. It builds the release binary, writes the 36 extra jobs and
-   records `base/`. It checks that every extra job is accepted and that the dump holds 20 sounds
-   and 91 targets, then copies itself to `~/.cache/strudeland-0122/eq.sh`. Expect
-   `baseline: 217 jobs, 20 sounds, 91 targets`.
+   tree's `crates/` equals `385724a`. It builds the release binary, writes the 45 extra jobs and
+   records `base/`. It makes three checks: every extra job's `signatures` run exits 0, every
+   sound job but the silence markers (`x04`-`x21`) renders with exit 0, and the dump holds 20
+   sounds and 91 targets. It then copies itself to `~/.cache/strudeland-0122/eq.sh`. Expect
+   `baseline: 226 jobs, 20 sounds, 91 targets`, then the three finding lines for `x05`, `x06`
+   and `x07`. **Record those three lines in the stage report.** 002's
+   `every_allowed_sound_renders` relies on them. If the bus pair or `crackle` is silent, say so
+   in the report before starting 002.
 3. **Check the guard.** Run `"$S/0122-baseline/eq.sh" check` once on the unedited tree. It must
    print `equal` and exit 0. A difference here means the guard itself is not deterministic: stop
    and report it.
 4. **Recovery** (a new session, or a cleared scratchpad, after edits have started):
    1. copy `~/.cache/strudeland-0122/eq.sh` into the new `$S/0122-baseline/`;
-   2. make a WIP commit if the tree is dirty;
+   2. if the tree is dirty, make a WIP commit with `git add -A` first, so untracked new files
+      (`capability.rs`, `params.rs`, `coerce.rs`) go into the commit. Otherwise they ride along
+      into the detached checkout and the baseline refuses or records the wrong tree;
    3. run `git switch --detach 385724a`, then `eq.sh baseline`;
    4. run `git switch -` and undo the WIP commit (`git reset --soft HEAD~1`).
 
@@ -80,6 +96,8 @@ build() {
 }
 
 # extra_jobs: one job per line of values below (every value's hap at time 0, in one pause).
+# x01-x21 are today's 20 sounds: x01-x03 the silence markers, x05 bus with a writer, x06 bus
+# alone, x07 crackle. x04-x21 must render with exit 0. The rest are edge and refused values.
 extra_jobs() {
 	rm -rf "$B/extra"
 	mkdir -p "$B/extra"
@@ -132,6 +150,15 @@ extra_jobs() {
 [{"s":"zzfx"}]
 [{"s":"piano"}]
 [{"s":"sine","FX":[{"cutoff":500,"i":1,"ir":"x"}]}]
+[{"s":null}]
+[{"s":""}]
+[{"s":true}]
+[{"s":"Sine"}]
+[{"s":"sine "}]
+[{"s":[["sine"]]}]
+[{"bank":"x"}]
+[{"s":"sine","bank":""}]
+[{"s":"white","lfo":{"__ids":{"$set":[0]},"0":{"control":"note"}}}]
 EOF
 }
 
@@ -185,6 +212,11 @@ baseline)
 		echo "eq.sh: extra jobs the engine rejects: $bad" >&2
 		exit 2
 	fi
+	bad=$(awk -F'\t' '$1 >= "x04" && $1 <= "x21" && $2 != 0 { print $1 }' "$B/base/render.tsv")
+	if [ -n "$bad" ]; then
+		echo "eq.sh: sound jobs that do not render with exit 0: $bad" >&2
+		exit 2
+	fi
 	sounds=$(jq '.sounds | length' "$B/base/controls.json")
 	targets=$(jq '.modulatorTargets | length' "$B/base/controls.json")
 	if [ "$sounds" != 20 ] || [ "$targets" != 91 ]; then
@@ -194,6 +226,12 @@ baseline)
 	mkdir -p "$HOME/.cache/strudeland-0122"
 	cp "$0" "$HOME/.cache/strudeland-0122/eq.sh"
 	echo "baseline: $(wc -l <"$B/base/render.tsv" | tr -d ' ') jobs, $sounds sounds, $targets targets"
+	# Findings for the stage report: x01 (`-`) renders all zeros, so a WAV with its sha256 is silent.
+	silent=$(awk -F'\t' '$1 == "x01" { print $3 }' "$B/base/render.tsv")
+	for x in "x05 bus with a writer" "x06 bus alone" "x07 crackle"; do
+		sum=$(awk -F'\t' -v n="${x%% *}" '$1 == n { print $3 }' "$B/base/render.tsv")
+		if [ "$sum" = "$silent" ]; then echo "$x: silent"; else echo "$x: sounding"; fi
+	done
 	;;
 check)
 	if [ ! -d "$B/base" ]; then
@@ -221,6 +259,10 @@ esac
 no diff of its own. Nothing in `base/` or `cur/` holds a timestamp or a path, because `renderMs`
 is stripped and no WAV is kept.
 
+The guard runs only the offline binary. It says nothing about live warnings. Those are covered
+by `live.rs`'s unit tests and `tests/live_equals_offline.rs` in the cargo gates (proposal, "What
+must not change").
+
 ### Step 2: the three files
 
 Line numbers are `controls.rs` at `385724a`. Move code verbatim, in its current order within
@@ -232,8 +274,7 @@ each file.
      the only unsupported detection (`unsupported_signatures`, behind the binary's `signatures`
      subcommand, the render refusal and the live warning) and the `controls --json` dump."
    - **Code:**
-     - `ALLOWED_KEYS`, `ALLOWED_SOUNDS` and `SILENCE` (`:12-444`);
-     - `is_silence` (`:1659-1661`), now `pub(crate)`;
+     - `ALLOWED_KEYS` and `ALLOWED_SOUNDS` (`:12-441`). `SILENCE` (`:443-444`) goes to `params`;
      - `CHAIN_KEYS`, `CHAIN_UNSUPPORTED_KEYS`, `MODULATOR_KEYS` and `MODULATOR_TARGETS`
        (`:446-656`);
      - everything from `// ---- unsupported detection` (`:1685`) through `controls_json`
@@ -242,7 +283,7 @@ each file.
      - `std::collections::BTreeSet`;
      - `crate::job::{EngineJob, Value, ValueMap, bar_of}`;
      - `crate::coerce::{js_to_string, js_truthy}`;
-     - `crate::params::sound_of`.
+     - `crate::params::{SILENCE, is_silence, sound_of}`.
 
      Keep only what the compiler needs.
 2. **`src/coerce.rs`.**
@@ -257,7 +298,11 @@ each file.
      of a hap value (`prepare_value`)."
    - **Code:**
      - `ControlError` (`:658-663`);
-     - `:837-1683` without `is_silence`;
+     - `:837-1683`, `is_silence` included, now `pub(crate)` (`capability`'s `signature_with`
+       calls it);
+     - `SILENCE` with its doc (`:443-444`), placed directly above `is_silence`. It keeps `pub`,
+       which here means crate-only. Nothing outside the crate reads it, and `lib.rs` does not
+       re-export it;
      - the six filter key consts `LOWPASS_KEYS`, `HIGHPASS_KEYS`, `BANDPASS_KEYS`,
        `LOWPASS_LFO_KEYS`, `HIGHPASS_LFO_KEYS` and `BANDPASS_LFO_KEYS`, made `pub(crate)`. So are
        their `FilterKeys`/`FilterLfoKeys` aliases, if the compiler asks.
@@ -265,8 +310,9 @@ each file.
      - `crate::chain::FxKey`;
      - `crate::compressor::CompressorParams`;
      - `crate::job::{Value, ValueMap}`;
-     - `crate::coerce::*` (as used);
-     - `crate::capability::is_silence`.
+     - `crate::coerce::*` (as used).
+
+     `params` imports nothing from `capability` outside its tests.
 4. **`src/lib.rs`.** Replace `pub mod controls;` with `pub mod capability;`,
    `pub(crate) mod coerce;` and `pub(crate) mod params;`, in alphabetical order with the
    others. Change the re-export to `pub use capability::{ALLOWED_KEYS, ALLOWED_SOUNDS, controls_json};`.
@@ -345,9 +391,12 @@ When it is done, `git grep -nE '\bcontrols::' -- crates src-tauri` prints nothin
   `signatures` (the binary's unsupported detection, called by `scripts/render/rust-engine.ts`)"
   with the proposal's text (Docs, first bullet), which names `capability`, `params` and `coerce`.
   Keep the line's other module entries and AGENTS.md:25 as they are.
-- **`crates/strudeland-engine/README.md`:**
-  - `:487`: `src/controls.rs` becomes `src/capability.rs`;
-  - `:507`: `controls::signature_of_with_bus` becomes `capability::signature_of_with_bus`.
+- **`crates/strudeland-engine/README.md`** (find each by its text; the line numbers are
+  `385724a`'s):
+  - "`ALLOWED_KEYS` in `src/controls.rs` is exactly its `implemented` and `ignored` rows" (`:487`):
+    `src/controls.rs` becomes `src/capability.rs`;
+  - "(`controls::signature_of_with_bus`, a bus cycle counting as unsupported)" (`:507`):
+    `controls::` becomes `capability::`.
 - **`crates/strudeland-engine/controls.md:41`:** `src/controls.rs` becomes `src/capability.rs`.
   Line 42's `ALLOWED_SOUNDS` stays until 002.
 - **`src/js.rs:320`:** `controls::prepare_value` becomes `params::prepare_value`.
@@ -374,9 +423,9 @@ When it is done, `git grep -n 'controls\.rs' -- ':!plans'` prints only
   wrote, and the indented `use` lines of the test modules. Any other line is a logic change:
   undo it.
 - **The test count** matches (step 3).
-- **Nothing outside the engine moved.** `git diff --stat main -- src scripts tests vendor
+- **Nothing outside the engine moved.** `git diff --stat 385724a -- src scripts tests vendor
   crates/strudeland-host crates/strudeland-live` is empty, and
-  `git diff --stat main -- crates/strudeland-render` shows only `src/plan.rs`.
+  `git diff --stat 385724a -- crates/strudeland-render` shows only `src/plan.rs`.
 - **The grep checks** in steps 4 and 5 hold.
 
 ## Commit message

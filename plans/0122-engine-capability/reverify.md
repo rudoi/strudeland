@@ -1,4 +1,4 @@
-# 0122 step 0: re-verification on main 385724a
+# 0122 step 0: re-verification at 385724a (origin/main)
 
 The issue stands. `crates/strudeland-engine/src/controls.rs` has 3252 lines: code up to 1860, tests after.
 
@@ -11,10 +11,9 @@ The issue stands. `crates/strudeland-engine/src/controls.rs` has 3252 lines: cod
 | `CHAIN_UNSUPPORTED_KEYS` | :542-549 |
 | `MODULATOR_KEYS` | :554-558, already derived from `modulate::{BMOD,ENV,LFO}_KEYS` |
 | `MODULATOR_TARGETS` (91) | :564-656; only `controls_json` reads it, and it mirrors `modulate::TARGETS` (modulate.rs:51, 118 rows) by hand |
-| JS coercions | :669-840 |
-| typed params | :841-1650 |
-| superdough mutation (`sound_of`, `prepare_value`) | :1653-1685 |
-| unsupported detection | :1686-1837 |
+| JS coercions | :665-835 |
+| typed params and superdough's mutation (`sound_of`, `is_silence`, `prepare_value`) | :837-1683 |
+| unsupported detection | :1685-1837 |
 | JSON dump (`controls_json`) | :1839-1859 |
 
 - **The sound list is checked against nothing.** `SourceKind::of` (chain.rs:600-614), `OSC_SOUNDS` (:596-598) and `NoiseKind::from_name` (noise.rs:49) are never compared with `ALLOWED_SOUNDS`. The `'triangle'` default is written twice: controls.rs:1656 and voice.rs:2258.

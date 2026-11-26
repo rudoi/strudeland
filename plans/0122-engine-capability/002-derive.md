@@ -5,7 +5,7 @@
 Two hand-kept copies give way to derivations from the code that decides:
 
 - `ALLOWED_SOUNDS` gives way to `capability::allowed_sounds()`, from `SourceKind::NAMES` and
-  `SILENCE`;
+  `params::SILENCE`;
 - `MODULATOR_TARGETS` gives way to `modulate::modulatable_targets()`, from `TARGETS` through
   `resolve`.
 
@@ -28,6 +28,9 @@ every render.
 - **Stage 001 is committed,** and its gates are green.
 - **`$S/0122-baseline/base/` exists.** If not, recover it as [001-split.md](001-split.md) step 1
   says before editing anything.
+- **The stage 001 report holds the baseline's findings.** These are the three lines for `x05`
+  (the bus pair), `x06` (`bus` alone) and `x07` (`crackle`). `every_allowed_sound_renders`
+  (step 5) expects the bus pair and `crackle` to sound.
 - **Read the proposal's "Derivations" and "Tests" sections.** They give the exact probe maps,
   values and assertions.
 
@@ -70,15 +73,20 @@ every render.
 
   ```rust
   /// Every `s` the engine accepts, sorted by byte order: the sounds it builds
-  /// ([`SourceKind::NAMES`](crate::chain::SourceKind)) and the silence markers ([`SILENCE`]).
+  /// (`SourceKind::NAMES`) and the silence markers (`SILENCE`).
   pub fn allowed_sounds() -> Vec<&'static str>
   ```
 
-  It chains the `NAMES` names with `SILENCE`, then calls `sort_unstable()`. Do not dedup: the
-  test asserts uniqueness.
+  The doc uses plain backticks, not intra-doc links. `chain` and `params` are crate-private
+  modules (`lib.rs`), so a link from this public fn to `crate::chain::SourceKind::NAMES` or
+  `crate::params::SILENCE` would be a `rustdoc::private_intra_doc_links` warning.
+
+  It chains the `NAMES` names with `params::SILENCE`, then calls `sort_unstable()`. Do not
+  dedup: the test asserts uniqueness.
 - **Delete `ALLOWED_SOUNDS`.**
 - **In `signature_with`,** replace `ALLOWED_SOUNDS.binary_search(&s.as_str()).is_ok()` with
-  `SourceKind::of(&s).is_some() || SILENCE.contains(&s.as_str())`. `s` is the same bank-prefixed
+  `SourceKind::of(&s).is_some() || SILENCE.contains(&s.as_str())`, with `SILENCE` from
+  `params` (001's import). `s` is the same bank-prefixed
   JS string as today. Add a comment: "the silence half keeps a non-string `s` whose JS string is a
   marker (`["-"]`) accepted; `is_silence` sees only strings".
 - **`lib.rs`:** `pub use capability::{ALLOWED_KEYS, allowed_sounds, controls_json};`.
@@ -89,7 +97,9 @@ every render.
   `pub(crate) fn modulatable_targets() -> Vec<&'static str>` resolves every `TARGETS` row on them.
   Both follow the proposal's "Derivations" exactly:
   - the FX map;
-  - the six sounds, each as voice (a) and voice (b);
+  - the probe sounds: the first `SourceKind::NAMES` row of each kind, in `NAMES` order (today
+    `one`, `supersaw`, `pulse`, `bus`, `sine`, `white`), not a hard-coded list. Each is used as
+    voice (a) and voice (b);
   - `parse_voice_params(&m, 0.25, 2.0)` and `NodeTable::plan`;
   - `lfo_0` and `env_0` registered on `FxKey::Main`;
   - the control and `subControl` from the row key;
@@ -99,6 +109,9 @@ every render.
 
   Build the maps with `serde_json::json!` and `serde_json::from_value::<ValueMap>`, and skip a
   map that fails to deserialize or parse. Never `unwrap` in this production path.
+  `modulatable_targets()`'s doc comment says that the probe voices may miss a node some real
+  voice has, and that `modulatable_targets_are_todays` is the safety net for a row the probe
+  skips. The proposal gives the text.
 - **Share the classifier.** Factor the per-row resolution as a private
   `fn row_outcomes(table: &NodeTable, key: &str) -> [Outcome; 2]` (one per `fxi`), so
   `modulatable_targets()` and the tests read the same classification. `Outcome` is a private enum:
@@ -131,7 +144,12 @@ every render.
   - keep everything else: the subset and disjointness checks, the filter families, the in list
     (`fanchor`, `ftype`, `drive`, `lfo`, `env`, `bmod`, `dry`, `room`, `delay`), the out list
     (`s`, `note`, `orbit`, …, `FXrelease`) and the `MODULATOR_KEYS` checks.
-- **Add `chain_keys_are_what_an_entry_reads`** (proposal, Tests):
+- **Add `chain_keys_are_what_an_entry_reads`** (proposal, Tests). **Start with a throwaway
+  run.** Write the exact final test first: both bases (with and without `delaytime`), all four
+  probe values (`null` included) and every `ALLOWED_KEYS` key. Run it, and record its result
+  in the stage report before committing: pass, or the keys that disagree, each with its
+  direction. A mismatch is reported. It is never fixed by editing `CHAIN_KEYS`. The test
+  checks:
   - the base map, and the same base without `delaytime`;
   - the probe values `0.37`, `"ladder"`, `2` and `null`;
   - for every `k` in `ALLOWED_KEYS`, `read(k) == (CHAIN_KEYS.contains(&k) && k != "i")`;
@@ -151,11 +169,21 @@ every render.
   - `v["sounds"]` equals `json!(allowed_sounds())`. That is stricter than the length it checked;
   - `v["modulatorTargets"]` equals `json!(crate::modulate::modulatable_targets())`.
 - **Add `every_allowed_sound_renders`** (proposal, Tests). A local helper builds a job with every
-  value's hap in one pause at time 0 (schema 2, 22050 frames, the orbit and channels of
-  `table_job`). Then:
+  value's hap in one pause at time 0. It has the exact shape of the guard's extra jobs: schema
+  2, `sampleRate` 44100, 22050 frames, seed 0, cps 1, hap duration 0.25, the orbit and channels
+  of `table_job`. So the 001 findings hold for it. These choices are made now, not when a sound
+  fails:
   - **For each sound not in `SILENCE`:** `crate::render(&job)` gives no errors, every sample is
-    finite and the peak is above 0. `bus` uses `[{ "s": "sine", "bus": 1, "dry": 0 }, { "s":
-    "bus", "n": 1 }]`.
+    finite and the peak is above 0.
+  - **`crackle`** uses the same peak-above-0 assertion at seed 0. A comment says why. Crackle is
+    sparse: its hit probability is `density * 0.01` = 0.0002 per sample (`noise.rs:33` and
+    `:117`). Seed 0 gives 8 nonzero samples over these frames (dry run, and 001's `x07`
+    finding). Seed 5 gives none. The seed is part of the test. If seed 0 is silent, report it.
+    Do not change the seed, lengthen the job or drop to "renders without error" to get a pass.
+  - **`bus`** uses `[{ "s": "sine", "bus": 1, "dry": 0 }, { "s": "bus", "n": 1 }]` (001's `x05`).
+    The test also asserts that the writer alone, `[{ "s": "sine", "bus": 1, "dry": 0 }]`, gives
+    all zeros, so the pair's peak must come through the bus. `bus` alone (`x06`) is silent by
+    design (nothing writes the bus), so it is not rendered alone.
   - **For each silence marker:** no errors, and all zeros.
 - **Add `a_silence_string_in_an_array_stays_accepted`:** `signature_of` of `{"s":["-"]}`,
   `{"s":["~"]}`, `{"s":["_"]}` and `{"s":["sine"]}` (cps 0.5) is `None` for each.
@@ -173,17 +201,24 @@ every render.
 
 ### Step 7: docs
 
-- **`controls.md:42`:** "Sounds are `allowed_sounds()`: the sources the engine builds
-  (`SourceKind::NAMES` in `src/chain.rs`) and the silence markers; the refused ones are listed at
-  the end."
+Find each edit by the text quoted here, not by line number. Stage 001 already edited these
+files, and the line numbers in the proposal are `385724a`'s.
+
+- **`controls.md`:** replace the sentence "Sounds are `ALLOWED_SOUNDS`; the refused ones are
+  listed at the end." with "Sounds are `allowed_sounds()`: the sources the engine builds
+  (`SourceKind::NAMES` in `src/chain.rs`) and the silence markers; the refused ones are listed
+  at the end."
 - **The engine README:**
-  - **`:21-22`:** "`controls --json` prints the control allowlist (`capability::controls_json`;
-    nothing on the TypeScript side mirrors it). Its `sounds` are the sources the engine builds
-    plus the silence markers, and its `modulatorTargets` are the `CONTROL_TARGETS` rows that
-    resolve on some voice (`modulate::modulatable_targets`, pinned by a test)."
-  - **`:487`, after the `ALLOWED_KEYS` sentence:** "`CHAIN_KEYS` is checked both ways against
-    what an FX entry reads (`parse_entry_params`); `i` is the one key superdough reads per entry
-    that the engine ignores."
+  - Replace "`controls --json` prints the control allowlist (nothing on the TypeScript side
+    mirrors it)." (the end of the paragraph on the `signatures` subcommand) with
+    "`controls --json` prints the control allowlist (`capability::controls_json`; nothing on the
+    TypeScript side mirrors it). Its `sounds` are the sources the engine builds plus the silence
+    markers, and its `modulatorTargets` are the `CONTROL_TARGETS` rows that resolve on some
+    voice (`modulate::modulatable_targets`, pinned by a test)."
+  - After the sentence "`ALLOWED_KEYS` in `src/capability.rs` is exactly its `implemented` and
+    `ignored` rows; a test checks it." (001 wrote that path), add "`CHAIN_KEYS` is checked both
+    ways against what an FX entry reads (`parse_entry_params`); `i` is the one key superdough
+    reads per entry that the engine ignores."
 - **AGENTS.md:** no change beyond 001. Its `capability` entry already says "the sounds".
 
 ## Validation
@@ -203,8 +238,13 @@ every render.
 - **The old names are gone:** `git grep -nE 'ALLOWED_SOUNDS|MODULATOR_TARGETS|OSC_SOUNDS' --
   ':!plans'` prints nothing. `git grep -n '"triangle"' -- crates/strudeland-engine/src` shows
   `DEFAULT_SOUND`'s definition, the `user` fallback, the wave tables and tests, but no default.
-- **Nothing outside the engine moved:** `git diff --stat main -- src scripts tests vendor
+- **Nothing outside the engine moved:** `git diff --stat 385724a -- src scripts tests vendor
   crates/strudeland-host crates/strudeland-live` is still empty.
+- **The chain-read throwaway run's result** is in the stage report (step 5).
+- **What the tests prove.** The sorted and unique checks on `allowed_sounds()` and
+  `modulatable_targets()` hold by construction (the proposal's "Not counted as coverage"), so
+  do not count them as coverage. The guards are the `TODAY` pin,
+  `source_names_match_the_builders` and `every_allowed_sound_renders`.
 
 ## Commit message
 

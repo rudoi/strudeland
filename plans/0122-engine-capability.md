@@ -117,11 +117,24 @@ Out:
 
 ### The three modules
 
-`capability` is the engine's answer to "can you play this?". It is a **deep module**: callers
-outside the crate use five names (`unsupported_signatures`, `UnsupportedSignature`,
-`controls_json`, `ALLOWED_KEYS` and `CHAIN_KEYS`). Inside, `live.rs` and `render.rs` use two
-more: `signature_of_with_bus` and `unsupported_signatures_in`. Behind those sit the allowlists,
-rules 2a and 4, the FX-entry rules and the modulator target check.
+`capability` is the engine's answer to "can you play this?". It is a **deep module**. Callers
+outside the crate use six names:
+
+- `unsupported_signatures` and `UnsupportedSignature`: `strudeland-render`'s refusal and the
+  binary;
+- `controls_json`: the binary;
+- `ALLOWED_KEYS`, `CHAIN_KEYS` and `ALLOWED_SOUNDS` (then `allowed_sounds()`): the integration
+  tests.
+
+Inside the crate, `live.rs` and `render.rs` use two more: `signature_of_with_bus` and
+`unsupported_signatures_in`. Behind those sit the allowlists, rules 2a and 4, the FX-entry rules
+and the modulator target check.
+
+The other items that are `pub` today stay `pub`: `signature_of`, `CHAIN_UNSUPPORTED_KEYS`,
+`MODULATOR_KEYS` and, until 002, `MODULATOR_TARGETS`. The split changes no visibility beyond
+the ones it lists. `signature_of` has no non-test caller anywhere in the workspace; only
+`capability`'s unit tests call it. Narrowed to `pub(crate)`, it would be dead code in non-test
+builds and fail clippy. As a `pub` item of a public module it is not dead.
 
 `capability.rs` (`pub mod`) gets, in this order:
 
@@ -130,8 +143,6 @@ rules 2a and 4, the FX-entry rules and the modulator target check.
 | module doc: what the engine plays, the audit in `controls.md`, the only unsupported detection | `:1-3`, rewritten | |
 | `ALLOWED_KEYS` | `:12-435` | `pub` |
 | `ALLOWED_SOUNDS` (stage 001), then `allowed_sounds()` (stage 002) | `:437-441` | `pub` |
-| `SILENCE` | `:443-444` | `pub` |
-| `is_silence` | `:1659-1661` | `pub(crate)` (was private; `params::prepare_value` calls it) |
 | `CHAIN_KEYS`, `CHAIN_UNSUPPORTED_KEYS`, `MODULATOR_KEYS` | `:446-558` | `pub` |
 | `MODULATOR_TARGETS` (stage 001 only) | `:560-656` | `pub` |
 | `UnsupportedSignature`, `signature_of`, `signature_of_with_bus`, `signature_with`, `value_rules`, `fx_signature`, `unsupported_signatures`, `unsupported_signatures_in`, `controls_json` | `:1685-1859` | unchanged |
@@ -139,26 +150,33 @@ rules 2a and 4, the FX-entry rules and the modulator target check.
 `params.rs` (`pub(crate) mod`) gets:
 
 - `ControlError` (`:658-663`);
-- everything from `// ---- notes and frequency` (`:837`) through `prepare_value` (`:1683`),
-  except `is_silence`. That covers `note_to_midi`, `frequency_from_value`, `VoiceParams`,
-  `EntryParams`, the tremolo, phaser, compressor, FM and filter params, `parse_voice_params`,
-  `parse_entry_params`, `pitch_curve`, `gain_stage` and `sound_of`.
+- everything from `// ---- notes and frequency` (`:837`) through `prepare_value` (`:1683`).
+  That covers `note_to_midi`, `frequency_from_value`, `VoiceParams`, `EntryParams`, the
+  tremolo, phaser, compressor, FM and filter params, `parse_voice_params`, `parse_entry_params`,
+  `pitch_curve`, `gain_stage`, `sound_of`, `is_silence` and `prepare_value`;
+- `SILENCE` (`:443-444`), moved beside `is_silence`, the rule that reads it.
 
-Items keep their `pub` keyword; inside a crate-private module it means crate-visible. One
-exception: the six filter key consts (`LOWPASS_KEYS`, `HIGHPASS_KEYS`, `BANDPASS_KEYS` and the
-three `*_LFO_KEYS`) become `pub(crate)`, because `capability`'s `chain_and_modulator_tables` test
-reads them. Their `FilterKeys`/`FilterLfoKeys` aliases change too if the compiler asks.
+Items keep their `pub` keyword; inside a crate-private module it means crate-visible. So
+`SILENCE` becomes crate-only. Nothing outside the crate reads it: `git grep -nw SILENCE --
+crates` at `385724a` finds only `controls.rs`. `lib.rs` does not re-export it, so no re-export
+is needed. The silence markers stay public through `allowed_sounds()` and the dump.
+`is_silence` (private today) becomes `pub(crate)`, because `capability`'s `signature_with`
+calls it (`:1720`). The six filter key consts (`LOWPASS_KEYS`, `HIGHPASS_KEYS`,
+`BANDPASS_KEYS` and the three `*_LFO_KEYS`) become `pub(crate)`, because `capability`'s
+`chain_and_modulator_tables` test reads them. Their `FilterKeys`/`FilterLfoKeys` aliases change too if the compiler asks.
 
 `coerce.rs` (`pub(crate) mod`) gets `// ---- JS coercions` (`:665-835`): `js_to_number`,
 `js_to_number_full`, `js_truthy`, `js_to_string`, `js_max`, `js_min`, `parse_js_number` and their
 private helpers.
 
-The modules import each other directly:
+The dependency runs one way, with no cycle:
 
-- `capability` uses `params::sound_of` and `coerce::{js_truthy, js_to_string}`;
-- `params` uses `capability::is_silence` and `coerce::*`.
+- `capability` uses `params::{SILENCE, is_silence, sound_of}` and
+  `coerce::{js_truthy, js_to_string}`;
+- `params` uses `coerce::*` and nothing from `capability`.
 
-That cycle is fine in Rust and mirrors today's single file.
+Only test code reads back up: `params`'s `fm_control_names_follow_the_matrix_rule` imports
+`capability::ALLOWED_KEYS`.
 
 ### The public API
 
@@ -168,7 +186,8 @@ integration tests (`bin.rs`, `fixtures.rs`, `micro.rs`, `never_panics.rs`).
 
 | Today | After 001 | After 002 |
 |---|---|---|
-| `controls::{UnsupportedSignature, unsupported_signatures, signature_of, signature_of_with_bus, CHAIN_KEYS, CHAIN_UNSUPPORTED_KEYS, MODULATOR_KEYS, SILENCE}` | `capability::…` | same |
+| `controls::{UnsupportedSignature, unsupported_signatures, signature_of, signature_of_with_bus, CHAIN_KEYS, CHAIN_UNSUPPORTED_KEYS, MODULATOR_KEYS}` | `capability::…` | same |
+| `controls::SILENCE` (`pub`, unused outside the crate) | crate-only `params::SILENCE` | same |
 | root `ALLOWED_KEYS`, `controls_json` | root, from `capability` | same |
 | root and `controls::ALLOWED_SOUNDS` | root and `capability::ALLOWED_SOUNDS` | root and `capability::allowed_sounds()` |
 | `controls::MODULATOR_TARGETS` | `capability::MODULATOR_TARGETS` | deleted (`modulate::modulatable_targets()`, crate-only) |
@@ -201,8 +220,8 @@ impl SourceKind {
 - **`sound_of` and `sound_name` both use `DEFAULT_SOUND`.**
   - `params::sound_of` keeps returning a `Value::Str`.
   - `voice::sound_name` keeps returning a `String`.
-- **`capability::allowed_sounds() -> Vec<&'static str>`** takes the `NAMES` names and `SILENCE`
-  and sorts them in byte order. That gives today's 20, in today's order.
+- **`capability::allowed_sounds() -> Vec<&'static str>`** takes the `NAMES` names and
+  `params::SILENCE` and sorts them in byte order. That gives today's 20, in today's order.
 - **The sound check in `signature_with`** becomes
   `SourceKind::of(&s).is_some() || SILENCE.contains(&s.as_str())`, on the same bank-prefixed
   JS string as today. The `SILENCE` half is load-bearing. `is_silence` matches only a
@@ -215,6 +234,8 @@ impl SourceKind {
 /// The `CONTROL_TARGETS` keys a modulator can resolve to an implemented param on some voice,
 /// sorted: every `TARGETS` row resolved against the probe voices' node tables. The others skip
 /// or throw wherever they are used. What `controls --json` prints as `modulatorTargets`.
+/// The probe voices can miss a node some real voice has; `modulatable_targets_are_todays` is
+/// the safety net for a row the probe skips.
 pub(crate) fn modulatable_targets() -> Vec<&'static str>;
 ```
 
@@ -230,8 +251,12 @@ private).
     "delaytime": 0.2, "delayfeedback": 0.3, "room": 0.4 }
   ```
 
-- **Two voices per sound.** For each of `sawtooth`, `supersaw`, `pulse`, `white`, `one` and
-  `bus` there are two voices:
+- **The probe sounds.** One representative per `SourceKind` variant: the first `NAMES` row of
+  each kind, in `NAMES` order. Today that is `one`, `supersaw`, `pulse`, `bus`, `sine` and
+  `white`. A new variant gets a probe sound with no edit. The research probe used `sawtooth` for
+  `Osc`. `NodeTable::plan(params, kind)` (`chain.rs:791`) branches on the kind, not the name, so
+  `sine` plans the same table. The pin test checks it.
+- **Two voices per sound.** For each probe sound there are two voices:
   - **(a)** the FX map with that `s`, plus `djf` 0.3, `vib` 2, `vibmod` 0.5, `pwsweep` 0.3 and
     `fmi` through `fmi8` at 1;
   - **(b)** `{ s, FX: [FX map + dry 0.5] }`.
@@ -292,6 +317,10 @@ render path.
   - For every `k` in `ALLOWED_KEYS`, being read equals `CHAIN_KEYS.contains(k) && k != "i"`.
   - `i` is asserted to be in `CHAIN_KEYS` and not read, with a comment: superdough reads it per
     entry (superdough.mjs:628, the `ignored` row in `controls.md`); the engine ignores it.
+  - **A throwaway run comes first.** The research covered `CHAIN_KEYS` and the non-chain keys
+    without `null`, not this exact test. Before committing, run the final test as written:
+    both bases, all four probe values (`null` included) and every `ALLOWED_KEYS` key. Record its
+    result in the stage report. A mismatch is reported, never fixed by editing `CHAIN_KEYS`.
 - **The `MODULATOR_TARGETS` assertions** move to `modulate`'s tests, against
   `modulatable_targets()`:
   - sorted and unique;
@@ -324,15 +353,35 @@ render path.
     variants, so a new variant fails to compile until it is listed;
   - `SourceKind::of(DEFAULT_SOUND) == Some(SourceKind::Osc)`.
 - **`every_allowed_sound_renders`** (capability) renders one job per sound in
-  `allowed_sounds()`, with every value's hap in one pause at time 0.
+  `allowed_sounds()`, with every value's hap in one pause at time 0. The job has the shape of
+  the guard's extra jobs: 44100 Hz, 22050 frames, seed 0, cps 1, duration 0.25. So the stage
+  001 findings (below) are what the test sees.
   - **Sounds that build** (not in `SILENCE`) render with no errors, finite samples and a nonzero
-    peak. `bus` gets a writer: values `[{ "s": "sine", "bus": 1, "dry": 0 }, { "s": "bus", "n": 1 }]`.
+    peak.
+  - **`crackle`** keeps the nonzero-peak assertion, at seed 0. It is sparse by design: a hit
+    has probability `density * 0.01` = 0.0002 per sample (`DEFAULT_DENSITY`, `noise.rs:33`; the
+    draw, `:117`). A dry run of the guard's crackle job gave 8 nonzero samples across both
+    channels, peak 0.157. Seed 5 renders silent over the same frames. The seed is
+    deterministic, so the assertion is stable. A comment says why the seed is pinned. If seed 0
+    renders silent, that is a finding to report. The seed is not changed and the assertion is
+    not weakened.
+  - **`bus`** needs a writer: values `[{ "s": "sine", "bus": 1, "dry": 0 }, { "s": "bus", "n": 1 }]`.
+    The test also asserts that the writer alone (`[{ "s": "sine", "bus": 1, "dry": 0 }]`) is
+    all zeros, so the pair's peak can only come through the bus. The dry run agrees: the pair
+    sounds, while the writer alone and `bus` alone are silent.
   - **Silence markers** render all zeros with no errors.
   - A sound that renders silent by design is a finding to report. It is never dropped from the
     test.
 - **`a_silence_string_in_an_array_stays_accepted`** (capability) asserts that `signature_of` of
   `{"s":["-"]}`, `{"s":["~"]}`, `{"s":["_"]}` and `{"s":["sine"]}` is `None`. This pins the
   re-verification's caveat.
+
+**Not counted as coverage.** The sorted and unique checks on the derived lists mostly hold by
+construction. `modulatable_targets()` comes out of a `BTreeSet`, and `allowed_sounds()` sorts.
+The sounds are unique when the `NAMES` names are, which `source_names_match_the_builders`
+checks, and `SILENCE` shares no name with `NAMES`. Those checks stay, but they prove little.
+The real guards are three tests: the `TODAY` pin, `source_names_match_the_builders` and
+`every_allowed_sound_renders`.
 
 **Unchanged and green:** the shared signature table (`tests/data/unsupported-signatures.json`,
 read by `capability` and `tests/bin.rs`), `fixtures.rs` (`KEPT_UNSUPPORTED`), `micro.rs`,
@@ -363,15 +412,34 @@ read by `capability` and `tests/bin.rs`), `fixtures.rs` (`KEPT_UNSUPPORTED`), `m
 
 ## What must not change
 
-These are the re-verification's "What must not change", restated in every stage:
+These are the re-verification's "What must not change", restated in every stage. Each one
+names the guard that proves it, and claims no more than that guard covers.
 
-- the `signatures` output (`[{s, keys, firstBar}]`) for every job;
-- the `controls --json` dump: its fields, their order and every value;
-- render refusal texts and exit codes, and what `render:check` reports as `unsupported`;
-- live warnings (`signature_of_with_bus` moves module, its body does not);
-- what the engine accepts or refuses, `{"s":["-"]}` included;
-- `never_panics`' coverage order (`allowed_sounds()` is in today's order);
-- no DSP line changes.
+- **The `signatures` output** (`[{s, keys, firstBar}]`). The equality guard covers its 226 jobs
+  (the 181 refs and 45 extra jobs). The shared signature table
+  (`tests/data/unsupported-signatures.json`, committed expectations) pins the rules through
+  `capability`'s `shared_signature_table` and `tests/bin.rs`. No guard covers jobs outside
+  those sets.
+- **The `controls --json` dump**, its fields, their order and every value. The guard compares
+  it byte for byte, and `tests/bin.rs` (`controls_json_prints_the_allowlist`) checks it too.
+- **The engine binary's render output, error texts and exit codes.** The guard covers its jobs
+  through the WAV sha256, stdout without `renderMs`, the stderr sha256 and the exit code.
+- **The CLI's refusal and what `render:check` reports as `unsupported`.** Both are built from
+  `unsupported_signatures`, guarded above. `strudeland-render`'s `plan.rs` changes only its
+  import, and its refusal tests run in the gates. The `fixture-*` jobs in `tests/refs` are the
+  chunk jobs `render:check` plans for the corpus fixtures that have refs
+  (`scripts/engine/refs.ts`). The guard does not run `render:check` itself.
+- **Live warnings.** The guard does not cover them: it runs only the offline binary. They are
+  covered by `live.rs`'s unit tests (`unsupported_values_are_skipped_with_one_warning_per_signature`,
+  `a_bus_cycle_is_unsupported`, `a_later_value_that_closes_a_bus_cycle_makes_earlier_readers_unsupported`)
+  and by `tests/live_equals_offline.rs`, which asserts that no hap is skipped on its supported
+  fixtures. `signature_of_with_bus` changes module, but its body does not.
+- **`{"s":["-"]}` stays accepted.** The guard's extra job checks it, and so does 002's
+  `a_silence_string_in_an_array_stays_accepted`.
+- **`never_panics`' coverage order.** `allowed_sounds()` equals today's list in order. The
+  guard's dump check, `controls_json_shape` and `tests/bin.rs` compare it.
+- **No DSP line changes.** 001's move diff checks this, and the guard's renders check it for
+  its jobs.
 
 ## The equality guard
 
@@ -385,16 +453,28 @@ step 1 gives the script, `$S/0122-baseline/eq.sh`, with `$S` the scratchpad.
   - for every `crates/strudeland-engine/tests/refs/*.job.json` (181) and every extra job: the
     `signatures` output with its exit code, and the `render` exit code, WAV sha256, stdout
     without `renderMs` and stderr sha256.
-- **The extra jobs** are one per value list:
-  - each of today's 20 sounds (`bus` with a writer);
+- **The extra jobs** are one per value list, 45 in all:
+  - each of today's 20 sounds, `x01`-`x21`, with `bus` twice: with a writer (`x05`) and alone
+    (`x06`);
   - `{}`;
-  - `s` as `["-"]`, `["~"]`, `["_"]`, `["sine"]` and `1`;
-  - a bank prefix on `sine` and on `-`;
+  - `s` as `["-"]`, `["~"]`, `["_"]`, `["sine"]`, `[["sine"]]`, `1`, `null`, `""`, `true`,
+    `"Sine"` and `"sine "`;
+  - a bank prefix on `sine` and on `-`, `{"bank":"x"}` with no `s` (refused as `x_triangle`),
+    and `{"s":"sine","bank":""}` (a falsy bank, no prefix);
   - the refused `bytebeat`, `sbd`, `wt_a`, `z_sine`, `zzfx` and `piano`;
-  - an FX entry with `i` and `ir`.
+  - an FX entry with `i` and `ir`;
+  - an `lfo` onto a noise source's `note`, the `Resolution::Unsupported` path (refused as
+    `lfo:note`). No ref job has a modulator on a noise source; the shared signature table has
+    this case ("lfo on a noise source"), but only in the unit and `tests/bin.rs` tests. An `lfo`
+    with `control: "frequency"` is not this path: superdough has no control data for
+    `frequency`, so it skips with a logged error. The dry run showed that.
 
-  The baseline also requires every extra job's `signatures` run to exit 0, and the dump to hold
-  20 sounds and 91 targets.
+  The baseline makes three checks. Every extra job's `signatures` run must exit 0. The sound
+  jobs `x04`-`x21` (all but the silence markers) must render with exit 0. The dump must hold 20
+  sounds and 91 targets. It then reports three findings for the stage 001 report: whether the
+  bus pair (`x05`), `bus` alone (`x06`) and `crackle` (`x07`) are silent or sounding. It does
+  this by comparing each WAV hash with the all-zero render of `-` (`x01`). The dry run gave
+  sounding, silent and sounding.
 - **`check`** rebuilds from the working tree, records again and runs `diff -r` against the
   baseline. It exits 0 only when nothing differs.
 
@@ -441,12 +521,17 @@ survives a cleared scratchpad. 001 gives the recovery steps.
 - **A probe that shrinks or grows.** `modulatable_targets_are_todays` and the guard's dump check
   catch both.
 - **The chain-read test's probe values.** The research run used no `null` for the non-chain
-  sweep. If the full two-way test disagrees with `CHAIN_KEYS`, that is a finding to report.
-  `CHAIN_KEYS` is never edited, and the probe never narrowed, to make the test pass.
+  sweep. So 002 starts with a throwaway run of the exact final test and records the result in
+  the stage report before committing. If the two-way test disagrees with `CHAIN_KEYS`, that is
+  a finding to report. `CHAIN_KEYS` is never edited, and the probe never narrowed, to make the
+  test pass.
 - **Order.** `allowed_sounds()` and `modulatable_targets()` sort in byte order, which is today's
   order. The guard compares the dump byte for byte, and `never_panics` indexes the same list.
-- **The scratchpad can be cleared.** The baseline needs only `385724a`, which is `main`. Recover
-  it from `~/.cache/strudeland-0122/eq.sh` as 001 describes. Never use a scratch worktree.
+- **The scratchpad can be cleared.** The baseline needs only `385724a`, which is
+  `origin/main`. Recover it from `~/.cache/strudeland-0122/eq.sh` as 001 describes. Never use a
+  scratch worktree.
+- **A stale local `main`.** The local `main` branch can lag `origin/main` (while planning it
+  was `77e210f`). So every diff and check names `385724a`, never `main`.
 - **`cargo test -p strudeland-render` needs `cmake` and a C compiler**, and
   `cargo test --workspace` needs the V8 download. The first build takes minutes.
 
@@ -471,8 +556,11 @@ document, so there are no fracture or loss-check stages.
 ## Decisions
 
 1. **Three modules: `capability` (public), `params` and `coerce` (crate-only).** No facade.
-2. **`is_silence` lives in `capability`** beside `SILENCE`, as `pub(crate)`, so the silence rule
-   is in one place. `params::prepare_value` calls it.
+2. **`SILENCE` and `is_silence` live in `params`,** beside `prepare_value`, the mutation that
+   drops a silent hap. `is_silence` is `pub(crate)`. So the silence rule is in one place, and
+   the dependency runs one way, from `capability` to `params`. `capability` reads
+   `params::SILENCE` for `allowed_sounds()` and the sound check, and `params::is_silence` in
+   `signature_with`. Nothing outside the crate reads `SILENCE`.
 3. **`allowed_sounds()` is a public function,** re-exported at the crate root in place of
    `ALLOWED_SOUNDS`.
 4. **`DEFAULT_SOUND` and `SourceKind::NAMES` live in `chain.rs`,** beside `SourceKind`: the

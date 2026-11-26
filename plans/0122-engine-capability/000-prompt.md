@@ -7,6 +7,8 @@
   - the derivations;
   - the tests that move, are replaced and are added;
   - the equality guard, the rejected options and the decisions.
+- **Base:** `385724a` (`origin/main`). Every diff and check names the hash, because the local
+  `main` can be stale.
 - **Evidence:** [reverify.md](reverify.md), with file and line at `385724a`. Read its "What must
   not change" section before you edit anything.
 - **Background reading:**
@@ -44,8 +46,11 @@ The stages run in order. Each one is one commit, green with every gate below.
   to make a test pass. A mismatch is a finding.
 - **No TypeScript edits.** `src/lib/render/schedule.ts:166` keeps its stale "controls.rs" comment
   (it is a planner file; see the proposal's Scope). After every stage,
-  `git diff --stat main -- src scripts tests vendor crates/strudeland-host crates/strudeland-live`
+  `git diff --stat 385724a -- src scripts tests vendor crates/strudeland-host crates/strudeland-live`
   is empty.
+- **Diff against `385724a`, never `main`.** `385724a` is `origin/main`. The local `main` branch
+  can be stale (it was `77e210f` while planning), and a diff against it shows unrelated
+  changes.
 - **Replace tests, don't layer them.** A test of moved code moves with it, with the same
   assertions. Each stage file lists what moves, what is replaced and what is added.
 - **New logic ships with tests** in the same commit. Stage 002 names them.
@@ -75,8 +80,11 @@ The stages run in order. Each one is one commit, green with every gate below.
     "$S/0122-baseline/eq.sh" check > "$S/0122-$N-eq.log" 2>&1; echo "exit $?" >> "$S/0122-$N-eq.log"
     ```
 
-  - **The equality log must end `exit 0` and report `equal`.** That is the absolute guard. The
-    unit tests alone are relative.
+  - **The equality log must end `exit 0` and report `equal`.** That is the absolute guard for
+    the dump and for the `signatures` and `render` outputs of its 226 jobs. The unit tests alone
+    are relative. The guard runs only the offline binary. So live warnings rest on `live.rs`'s
+    unit tests and `tests/live_equals_offline.rs`, which run in `cargo test --workspace`. See
+    the proposal's "What must not change" for what each guard proves.
   - `cargo test --workspace` needs `cmake`, a C compiler and the V8 download the host brings. The
     first build takes minutes.
   - The gates run on macOS. The touched files have no `cfg(windows)` or `cfg(unix)` code, so
