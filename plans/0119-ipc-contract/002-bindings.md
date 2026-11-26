@@ -35,9 +35,39 @@ bindings yet (003 does), so there is no behaviour change.
    - `if (import.meta.main) process.exit(main(process.argv.slice(2), REPO_ROOT))`.
    - Errors carry `file:line`. Use a small `IpcParseError extends Error` with `file` and
      `line`.
-   - **Parsing rules:** strip only whole-line `//` comments before matching. String literals
-     hold `://`, so never strip trailing comments; a `//` inside a parameter list is a refusal.
-     The rest is the plan's rules, including every refusal in "fails loudly".
+   - **Parsing rules.** These are the cases the real tree has; each gets a parser test.
+     - **Comments:** skip whole-line `//`, `///` and `//!` lines. String literals hold `://`,
+       so never strip a trailing comment; a `//` inside a parameter list is a refusal.
+     - **The attribute** matches only as a whole line, `^#\[tauri::command\]$`. The module
+       docs mention `#[tauri::command]` in backticks (`project.rs:4`, `playback.rs:7`,
+       `recording.rs:7`); those are comment lines and never count. `///` and `//` lines may sit
+       between it and the item above. `#[tauri::command(` with arguments is a refusal.
+     - **The fn** is the next non-comment line, `pub (async )?fn <name>(`.
+     - **Parameters:** scan to the matching `)` counting depth per character over `<>`, `()`
+       and `[]`, and split on commas at depth 0. A lifetime `'_` is an ordinary character
+       (no char-literal handling: no parameter list has one). `State<'_, Arc<Bridge>>`
+       (`control.rs:787`) is one parameter. The list may be on the fn's line
+       (`app_quit_reply`, `recent_list`, `prefs_set`, `playback_stop`,
+       `export_audio_set_available`) or one parameter per line with a trailing comma.
+     - **Injected types** dropped: `State<…>`, `tauri::State<…>`, `AppHandle`, `AppHandle<…>`
+       and `WebviewWindow` (the ones used today), plus `Window` and `Webview` (none today).
+     - **Returns:** after the `)`, an optional `-> <type>` up to the `{`. No `->`
+       (`control_reply`) and a non-`Result` (`host_now_ns -> String`,
+       `control_attach -> ControlInfo`) give error `null`. `Result<…>` is split at its
+       depth-0 comma: `T` may nest generics and paths (`Result<Vec<InstrumentEntry>, …>`,
+       `Result<tauri::ipc::Response, …>`), and `E` is `CommandError`, `ExportError` or
+       `&'static str` (`Result<(), &'static str>` in `app_quit.rs`).
+     - **Events:** column-0 `const`/`pub const`/`pub(crate) const` `<NAME>_EVENT: &str =
+       "…";` only, keyed by value: `app_quit.rs:11` and `control.rs:47` are both
+       `REQUEST_EVENT`. The indented `u32` `CORE_EVENT` (`app_quit.rs:140`) is ignored.
+     - **Kinds:** a column-0 `pub enum <Name>Kind {` under `#[serde(rename_all =
+       "camelCase")]`. Split the body on commas, skip doc comments and attributes, and
+       require a unit ident per variant.
+     - Every refusal in the plan's "fails loudly" list.
+   - **Precedents:** `tests/control-protocol.test.ts:13-20` and `:71-80` already read Rust
+     source with regexes from a test; `tests/render-vectors.test.ts` byte-compares a committed
+     generated file. There is no ESLint config to exempt. `.gitattributes` already has
+     `* text=auto eol=lf`, so the byte-compare holds on Windows; no change there.
 2. **`package.json`:** `"ipc:build": "bun scripts/ipc/build.ts"`, placed next to `host:build`.
 3. **`.prettierignore`:** `src/lib/ipc/bindings.ts`, under a comment:
    `# The generated IPC bindings (bun run ipc:build)`.
@@ -65,12 +95,17 @@ bindings yet (003 does), so there is no behaviour change.
   This imports the committed bindings, which proves they load.
 - **Parser cases** on inline Rust snippets, each a small template string:
   - the injected `State<'_, A>`, `AppHandle`, `WebviewWindow` and `Window` parameters are
-    dropped, and `State<'_, A>` doesn't split the list;
+    dropped, and `State<'_, Arc<B>>` doesn't split the list;
+  - a `//!` doc line holding `` `#[tauri::command]` `` is not an attribute, and `///` lines
+    between the attribute and the item above are skipped;
+  - a one-line parameter list and a one-per-line list with a trailing comma parse alike;
   - `device_id: Option<String>` gives `deviceId?: string | null`, and `on_progress:
     Channel<X>` gives `onProgress: unknown`;
   - a command with no parameters gives `[]` and `Record<string, never>`;
-  - `Result<T, CommandError>` gives `command`, `ExportError` gives `export`, `&'static str`
-    gives `text`, and a non-`Result` gives `null`;
+  - `Result<T, CommandError>` gives `command`, `ExportError` gives `export`,
+    `Result<(), &'static str>` gives `text`, a non-`Result` and a missing `->` give `null`,
+    and `Result<Vec<Option<X>>, CommandError>` and `Result<tauri::ipc::Response, …>` split at
+    the right comma;
   - events are keyed by camelCased value. A `u32` const, an indented const and a
     `#[cfg(test)]`-indented const are ignored;
   - kinds are camelCased; doc comments and `#[serde(…)]` attributes on the enum are skipped.

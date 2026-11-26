@@ -18,20 +18,28 @@ real adapters do. AGENTS.md documents `ipc:build` and its rule. There is no beha
    - import `COMMAND_ERROR_KINDS` and `CommandErrorKind` from `./bindings`;
    - delete the hand-written list;
    - re-export the type only if an importer needs it.
-2. **`src/lib/ipc/invoke.ts`:** type it.
+2. **`src/lib/ipc/invoke.ts`:** type the parameters. `N` is the only type parameter, and the
+   result stays `unknown` (the plan's "TS: the converter" has why: with an explicit result
+   type, TS cannot infer `N` and would check the args against the union).
 
    ```ts
-   type NoArgs<N extends CommandName> = Record<string, never> extends CommandArgs[N] ? N : never;
-   export function invokeCommand<T, N extends CommandName = CommandName>(
-     name: N, ...args: N extends NoArgs<N> ? [CommandArgs[N]?] : [CommandArgs[N]]
-   ): Promise<T>;
+   type ArgsOf<N extends CommandName> =
+     Record<string, never> extends CommandArgs[N] ? [args?: CommandArgs[N]] : [args: CommandArgs[N]];
+   export function invokeCommand<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown>;
    ```
 
    - Keep the body.
-   - The adapters' calls must typecheck unchanged in shape: `{ ...version }`, recording's
-     `defined({ … })` (type `defined` so it keeps its input's key types, for example
-     `<A extends object>(args: A): Partial<A>`), and `{ request, source, preview, onProgress:
-     channel }`.
+   - `songInvoke` and recording's and playback's `call` take the same
+     `<N extends CommandName>(name: N, ...args: ArgsOf<N>)` and still return
+     `Promise<unknown>`.
+   - The adapters keep their stage-001 casts, for example
+     `readSong: (root, path) => invokeCommand('song_read', { root, path }) as Promise<string>`.
+   - Every argument is an explicit-key object literal, so it is excess-property-checked
+     against `CommandArgs[N]`: the instrument calls write `root`, `id` and `fingerprint` (001
+     replaced `{ ...version }`), recording's `call` applies `defined` inside (001), and
+     `export_audio_start` is `{ request, source, preview, onProgress: channel }`.
+   - A command whose args are all optional (`recording_arm`) also accepts no args; that is
+     harmless.
    - If a key fails to typecheck, the call was wrong. Fix the call, never the generator's
      output.
 3. **Events:** `listen(EVENTS.recordingLevel, …)`, `EVENTS.recordingState`,
@@ -50,6 +58,8 @@ real adapters do. AGENTS.md documents `ipc:build` and its rule. There is no beha
    - `PLAYBACK_ERROR_KINDS` in `playback-api.ts`.
 
    `recording/types.ts` takes `CommandErrorKind` as `import type` from `../ipc/bindings`.
+   `PROJECT_ERROR_KINDS` deliberately leaves out `noProject`, `busy` and the other non-song
+   kinds: they narrow to `other`, as today.
 5. **Delete TS `PROJECT_CHANGED`** (`project/api.ts:77-81`), and rewrite the `ProjectApi` doc
    (`:83-86`) to say a stale `root` rejects with kind `projectChanged`.
    - `session.ts`:
@@ -80,6 +90,14 @@ real adapters do. AGENTS.md documents `ipc:build` and its rule. There is no beha
      - `invoke.ts` holds `invokeCommand`, the only `invoke` caller.
      - `src-tauri/src/command_error.rs` holds the Rust `CommandError`, its kind enum and the
        `ProjectError` table.
+   - **Update the stale error names** in the existing text:
+     - `:129`: "the `SongError`-returning song commands" becomes "the song commands (they
+       reject with a `CommandError`)";
+     - `:277`: "the recording commands, `RecordingError`, events" becomes "the recording
+       commands, events";
+     - `:302-303`: "a stale id is `PlaybackError` kind `stale`" becomes "a stale id is kind
+       `stale`", and "`PlaybackError` (`stale`, `output`, `badBatch`, `engine`)" becomes "the
+       playback kinds (`stale`, `output`, `badBatch`, `engine`, the TS `PlaybackError`)".
    - **Rules**, one bullet:
      - `src/lib/ipc/bindings.ts` is written only by `bun run ipc:build`, never hand-edited.
      - A change to a `#[tauri::command]`'s name or parameters, to `generate_handler!`, to an
@@ -123,6 +141,8 @@ real adapters do. AGENTS.md documents `ipc:build` and its rule. There is no beha
 - **`rg -n "PROJECT_CHANGED" src tests src-tauri`** is empty.
 - **`rg -n "invokeCommand\('" src`:** every name is a key of `COMMANDS` (tsc already proves it).
 - **`bun run ipc:build`** leaves `git status` clean.
+- **`rg -n "SongError|RecordingError|PlaybackError" AGENTS.md`** names only the TS thin
+  subclasses (`RecordingError`, `PlaybackError`), never a Rust type; `SongError` is gone.
 
 ## Commit message
 

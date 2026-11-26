@@ -10,7 +10,9 @@ generator is a hand-written Bun script, `bun run ipc:build`, that writes the com
 Every fallible command rejects with one shape, a **command error** `{ kind, message }`, from one
 Rust type with one flat kind enum. Export adds `written`. Stale-project detection becomes a
 kind, not a string sentinel. On the TS side, one `invokeCommand` turns every rejection into a
-`CommandError`, which is an `Error`, so a raw object can never reach `errorMessage`.
+`CommandError`, which is an `Error`, so a raw object can never reach `errorMessage`: any rejection
+with a string message becomes an `Error` with that message. A malformed object with no string
+`message` keeps today's text, `"[object Object]"` (pinned at `recording-api.test.ts:97`).
 
 Every visible text stays byte-identical: the status bar, dialogs, memo notices, the control
 socket's wire codes and messages, and the CLI's output.
@@ -76,6 +78,7 @@ In:
      `src/lib/command-error.ts`, and has no Tauri import.
    - `src/lib/ipc/invoke.ts` holds `invokeCommand`.
    - `ProjectError`, `RecordingError`, `PlaybackError` and `ExportError` are thin subclasses.
+     `ExportError` lives in the Tauri-free `src/lib/export/error.ts`.
      Every adapter calls Tauri only through `invokeCommand`.
 4. **The generator, `scripts/ipc/build.ts` (`bun run ipc:build`),** writes
    `src/lib/ipc/bindings.ts`:
@@ -230,26 +233,66 @@ impl From<ProjectError> for CommandError { /* the table */ }
   ```
 
   `toCommandError` behaves as follows:
-  - a `CommandError` is returned as is;
-  - a `{ message: string, kind }` object keeps its message, and its kind when that is in
-    `COMMAND_ERROR_KINDS`, else `other`;
+  - a `CommandError` is returned as is (its own `cause` is kept);
+  - a `{ message: string, kind }` object becomes `new CommandError(message, known, { cause: e })`,
+    where `known` is its kind when that is in `COMMAND_ERROR_KINDS`, else `other`;
   - any other value becomes `new CommandError(errorMessage(e), 'other', { cause: e })`. A
     string stays itself, an `Error` gives its `.message` and `null` gives `'null'`, as
-    `toProjectError` does today.
+    `toProjectError` does today. A `{ kind: 'busy' }` with no string `message` is
+    `"[object Object]"`, as today (`recording-api.test.ts:97` stays as is).
+
+  **Every branch that builds a new `CommandError` sets `cause: e`, the raw rejection.** That is
+  how `ExportError` reads `written`: the export commands reject with
+  `{ kind, message, written }`, and `toCommandError` keeps the whole object as the `cause`.
 
   In stage 001, `COMMAND_ERROR_KINDS` is a hand-written list in this file. Stage 003 imports it
   from the bindings and deletes the hand list.
 - **`src/lib/ipc/invoke.ts`:**
 
   ```ts
-  export async function invokeCommand<T>(name, args?): Promise<T> {
-    try { return await invoke<T>(name, args); } catch (e) { throw toCommandError(e); }
+  export async function invokeCommand(name, args?): Promise<unknown> {
+    try { return await invoke(name, args); } catch (e) { throw toCommandError(e); }
   }
   ```
 
-  The signature is `(name: string, args?: Record<string, unknown>)` in stage 001. Stage 003
-  types it as `<N extends CommandName>(name: N, args: CommandArgs[N])`, with `args` optional
-  when the command takes none.
+  **It has no result type parameter.** It resolves to `unknown`, and each adapter types the
+  result with a cast at its call, `as Promise<T>` (the result was an unchecked `invoke<T>`
+  before, so this is the same trust, written once per method). The reason: stage 003 makes the
+  name a type parameter `N`, and TS has no partial type-argument inference, so
+  `invokeCommand<T, N>(…)` with an explicit `T` would fall back to `N = CommandName` and check
+  the args against the union. With `N` as the only type parameter it is always inferred from
+  the literal name.
+
+  - **Stage 001:** `invokeCommand(name: string, args?: Record<string, unknown>):
+    Promise<unknown>`. The adapters gain their casts here, so 003 only tightens the parameters.
+  - **Stage 003:**
+
+    ```ts
+    type ArgsOf<N extends CommandName> =
+      Record<string, never> extends CommandArgs[N] ? [args?: CommandArgs[N]] : [args: CommandArgs[N]];
+    export function invokeCommand<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown>;
+    ```
+
+    An adapter call:
+
+    ```ts
+    readSong: (root, path) => invokeCommand('song_read', { root, path }) as Promise<string>,
+    ```
+
+    The domain wrappers (`songInvoke`, recording's and playback's `call`) take the same `N` and
+    `...args: ArgsOf<N>`, return `Promise<unknown>`, and their callers cast.
+  - **Arguments are written with explicit keys,** so each is a fresh object literal checked
+    against `CommandArgs[N]`, and a misspelled key is an excess-property error.
+    - `{ ...version }` (`project/api.ts:204`, `:206`) becomes
+      `{ root: version.root, id: version.id, fingerprint: version.fingerprint }`. TS does not
+      excess-check spread members.
+    - Recording's `defined({ … })` (`recording/api.ts:96`, `:100`) moves inside recording's
+      `call`, which passes `args && defined(args)` to `invokeCommand`. The call sites pass the
+      plain literal, for example
+      `call('recording_arm', { deviceId: opts.deviceId, channel: opts.channel }) as
+      Promise<RecordingStatus>`. `defined` keeps its `Record<string, unknown>` signature; an
+      `undefined` value is absent on the wire either way, and `recording-api.test.ts:145-168`
+      pins the args.
 - **The thin subclasses keep their names, constructors and `instanceof`:**
   - `ProjectError extends CommandError<ProjectErrorKind>`, with
     `ProjectErrorKind = 'exists' | 'notFound' | 'invalidName' | 'projectChanged' | 'other'`
@@ -259,8 +302,19 @@ impl From<ProjectError> for CommandError { /* the table */ }
     `error.kind` the same way.
   - `PlaybackError extends CommandError<PlaybackErrorKind>`, keeping its `(kind, message)`
     constructor. `toPlaybackError` narrows with fallback `engine`.
-  - `ExportError extends CommandError`, with `readonly written: string[]` read from the
-    `cause`'s `written` (strings only). It lives in `export/api.ts`. `failureFrom` becomes
+  - `ExportError extends CommandError`, with `readonly written: string[]`. **It lives in the new
+    `src/lib/export/error.ts`, with `toExportError`, and imports only `../ipc/command-error`.**
+    `export/controller.ts` imports it from there, so the controller and
+    `tests/export-dialog.test.ts` still import nothing from `@tauri-apps` at runtime (the test's
+    `export/api` import is type-only). This matters because Bun's `mock.module` is
+    process-global, and `project-api.test.ts:49` and `recording-api.test.ts:9` mock
+    `@tauri-apps/api/core` without `Channel` or `isTauri`. `export/api.ts` imports
+    `toExportError` from `./error`.
+  - `toExportError(e)`: an `ExportError` is returned as is. Otherwise
+    `c = e instanceof CommandError ? e : toCommandError(e)`, and `written` is `c.cause`'s
+    `written` when that is an array of strings, else `[]`. The cause is read only off a
+    `CommandError`, which `invokeCommand` always gives.
+  - `failureFrom` becomes
     `{ message: errorMessage(error), written: error instanceof ExportError ? error.written : [] }`.
 - **Which calls reject with `ProjectError`.** Only `createSong`, `renameSong` and `deleteSong`
   reject with a `ProjectError`. Every other project command rejects with a plain
@@ -282,12 +336,19 @@ is the pure part the test calls; `main` writes the file.
 
 - **The command list:** the `module::name` entries inside `tauri::generate_handler![ … ]`, in
   order. Each module is `src-tauri/src/<module>.rs`.
-- **Each command:** the first `#[tauri::command]` attribute directly above
+- **Each command:** the `#[tauri::command]` attribute directly above
   `pub (async )?fn <name>(`.
-  - Read the parameters up to the matching `)`, splitting on commas at bracket depth 0 (`<>`,
-    `()`, `[]`). `State<'_, ProjectState>` must not split.
+  - **The attribute matches only as a whole line, `^#\[tauri::command\]$`.** The module docs
+    mention it inside backticks (`project.rs:4`, `playback.rs:7`, `recording.rs:7`), and those
+    must not count. `///` and `//` lines above the attribute are allowed and skipped.
+  - Read the parameters up to the matching `)`, counting generic depth per character (`<>`,
+    `()`, `[]`) and splitting on commas at depth 0. Lifetimes (`'_`) are plain characters:
+    there is no char-literal handling, since a parameter list has none.
+    `State<'_, Arc<Bridge>>` (`control.rs:787`) must not split.
+  - The list may be on one line (`app_quit_reply`, `recent_list`, `prefs_set`, `playback_stop`,
+    `export_audio_set_available`) or one parameter per line.
   - Drop the injected types: `State<…>`, `tauri::State<…>`, `AppHandle`, `AppHandle<…>`,
-    `Window`, `WebviewWindow` and `Webview`.
+    `WebviewWindow`, and also `Window` and `Webview`, which no command takes today.
   - camelCase the rest, as Tauri does: `device_id` → `deviceId`, `on_progress` → `onProgress`.
   - Value types:
     - `String`, `&str`, `PathBuf` → `string`;
@@ -297,12 +358,23 @@ is the pure part the test calls; `main` writes the file.
     - anything else (structs, `Channel<…>`, `Vec<…>`) → `unknown`. The payload types stay
       hand-written.
   - The return type is `Result<T, E>`, with `E` one of `CommandError`, `ExportError` or
-    `&'static str`, or a non-`Result`.
+    `&'static str`, or a non-`Result`. Split `Result<…>` at its depth-0 comma: `T` may nest
+    generics or paths (`Result<Vec<InstrumentEntry>, …>`, `Result<tauri::ipc::Response, …>`),
+    and `E` may hold a lifetime (`Result<(), &'static str>`). A non-`Result` return
+    (`host_now_ns -> String`, `control_attach -> ControlInfo`) and no `->` at all
+    (`control_reply`) both give error `null`.
 - **Events:** column-0 `(pub(\(crate\))? )?const [A-Z_]+_EVENT: &str = "<scheme>://<path>";`
-  in every `src-tauri/src/*.rs`. `app_quit.rs:140`'s `u32` `CORE_EVENT` doesn't match.
+  in every `src-tauri/src/*.rs`, keyed by value (`app_quit.rs:11` and `control.rs:47` are both
+  `REQUEST_EVENT`). `app_quit.rs:140`'s indented `u32` `CORE_EVENT` doesn't match.
 - **Kinds:** every column-0 `pub enum <Name>Kind {` directly under
-  `#[serde(rename_all = "camelCase")]`. The variants are unit idents; doc comments and
-  attributes are skipped, and each variant is camelCased.
+  `#[serde(rename_all = "camelCase")]`. The body is split on commas; doc comments and
+  attributes are skipped, each variant must be a unit ident, and each is camelCased.
+
+**Precedents.** Reading Rust source from a TS test with regexes is already done by
+`tests/control-protocol.test.ts:13-20` (the error codes) and `:71-80` (the `LiveStats`
+fields); the byte-compare of a committed generated file is `tests/render-vectors.test.ts`'s.
+There is no ESLint config to exempt the file from. `.gitattributes` already has
+`* text=auto eol=lf`, so the byte-compare holds on a Windows checkout.
 
 **It fails loudly** (it throws, and `main` exits 1 with `file:line`) on:
 
@@ -360,14 +432,17 @@ export type CommandErrorKind = (typeof COMMAND_ERROR_KINDS)[number];
 
 ### Stage 003: using the bindings
 
-- `invokeCommand` is typed by `CommandName` and `CommandArgs`. `{ ...version }`,
-  `defined({ … })` and the rest of today's call shapes must typecheck.
+- `invokeCommand` is typed by `CommandName` and `CommandArgs`, with `N` its only type
+  parameter (see "TS: the converter"). `{ ...version }` and `defined({ … })` become explicit-key
+  literals; the rest of today's call shapes typecheck as they are.
 - `listen(EVENTS.x, …)` replaces `LEVEL_EVENT`, `STATE_EVENT`, `PROJECT_CHANGED_EVENT`,
   `PROJECT_MENU_EVENT`, `CONTROL_REQUEST_EVENT` and the `app-quit.ts` literal. The consts go,
   and their importers switch to `EVENTS`.
 - **The domain kind lists are written** as
   `['exists', …] as const satisfies readonly CommandErrorKind[]`, so a Rust rename breaks
-  `bun run check`.
+  `bun run check`. `PROJECT_ERROR_KINDS` deliberately leaves out `noProject`, `busy` and the
+  other non-song kinds: they narrow to `other`, which is what the session and the control
+  handler see today.
   - This covers `PROJECT_ERROR_KINDS` (new), `RECORDING_ERROR_KINDS` and
     `PLAYBACK_ERROR_KINDS`.
   - `command-error.ts` imports `COMMAND_ERROR_KINDS`.
@@ -423,7 +498,11 @@ String-equality tests become kind-and-message tests.
 - **`tests/ipc-command-error.test.ts` (new):**
   - `toCommandError` keeps a known kind; turns an unknown kind into `other` with the message;
     turns a string into `other`; gives an `Error`'s message; gives `null` as `'null'`; returns
-    a `CommandError` as is; and keeps the `cause`.
+    a `CommandError` as is; and keeps the raw value as the `cause` in every branch, including
+    the object one: `toCommandError({ kind: 'other', message: 'x', written: ['/a'] }).cause`
+    has `written` equal to `['/a']`.
+  - `toExportError` of that `CommandError` has `written` `['/a']`; of a `written` holding a
+    non-string, `[]`.
   - `narrowKind`.
   - `invokeCommand`, with `@tauri-apps/api/core` mocked as in `tests/project-api.test.ts:49`: a
     `{ kind, message }` rejection is an `Error` with that message (the `"[object Object]"`
@@ -436,6 +515,9 @@ String-equality tests become kind-and-message tests.
     "the project changed".
   - Prefs, piano roll, export (`written` survives as `ExportError.written`), control, info
     (`getAppInfo` still resolves `null`) and app quit: in a new `tests/ipc-adapters.test.ts`.
+    Its `@tauri-apps/api/core` mock has the whole surface the app imports (`invoke`,
+    `Channel`, `isTauri`), from a shared `tests/helpers/tauri-core-mock.ts`; the three existing
+    api tests may move to it.
 - **The song kind rename** reaches `project-api.test.ts`, `session.test.ts:1939-1953`,
   `control-handler.test.ts:1478` and `recording-api.test.ts:89`. That last test's
   `songExists` stays as the example of an unknown recording kind.
@@ -445,7 +527,9 @@ String-equality tests become kind-and-message tests.
   - It is unchanged apart from the rename.
   - Its stale and create-then-read cases must still give the same wire codes and messages. If
     no case covers `song new` whose read fails stale, add one: `internal error: the project
-    changed`.
+    changed`. Write it by overriding `h.api.readSong` to throw
+    `new CommandError('the project changed', 'projectChanged')`, in the style of the
+    `h.api.createSong` override at `:1331`.
 
 **Stage 002:**
 
@@ -485,23 +569,30 @@ String-equality tests become kind-and-message tests.
   a stale read (decision 6). Only the three song commands produce `ProjectError`, and `session.ts`
   and `handler.ts` keep `instanceof ProjectError`.
 - **A recording `?` uses the shared table** instead of `for_memos`. No recording path reaches a
-  `Song*` variant today (reverify), so a missed site is not visible. The test pins the rule.
+  `Song*` variant today (reverify), so a missed site is not visible. The test pins the rule, and
+  every `ProjectError` `?` gets an explicit `.map_err(CommandError::for_memos)?`, so none
+  silently uses `From`: the `list`, `rename`, `delete` and `read` calls (`recording.rs:1068`,
+  `:1077`, `:1081`, `:1085`, the second `?` of each), and `:692`, `:699`, `:705`, `:992`,
+  `:993`.
 - **`Display` drift.** If `CommandError`'s `Display` ever adds the kind, export's `problem` and
   every `to_string` change text. `display_is_the_message` pins it.
 - **Error ordering on the wire.** Serde writes struct fields in order. Nothing parses the JSON
   order, but `ExportError` declares `kind` first for consistency.
 - **The generator's regexes are brittle** against new Rust syntax. Failing loudly is the
   mitigation: a command it can't read stops `ipc:build` and the staleness test.
-- **Windows clippy (`result_large_err`).** `CommandError` is an enum plus a `String`, so this is
-  not expected. Box the payload if it fires.
+- **Windows clippy (`result_large_err`).** `CommandError` is a one-byte kind plus a `String`,
+  about 32 B, and `ExportError` adds a `Vec<String>`, about 56 B. Clippy's default threshold is
+  128 B, so this is not a risk.
 
 ## Complexity
 
-Medium to large: about 35 files, one of them generated.
+Medium to large: about 37 files, one of them generated.
 
 - Rust: 9 `src-tauri` modules plus the new one.
-- TS: 10 adapters and `session.ts`, `handler.ts` and `controller.ts`.
-- Tests: 4 fakes and about 10 test files.
+- TS: 10 adapters, `export/error.ts`, and `session.ts`, `handler.ts` and `controller.ts`.
+- Tests: 4 fakes, the new `tauri-core-mock.ts` helper and about 10 test files.
+- Docs: AGENTS.md only. README and CONTRIBUTING list no generator commands
+  (`CONTRIBUTING.md:41` names only `bun run check`), so they need no `ipc:build` mention.
 
 Stage 001 is the widest, because the wire change and the TS converter must land together. The
 loss check is light.
