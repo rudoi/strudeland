@@ -80,14 +80,12 @@
 
   // Drop the control listener when this instance goes away (HMR remounts the component), so the
   // old app does not answer requests too.
-  onDestroy(() => {
+  const teardown = () => {
     shell.destroy();
     app.destroy();
-  });
-  import.meta.hot?.dispose(() => {
-    shell.destroy();
-    app.destroy();
-  });
+  };
+  onDestroy(teardown);
+  import.meta.hot?.dispose(teardown);
 
   // Unlock the editor's preview graph on its own gestures. Other gestures resume song audio.
   function onGesture(event: Event) {

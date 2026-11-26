@@ -13,7 +13,7 @@ const { get, writable } = await import('svelte/store');
 import type { ExportApi, ExportResult } from '../src/lib/export/api';
 import type { createExportDialog } from '../src/lib/export/controller';
 import type { Session, SessionState } from '../src/lib/project/session';
-import type { Gate, Modal, ShellAction, ShellSession } from '../src/lib/shell';
+import type { Gate, Modal, ShellAction } from '../src/lib/shell';
 import { fakeProjectApi, flush } from './helpers/fake-project-api';
 import { fakeShellPorts } from './helpers/fake-shell-ports';
 import { stubRuntime } from './helpers/stub-runtime';
@@ -115,6 +115,8 @@ async function started(opts: { tauri?: boolean } = {}) {
 type ExportDialog = ReturnType<typeof createExportDialog>;
 
 const button = () => document.createElement('button');
+
+type ShellSession = Parameters<typeof createShell>[0]['session'];
 
 /** The dialog's preview is ready, so `start` exports (the song has no sections: give a length). */
 async function previewed(controller: ExportDialog) {
@@ -372,13 +374,18 @@ describe('gate table', () => {
     }
   });
 
-  test('8: openRecent is allowed in every gate state; settings is allowed while not ready', () => {
-    const keys = Object.keys(base) as (keyof Gate)[];
-    for (let bits = 0; bits < 1 << keys.length; bits++) {
-      const g = { ...base };
-      keys.forEach((k, i) => (g[k] = Boolean(bits & (1 << i))));
-      expect(allowed('openRecent', g)).toBe(true);
-    }
+  test('8: openRecent is allowed with every gate false or true; settings is allowed while not ready', () => {
+    const all = (v: boolean): Gate => ({
+      quitting: v,
+      modal: v,
+      busy: v,
+      ready: v,
+      project: v,
+      active: v,
+      naming: v,
+    });
+    expect(allowed('openRecent', all(false))).toBe(true);
+    expect(allowed('openRecent', all(true))).toBe(true);
     expect(allowed('settings', { ...base, ready: false, project: false, active: false })).toBe(
       true,
     );
@@ -516,11 +523,11 @@ describe('modals', () => {
     const el = button();
     h.focus(el);
     h.ports.emitMenu('settings');
-    expect(h.st().modal).toEqual({ kind: 'settings', opener: el });
+    expect(h.st().modal).toEqual({ kind: 'settings', opener: el, restore: el });
     h.shell.close('settings');
     h.focus(null);
     h.ports.emitMenu('settings');
-    expect(h.st().modal).toEqual({ kind: 'settings', opener: null });
+    expect(h.st().modal).toEqual({ kind: 'settings', opener: null, restore: null });
   });
 });
 

@@ -35,7 +35,7 @@ export interface MenuPort {
 }
 
 /** What the shell uses of the session. */
-export type ShellSession = Pick<
+type ShellSession = Pick<
   Session,
   'init' | 'store' | 'guardShutdown' | 'instrumentSelection' | 'activeText'
 >;
@@ -45,16 +45,25 @@ type ShellProjectActions = Pick<
   'run' | 'openRecent' | 'isBusy' | 'folder'
 >;
 
-/** The one open dialog. NewProject is not one: it follows `projectActions.folder`. */
+/**
+ * The one open dialog. NewProject is not one: it follows `projectActions.folder`. `restore` is
+ * where focus goes when it closes without applying (export restores focus itself on unmount).
+ */
 export type Modal =
-  | { kind: 'settings'; opener: HTMLElement | null }
+  | { kind: 'settings'; opener: HTMLElement | null; restore: HTMLElement | null }
   | {
       kind: 'instruments';
       root: string;
       selection: ReturnType<Session['instrumentSelection']>;
       opener: HTMLButtonElement;
+      restore: HTMLButtonElement;
     }
-  | { kind: 'export'; song: ExportSong; controller: ReturnType<typeof createExportDialog> };
+  | {
+      kind: 'export';
+      song: ExportSong;
+      controller: ReturnType<typeof createExportDialog>;
+      restore: null;
+    };
 
 export interface ShellState {
   /** The session opened and projects are available. Never goes back to false. */
@@ -147,16 +156,14 @@ export function createShell(deps: {
   let snapshot!: SessionState;
   let started = false;
   let stopped = false;
-  let destroyed = false;
   let unlistenMenu: (() => void) | undefined;
   let unlistenQuit: (() => void) | undefined;
-  let menuAttached = false;
   let lastSent: boolean | undefined;
   let syncPending = false;
   const state = writable<ShellState>({ ready, quitting, modal });
   const emit = () => state.set({ ready, quitting, modal });
 
-  const unsubscribe = session.store.subscribe((next) => {
+  let unsubscribe: (() => void) | undefined = session.store.subscribe((next) => {
     snapshot = next;
     if (modal?.kind === 'instruments' && modal.root !== next.project?.root) {
       modal = null;
@@ -173,7 +180,8 @@ export function createShell(deps: {
     syncPending = true;
     queueMicrotask(() => {
       syncPending = false;
-      if (!menuAttached || stopped || destroyed) return;
+      // Unset until the menu attaches; stop() clears it.
+      if (unlistenMenu === undefined) return;
       const available = exportAvailable();
       if (available === lastSent) return;
       lastSent = available;
@@ -209,18 +217,26 @@ export function createShell(deps: {
   }
 
   function openSettings(opener: HTMLElement | null) {
-    if (can('settings')) setModal({ kind: 'settings', opener });
+    if (can('settings')) setModal({ kind: 'settings', opener, restore: opener });
+  }
+
+  function openExport() {
+    if (!can('exportAudio')) return;
+    const song = captureExportSong(snapshot, session.activeText());
+    if (song) {
+      setModal({
+        kind: 'export',
+        song,
+        controller: createExportDialog(song, exportApi),
+        restore: null,
+      });
+    }
   }
 
   function onMenu(action: ProjectMenuAction) {
-    if (action === 'settings') {
-      openSettings(deps.activeElement());
-    } else if (action !== 'exportAudio') {
-      projectAction(action);
-    } else if (can('exportAudio')) {
-      const song = captureExportSong(snapshot, session.activeText());
-      if (song) setModal({ kind: 'export', song, controller: createExportDialog(song, exportApi) });
-    }
+    if (action === 'settings') openSettings(deps.activeElement());
+    else if (action === 'exportAudio') openExport();
+    else projectAction(action);
   }
 
   function canCloseWindow(): boolean {
@@ -274,14 +290,12 @@ export function createShell(deps: {
           if (stopped || !snapshot.available) return;
           ready = true;
           emit();
-          scheduleSync();
           const stopMenu = await menu.listen(onMenu);
           if (stopped) {
             stopMenu();
             return;
           }
           unlistenMenu = stopMenu;
-          menuAttached = true;
           scheduleSync();
           const stopQuit = await quit.listen((id) => {
             if (!stopped) void onQuit(id).catch(console.error);
@@ -318,6 +332,7 @@ export function createShell(deps: {
         root: snapshot.project.root,
         selection: session.instrumentSelection(),
         opener,
+        restore: opener,
       });
     },
 
@@ -325,20 +340,16 @@ export function createShell(deps: {
       const open = modal;
       if (open?.kind !== kind) return null;
       setModal(null);
-      if (open.kind === 'settings') return open.opener;
-      if (open.kind === 'instruments') return applied ? 'editor' : open.opener;
-      // ExportAudio restores focus itself when it unmounts.
-      return null;
+      return applied ? 'editor' : open.restore;
     },
 
     canCloseWindow,
     onQuit,
 
     destroy() {
-      if (destroyed) return;
-      destroyed = true;
       stop();
-      unsubscribe();
+      unsubscribe?.();
+      unsubscribe = undefined;
     },
   };
 }
