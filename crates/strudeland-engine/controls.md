@@ -39,8 +39,9 @@ measured-floor case, and `vowel-unknown`), the four `phaser*` rows (`phaser-*`) 
 (`fx-chain-*`).
 
 `ALLOWED_KEYS` in `src/capability.rs` is exactly the `implemented` and `ignored` rows; a unit test
-parses this file and checks both directions. Sounds are `ALLOWED_SOUNDS`; the refused ones are
-listed at the end.
+parses this file and checks both directions. Sounds are `allowed_sounds()`: the sources the
+engine builds (`SourceKind::NAMES` in `src/chain.rs`) and the silence markers; the refused ones
+are listed at the end.
 
 | key | read sites | class | engine module | status | owner |
 |---|---|---|---|---|---|

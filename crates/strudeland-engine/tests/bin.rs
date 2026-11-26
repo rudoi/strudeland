@@ -425,7 +425,7 @@ fn controls_json_prints_the_allowlist() {
         .iter()
         .map(|k| k.as_str().unwrap())
         .collect();
-    assert_eq!(sounds, strudeland_engine::ALLOWED_SOUNDS);
+    assert_eq!(sounds, strudeland_engine::allowed_sounds());
     assert_eq!(v["unsupportedValues"], json!({}));
     assert_eq!(
         v["chainKeys"],

@@ -5,9 +5,10 @@
 
 use std::collections::BTreeSet;
 
+use crate::chain::SourceKind;
 use crate::coerce::{js_to_string, js_truthy};
 use crate::job::{EngineJob, Value, ValueMap, bar_of};
-use crate::params::{is_silence, sound_of};
+use crate::params::{SILENCE, is_silence, sound_of};
 
 /// Every key the engine accepts: the `implemented` and `ignored` rows of `controls.md`, sorted
 /// by byte order.
@@ -434,11 +435,17 @@ pub const ALLOWED_KEYS: &[&str] = &[
     "zzfx",
 ];
 
-/// Every `s` the engine accepts (sources, their aliases and the silence markers), sorted.
-pub const ALLOWED_SOUNDS: &[&str] = &[
-    "-", "_", "brown", "bus", "crackle", "one", "pink", "pulse", "saw", "sawtooth", "sin", "sine",
-    "sqr", "square", "supersaw", "tri", "triangle", "user", "white", "~",
-];
+/// Every `s` the engine accepts, sorted by byte order: the sounds it builds
+/// (`SourceKind::NAMES`) and the silence markers (`SILENCE`).
+pub fn allowed_sounds() -> Vec<&'static str> {
+    let mut sounds: Vec<&'static str> = SourceKind::NAMES
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(SILENCE.iter().copied())
+        .collect();
+    sounds.sort_unstable();
+    sounds
+}
 
 /// Keys the engine implements inside an `FX` chain entry (a subset of [`ALLOWED_KEYS`]), sorted:
 /// the keys superdough reads per entry (superdough.mjs:612-938; research `modulation-routing.md`
@@ -554,104 +561,6 @@ pub const MODULATOR_KEYS: &[(&str, &[&str])] = &[
     ("lfo", crate::modulate::LFO_KEYS),
 ];
 
-/// Modulator target controls (`CONTROL_TARGETS` keys) that can resolve to an implemented param,
-/// sorted. The others skip (`bmod`, `dry`, `busgain`, `stretch`, the `wt`/`warp` LFOs) or throw
-/// (`tremolophase`, the filter LFOs' `rate`/`sync`, `wt`, `warp`, `byteBeatStartTime`,
-/// `transient`) wherever they are used.
-pub const MODULATOR_TARGETS: &[&str] = &[
-    "bandf",
-    "bandq",
-    "bpdc",
-    "bpdepth",
-    "bpdepthfrequency",
-    "bpshape",
-    "bpskew",
-    "coarse",
-    "compressor",
-    "compressorAttack",
-    "compressorKnee",
-    "compressorRatio",
-    "compressorRelease",
-    "crush",
-    "cutoff",
-    "delay",
-    "delayfeedback",
-    "delaysync",
-    "delaytime",
-    "detune",
-    "distort",
-    "distorttype",
-    "distortvol",
-    "djf",
-    "env",
-    "env_attack",
-    "env_decay",
-    "env_release",
-    "env_sustain",
-    "fmh",
-    "fmh2",
-    "fmh3",
-    "fmh4",
-    "fmh5",
-    "fmh6",
-    "fmh7",
-    "fmh8",
-    "fmi",
-    "fmi2",
-    "fmi3",
-    "fmi4",
-    "fmi5",
-    "fmi6",
-    "fmi7",
-    "fmi8",
-    "freq",
-    "gain",
-    "hcutoff",
-    "hpdc",
-    "hpdepth",
-    "hpdepthfrequency",
-    "hpshape",
-    "hpskew",
-    "hresonance",
-    "lfo",
-    "lfo_curve",
-    "lfo_dcoffset",
-    "lfo_depth",
-    "lfo_depthabs",
-    "lfo_rate",
-    "lfo_skew",
-    "lfo_sync",
-    "lpdc",
-    "lpdepth",
-    "lpdepthfrequency",
-    "lpshape",
-    "lpskew",
-    "note",
-    "pan",
-    "phasercenter",
-    "phaserdepth",
-    "phaserrate",
-    "phasersweep",
-    "postgain",
-    "pw",
-    "pwrate",
-    "pwsweep",
-    "resonance",
-    "room",
-    "s",
-    "shape",
-    "shapevol",
-    "spread",
-    "tremolo",
-    "tremolodepth",
-    "tremoloshape",
-    "tremoloskew",
-    "tremolosync",
-    "vib",
-    "vibmod",
-    "vowel",
-];
-
 // ---- unsupported detection
 
 /// A sound and the controls the engine cannot play, first seen in layout bar `first_bar`
@@ -712,7 +621,9 @@ fn signature_with(map: &ValueMap, bus_cycle: bool, cps: f64) -> Option<(String, 
         value_rules(k, v, "", &mut bad);
     }
     bad.extend(crate::modulate::unsupported_targets(map, cps));
-    let sound_ok = ALLOWED_SOUNDS.binary_search(&s.as_str()).is_ok();
+    // The silence half keeps a non-string `s` whose JS string is a marker (`["-"]`) accepted;
+    // `is_silence` sees only strings.
+    let sound_ok = SourceKind::of(&s).is_some() || SILENCE.contains(&s.as_str());
     if sound_ok && bad.is_empty() {
         return None;
     }
@@ -821,10 +732,10 @@ pub fn controls_json() -> String {
         "{{\"schema\":2,\"keys\":{},\"sounds\":{},\"unsupportedValues\":{{}},\"chainKeys\":{},\
          \"modulatorKeys\":{{{}}},\"modulatorTargets\":{}}}",
         to_json(ALLOWED_KEYS),
-        to_json(ALLOWED_SOUNDS),
+        to_json(&allowed_sounds()),
         to_json(CHAIN_KEYS),
         modulator_keys,
-        to_json(MODULATOR_TARGETS),
+        to_json(&crate::modulate::modulatable_targets()),
     )
 }
 
@@ -833,7 +744,7 @@ mod tests {
     use super::*;
     use crate::params::{
         BANDPASS_KEYS, BANDPASS_LFO_KEYS, FM_MODULATORS, HIGHPASS_KEYS, HIGHPASS_LFO_KEYS,
-        LOWPASS_KEYS, LOWPASS_LFO_KEYS, SILENCE, fm_control_name, fm_suffix,
+        LOWPASS_KEYS, LOWPASS_LFO_KEYS, fm_control_name, fm_suffix, parse_entry_params,
     };
     use serde_json::json;
 
@@ -995,12 +906,12 @@ mod tests {
 
     #[test]
     fn allowlists_are_sorted_and_unique() {
+        let sounds = allowed_sounds();
         for list in [
             ALLOWED_KEYS,
-            ALLOWED_SOUNDS,
+            sounds.as_slice(),
             CHAIN_KEYS,
             CHAIN_UNSUPPORTED_KEYS,
-            MODULATOR_TARGETS,
         ] {
             assert!(
                 list.windows(2).all(|w| w[0] < w[1]),
@@ -1008,7 +919,7 @@ mod tests {
             );
         }
         for s in SILENCE {
-            assert!(ALLOWED_SOUNDS.contains(s));
+            assert!(sounds.contains(s));
         }
     }
 
@@ -1065,33 +976,6 @@ mod tests {
             "FXrelease",
         ] {
             assert!(!CHAIN_KEYS.contains(&k), "{k} is read from the hap only");
-        }
-        assert_eq!(CHAIN_KEYS.len(), 87);
-        assert!(
-            MODULATOR_TARGETS.windows(2).all(|w| w[0] < w[1]),
-            "targets sorted"
-        );
-        // Every target is a control superdough's table knows and resolves somewhere: the
-        // skips and throws are not listed.
-        for t in MODULATOR_TARGETS {
-            assert!(
-                crate::modulate::get_control_data(t, "undefined").is_some(),
-                "{t}"
-            );
-        }
-        for t in [
-            "bmod",
-            "dry",
-            "busgain",
-            "stretch",
-            "wtrate",
-            "tremolophase",
-            "lprate",
-            "lpsync",
-            "wt",
-            "transient",
-        ] {
-            assert!(!MODULATOR_TARGETS.contains(&t), "{t}");
         }
         let keys = |t: &str| MODULATOR_KEYS.iter().find(|(x, _)| *x == t).unwrap().1;
         assert!(keys("lfo").contains(&"rate") && !keys("lfo").contains(&"attack"));
@@ -1161,6 +1045,7 @@ mod tests {
     #[test]
     fn refused_sounds_are_not_allowed() {
         let rows = refused_sound_rows();
+        let allowed = allowed_sounds();
         assert!(rows.len() >= 6, "{} rows", rows.len());
         for (sound, owner) in &rows {
             assert!(is_task_ref(owner), "{sound}: owner {owner}");
@@ -1169,14 +1054,11 @@ mod tests {
             }
             if let Some(prefix) = sound.strip_suffix('*') {
                 assert!(
-                    !ALLOWED_SOUNDS.iter().any(|s| s.starts_with(prefix)),
+                    !allowed.iter().any(|s| s.starts_with(prefix)),
                     "an allowed sound starts with {prefix}"
                 );
             } else {
-                assert!(
-                    !ALLOWED_SOUNDS.contains(&sound.as_str()),
-                    "{sound} is allowed"
-                );
+                assert!(!allowed.contains(&sound.as_str()), "{sound} is allowed");
             }
         }
         for want in ["bytebeat", "sbd", "wt_*", "z_*", "zzfx"] {
@@ -1235,7 +1117,7 @@ mod tests {
     #[test]
     fn bus_signatures() {
         // The bus sound and its keys are allowed; a bus reader without a cycle is supported.
-        assert!(ALLOWED_SOUNDS.binary_search(&"bus").is_ok());
+        assert!(allowed_sounds().contains(&"bus"));
         for k in ["bus", "busgain", "n"] {
             assert!(ALLOWED_KEYS.binary_search(&k).is_ok(), "{k}");
         }
@@ -1361,6 +1243,115 @@ mod tests {
 
     /// A job with one pause per value: hap `j` plays value `j` at cycle `j + 0.5` (bar `j`).
     /// `tests/bin.rs` builds the same job for the binary.
+    /// `CHAIN_KEYS` both ways: an allowed key is a chain key exactly when some probe value
+    /// changes what an FX entry reads (`parse_entry_params`), on a base that switches every
+    /// family on and on the same base without `delaytime`.
+    #[test]
+    fn chain_keys_are_what_an_entry_reads() {
+        let base = json!({
+            "cutoff": 800, "hcutoff": 300, "bandf": 900, "lpenv": 1, "hpenv": 1, "bpenv": 1,
+            "lprate": 1, "hprate": 1, "bprate": 1, "compressor": -10, "phaserrate": 2,
+            "phaserdepth": 0.5, "tremolo": 2, "delay": 0.5, "delaytime": 0.2,
+            "delayfeedback": 0.3, "room": 0.4
+        });
+        let mut no_delaytime = base.clone();
+        no_delaytime.as_object_mut().unwrap().remove("delaytime");
+        let bases = [base, no_delaytime];
+        let probes = [json!(0.37), json!("ladder"), json!(2), json!(null)];
+        let read = |k: &str| {
+            bases.iter().any(|b| {
+                let mut without = b.clone();
+                without.as_object_mut().unwrap().remove(k);
+                let plain = parse_entry_params(&map(without.clone()), 1.0);
+                probes.iter().any(|x| {
+                    let mut with = without.clone();
+                    with[k] = x.clone();
+                    parse_entry_params(&map(with), 1.0) != plain
+                })
+            })
+        };
+        for k in ALLOWED_KEYS {
+            assert_eq!(
+                read(k),
+                CHAIN_KEYS.contains(k) && *k != "i",
+                "{k}: read by an entry vs listed in CHAIN_KEYS"
+            );
+        }
+        // Superdough reads `i` per entry (superdough.mjs:628); the engine ignores it
+        // (`controls.md`: `ignored`).
+        assert!(CHAIN_KEYS.contains(&"i") && !read("i"));
+    }
+
+    /// One job holding every value's hap at time 0 in one pause, shaped like the equality
+    /// guard's extra jobs (44100 Hz, 22050 frames, seed 0, cps 1, duration 0.25).
+    fn sound_job(values: serde_json::Value) -> EngineJob {
+        let n = values.as_array().unwrap().len();
+        let haps: Vec<_> = (0..n)
+            .map(|j| json!({ "t": 0, "duration": 0.25, "cycle": 0, "v": j, "event": j }))
+            .collect();
+        let j = json!({
+            "schema": 2, "sampleRate": 44100, "frames": 22050, "seed": 0, "cps": 1,
+            "channels": { "count": 2, "multiChannelOrbits": false },
+            "orbits": [{ "orbit": 1, "channels": [0, 1] }],
+            "pauses": [{ "suspendSec": 0, "haps": haps }],
+            "values": values
+        });
+        EngineJob::from_json(&j.to_string()).unwrap()
+    }
+
+    /// (errors, every sample finite, peak) of a job's render.
+    fn sound_render(values: serde_json::Value) -> (Vec<crate::RenderError>, bool, f32) {
+        let out = crate::render(&sound_job(values)).unwrap();
+        let samples = || out.channels.iter().flatten();
+        let finite = samples().all(|x| x.is_finite());
+        let peak = samples().fold(0.0f32, |m, x| m.max(x.abs()));
+        (out.errors, finite, peak)
+    }
+
+    #[test]
+    fn every_allowed_sound_renders() {
+        for s in allowed_sounds() {
+            if SILENCE.contains(&s) {
+                let (errors, finite, peak) = sound_render(json!([{ "s": s }]));
+                assert!(errors.is_empty(), "{s}: {errors:?}");
+                assert!(finite && peak == 0.0, "{s} renders all zeros, peak {peak}");
+                continue;
+            }
+            let values = if s == "bus" {
+                // `bus` plays what a writer sends it; `bus` alone is silent by design.
+                json!([{ "s": "sine", "bus": 1, "dry": 0 }, { "s": "bus", "n": 1 }])
+            } else {
+                // `crackle` is sparse: a hit has probability density * 0.01 = 0.0002 per sample
+                // (`DEFAULT_DENSITY`, noise.rs). Seed 0 gives 8 nonzero samples over these frames
+                // (seed 5 gives none), so the job's seed is part of this test.
+                json!([{ "s": s }])
+            };
+            let (errors, finite, peak) = sound_render(values);
+            assert!(errors.is_empty(), "{s}: {errors:?}");
+            assert!(finite, "{s}: every sample finite");
+            assert!(peak > 0.0, "{s} sounds");
+        }
+        // The writer alone is silent (`dry` 0), so the pair's peak comes through the bus.
+        let (errors, finite, peak) = sound_render(json!([{ "s": "sine", "bus": 1, "dry": 0 }]));
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(
+            finite && peak == 0.0,
+            "the bus writer alone is silent, peak {peak}"
+        );
+    }
+
+    #[test]
+    fn a_silence_string_in_an_array_stays_accepted() {
+        for v in [
+            json!({ "s": ["-"] }),
+            json!({ "s": ["~"] }),
+            json!({ "s": ["_"] }),
+            json!({ "s": ["sine"] }),
+        ] {
+            assert_eq!(signature_of(&map(v.clone()), 0.5), None, "{v}");
+        }
+    }
+
     fn table_job(values: &serde_json::Value) -> EngineJob {
         let n = values.as_array().unwrap().len();
         let pauses: Vec<_> = (0..n)
@@ -1403,13 +1394,16 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["schema"], 2);
         assert_eq!(v["keys"].as_array().unwrap().len(), ALLOWED_KEYS.len());
-        assert_eq!(v["sounds"].as_array().unwrap().len(), ALLOWED_SOUNDS.len());
+        assert_eq!(v["sounds"], json!(allowed_sounds()));
         assert_eq!(v["unsupportedValues"], json!({}));
         assert_eq!(v["chainKeys"], json!(CHAIN_KEYS));
         for (t, keys) in MODULATOR_KEYS {
             assert_eq!(v["modulatorKeys"][t], json!(keys), "{t}");
         }
-        assert_eq!(v["modulatorTargets"], json!(MODULATOR_TARGETS));
+        assert_eq!(
+            v["modulatorTargets"],
+            json!(crate::modulate::modulatable_targets())
+        );
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
         assert_eq!(keys.len(), 7);
         let order = [

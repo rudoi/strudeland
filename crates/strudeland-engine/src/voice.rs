@@ -32,8 +32,8 @@ use crate::adsr::{Curve, get_adsr_values, get_param_adsr};
 use crate::biquad::{Biquad, FilterKind};
 use crate::bus::BusBank;
 use crate::chain::{
-    EntryTimes, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef, ParamSlot, SourceEnd,
-    SourceKind, Stage, StageId, StageInputs, StageKind, Teardown, VoiceBus, build_entry,
+    DEFAULT_SOUND, EntryTimes, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef, ParamSlot,
+    SourceEnd, SourceKind, Stage, StageId, StageInputs, StageKind, Teardown, VoiceBus, build_entry,
     delay_applies, input_connected, push_stage, set_worklet_value,
 };
 use crate::coerce::{js_max, js_min, js_to_string};
@@ -2252,9 +2252,9 @@ pub fn apply_gain(gain: &mut Param, quantum_start: u64, buf: &mut [f32; QUANTUM]
     }
 }
 
-/// The engine's `s` string, including the default for an absent value.
+/// The engine's `s` string, with the [`DEFAULT_SOUND`] default for an absent value.
 pub fn sound_name(s: Option<&Value>) -> String {
-    s.map_or_else(|| "triangle".to_string(), js_to_string)
+    s.map_or_else(|| DEFAULT_SOUND.to_string(), js_to_string)
 }
 
 #[cfg(test)]

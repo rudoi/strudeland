@@ -42,7 +42,7 @@ pub(crate) mod vowel;
 pub mod wav;
 pub(crate) mod worklet;
 
-pub use capability::{ALLOWED_KEYS, ALLOWED_SOUNDS, controls_json};
+pub use capability::{ALLOWED_KEYS, allowed_sounds, controls_json};
 pub use job::{EngineJob, ErrorKind, JobError, OrbitSpec, RenderError, Value, ValueMap};
 /// superdough's `mulberry32`, reused by the render pipeline's dither.
 pub use js::Mulberry32;

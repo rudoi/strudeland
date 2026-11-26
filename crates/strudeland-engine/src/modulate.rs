@@ -662,6 +662,123 @@ pub fn unsupported_targets(map: &ValueMap, cps: f64) -> Vec<String> {
     out
 }
 
+/// The `CONTROL_TARGETS` keys a modulator can resolve to an implemented param on some voice,
+/// sorted: every `TARGETS` row resolved against the probe voices' node tables. The others skip
+/// or throw wherever they are used. What `controls --json` prints as `modulatorTargets`.
+/// The probe voices can miss a node some real voice has; `modulatable_targets_are_todays` is
+/// the safety net for a row the probe skips.
+pub(crate) fn modulatable_targets() -> Vec<&'static str> {
+    let tables = probe_tables();
+    let mut out = std::collections::BTreeSet::new();
+    for (key, _, _) in TARGETS {
+        if tables
+            .iter()
+            .any(|t| row_outcomes(t, key).contains(&Outcome::Targets))
+        {
+            out.insert(*key);
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// How one `TARGETS` row resolves on one node table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    Targets,
+    Skip,
+    Unsupported,
+    /// `resolve` returned an error (the build throws).
+    Throws,
+}
+
+/// Row `key` resolved on `table` for `fxi` `"main"` and `0`: the control is `<head>_0` for the
+/// heads `lfo`, `env` and `bmod` (`head` otherwise), with the text after the first `_` as its
+/// `subControl`.
+fn row_outcomes(table: &NodeTable, key: &str) -> [Outcome; 2] {
+    let (head, sub) = match key.split_once('_') {
+        Some((h, s)) => (h, Some(s)),
+        None => (key, None),
+    };
+    let control = if matches!(head, "lfo" | "env" | "bmod") {
+        format!("{head}_0")
+    } else {
+        head.to_string()
+    };
+    let control = Value::Str(control);
+    let sub = sub.map(|s| Value::Str(s.to_string()));
+    [Value::Str("main".into()), Value::Num(0.0)].map(|fxi| {
+        match resolve(table, Some(&control), sub.as_ref(), &fxi) {
+            Ok(Resolution::Targets { .. }) => Outcome::Targets,
+            Ok(Resolution::Skip(_)) => Outcome::Skip,
+            Ok(Resolution::Unsupported) => Outcome::Unsupported,
+            Err(_) => Outcome::Throws,
+        }
+    })
+}
+
+/// The probe voices' node tables: for the first `SourceKind::NAMES` sound of each kind, (a) the
+/// FX map with that `s` plus `djf`, `vib`, `vibmod`, `pwsweep` and `fmi` through `fmi8`, and (b)
+/// `{ s, FX: [FX map + dry] }`, each with `lfo_0` and `env_0` registered on the main entry. A map
+/// that fails to deserialize or parse is skipped (`modulatable_targets_are_todays` sees the loss).
+fn probe_tables() -> Vec<NodeTable> {
+    let fx = serde_json::json!({
+        "cutoff": 800, "lprate": 2, "hcutoff": 300, "hpdepth": 0.5, "bandf": 900,
+        "bpdepth": 0.5, "vowel": "a", "coarse": 2, "crush": 4, "shape": 0.3, "distort": 0.4,
+        "tremolo": 2, "compressor": -10, "pan": 0.3, "phaserrate": 2, "transient": 0.5,
+        "delay": 0.5, "delaytime": 0.2, "delayfeedback": 0.3, "room": 0.4
+    });
+    let mut kinds: Vec<SourceKind> = Vec::new();
+    let mut tables = Vec::new();
+    for (s, kind) in SourceKind::NAMES {
+        if kinds.contains(kind) {
+            continue;
+        }
+        kinds.push(*kind);
+        let mut a = fx.clone();
+        a["s"] = serde_json::json!(s);
+        for (k, v) in [
+            ("djf", 0.3),
+            ("vib", 2.0),
+            ("vibmod", 0.5),
+            ("pwsweep", 0.3),
+        ] {
+            a[k] = serde_json::json!(v);
+        }
+        for n in 1..=8 {
+            let k = if n == 1 {
+                "fmi".to_string()
+            } else {
+                format!("fmi{n}")
+            };
+            a[k] = serde_json::json!(1);
+        }
+        let mut entry = fx.clone();
+        entry["dry"] = serde_json::json!(0.5);
+        let b = serde_json::json!({ "s": s, "FX": [entry] });
+        for v in [a, b] {
+            let Ok(m) = serde_json::from_value::<ValueMap>(v) else {
+                continue;
+            };
+            let Ok(params) = crate::params::parse_voice_params(&m, 0.25, 2.0) else {
+                continue;
+            };
+            let mut table = NodeTable::plan(&params, *kind);
+            table.set(
+                FxKey::Main,
+                "lfo_0",
+                NodeList::Array(vec![Some(Node::Lfo(0))]),
+            );
+            table.set(
+                FxKey::Main,
+                "env_0",
+                NodeList::Array(vec![Some(Node::Env(1))]),
+            );
+            tables.push(table);
+        }
+    }
+    tables
+}
+
 /// `nodeTracker.main['<type>_<id>'] = [node]` for an `lfo` or `env` modulator at position `index`.
 fn register(table: &mut NodeTable, c: &Config<'_>, index: usize) {
     let id = js_to_string(c.id);
@@ -2350,5 +2467,155 @@ mod tests {
             labels(json!({ "s": "kick", "lfo": ids(&[json!({ "control": "note" })]) })).is_empty()
         );
         assert!(labels(json!({ "s": "white" })).is_empty());
+    }
+
+    /// Today's modulator targets (the dump's `modulatorTargets`). The pin lives here because
+    /// `controls.md` classifies keys and lists no targets; it catches a probe that shrinks (a
+    /// `NodeTable::plan` change that stops exposing a node on the probe voices) or grows.
+    /// Changing it is a deliberate edit, in the same diff as the dump change it causes.
+    const TODAY: [&str; 91] = [
+        "bandf",
+        "bandq",
+        "bpdc",
+        "bpdepth",
+        "bpdepthfrequency",
+        "bpshape",
+        "bpskew",
+        "coarse",
+        "compressor",
+        "compressorAttack",
+        "compressorKnee",
+        "compressorRatio",
+        "compressorRelease",
+        "crush",
+        "cutoff",
+        "delay",
+        "delayfeedback",
+        "delaysync",
+        "delaytime",
+        "detune",
+        "distort",
+        "distorttype",
+        "distortvol",
+        "djf",
+        "env",
+        "env_attack",
+        "env_decay",
+        "env_release",
+        "env_sustain",
+        "fmh",
+        "fmh2",
+        "fmh3",
+        "fmh4",
+        "fmh5",
+        "fmh6",
+        "fmh7",
+        "fmh8",
+        "fmi",
+        "fmi2",
+        "fmi3",
+        "fmi4",
+        "fmi5",
+        "fmi6",
+        "fmi7",
+        "fmi8",
+        "freq",
+        "gain",
+        "hcutoff",
+        "hpdc",
+        "hpdepth",
+        "hpdepthfrequency",
+        "hpshape",
+        "hpskew",
+        "hresonance",
+        "lfo",
+        "lfo_curve",
+        "lfo_dcoffset",
+        "lfo_depth",
+        "lfo_depthabs",
+        "lfo_rate",
+        "lfo_skew",
+        "lfo_sync",
+        "lpdc",
+        "lpdepth",
+        "lpdepthfrequency",
+        "lpshape",
+        "lpskew",
+        "note",
+        "pan",
+        "phasercenter",
+        "phaserdepth",
+        "phaserrate",
+        "phasersweep",
+        "postgain",
+        "pw",
+        "pwrate",
+        "pwsweep",
+        "resonance",
+        "room",
+        "s",
+        "shape",
+        "shapevol",
+        "spread",
+        "tremolo",
+        "tremolodepth",
+        "tremoloshape",
+        "tremoloskew",
+        "tremolosync",
+        "vib",
+        "vibmod",
+        "vowel",
+    ];
+
+    #[test]
+    fn modulatable_targets_are_todays() {
+        assert_eq!(modulatable_targets(), TODAY);
+    }
+
+    #[test]
+    fn modulatable_targets_are_known_controls() {
+        let targets = modulatable_targets();
+        assert!(targets.windows(2).all(|w| w[0] < w[1]), "targets sorted");
+        // Every target is a control superdough's table knows and resolves somewhere: the
+        // skips and throws are not listed.
+        for t in &targets {
+            assert!(get_control_data(t, "undefined").is_some(), "{t}");
+        }
+        for t in [
+            "bmod",
+            "dry",
+            "busgain",
+            "stretch",
+            "wtrate",
+            "tremolophase",
+            "lprate",
+            "lpsync",
+            "wt",
+            "transient",
+        ] {
+            assert!(!targets.contains(&t), "{t}");
+        }
+    }
+
+    /// A row left out of the targets only skips or throws on every probe table: one that
+    /// resolved to `Unsupported` and never to `Targets` would be a target the engine refuses,
+    /// hidden by the dump.
+    #[test]
+    fn every_target_row_is_derived_or_never_unsupported() {
+        let targets = modulatable_targets();
+        let tables = probe_tables();
+        for (key, _, _) in TARGETS {
+            if targets.contains(key) {
+                continue;
+            }
+            for table in &tables {
+                for o in row_outcomes(table, key) {
+                    assert!(
+                        matches!(o, Outcome::Skip | Outcome::Throws),
+                        "{key} is left out but resolves to {o:?}"
+                    );
+                }
+            }
+        }
     }
 }

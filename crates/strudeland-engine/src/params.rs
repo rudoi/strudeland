@@ -2,7 +2,7 @@
 //! with the defaults that sit outside a node, and superdough's mutation of a hap value
 //! (`prepare_value`).
 
-use crate::chain::FxKey;
+use crate::chain::{DEFAULT_SOUND, FxKey};
 use crate::coerce::*;
 use crate::compressor::CompressorParams;
 use crate::job::{Value, ValueMap};
@@ -86,7 +86,7 @@ pub fn frequency_from_value(p: &VoiceParams) -> Result<f64, ControlError> {
 /// the fields here are the ones superdough reads only from the hap value.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct VoiceParams {
-    /// Raw `s` (the sound after the bank rewrite; `"triangle"` when absent).
+    /// Raw `s` (the sound after the bank rewrite; [`DEFAULT_SOUND`] when absent).
     pub s: Option<Value>,
     /// Raw `note` (number or note name; truthiness matters).
     pub note: Option<Value>,
@@ -829,11 +829,11 @@ pub fn gain_stage(p: &EntryParams) -> f64 {
 
 // ---- the superdough mutation
 
-/// The sound of a control map: `s` with the `'triangle'` default.
+/// The sound of a control map: `s` with the [`DEFAULT_SOUND`] default.
 pub fn sound_of(map: &ValueMap) -> Value {
     map.get("s")
         .cloned()
-        .unwrap_or_else(|| Value::Str("triangle".into()))
+        .unwrap_or_else(|| Value::Str(DEFAULT_SOUND.into()))
 }
 
 /// The superdough silence markers.

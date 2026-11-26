@@ -19,7 +19,10 @@ errors, 2 bad input or I/O. `signatures` prints what the engine cannot play in a
 JSON `[{ s, keys, firstBar }]` (`[]` when it plays everything; exit 0 for any valid job, 2 for bad
 input). It is the only unsupported detection: `scripts/render/rust-engine.ts` calls it, and the
 shared signature table `tests/data/unsupported-signatures.json` pins its rules. `controls --json`
-prints the control allowlist (nothing on the TypeScript side mirrors it).
+prints the control allowlist (`capability::controls_json`; nothing on the TypeScript side mirrors
+it). Its `sounds` are the sources the engine builds plus the silence markers, and its
+`modulatorTargets` are the `CONTROL_TARGETS` rows that resolve on some voice
+(`modulate::modulatable_targets`, pinned by a test).
 
 ## Chromium reference
 
@@ -485,8 +488,10 @@ Evidence paths in the table are relative to the plan that added the case: from `
 `controls.md` is the audit of every control key (where superdough reads it, whether the engine
 implements it, ignores it like superdough does for synths, or refuses it as unsupported).
 `ALLOWED_KEYS` in `src/capability.rs` is exactly its `implemented` and `ignored` rows; a test checks
-it. Its `owner` column records the implementation scope for each unsupported key and each
-refused sound. A unit test checks the coverage of that inventory.
+it. `CHAIN_KEYS` is checked both ways against what an FX entry reads (`parse_entry_params`); `i`
+is the one key superdough reads per entry that the engine ignores. The audit's `owner` column
+records the implementation scope for each unsupported key and each refused sound. A unit test
+checks the coverage of that inventory.
 
 ## Live mode
 
