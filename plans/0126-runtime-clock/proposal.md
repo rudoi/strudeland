@@ -20,7 +20,7 @@ under Decisions.
 
 ## Background
 
-The [re-verification](0126-runtime-clock/reverify.md) has the evidence at `5605397`. In short:
+The [re-verification](reverify.md) has the evidence at `5605397`. In short:
 
 - `createRuntime` (`runtime.ts:238-1129`) is one closure. The live clock state is
   `segments`, `liveStructure`, `clock`, `audibleHistory` and `phaseOffsetSec` (:335-349) with

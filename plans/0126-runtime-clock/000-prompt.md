@@ -1,7 +1,7 @@
 # 0126 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0126-runtime-clock`.
-- **Plan:** [the proposal](../0126-runtime-clock.md). It is the contract: `tempoNow`, the
+- **Plan:** [the proposal](proposal.md). It is the contract: `tempoNow`, the
   `ClockPort`, the `LiveClock` interface, the call-site table, the tests, the rejected options
   and the decisions.
 - **Base:** `5605397` (`origin/main`). Diff against it, never against a local `main` that may be
@@ -17,10 +17,10 @@ Sequential: stage 002 builds on stage 001 (`tempoNow`'s `now()` becomes the cloc
 `const now = liveClock.now`, with no edit to its body).
 Run each stage's gate before starting the next.
 
-1. [001-tempo-now.md](001-tempo-now.md): `tempoAtBar` and `Runtime.tempoNow()`; the Toolbar reads
+1. [001-tempo-now.md](proposal.md): `tempoAtBar` and `Runtime.tempoNow()`; the Toolbar reads
    `tempoNow`, the `state` method applies `tempoAtBar` to its own `position()`; the stubs; one
    runtime test; a glossary term.
-2. [002-live-clock.md](002-live-clock.md): `live-clock.ts` with its port, snapshot and edit;
+2. [002-live-clock.md](proposal.md): `live-clock.ts` with its port, snapshot and edit;
    `runtime.ts` moved onto it; `tests/live-clock.test.ts` replacing the clock-maths end-to-end
    tests; the `AGENTS.md` layout line (no glossary term: the live clock is internal).
 
