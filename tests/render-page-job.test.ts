@@ -10,6 +10,7 @@ import { eventsFromValues } from '../src/lib/render/schedule';
 import { buildStructure } from '../src/lib/strudel/structure';
 import {
   asciiJson,
+  checkJobSampleRate,
   JOB_SLICE_CHARS,
   pageJob,
   processorMessage,
@@ -171,5 +172,16 @@ describe('processorMessage', () => {
     const q = processorMessage(m, 'proc');
     m.onprocessorerror!(new ErrorEvent('processorerror'));
     await expect(q).rejects.toThrow(/^proc: processor error$/);
+  });
+});
+
+describe('checkJobSampleRate', () => {
+  test('a job at SAMPLE_RATE or without a rate passes; any other rate is a clear error', () => {
+    expect(() => checkJobSampleRate({ sampleRate: 44100 })).not.toThrow();
+    expect(() => checkJobSampleRate({})).not.toThrow();
+    expect(() => checkJobSampleRate({ sampleRate: 48000 })).toThrow(
+      'job: sampleRate 48000 is not supported; jobs are planned at 44100 Hz',
+    );
+    expect(() => checkJobSampleRate({ sampleRate: '44100' })).toThrow(/sampleRate 44100 is not/);
   });
 });

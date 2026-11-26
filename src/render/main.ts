@@ -32,7 +32,13 @@ import { eventsFromValues } from '../lib/render/schedule';
 import { prebake } from '../lib/strudel/prebake';
 import { createRuntime } from '../lib/strudel/runtime';
 import { loggedError } from '../lib/render/logged-errors';
-import { dedupeErrors, encodeChannel, processorMessage, sliceText } from './pcm';
+import {
+  checkJobSampleRate,
+  dedupeErrors,
+  encodeChannel,
+  processorMessage,
+  sliceText,
+} from './pcm';
 import mathWorkletUrl from './math-worklet?audioworklet';
 import type {
   MathGroupInput,
@@ -155,7 +161,8 @@ async function run(args: StartArgs): Promise<void> {
     const { request } = args;
     if (kind === 'job') {
       // The shared planner, one-chunk request: the same plan the render path gives
-      // renderOffline, without a context.
+      // renderOffline, without a context. It plans at SAMPLE_RATE only.
+      checkJobSampleRate(request);
       const planned = await planRender(
         rt,
         request.code,

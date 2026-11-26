@@ -33,7 +33,7 @@ import type {
   ScheduleResult,
 } from '../../src/lib/render/contract';
 import type { RenderEvent } from '../../src/lib/render/schedule';
-import { layoutSegments, renderTiming, type RenderTiming } from '../../src/lib/render/timing';
+import type { RenderTiming } from '../../src/lib/render/timing';
 import { decodeWav, type DecodedWav } from '../../src/lib/render/wav';
 import { errorMessage } from '../../src/lib/errors';
 import {
@@ -162,7 +162,7 @@ export class BatchRenderer {
     const reasons = batchCrossChecks(info, t);
     if (reasons.length > 0) throw new RenderFailedError(reasons);
     try {
-      return batchAssembled(wav, info, t.base, t.events, ms, t.timing);
+      return batchAssembled(wav, info, t.base, t.events, ms);
     } catch (e) {
       throw new RenderFailedError([errorMessage(e)]);
     }
@@ -213,23 +213,21 @@ export class PipelineRenderer implements Renderer {
     return this.o.inner.rustVersion;
   }
 
-  /** The window from `BatchRenderer`, cross-checked against the inner renderer's (cached)
-   *  full-window schedule and the timing `render:check` derives from it. */
-  async renderWindow(base: RenderRequest, events: RenderEvent[]): Promise<AssembledWindow> {
-    const sched = await this.o.inner.schedule(base);
-    const timing = renderTiming(
-      sched.structure,
-      layoutSegments(base.layout, sched.structure),
-      sched.cps,
-    );
+  /** The window from `BatchRenderer`, cross-checked against the harness's schedule and the cps
+   *  and timing `render:check` derives from it (no second schedule request). */
+  renderWindow(
+    base: RenderRequest,
+    events: RenderEvent[],
+    song: { cps: number; timing?: RenderTiming },
+  ): Promise<AssembledWindow> {
     const { path: songPath, hash } = this.songs.file(base.code);
     return this.o.batch.window({
       name: `${hash.slice(0, 8)}-${base.fromBar}-${base.toBar}-${base.layout}`,
       songPath,
       base,
-      cps: sched.cps,
+      cps: song.cps,
       events,
-      timing,
+      ...(song.timing ? { timing: song.timing } : {}),
     });
   }
 

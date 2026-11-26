@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  asJson,
   batchRequest,
+  comparableWithoutErrors,
   compareBatch,
   failureText,
   firstDifference,
@@ -11,6 +13,7 @@ import {
   scheduleFailed,
   textDifference,
   withoutErrors,
+  worseStatus,
 } from '../src/lib/render/host-parity-lib';
 import type { PlannedRender } from '../src/lib/render/job-plan';
 import type { PageJobInfo } from '../src/lib/render/page-job';
@@ -307,5 +310,32 @@ describe('withoutErrors', () => {
     });
     expect(firstDifference(out, withoutErrors({ ...info, errors: [] }))).toBeNull();
     expect(firstDifference(out, withoutErrors({ ...info, stemPairs: 2 }))).toBe('stemPairs');
+  });
+});
+
+describe('comparableWithoutErrors', () => {
+  test('an undefined property is an absent one and -0 is 0, as the host sends them', () => {
+    // The page's object keeps an undefined key and a -0; the host's has been through serde.
+    const page = { cps: 0.5, lookbackSec: -0, export: undefined, errors: ['page only'] };
+    const host = { lookbackSec: 0, cps: 0.5, errors: [] };
+    expect(firstDifference(withoutErrors(page), withoutErrors(host))).not.toBeNull();
+    expect(
+      firstDifference(comparableWithoutErrors(page), comparableWithoutErrors(host)),
+    ).toBeNull();
+    expect(firstDifference(asJson({ a: undefined, b: [-0] }), asJson({ b: [0] }))).toBeNull();
+    // A real difference still shows.
+    expect(
+      firstDifference(comparableWithoutErrors(page), comparableWithoutErrors({ ...host, cps: 1 })),
+    ).toBe('cps');
+  });
+});
+
+describe('worseStatus', () => {
+  test('a difference never hides a failure', () => {
+    expect(worseStatus('ok', 'DIFF')).toBe('DIFF');
+    expect(worseStatus('DIFF', 'DIFF')).toBe('DIFF');
+    expect(worseStatus('FAIL', 'DIFF')).toBe('FAIL');
+    expect(worseStatus('DIFF', 'FAIL')).toBe('FAIL');
+    expect(worseStatus('ok', 'ok')).toBe('ok');
   });
 });

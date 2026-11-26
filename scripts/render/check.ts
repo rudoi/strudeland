@@ -297,7 +297,9 @@ export async function assembledOf(
   // The unmutated main window comes from the renderer's own window path when it has one.
   const a =
     tx === undefined && r.renderWindow
-      ? await fx.limit.run(() => r.renderWindow!(fx.base, fx.sched.events))
+      ? await fx.limit.run(() =>
+          r.renderWindow!(fx.base, fx.sched.events, { cps: fx.cps, timing: fx.timing }),
+        )
       : assembleWindow(await chunkResults(fx, tx, batch), fx.sched.events);
   if (tx === undefined) fx.assembled = a;
   return a;

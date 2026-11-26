@@ -22,6 +22,7 @@ import type { Corpus, FixtureEntry } from '../src/lib/render/corpus';
 import type { UnsupportedSignature } from '../src/lib/render/engine-job';
 import { lookbackBars, lookbackSeconds, scaleChunkBars } from '../src/lib/render/lookback';
 import type { RenderEvent } from '../src/lib/render/schedule';
+import type { RenderTiming } from '../src/lib/render/timing';
 import { buildStructure } from '../src/lib/strudel/structure';
 import {
   CHUNK_MIN_BARS,
@@ -1061,7 +1062,8 @@ describe('manifestDisagreement', () => {
 });
 
 describe('runCheck --planner batch', () => {
-  type WindowCall = [RenderRequest, RenderEvent[]];
+  type WindowSong = { cps: number; timing?: RenderTiming };
+  type WindowCall = [RenderRequest, RenderEvent[], WindowSong];
 
   /** A rust fake whose `renderWindow` renders the whole window at once at `gain` (or runs
    *  `window`), recording each call; its chunk renders are the plain fake's. */
@@ -1076,8 +1078,12 @@ describe('runCheck --planner batch', () => {
       super({ ...w, engine: 'rust' });
     }
 
-    async renderWindow(base: RenderRequest, events: RenderEvent[]): Promise<AssembledWindow> {
-      this.windowCalls.push([base, events]);
+    async renderWindow(
+      base: RenderRequest,
+      events: RenderEvent[],
+      song: WindowSong,
+    ): Promise<AssembledWindow> {
+      this.windowCalls.push([base, events, song]);
       if (this.w.window) return this.w.window(base, events);
       const r = await new FakeRenderer({ gain: this.w.gain ?? 1, engine: 'rust' }).render(base);
       return { ...r, events, seamSecs: [] };
@@ -1097,8 +1103,9 @@ describe('runCheck --planner batch', () => {
     const r = new WindowFake({ gain: 0.5 });
     const d = await withGoldens(new FakeRenderer(), corpus);
     const run = await batchRun(r, d, { keepWav: true });
-    // Called once with the fixture's base request and its schedule's events.
-    expect(r.windowCalls).toEqual([[BASE, bassEvents(14)]]);
+    // Called once with the fixture's base request, its schedule's events and the cps the
+    // harness derived (a constant-meter song: no timing).
+    expect(r.windowCalls).toEqual([[BASE, bassEvents(14), { cps: CPS, timing: undefined }]]);
     // The window audio is half the chunks' level: the mix gate measured it.
     const peak = (x: typeof run) => gateOf(x, 'a', 'mix')!.measurements.peak as number;
     expect(peak(run)).toBeCloseTo(peak(plain) / 2, 3);

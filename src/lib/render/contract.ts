@@ -11,6 +11,7 @@ import type { UnsupportedSignature } from './engine-job';
 import type { EngineName } from './engines';
 import type { RenderPlanRequest } from './job-plan';
 import type { RenderEvent } from './schedule';
+import type { RenderTiming } from './timing';
 
 /** The only supported sample rate. */
 export const SAMPLE_RATE = 44100;
@@ -112,8 +113,13 @@ export interface Renderer {
   /** Renders `[base.fromBar, base.toBar)` of `base.code` as one window through the renderer's
    *  own production path. When present, the harness takes the fixture's main window from it
    *  instead of joining chunk renders. `events` is the harness schedule, attached as
-   *  `assembleWindow` attaches it. */
-  renderWindow?(base: RenderRequest, events: RenderEvent[]): Promise<AssembledWindow>;
+   *  `assembleWindow` attaches it; `song` is the cps and (mixed meter) timing the harness
+   *  derived from that schedule. */
+  renderWindow?(
+    base: RenderRequest,
+    events: RenderEvent[],
+    song: { cps: number; timing?: RenderTiming },
+  ): Promise<AssembledWindow>;
   dispose(): Promise<void>;
 }
 

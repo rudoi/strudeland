@@ -40,7 +40,10 @@ import {
   parseParityArgs,
   PARITY_USAGE,
   scheduleFailed,
-  withoutErrors,
+  asJson,
+  comparableWithoutErrors,
+  worseStatus,
+  type ParityStatus,
   type PlanOutcome,
 } from '../../src/lib/render/host-parity-lib';
 import type { PageJobInfo } from '../../src/lib/render/page-job';
@@ -63,7 +66,7 @@ type Planned =
   { ok: true; text: string; info: PageJobInfo; errors: string[] } | { ok: false; message: string };
 
 interface FixtureParity {
-  status: 'ok' | 'DIFF' | 'FAIL';
+  status: ParityStatus;
   /** Requests compared. */
   requests: number;
   /** Detail lines (differences, one-sided failures). */
@@ -121,8 +124,8 @@ function jobDifference(
     }
     return `first difference at ${where}`;
   }
-  const pi = withoutErrors(p.info);
-  const hi = withoutErrors(h.info);
+  const pi = comparableWithoutErrors(p.info);
+  const hi = comparableWithoutErrors(h.info);
   const where = firstDifference(pi, hi);
   if (where === null) return null;
   mkdirSync(dir, { recursive: true });
@@ -162,7 +165,7 @@ async function compareMixedMeter(
         page.planRender(code, request),
         host.planRender(song, JSON.stringify(request)),
       ]);
-      const difference = firstDifference(p, h);
+      const difference = firstDifference(asJson(p), asJson(h));
       if (difference !== null) {
         failed = true;
         mkdirSync(dir, { recursive: true });
@@ -376,11 +379,11 @@ async function main(argv: string[]): Promise<number> {
       out.status = 'FAIL';
       out.lines.push(`${at}: the page's plan failed: ${pagePlan.message}`);
     } else {
-      const pw = withoutErrors(pagePlan.planned);
-      const hw = withoutErrors(h.planned);
+      const pw = comparableWithoutErrors(pagePlan.planned);
+      const hw = comparableWithoutErrors(h.planned);
       const where = firstDifference(pw, hw);
       if (where !== null) {
-        out.status = 'DIFF';
+        out.status = worseStatus(out.status, 'DIFF');
         mkdirSync(dir, { recursive: true });
         writeFileSync(join(dir, 'batch-plan.page.json'), JSON.stringify(pw, null, 2));
         writeFileSync(join(dir, 'batch-plan.host.json'), JSON.stringify(hw, null, 2));
@@ -390,7 +393,7 @@ async function main(argv: string[]): Promise<number> {
     const texts = pages.map((p) => (p.ok ? p.text : null));
     const differences = compareBatch(plans.map(chunkBars), texts, h.planned.chunks);
     for (const d of differences) {
-      if (out.status === 'ok') out.status = 'DIFF';
+      out.status = worseStatus(out.status, 'DIFF');
       if (d.kind === 'text') {
         mkdirSync(dir, { recursive: true });
         writeFileSync(join(dir, `batch-${d.index}.page.json`), texts[d.index]!);
@@ -464,7 +467,7 @@ async function main(argv: string[]): Promise<number> {
       }
       const difference = jobDifference(p, h, dir, String(n));
       if (difference === null) return;
-      if (out.status === 'ok') out.status = 'DIFF';
+      out.status = worseStatus(out.status, 'DIFF');
       out.lines.push(`${at}${difference.startsWith('info') ? ' ' : ': '}${difference}`);
     });
     return out;

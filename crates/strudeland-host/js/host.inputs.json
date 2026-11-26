@@ -85,7 +85,7 @@
     "src/lib/levels/levels.ts": "0bea7f385e6be6a3c3b5bd7f05183b59cd944aceb4d6b0afa407cad65aee89ae",
     "src/lib/project/song-header.ts": "286519bd265f202630bec1e27650fcc14b40f8d324d015779b02f9cb6de57734",
     "src/lib/render/chunks.ts": "c7b084d1881ac7befc34991a1e48cebee5c44197fde35e7bfe47bd682f04e12e",
-    "src/lib/render/contract.ts": "02e1d52e9f7071ac053d2c3b050254ca8447fbb6c03733d84280ce5d1624f91b",
+    "src/lib/render/contract.ts": "ecbfa6157f1e09d49005dc7b554f7328797d5a18b25926599cc25622d8bd808c",
     "src/lib/render/dsp.ts": "9d14ea2c303e21d79699fb658588af9309465e1502cbb2dda4277725d7518d2b",
     "src/lib/render/engine-job.ts": "74f51e997b2df27e7084d7f18f2b3d87f5d2ac03c52842de2bbe0827197e600e",
     "src/lib/render/gates/stems.ts": "764c7fa27262d21ca39788c5079ce25fe46f5e4d248ef0a41f73c0625467b2f8",
@@ -155,5 +155,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "7d39b0b8564aaf72049fbd0b9b1bc1a2549b7dbdaa5cac9390c9501d87b2e265"
+  "combined": "66569b8e712a349b88274c2803ed0e6d9a686063cc8910b88eea63468c3ebf1e"
 }

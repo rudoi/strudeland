@@ -136,8 +136,8 @@ export function parseParityArgs(argv: string[]): ParityOptions | { error: string
 export type PlanOutcome = { ok: true; errors: readonly string[] } | { ok: false; message: string };
 
 /** Whether a side failed to schedule the song, by the rule `prepareFixture` applies to the page's
- *  schedule: a failed plan, or a plan whose info reports errors (the host's `plan` exits 0 with
- *  the schedule's errors in `info.errors`). */
+ *  schedule: a failed plan, or a plan that reports errors (the host's `plan-render` exits 0 with
+ *  the schedule's errors in the plan's `errors`). */
 export function scheduleFailed(o: PlanOutcome): boolean {
   return !o.ok || o.errors.length > 0;
 }
@@ -171,6 +171,29 @@ export function batchRequest(window: ParityWindow): RenderPlanRequest {
 export function withoutErrors<T extends { errors: unknown }>(x: T): Omit<T, 'errors'> {
   const { errors: _errors, ...rest } = x;
   return rest;
+}
+
+/** `v` as it crosses a process boundary: through JSON, so an `undefined` property is an absent
+ *  one and `-0` is `0` (the host's side passes through serde, which also reorders keys;
+ *  `firstDifference` ignores key order). Normalise both sides before `firstDifference`. */
+export function asJson(v: unknown): unknown {
+  return JSON.parse(JSON.stringify(v));
+}
+
+/** `withoutErrors(x)` through `asJson`: the form both sides of the info and whole-plan
+ *  comparisons take. */
+export function comparableWithoutErrors<T extends { errors: unknown }>(x: T): unknown {
+  return asJson(withoutErrors(x));
+}
+
+/** A fixture's parity verdict, from best to worst. */
+export type ParityStatus = 'ok' | 'DIFF' | 'FAIL';
+
+const STATUS_RANK: Record<ParityStatus, number> = { ok: 0, DIFF: 1, FAIL: 2 };
+
+/** The worse of two verdicts: a difference never hides a failure. */
+export function worseStatus(a: ParityStatus, b: ParityStatus): ParityStatus {
+  return STATUS_RANK[b] > STATUS_RANK[a] ? b : a;
 }
 
 /** A chunk's content window. */

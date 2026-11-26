@@ -84,8 +84,20 @@ const INFO = {
   errors: [],
   events: EVENTS,
   chunks: [
-    { fromBar: 2, toBar: 4, contentFrames: windowFrames(2, 4, 0.5, 44100) },
-    { fromBar: 4, toBar: 6, contentFrames: windowFrames(4, 6, 0.5, 44100) },
+    {
+      fromBar: 2,
+      toBar: 4,
+      contentFrames: windowFrames(2, 4, 0.5, 44100),
+      bufferStartSec: 4,
+      lookbackSecUsed: 0,
+    },
+    {
+      fromBar: 4,
+      toBar: 6,
+      contentFrames: windowFrames(4, 6, 0.5, 44100),
+      bufferStartSec: 8,
+      lookbackSecUsed: 0,
+    },
   ],
   summary: {},
 };
@@ -291,9 +303,6 @@ describe('PipelineRenderer', () => {
     return { inner, calls };
   };
 
-  const pipeline = (batch: BatchRenderer) =>
-    new PipelineRenderer({ inner: fakeInner().inner, batch, outDir: OUT, renderVersion: 'r 1' });
-
   const HASH = sha256(BASE.code);
   const SONG = join(OUT, 'batch', `${HASH}.js`);
   const stem = (layout: string) => join(OUT, 'batch', `${HASH.slice(0, 8)}-2-6-${layout}`);
@@ -324,18 +333,15 @@ describe('PipelineRenderer', () => {
         window: { ...INFO.window, layout: p.includes('-linear') ? 'linear' : 'clip' },
       })(p);
     const { runner, calls } = fakeRunner(() => res());
-    // A constant-meter schedule, so the window is cut by `cps` alone.
+    // A constant-meter song (no timing), so the window is cut by `cps` alone.
     const flat = new PipelineRenderer({
-      inner: {
-        ...fakeInner().inner,
-        schedule: async () => ({ ...SCHED, structure: buildStructure({}) }),
-      },
+      inner: fakeInner().inner,
       batch: new BatchRenderer({ bin: '/bin/sr', outDir: OUT, runner, readFile: read }),
       outDir: OUT,
       renderVersion: 'r 1',
     });
-    await flat.renderWindow(BASE, EVENTS);
-    await flat.renderWindow({ ...BASE, layout: 'linear' }, EVENTS);
+    await flat.renderWindow(BASE, EVENTS, { cps: 0.5 });
+    await flat.renderWindow({ ...BASE, layout: 'linear' }, EVENTS, { cps: 0.5 });
     expect(readFileSync(SONG, 'utf8')).toBe(BASE.code);
     expect(calls.map((c) => c.args)).toEqual(
       (['clip', 'linear'] as const).map((layout) =>
@@ -349,7 +355,7 @@ describe('PipelineRenderer', () => {
     );
   });
 
-  test("the timing passed on is the fixture's, derived from the schedule", async () => {
+  test("the cps and timing passed on are the caller's; no second schedule request", async () => {
     const targets: BatchTarget[] = [];
     class Spy extends BatchRenderer {
       override async window(t: BatchTarget): Promise<AssembledWindow> {
@@ -357,33 +363,34 @@ describe('PipelineRenderer', () => {
         return {} as AssembledWindow;
       }
     }
-    await pipeline(new Spy({ bin: '/bin/sr', outDir: OUT })).renderWindow(BASE, EVENTS);
-    const t = targets[0]!;
-    expect(t.cps).toBe(SCHED.cps);
-    expect(t.events).toBe(EVENTS);
-    expect(t.base).toBe(BASE);
-    const want = renderTiming(SCHED.structure, layoutSegments('clip', SCHED.structure), 0.5)!;
-    expect(t.timing).toBeDefined();
-    for (const bar of [0, 2, 3, 4, 6, 8]) {
-      expect(t.timing!.secondsAt(bar)).toBe(want.secondsAt(bar));
-    }
-    // The 3/4 bars are shorter than the 4/4 ones.
-    expect(t.timing!.secondsAt(4) - t.timing!.secondsAt(3)).toBeLessThan(
-      t.timing!.secondsAt(1) - t.timing!.secondsAt(0),
-    );
+    const { inner, calls } = fakeInner();
+    const p = new PipelineRenderer({
+      inner,
+      batch: new Spy({ bin: '/bin/sr', outDir: OUT }),
+      outDir: OUT,
+      renderVersion: 'r 1',
+    });
+    const timing = renderTiming(SCHED.structure, layoutSegments('clip', SCHED.structure), 0.5)!;
+    await p.renderWindow(BASE, EVENTS, { cps: 0.5, timing });
+    await p.renderWindow(BASE, EVENTS, { cps: 0.25 });
+    expect(calls).toEqual([]);
+    const [t, flat] = targets;
+    expect(t!.cps).toBe(0.5);
+    expect(t!.events).toBe(EVENTS);
+    expect(t!.base).toBe(BASE);
+    expect(t!.timing).toBe(timing);
+    expect(flat!.cps).toBe(0.25);
+    expect('timing' in flat!).toBe(false);
   });
 
   test('a failed cross-check is the fixture error', async () => {
     const p = new PipelineRenderer({
-      inner: {
-        ...fakeInner().inner,
-        schedule: async () => ({ ...SCHED, structure: buildStructure({}) }),
-      },
+      inner: fakeInner().inner,
       batch: renderer(res(), files({ ...INFO, cps: 0.25 })).r,
       outDir: OUT,
       renderVersion: 'r 1',
     });
-    expect(await failure(p.renderWindow(BASE, EVENTS))).toEqual([
+    expect(await failure(p.renderWindow(BASE, EVENTS, { cps: 0.5 }))).toEqual([
       "batch: cps 0.25 differs from the planner's 0.5",
     ]);
   });

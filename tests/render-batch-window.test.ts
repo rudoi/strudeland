@@ -6,10 +6,20 @@ import {
   parseBatchInfo,
   type BatchInfo,
 } from '../src/lib/render/batch-window';
+import { assembleWindow } from '../src/lib/render/chunks';
 import { windowFrames, type RenderRequest } from '../src/lib/render/contract';
+import { layoutSegments, renderTiming, renderWindowFrames } from '../src/lib/render/timing';
+import { buildStructure } from '../src/lib/strudel/structure';
 import { ev } from './helpers/render-events';
+import { mixResult } from './helpers/render-results';
 
 const EVENTS = [ev({ tSec: 0, bar: 0 }), ev({ tSec: 2, bar: 1, freq: 110 })];
+
+/** A chunk's buffer placement as the info file carries it. */
+const at = (bufferStartSec: number, lookbackSecUsed: number) => ({
+  bufferStartSec,
+  lookbackSecUsed,
+});
 
 const INFO = {
   window: { fromBar: 0, toBar: 20, layout: 'linear' },
@@ -19,9 +29,25 @@ const INFO = {
   errors: [],
   events: EVENTS,
   chunks: [
-    { c0: 0, c1: 8, fromBar: 0, toBar: 8, lookbackSec: 0, contentFrames: 705600 },
-    { c0: 8, c1: 16, fromBar: 8, toBar: 16, lookbackSec: 0.25, contentFrames: 705600 },
-    { c0: 16, c1: 20, fromBar: 16, toBar: 20, lookbackSec: 0.25, contentFrames: 352800 },
+    { c0: 0, c1: 8, fromBar: 0, toBar: 8, lookbackSec: 0, contentFrames: 705600, ...at(0, 0) },
+    {
+      c0: 8,
+      c1: 16,
+      fromBar: 8,
+      toBar: 16,
+      lookbackSec: 0.25,
+      contentFrames: 705600,
+      ...at(14, 2),
+    },
+    {
+      c0: 16,
+      c1: 20,
+      fromBar: 16,
+      toBar: 20,
+      lookbackSec: 0.25,
+      contentFrames: 352800,
+      ...at(30, 2),
+    },
   ],
   summary: { frames: 1764000 },
 };
@@ -49,9 +75,9 @@ describe('parseBatchInfo', () => {
       errors: [],
       events: EVENTS,
       chunks: [
-        { fromBar: 0, toBar: 8, contentFrames: 705600 },
-        { fromBar: 8, toBar: 16, contentFrames: 705600 },
-        { fromBar: 16, toBar: 20, contentFrames: 352800 },
+        { fromBar: 0, toBar: 8, contentFrames: 705600, ...at(0, 0) },
+        { fromBar: 8, toBar: 16, contentFrames: 705600, ...at(14, 2) },
+        { fromBar: 16, toBar: 20, contentFrames: 352800, ...at(30, 2) },
       ],
     });
     const withErrors = info({ errors: [{ kind: 'hap', message: 'm', bar: 3 }] });
@@ -65,7 +91,9 @@ describe('parseBatchInfo', () => {
   });
 
   test('missing keys and wrong types name the key', () => {
-    const CHUNK = 'chunks[0] must be a chunk window with fromBar, toBar and contentFrames';
+    const CHUNK =
+      'chunks[0] must be a chunk window with fromBar, toBar, contentFrames, bufferStartSec and lookbackSecUsed';
+    const c = { fromBar: 0, toBar: 8, contentFrames: 1, ...at(0, 0) };
     const cases: [Record<string, unknown>, string][] = [
       [{ window: undefined }, 'window must be an object'],
       [{ window: { ...INFO.window, fromBar: -1 } }, 'window.fromBar must be a bar'],
@@ -86,6 +114,8 @@ describe('parseBatchInfo', () => {
       [{ chunks: [{ fromBar: 0, toBar: 8, contentFrames: -1 }] }, CHUNK],
       [{ chunks: [{ fromBar: 0, toBar: 8, contentFrames: 1.5 }] }, CHUNK],
       [{ chunks: [{ fromBar: 0, toBar: 8, contentFrames: '705600' }] }, CHUNK],
+      [{ chunks: [{ ...c, bufferStartSec: undefined }] }, CHUNK],
+      [{ chunks: [{ ...c, lookbackSecUsed: '0' }] }, CHUNK],
     ];
     for (const [patch, want] of cases) {
       expect(() => info(patch)).toThrow(`batch info: ${want}`);
@@ -132,9 +162,36 @@ describe('batchCrossChecks', () => {
     ).toEqual(['batch: other: console.error: x', 'batch: hap: bad (bar 4)']);
   });
 
+  test("the chunks' summed contentFrames must be the window's renderWindowFrames", () => {
+    const chunks = INFO.chunks.map((c, i) => (i === 1 ? { ...c, contentFrames: 705599 } : c));
+    expect(batchCrossChecks(info({ chunks }), fx)).toEqual([
+      'batch: the chunks plan 1763999 content frames, the window [0, 20) has 1764000',
+    ]);
+  });
+
+  test("the frame check follows the fixture's mixed-meter timing", () => {
+    const structure = buildStructure({
+      sections: [{ name: 'a', bars: 20 }],
+      meterChanges: [{ bar: 5, meter: '3/4' }],
+    });
+    const timing = renderTiming(structure, layoutSegments('linear', structure), 0.5)!;
+    const metered = renderWindowFrames(0, 20, 0.5, 44100, timing);
+    const flat = windowFrames(0, 20, 0.5, 44100);
+    expect(metered).not.toBe(flat);
+    const one = (contentFrames: number) =>
+      info({ chunks: [{ fromBar: 0, toBar: 20, contentFrames, ...at(0, 0) }] });
+    expect(batchCrossChecks(one(metered), { ...fx, timing })).toEqual([]);
+    expect(batchCrossChecks(one(flat), { ...fx, timing })).toEqual([
+      `batch: the chunks plan ${flat} content frames, the window [0, 20) has ${metered}`,
+    ]);
+  });
+
   test('chunks that do not tile the window', () => {
     const tile = (chunks: { fromBar: number; toBar: number }[]) =>
-      batchCrossChecks(info({ chunks: chunks.map((c) => ({ ...c, contentFrames: 0 })) }), fx);
+      batchCrossChecks(
+        info({ chunks: chunks.map((c) => ({ ...c, contentFrames: 0, ...at(0, 0) })) }),
+        fx,
+      );
     expect(tile([])).toEqual(['batch: the chunks (none) do not tile the window [0, 20)']);
     expect(
       tile([
@@ -193,8 +250,13 @@ describe('batchAssembled', () => {
       cps,
       window: { fromBar: 3, toBar: 10, layout: 'linear' },
       chunks: [
-        { fromBar: 3, toBar: 7, contentFrames: windowFrames(3, 7, cps, 44100) },
-        { fromBar: 7, toBar: 10, contentFrames: windowFrames(7, 10, cps, 44100) },
+        { fromBar: 3, toBar: 7, contentFrames: windowFrames(3, 7, cps, 44100), ...at(3 / cps, 0) },
+        {
+          fromBar: 7,
+          toBar: 10,
+          contentFrames: windowFrames(7, 10, cps, 44100),
+          ...at(7 / cps, 0),
+        },
       ],
     });
     const n = windowFrames(3, 10, cps, 44100);
@@ -206,13 +268,45 @@ describe('batchAssembled', () => {
     expect(a.request).toMatchObject({ fromBar: 3, toBar: 10 });
   });
 
+  test("bufferStartSec is the first chunk's bufferStartSec + lookbackSecUsed, as assembleWindow's", () => {
+    // A lookback from bar 1 into a window at bar 5: c0 / cps + (5 - c0) / cps is not 5 / cps in
+    // floating point, so a recompute from fromBar would not be bit-equal to the joined window.
+    const cps = 0.4375;
+    const start = 1 / cps;
+    const used = 4 / cps;
+    expect(start + used).not.toBe(5 / cps);
+    const base = { ...BASE, fromBar: 5, toBar: 9 };
+    const n = windowFrames(5, 9, cps, 44100);
+    const i = info({
+      cps,
+      window: { fromBar: 5, toBar: 9, layout: 'linear' },
+      chunks: [{ fromBar: 5, toBar: 9, contentFrames: n, ...at(start, used) }],
+    });
+    const a = batchAssembled(wav(n), i, base, EVENTS, 0);
+    expect(a.bufferStartSec).toBe(start + used);
+    const joined = assembleWindow(
+      [
+        {
+          ...mixResult([new Float32Array(n), new Float32Array(n)], { cps, fromBar: 5, toBar: 9 }),
+          bufferStartSec: start,
+          lookbackSecUsed: used,
+        },
+      ],
+      EVENTS,
+    );
+    expect(a.bufferStartSec).toBe(joined.bufferStartSec);
+    expect(() => batchAssembled(wav(0), info({ chunks: [] }), BASE, EVENTS, 0)).toThrow(
+      'batch: the plan has no chunks',
+    );
+  });
+
   test("the frames and seams are the chunks' contentFrames, not a recompute", () => {
     // Planned counts that no rounding of the bars gives: the info file is the only source.
     const i = info({
       chunks: [
-        { fromBar: 0, toBar: 8, contentFrames: 1000 },
-        { fromBar: 8, toBar: 16, contentFrames: 2000 },
-        { fromBar: 16, toBar: 20, contentFrames: 500 },
+        { fromBar: 0, toBar: 8, contentFrames: 1000, ...at(0, 0) },
+        { fromBar: 8, toBar: 16, contentFrames: 2000, ...at(14, 2) },
+        { fromBar: 16, toBar: 20, contentFrames: 500, ...at(30, 2) },
       ],
     });
     expect(batchSeamSecs(i)).toEqual([1000 / 44100, 3000 / 44100]);
