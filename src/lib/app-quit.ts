@@ -1,12 +1,12 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { invokeCommand } from './ipc/invoke';
 
 export async function listenForAppQuit(handle: (id: number) => void): Promise<() => void> {
   const stop = await listen<number>('app://quit-requested', ({ payload }) => handle(payload), {
     target: 'main',
   });
   try {
-    await invoke('app_quit_listen');
+    await invokeCommand('app_quit_listen');
     return stop;
   } catch (error) {
     stop();
@@ -15,5 +15,5 @@ export async function listenForAppQuit(handle: (id: number) => void): Promise<()
 }
 
 export function replyToAppQuit(id: number, approved: boolean): Promise<void> {
-  return invoke('app_quit_reply', { id, approved });
+  return invokeCommand('app_quit_reply', { id, approved }) as Promise<void>;
 }

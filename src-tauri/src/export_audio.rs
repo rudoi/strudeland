@@ -18,6 +18,7 @@ use tauri_plugin_dialog::{
     DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
 };
 
+use crate::command_error::{CommandError, CommandErrorKind};
 use crate::project::ProjectState;
 
 #[derive(Default)]
@@ -28,9 +29,9 @@ pub struct ExportState {
 
 impl ExportState {
     pub(super) fn reserve(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, ExportError> {
-        Arc::clone(&self.running)
-            .try_lock_owned()
-            .map_err(|_| problem("an audio export is already running"))
+        Arc::clone(&self.running).try_lock_owned().map_err(|_| {
+            ExportError::from(CommandError::busy("an audio export is already running"))
+        })
     }
 
     fn check_folder(&self, folder: &Path) -> Result<(), ExportError> {
@@ -116,17 +117,27 @@ pub enum ExportResult {
     },
 }
 
+/// A [`CommandError`] with the files already published when a run stopped part way.
 #[derive(Debug, Serialize)]
 pub struct ExportError {
+    kind: CommandErrorKind,
     message: String,
     written: Vec<PathBuf>,
 }
 
-fn problem(error: impl Display) -> ExportError {
-    ExportError {
-        message: error.to_string(),
-        written: Vec::new(),
+/// Keeps the kind, with nothing written.
+impl From<CommandError> for ExportError {
+    fn from(error: CommandError) -> Self {
+        ExportError {
+            kind: error.kind,
+            message: error.message,
+            written: Vec::new(),
+        }
     }
+}
+
+fn problem(error: impl Display) -> ExportError {
+    CommandError::other(error).into()
 }
 
 /// The dialog's wording of an export module error.
@@ -149,15 +160,13 @@ fn export_message(error: &export::Error) -> String {
 }
 
 fn export_error(error: export::Error) -> ExportError {
-    ExportError {
-        message: export_message(&error),
-        written: Vec::new(),
-    }
+    CommandError::other(export_message(&error)).into()
 }
 
 /// A failed run, with the files already published when it stopped part way.
 fn run_error(error: export::RunError) -> ExportError {
     ExportError {
+        kind: CommandErrorKind::Other,
         message: export_message(&error.source),
         written: error.written.into_iter().map(|w| w.path).collect(),
     }
@@ -246,7 +255,7 @@ fn checked(
     request: &ExportRequest,
     preview: &ExportPreview,
 ) -> Result<(Arc<Project>, export::Prepared, export::Preview), ExportError> {
-    let project = projects.current_for(&request.root).map_err(problem)?;
+    let project = projects.current_for(&request.root)?;
     let (prepared, fresh) = request.prepare(&project, state)?;
     if ExportPreview::from(fresh.clone()) != *preview {
         return Err(problem(
@@ -342,7 +351,7 @@ pub async fn export_audio_preview(
     state: State<'_, ExportState>,
     request: ExportRequest,
 ) -> Result<ExportPreview, ExportError> {
-    let project = projects.current_for(&request.root).map_err(problem)?;
+    let project = projects.current_for(&request.root)?;
     request
         .prepare(&project, &state)
         .map(|(_, preview)| preview.into())
@@ -517,21 +526,40 @@ mod tests {
         let preview = f.preview();
         f.projects
             .open_unwatched(Project::create(&f.dir.path().join("other"), "other").unwrap());
-        assert_eq!(
-            f.run("unreachable", &preview, false, &|_| panic!())
-                .unwrap_err()
-                .message,
-            crate::project::PROJECT_CHANGED
-        );
+        let err = f
+            .run("unreachable", &preview, false, &|_| panic!())
+            .unwrap_err();
+        assert_eq!(err.kind, CommandErrorKind::ProjectChanged);
+        assert_eq!(err.message, "the project changed");
     }
 
     #[test]
     fn reserve_one_job_and_release_on_drop() {
         let state = ExportState::default();
         let permit = state.reserve().unwrap();
-        assert!(state.reserve().is_err());
+        let busy = state.reserve().unwrap_err();
+        assert_eq!(busy.kind, CommandErrorKind::Busy);
+        assert_eq!(busy.message, "an audio export is already running");
         drop(permit);
         assert!(state.reserve().is_ok());
+    }
+
+    #[test]
+    fn export_errors_serialize_kind_first_with_the_written_paths() {
+        let err = ExportError {
+            kind: CommandErrorKind::Other,
+            message: "disk full".into(),
+            written: vec![PathBuf::from("/a.wav")],
+        };
+        assert_eq!(
+            serde_json::to_string(&err).unwrap(),
+            r#"{"kind":"other","message":"disk full","written":["/a.wav"]}"#
+        );
+        let stale = ExportError::from(CommandError::project_changed());
+        assert_eq!(
+            serde_json::to_string(&stale).unwrap(),
+            r#"{"kind":"projectChanged","message":"the project changed","written":[]}"#
+        );
     }
 
     #[test]

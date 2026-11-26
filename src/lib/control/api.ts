@@ -1,5 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { invokeCommand } from '../ipc/invoke';
 import type { ControlInfo, ControlReply, ControlRequest } from './protocol';
 
 // The Tauri seam of the control socket. `app.ts` only sees the `ControlApi` type, so tests fake it
@@ -18,8 +18,8 @@ export const CONTROL_REQUEST_EVENT = 'control://request';
 
 export function createTauriControlApi(): ControlApi {
   return {
-    attach: () => invoke<ControlInfo>('control_attach'),
+    attach: () => invokeCommand('control_attach') as Promise<ControlInfo>,
     onRequest: (cb) => listen<ControlRequest>(CONTROL_REQUEST_EVENT, (event) => cb(event.payload)),
-    reply: (id, reply) => invoke<void>('control_reply', { id, reply }),
+    reply: (id, reply) => invokeCommand('control_reply', { id, reply }) as Promise<void>,
   };
 }

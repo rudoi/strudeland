@@ -1,9 +1,11 @@
 /**
  * The recording payloads as they cross IPC (camelCase, host nanoseconds as decimal strings,
  * channels 0-based), the sidecar fields the webview builds, and the controller's UI state. Mirrors
- * the Rust `recording.rs` and `strudeland-project` types. No imports: pure types and one error
- * class.
+ * the Rust `recording.rs` and `strudeland-project` types. Pure types and one error class; the
+ * only import is `../ipc/command-error`, which has no Tauri import.
  */
+
+import { CommandError } from '../ipc/command-error';
 
 /** Every `RecordingError` kind the Rust commands and events carry. */
 export const RECORDING_ERROR_KINDS = [
@@ -21,18 +23,12 @@ export const RECORDING_ERROR_KINDS = [
 export type RecordingErrorKind = (typeof RECORDING_ERROR_KINDS)[number];
 
 /** The structured rejection of every recording command (`{ kind, message }` over IPC). */
-export class RecordingError extends Error {
-  constructor(
-    message: string,
-    readonly kind: RecordingErrorKind,
-  ) {
-    super(message);
+export class RecordingError extends CommandError<RecordingErrorKind> {
+  constructor(message: string, kind: RecordingErrorKind, options?: ErrorOptions) {
+    super(message, kind, options);
     this.name = 'RecordingError';
   }
 }
-
-export const isRecordingErrorKind = (v: unknown): v is RecordingErrorKind =>
-  typeof v === 'string' && (RECORDING_ERROR_KINDS as readonly string[]).includes(v);
 
 /** An input device as `recording_devices` lists it. */
 export interface InputDevice {

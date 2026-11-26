@@ -1,9 +1,8 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { message, open } from '@tauri-apps/plugin-dialog';
-import { kindedError } from '../command-error';
-import { errorMessage } from '../errors';
+import { CommandError, narrowKind, toCommandError } from '../ipc/command-error';
+import { invokeCommand } from '../ipc/invoke';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 
 // The OS seam of the project feature. Everything that talks to Tauri (invoke, events, dialogs,
@@ -58,16 +57,19 @@ export interface ProjectChange {
   recordings: boolean;
   instruments: boolean;
 }
-export type ProjectErrorKind =
-  'songExists' | 'songNotFound' | 'invalidName' | 'projectChanged' | 'other';
+const PROJECT_ERROR_KINDS = [
+  'exists',
+  'notFound',
+  'invalidName',
+  'projectChanged',
+  'other',
+] as const;
+export type ProjectErrorKind = (typeof PROJECT_ERROR_KINDS)[number];
 
 /** The structured rejection of the song commands that create, rename and delete. */
-export class ProjectError extends Error {
-  constructor(
-    message: string,
-    readonly kind: ProjectErrorKind,
-  ) {
-    super(message);
+export class ProjectError extends CommandError<ProjectErrorKind> {
+  constructor(message: string, kind: ProjectErrorKind, options?: ErrorOptions) {
+    super(message, kind, options);
     this.name = 'ProjectError';
   }
 }
@@ -89,7 +91,7 @@ export interface ProjectApi extends InstrumentBrowserApi {
   open(dir: string): Promise<ProjectInfo>;
   /**
    * Re-reads project.json of the open project (no watcher restart, recents untouched). Rejects with
-   * the error string if the manifest is invalid.
+   * a `CommandError` if the manifest is invalid.
    */
   info(root: string): Promise<ProjectInfo>;
   instruments(root: string, pin?: InstrumentEntry): Promise<InstrumentSnapshot>;
@@ -107,7 +109,7 @@ export interface ProjectApi extends InstrumentBrowserApi {
   deleteSong(root: string, path: string): Promise<void>;
   /**
    * The canonical root of the project folder `dir`, as `ProjectInfo.root` spells it. Opens
-   * nothing. Rejects with the error string if `dir` is not a project.
+   * nothing. Rejects with a `CommandError` if `dir` is not a project.
    */
   projectRootOf(dir: string): Promise<string>;
   /** Returns an unlisten function. */
@@ -172,20 +174,21 @@ export function pickedFolder(result: unknown): string | null {
 }
 
 /**
- * A rejection of a song command to a `ProjectError`: the Rust `SongError` object
- * (`{ kind, message }`), else whatever was thrown as text with kind `other`.
+ * A rejection of a song command to a `ProjectError`: the Rust `CommandError` (`{ kind, message }`)
+ * with its kind narrowed to the song kinds (any other is `other`), else whatever was thrown as
+ * text with kind `other`.
  */
 export function toProjectError(e: unknown): ProjectError {
   if (e instanceof ProjectError) return e;
-  const k = kindedError(e);
-  if (k && typeof k.kind === 'string')
-    return new ProjectError(k.message, k.kind as ProjectErrorKind);
-  return new ProjectError(errorMessage(e), 'other');
+  const c = toCommandError(e);
+  return new ProjectError(c.message, narrowKind(c.kind, PROJECT_ERROR_KINDS, 'other'), {
+    cause: c.cause,
+  });
 }
 
-async function songInvoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+async function songInvoke(cmd: string, args: Record<string, unknown>): Promise<unknown> {
   try {
-    return await invoke<T>(cmd, args);
+    return await invokeCommand(cmd, args);
   } catch (e) {
     throw toProjectError(e);
   }
@@ -195,26 +198,46 @@ async function songInvoke<T>(cmd: string, args: Record<string, unknown>): Promis
 export function createTauriProjectApi(): ProjectApi {
   // Invoke argument keys are camelCase in JS; Tauri maps them to the Rust snake_case names.
   return {
-    create: (dir, name) => invoke<ProjectInfo>('project_create', { dir, name }),
-    open: (dir) => invoke<ProjectInfo>('project_open', { dir }),
-    info: (root) => invoke<ProjectInfo>('project_info', { root }),
-    instruments: (root, pin) => invoke<InstrumentSnapshot>('project_instruments', { root, pin }),
-    libraryEntries: () => invoke('instrument_library_entries'),
-    projectEntries: (root) => invoke('project_instrument_entries', { root }),
-    instrumentDefinition: (version) => invoke('instrument_definition', { ...version }),
+    create: (dir, name) => invokeCommand('project_create', { dir, name }) as Promise<ProjectInfo>,
+    open: (dir) => invokeCommand('project_open', { dir }) as Promise<ProjectInfo>,
+    info: (root) => invokeCommand('project_info', { root }) as Promise<ProjectInfo>,
+    instruments: (root, pin) =>
+      invokeCommand('project_instruments', { root, pin }) as Promise<InstrumentSnapshot>,
+    libraryEntries: () => invokeCommand('instrument_library_entries') as Promise<InstrumentEntry[]>,
+    projectEntries: (root) =>
+      invokeCommand('project_instrument_entries', { root }) as Promise<InstrumentEntry[]>,
+    instrumentDefinition: (version) =>
+      invokeCommand('instrument_definition', {
+        root: version.root,
+        id: version.id,
+        fingerprint: version.fingerprint,
+      }) as Promise<InstrumentSnapshot[string]>,
     instrumentPreview: async (version) =>
-      new Uint8Array(await invoke<ArrayBuffer>('instrument_preview', { ...version })),
+      new Uint8Array(
+        (await invokeCommand('instrument_preview', {
+          root: version.root,
+          id: version.id,
+          fingerprint: version.fingerprint,
+        })) as ArrayBuffer,
+      ),
     writeInstrumentPin: (root, id, libraryFingerprint, pinFingerprint) =>
-      invoke('project_write_instrument_pin', { root, id, libraryFingerprint, pinFingerprint }),
-    last: () => invoke<ProjectInfo | null>('project_last'),
-    recents: () => invoke<RecentProject[]>('recent_list'),
-    listSongs: (root) => invoke<SongEntry[]>('song_list', { root }),
-    readSong: (root, path) => invoke<string>('song_read', { root, path }),
-    saveSong: (root, path, contents) => invoke<void>('song_save', { root, path, contents }),
-    createSong: (root, stem) => songInvoke<string>('song_create', { root, stem }),
-    renameSong: (root, path, stem) => songInvoke<string>('song_rename', { root, path, stem }),
-    deleteSong: (root, path) => songInvoke<void>('song_delete', { root, path }),
-    projectRootOf: (dir) => invoke<string>('project_root_of', { dir }),
+      invokeCommand('project_write_instrument_pin', {
+        root,
+        id,
+        libraryFingerprint,
+        pinFingerprint,
+      }) as Promise<InstrumentEntry>,
+    last: () => invokeCommand('project_last') as Promise<ProjectInfo | null>,
+    recents: () => invokeCommand('recent_list') as Promise<RecentProject[]>,
+    listSongs: (root) => invokeCommand('song_list', { root }) as Promise<SongEntry[]>,
+    readSong: (root, path) => invokeCommand('song_read', { root, path }) as Promise<string>,
+    saveSong: (root, path, contents) =>
+      invokeCommand('song_save', { root, path, contents }) as Promise<void>,
+    createSong: (root, stem) => songInvoke('song_create', { root, stem }) as Promise<string>,
+    renameSong: (root, path, stem) =>
+      songInvoke('song_rename', { root, path, stem }) as Promise<string>,
+    deleteSong: (root, path) => songInvoke('song_delete', { root, path }) as Promise<void>,
+    projectRootOf: (dir) => invokeCommand('project_root_of', { dir }) as Promise<string>,
     onChange: (handler) =>
       listen<ProjectChange>(PROJECT_CHANGED_EVENT, (event) => handler(event.payload)),
     pickFolder: async (title) => pickedFolder(await open({ directory: true, title })),

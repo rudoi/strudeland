@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+import { errorMessage } from '../src/lib/errors';
 
 const calls: { cmd: string; args: any }[] = [];
 let invokeImpl: (cmd: string, args: unknown) => unknown = () => undefined;
@@ -141,7 +142,9 @@ describe('tauriPlaybackApi', () => {
         'the playback session ended',
       ],
       [{ kind: 'bogus', message: 'odd' }, 'engine', 'odd'],
+      [{ kind: 'projectChanged', message: 'not ours' }, 'engine', 'not ours'],
       [new Error('ipc down'), 'engine', 'ipc down'],
+      ['a string', 'engine', 'a string'],
     ];
     for (const [thrown, kind, message] of cases) {
       invokeImpl = () => {
@@ -153,6 +156,7 @@ describe('tauriPlaybackApi', () => {
         kind,
         message,
       ]);
+      expect(errorMessage(e)).toBe(message);
     }
     invokeImpl = () => undefined;
   });

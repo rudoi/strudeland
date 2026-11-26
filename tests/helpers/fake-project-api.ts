@@ -30,8 +30,8 @@ interface FakeProject {
 /** Byte-wise by UTF-8, the order Rust lists songs in. */
 const byBytes = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 
-const songExists = (path: string) => new ProjectError(`song ${path} already exists`, 'songExists');
-const songNotFound = (path: string) => new ProjectError(`song ${path} not found`, 'songNotFound');
+const songExists = (path: string) => new ProjectError(`song ${path} already exists`, 'exists');
+const songNotFound = (path: string) => new ProjectError(`song ${path} not found`, 'notFound');
 const checkStem = (stem: string) => {
   if (!/^[A-Za-z0-9 _-]{1,64}$/.test(stem) || stem !== stem.trim()) {
     throw new ProjectError(

@@ -9,6 +9,7 @@ const { createEditorState } = await import('../src/lib/editor/setup');
 const { createControlHandler, replyTo } = await import('../src/lib/control/handler');
 const { createPlayArbiter } = await import('../src/lib/play-arbiter');
 const { ControlError, ErrorCode } = await import('../src/lib/control/protocol');
+const { CommandError } = await import('../src/lib/ipc/command-error');
 const { EditorView } = await import('@codemirror/view');
 const { undo } = await import('@codemirror/commands');
 const { get } = await import('svelte/store');
@@ -1344,6 +1345,19 @@ describe('song.new', () => {
       },
     });
   });
+
+  test('a stale read after the create is an internal error, not a retry', async () => {
+    const h = await setup();
+    const orig = h.api.readSong;
+    h.api.readSong = async (root, path) => {
+      if (path === 'songs/late.js') throw new CommandError('the project changed', 'projectChanged');
+      return orig(root, path);
+    };
+    const r = await replyTo(h.handle, { id: 1, method: 'song.new', params: { name: 'late' } });
+    expect(r).toEqual({
+      error: { code: ErrorCode.INTERNAL_ERROR, message: 'internal error: the project changed' },
+    });
+  });
 });
 
 describe('song.switch', () => {
@@ -1475,7 +1489,7 @@ describe('song.rename', () => {
     });
   });
 
-  test('a file gone from disk is NO_SUCH_SONG removed (songNotFound)', async () => {
+  test('a file gone from disk is NO_SUCH_SONG removed (notFound)', async () => {
     const h = await setup();
     h.fake.files().delete(PB); // no watcher event yet
     expect(await h.fail('song.rename', { song: 'b', name: 'x' })).toEqual({

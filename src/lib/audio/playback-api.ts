@@ -1,6 +1,7 @@
-import { Channel, invoke } from '@tauri-apps/api/core';
-import { kindedError } from '../command-error';
+import { Channel } from '@tauri-apps/api/core';
 import { errorMessage } from '../errors';
+import { CommandError, narrowKind, toCommandError } from '../ipc/command-error';
+import { invokeCommand } from '../ipc/invoke';
 import { hostNowNs as recordingHostNowNs } from '../recording/api';
 import type { EngineValue } from '../render/engine-job';
 import type { LevelFrame } from '../levels/levels';
@@ -53,12 +54,9 @@ const PLAYBACK_ERROR_KINDS = ['stale', 'output', 'badBatch', 'engine'] as const;
 
 export type PlaybackErrorKind = (typeof PLAYBACK_ERROR_KINDS)[number];
 
-export class PlaybackError extends Error {
-  constructor(
-    readonly kind: PlaybackErrorKind,
-    message: string,
-  ) {
-    super(message);
+export class PlaybackError extends CommandError<PlaybackErrorKind> {
+  constructor(kind: PlaybackErrorKind, message: string, options?: ErrorOptions) {
+    super(message, kind, options);
     this.name = 'PlaybackError';
   }
 }
@@ -82,16 +80,15 @@ export interface PlaybackApi {
  */
 export function toPlaybackError(e: unknown): PlaybackError {
   if (e instanceof PlaybackError) return e;
-  const k = kindedError(e);
-  if (k && (PLAYBACK_ERROR_KINDS as readonly unknown[]).includes(k.kind)) {
-    return new PlaybackError(k.kind as PlaybackErrorKind, k.message);
-  }
-  return new PlaybackError('engine', k?.message ?? errorMessage(e));
+  const c = toCommandError(e);
+  return new PlaybackError(narrowKind(c.kind, PLAYBACK_ERROR_KINDS, 'engine'), c.message, {
+    cause: c.cause,
+  });
 }
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   try {
-    return await invoke<T>(cmd, args);
+    return await invokeCommand(cmd, args);
   } catch (e) {
     throw toPlaybackError(e);
   }
@@ -102,13 +99,13 @@ export const tauriPlaybackApi: PlaybackApi = {
   async start(seed, onEvent) {
     const channel = new Channel<PlaybackEvent>();
     channel.onmessage = onEvent;
-    const r = await call<{ session: number }>('playback_start', { seed, channel });
+    const r = (await call('playback_start', { seed, channel })) as { session: number };
     return r.session;
   },
-  schedule: (session, batch) => call<void>('playback_schedule', { session, batch }),
-  stop: (session) => call<void>('playback_stop', { session }),
-  setSeed: (session, seed) => call<void>('playback_seed', { session, seed }),
-  setLimiter: (session, on) => call<void>('playback_limiter', { session, on }),
+  schedule: (session, batch) => call('playback_schedule', { session, batch }) as Promise<void>,
+  stop: (session) => call('playback_stop', { session }) as Promise<void>,
+  setSeed: (session, seed) => call('playback_seed', { session, seed }) as Promise<void>,
+  setLimiter: (session, on) => call('playback_limiter', { session, on }) as Promise<void>,
   async hostNowNs() {
     try {
       return await recordingHostNowNs();

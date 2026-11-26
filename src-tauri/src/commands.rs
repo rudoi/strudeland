@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::command_error::CommandError;
+
 /// The pin file at the repo root, embedded at compile time.
 const PINS_JSON: &str = include_str!("../../strudel-pins.json");
 
@@ -72,8 +74,8 @@ fn build_app_info() -> Result<AppInfo, String> {
 }
 
 #[tauri::command]
-pub fn app_info() -> Result<AppInfo, String> {
-    build_app_info()
+pub fn app_info() -> Result<AppInfo, CommandError> {
+    build_app_info().map_err(CommandError::other)
 }
 
 #[cfg(test)]

@@ -9,24 +9,23 @@
 //!
 //! Because they run concurrently, the commands that act on the open project take the `root` the
 //! frontend believes is open (as returned in [`ProjectInfo::root`]) and fail with
-//! [`PROJECT_CHANGED`] if another project has been opened since, so a save in flight during a
-//! switch can never land in the new project.
+//! [`CommandErrorKind::ProjectChanged`] if another project has been opened since, so a save in
+//! flight during a switch can never land in the new project.
+//!
+//! [`CommandErrorKind::ProjectChanged`]: crate::command_error::CommandErrorKind::ProjectChanged
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use serde::Serialize;
 use strudeland_project::{
     InstrumentEntry, InstrumentSnapshot, PREFS_FILE, Prefs, Project, ProjectError, ProjectInfo,
     RecentProject, Recents, SongEntry,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::command_error::CommandError;
 use crate::watcher::{self, Watcher};
 
-const NO_PROJECT: &str = "no project is open";
-/// The error when a command's `root` is not the open project's.
-pub const PROJECT_CHANGED: &str = "the project changed";
 const RECENTS_FILE: &str = "recent.json";
 
 /// The project open in this window, if any. Dropping it stops its watcher.
@@ -58,18 +57,19 @@ impl ProjectState {
     }
 
     /// The open project, shared so the caller can do I/O after the lock is released.
-    fn current(&self) -> Result<Arc<Project>, String> {
+    fn current(&self) -> Result<Arc<Project>, CommandError> {
         self.lock()
             .as_ref()
             .map(|open| Arc::clone(&open.project))
-            .ok_or_else(|| NO_PROJECT.to_string())
+            .ok_or_else(CommandError::no_project)
     }
 
-    /// The open project if its root, as [`ProjectInfo::root`] spells it, is `root`.
-    pub(crate) fn current_for(&self, root: &str) -> Result<Arc<Project>, String> {
+    /// The open project if its root, as [`ProjectInfo::root`] spells it, is `root`; else
+    /// [`CommandError::project_changed`].
+    pub(crate) fn current_for(&self, root: &str) -> Result<Arc<Project>, CommandError> {
         let project = self.current()?;
         if project.root().to_string_lossy() != root {
-            return Err(PROJECT_CHANGED.to_string());
+            return Err(CommandError::project_changed());
         }
         Ok(project)
     }
@@ -102,9 +102,9 @@ fn install(
     recents_file: &Path,
     project: Project,
     watch: impl FnOnce(&Project) -> Result<Watcher, String>,
-) -> Result<ProjectInfo, String> {
-    let result = project.info().map_err(|e| e.to_string())?;
-    let watcher = watch(&project)?;
+) -> Result<ProjectInfo, CommandError> {
+    let result = project.info()?;
+    let watcher = watch(&project).map_err(CommandError::other)?;
     Recents::touch_and_save(recents_file, project.root());
     let project = Arc::new(project);
     state.replace(Some(OpenProject {
@@ -123,8 +123,8 @@ pub fn create_project(
     dir: &str,
     name: &str,
     watch: impl FnOnce(&Project) -> Result<Watcher, String>,
-) -> Result<ProjectInfo, String> {
-    let project = Project::create(Path::new(dir), name).map_err(|e| e.to_string())?;
+) -> Result<ProjectInfo, CommandError> {
+    let project = Project::create(Path::new(dir), name)?;
     install(state, recents_file, project, watch)
 }
 
@@ -133,8 +133,8 @@ pub fn open_project(
     recents_file: &Path,
     dir: &str,
     watch: impl FnOnce(&Project) -> Result<Watcher, String>,
-) -> Result<ProjectInfo, String> {
-    let project = Project::open(Path::new(dir)).map_err(|e| e.to_string())?;
+) -> Result<ProjectInfo, CommandError> {
+    let project = Project::open(Path::new(dir))?;
     install(state, recents_file, project, watch)
 }
 
@@ -149,7 +149,7 @@ pub fn open_last(
     state: &ProjectState,
     recents_file: &Path,
     watch: impl Fn(&Project) -> Result<Watcher, String>,
-) -> Result<Option<ProjectInfo>, String> {
+) -> Result<Option<ProjectInfo>, CommandError> {
     let recents = Recents::load_pruned(recents_file);
     Ok(recents
         .open_each()
@@ -159,11 +159,11 @@ pub fn open_last(
 /// Re-reads the open project's `project.json` and returns its info, without restarting the
 /// watcher or touching recents. On success the open project takes the new manifest; if the
 /// manifest no longer parses the error is returned and the open project is left as it was.
-/// Fails with [`PROJECT_CHANGED`] if `root` is not the open project.
-pub fn reload_info(state: &ProjectState, root: &str) -> Result<ProjectInfo, String> {
+/// Fails with [`CommandError::project_changed`] if `root` is not the open project.
+pub fn reload_info(state: &ProjectState, root: &str) -> Result<ProjectInfo, CommandError> {
     let current = state.current_for(root)?;
-    let reloaded = current.reload().map_err(|e| e.to_string())?;
-    let info = reloaded.info().map_err(|e| e.to_string())?;
+    let reloaded = current.reload()?;
+    let info = reloaded.info()?;
     // Another command may have switched projects meanwhile; only update the one we reloaded.
     if let Some(open) = state.lock().as_mut()
         && Arc::ptr_eq(&open.project, &current)
@@ -173,21 +173,22 @@ pub fn reload_info(state: &ProjectState, root: &str) -> Result<ProjectInfo, Stri
     Ok(info)
 }
 
-/// Runs `f` on the open project, if it is the one at `root` (see [`PROJECT_CHANGED`]).
+/// Runs `f` on the open project, if it is the one at `root` (else
+/// [`CommandError::project_changed`]); a project error converts through the one table.
 pub(crate) fn with_project<T>(
     state: &ProjectState,
     root: &str,
-    f: impl FnOnce(&Project) -> Result<T, strudeland_project::ProjectError>,
-) -> Result<T, String> {
+    f: impl FnOnce(&Project) -> Result<T, ProjectError>,
+) -> Result<T, CommandError> {
     let project = state.current_for(root)?;
-    f(&project).map_err(|e| e.to_string())
+    Ok(f(&project)?)
 }
 
-pub fn list_songs(state: &ProjectState, root: &str) -> Result<Vec<SongEntry>, String> {
+pub fn list_songs(state: &ProjectState, root: &str) -> Result<Vec<SongEntry>, CommandError> {
     with_project(state, root, |p| p.songs())
 }
 
-pub fn read_song(state: &ProjectState, root: &str, path: &str) -> Result<String, String> {
+pub fn read_song(state: &ProjectState, root: &str, path: &str) -> Result<String, CommandError> {
     with_project(state, root, |p| p.read(path))
 }
 
@@ -196,77 +197,12 @@ pub fn save_song(
     root: &str,
     path: &str,
     contents: &str,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     with_project(state, root, |p| p.write(path, contents))
 }
 
-/// The error of the song commands the frontend branches on: a machine-readable `kind` plus the
-/// same message text the other commands return.
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SongError {
-    pub kind: SongErrorKind,
-    pub message: String,
-}
-
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum SongErrorKind {
-    SongExists,
-    SongNotFound,
-    InvalidName,
-    ProjectChanged,
-    Other,
-}
-
-impl From<ProjectError> for SongError {
-    fn from(e: ProjectError) -> Self {
-        let kind = match e {
-            ProjectError::SongExists(_) => SongErrorKind::SongExists,
-            ProjectError::SongNotFound(_) => SongErrorKind::SongNotFound,
-            ProjectError::InvalidSongName(_) => SongErrorKind::InvalidName,
-            _ => SongErrorKind::Other,
-        };
-        SongError {
-            kind,
-            message: e.to_string(),
-        }
-    }
-}
-
-/// `changed` for the [`PROJECT_CHANGED`] message, else `other`: the kind a structured command
-/// error gives a plain [`with_project`]-style message.
-pub(crate) fn changed_or<K>(message: &str, changed: K, other: K) -> K {
-    if message == PROJECT_CHANGED {
-        changed
-    } else {
-        other
-    }
-}
-
-impl From<String> for SongError {
-    fn from(message: String) -> Self {
-        let kind = changed_or(
-            &message,
-            SongErrorKind::ProjectChanged,
-            SongErrorKind::Other,
-        );
-        SongError { kind, message }
-    }
-}
-
-/// Like [`with_project`], with a structured error.
-fn with_song_project<T>(
-    state: &ProjectState,
-    root: &str,
-    f: impl FnOnce(&Project) -> Result<T, ProjectError>,
-) -> Result<T, SongError> {
-    let project = state.current_for(root)?;
-    Ok(f(&project)?)
-}
-
-pub fn new_song(state: &ProjectState, root: &str, stem: &str) -> Result<String, SongError> {
-    with_song_project(state, root, |p| p.create_song(stem))
+pub fn new_song(state: &ProjectState, root: &str, stem: &str) -> Result<String, CommandError> {
+    with_project(state, root, |p| p.create_song(stem))
 }
 
 /// Renames a song and returns its new relative path.
@@ -275,18 +211,18 @@ pub fn rename_song(
     root: &str,
     path: &str,
     stem: &str,
-) -> Result<String, SongError> {
-    with_song_project(state, root, |p| p.rename_song(path, stem))
+) -> Result<String, CommandError> {
+    with_project(state, root, |p| p.rename_song(path, stem))
 }
 
-pub fn delete_song(state: &ProjectState, root: &str, path: &str) -> Result<(), SongError> {
-    with_song_project(state, root, |p| p.delete_song(path))
+pub fn delete_song(state: &ProjectState, root: &str, path: &str) -> Result<(), CommandError> {
+    with_project(state, root, |p| p.delete_song(path))
 }
 
 /// The canonical root of the project folder `dir`, spelled as `ProjectInfo::root` spells it.
 /// Installs nothing, starts no watcher and touches no recents.
-pub fn root_of(dir: &str) -> Result<String, String> {
-    let project = Project::open(Path::new(dir)).map_err(|e| e.to_string())?;
+pub fn root_of(dir: &str) -> Result<String, CommandError> {
+    let project = Project::open(Path::new(dir))?;
     Ok(project.root().to_string_lossy().into_owned())
 }
 
@@ -300,14 +236,14 @@ fn app_watcher(app: &AppHandle) -> impl Fn(&Project) -> Result<Watcher, String> 
     }
 }
 
-fn app_data_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+fn app_data_file(app: &AppHandle, name: &str) -> Result<PathBuf, CommandError> {
     app.path()
         .app_data_dir()
         .map(|d| d.join(name))
-        .map_err(|e| e.to_string())
+        .map_err(CommandError::other)
 }
 
-fn recents_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn recents_path(app: &AppHandle) -> Result<PathBuf, CommandError> {
     app_data_file(app, RECENTS_FILE)
 }
 
@@ -317,7 +253,7 @@ pub async fn project_create(
     state: State<'_, ProjectState>,
     dir: String,
     name: String,
-) -> Result<ProjectInfo, String> {
+) -> Result<ProjectInfo, CommandError> {
     create_project(&state, &recents_path(&app)?, &dir, &name, app_watcher(&app))
 }
 
@@ -326,7 +262,7 @@ pub async fn project_open(
     app: AppHandle,
     state: State<'_, ProjectState>,
     dir: String,
-) -> Result<ProjectInfo, String> {
+) -> Result<ProjectInfo, CommandError> {
     open_project(&state, &recents_path(&app)?, &dir, app_watcher(&app))
 }
 
@@ -334,7 +270,7 @@ pub async fn project_open(
 pub async fn project_info(
     state: State<'_, ProjectState>,
     root: String,
-) -> Result<ProjectInfo, String> {
+) -> Result<ProjectInfo, CommandError> {
     reload_info(&state, &root)
 }
 
@@ -342,26 +278,26 @@ pub async fn project_info(
 pub async fn project_last(
     app: AppHandle,
     state: State<'_, ProjectState>,
-) -> Result<Option<ProjectInfo>, String> {
+) -> Result<Option<ProjectInfo>, CommandError> {
     open_last(&state, &recents_path(&app)?, app_watcher(&app))
 }
 
 #[tauri::command]
-pub async fn recent_list(app: AppHandle) -> Result<Vec<RecentProject>, String> {
+pub async fn recent_list(app: AppHandle) -> Result<Vec<RecentProject>, CommandError> {
     Ok(Recents::list(&recents_path(&app)?))
 }
 
 #[tauri::command]
-pub async fn prefs_get(app: AppHandle) -> Result<Prefs, String> {
+pub async fn prefs_get(app: AppHandle) -> Result<Prefs, CommandError> {
     Ok(Prefs::load(&app_data_file(&app, PREFS_FILE)?))
 }
 
 /// Replaces the whole prefs object.
 #[tauri::command]
-pub async fn prefs_set(app: AppHandle, prefs: Prefs) -> Result<(), String> {
+pub async fn prefs_set(app: AppHandle, prefs: Prefs) -> Result<(), CommandError> {
     prefs
         .save(&app_data_file(&app, PREFS_FILE)?)
-        .map_err(|e| e.to_string())
+        .map_err(CommandError::from)
 }
 
 #[tauri::command]
@@ -369,7 +305,7 @@ pub async fn project_instruments(
     state: State<'_, ProjectState>,
     root: String,
     pin: Option<InstrumentEntry>,
-) -> Result<InstrumentSnapshot, String> {
+) -> Result<InstrumentSnapshot, CommandError> {
     with_project(&state, &root, |project| match pin {
         Some(pin) => project.instrument_snapshot_with_pin(&pin),
         None => project.instrument_snapshot(),
@@ -380,7 +316,7 @@ pub async fn project_instruments(
 pub async fn song_list(
     state: State<'_, ProjectState>,
     root: String,
-) -> Result<Vec<SongEntry>, String> {
+) -> Result<Vec<SongEntry>, CommandError> {
     list_songs(&state, &root)
 }
 
@@ -389,7 +325,7 @@ pub async fn song_read(
     state: State<'_, ProjectState>,
     root: String,
     path: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     read_song(&state, &root, &path)
 }
 
@@ -399,7 +335,7 @@ pub async fn song_save(
     root: String,
     path: String,
     contents: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     save_song(&state, &root, &path, &contents)
 }
 
@@ -408,7 +344,7 @@ pub async fn song_create(
     state: State<'_, ProjectState>,
     root: String,
     stem: String,
-) -> Result<String, SongError> {
+) -> Result<String, CommandError> {
     new_song(&state, &root, &stem)
 }
 
@@ -418,7 +354,7 @@ pub async fn song_rename(
     root: String,
     path: String,
     stem: String,
-) -> Result<String, SongError> {
+) -> Result<String, CommandError> {
     rename_song(&state, &root, &path, &stem)
 }
 
@@ -427,18 +363,19 @@ pub async fn song_delete(
     state: State<'_, ProjectState>,
     root: String,
     path: String,
-) -> Result<(), SongError> {
+) -> Result<(), CommandError> {
     delete_song(&state, &root, &path)
 }
 
 #[tauri::command]
-pub async fn project_root_of(dir: String) -> Result<String, String> {
+pub async fn project_root_of(dir: String) -> Result<String, CommandError> {
     root_of(&dir)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_error::CommandErrorKind;
     use crate::watcher::ProjectChanged;
     use std::fs;
     use std::sync::mpsc::Sender;
@@ -558,7 +495,7 @@ mod tests {
             unwatched,
         )
         .unwrap_err();
-        assert!(err.contains("already contains files"), "{err}");
+        assert!(err.message.contains("already contains files"), "{err}");
         assert_eq!(env.recent_entries().len(), 1);
         assert_eq!(list_songs(&env.state, &first.root).unwrap(), first.songs);
     }
@@ -573,14 +510,14 @@ mod tests {
         fs::create_dir(env.dir("plain")).unwrap();
         let err =
             open_project(&env.state, &env.recents(), &env.dir("plain"), unwatched).unwrap_err();
-        assert!(err.contains("not a strudeland project"), "{err}");
+        assert!(err.message.contains("not a strudeland project"), "{err}");
         assert!(!env.recents().exists());
 
         let first = env.create("alpha");
         let before = env.recent_entries();
         let err =
             open_project(&env.state, &env.recents(), &env.dir("plain"), unwatched).unwrap_err();
-        assert!(err.contains("not a strudeland project"), "{err}");
+        assert!(err.message.contains("not a strudeland project"), "{err}");
         assert_eq!(env.recent_entries(), before);
         assert_eq!(list_songs(&env.state, &first.root).unwrap(), first.songs);
     }
@@ -594,7 +531,7 @@ mod tests {
             Err("watch failed".to_owned())
         })
         .unwrap_err();
-        assert_eq!(error, "watch failed");
+        assert_eq!(error, CommandError::other("watch failed"));
         assert_eq!(env.root(), first.root);
         assert_eq!(env.recent_entries(), before);
     }
@@ -672,7 +609,7 @@ mod tests {
         let manifest = Path::new(&created.root).join("project.json");
         fs::write(&manifest, "{ nope").unwrap();
         let err = reload_info(&env.state, &env.root()).unwrap_err();
-        assert!(err.contains("invalid project.json"), "{err}");
+        assert!(err.message.contains("invalid project.json"), "{err}");
         assert_eq!(env.state.current().unwrap().manifest().name, "alpha");
         assert_eq!(
             list_songs(&env.state, &created.root).unwrap(),
@@ -681,39 +618,35 @@ mod tests {
 
         fs::write(&manifest, r#"{"schema":9,"name":"x"}"#).unwrap();
         let err = reload_info(&env.state, &env.root()).unwrap_err();
-        assert!(err.contains("unsupported project schema"), "{err}");
+        assert!(err.message.contains("unsupported project schema"), "{err}");
         assert_eq!(env.state.current().unwrap().manifest().name, "alpha");
     }
 
     #[test]
     fn song_commands_without_a_project_error() {
         let env = Env::new();
-        let msg = "no project is open";
-        assert_eq!(list_songs(&env.state, "/nowhere").unwrap_err(), msg);
+        let expected = CommandError::no_project();
+        assert_eq!(expected.kind, CommandErrorKind::NoProject);
+        assert_eq!(expected.message, "no project is open");
+        assert_eq!(list_songs(&env.state, "/nowhere").unwrap_err(), expected);
         assert_eq!(
             read_song(&env.state, "/nowhere", "songs/main.js").unwrap_err(),
-            msg
+            expected
         );
         assert_eq!(
             save_song(&env.state, "/nowhere", "songs/main.js", "x").unwrap_err(),
-            msg
+            expected
         );
-        let err = new_song(&env.state, "/nowhere", "x").unwrap_err();
-        assert_eq!(err.message, msg);
-        assert_eq!(err.kind, SongErrorKind::Other);
+        assert_eq!(new_song(&env.state, "/nowhere", "x").unwrap_err(), expected);
         assert_eq!(
-            rename_song(&env.state, "/nowhere", "songs/a.js", "b")
-                .unwrap_err()
-                .kind,
-            SongErrorKind::Other
+            rename_song(&env.state, "/nowhere", "songs/a.js", "b").unwrap_err(),
+            expected
         );
         assert_eq!(
-            delete_song(&env.state, "/nowhere", "songs/a.js")
-                .unwrap_err()
-                .message,
-            msg
+            delete_song(&env.state, "/nowhere", "songs/a.js").unwrap_err(),
+            expected
         );
-        assert_eq!(reload_info(&env.state, "/nowhere").unwrap_err(), msg);
+        assert_eq!(reload_info(&env.state, "/nowhere").unwrap_err(), expected);
     }
 
     #[test]
@@ -737,20 +670,19 @@ mod tests {
         let alpha = env.create("alpha");
         let beta = env.create("beta");
         let stale = alpha.root.as_str();
-        let msg = "the project changed";
-        assert_eq!(PROJECT_CHANGED, msg);
+        let expected = CommandError {
+            kind: CommandErrorKind::ProjectChanged,
+            message: "the project changed".to_string(),
+        };
+        assert_eq!(CommandError::project_changed(), expected);
         assert_eq!(
             save_song(&env.state, stale, "songs/main.js", "// late").unwrap_err(),
-            msg
+            expected
         );
         assert_eq!(
             read_song(&env.state, stale, "songs/main.js").unwrap_err(),
-            msg
+            expected
         );
-        let expected = SongError {
-            kind: SongErrorKind::ProjectChanged,
-            message: msg.to_string(),
-        };
         assert_eq!(new_song(&env.state, stale, "late").unwrap_err(), expected);
         assert_eq!(
             rename_song(&env.state, stale, "songs/main.js", "late").unwrap_err(),
@@ -760,11 +692,11 @@ mod tests {
             delete_song(&env.state, stale, "songs/main.js").unwrap_err(),
             expected
         );
-        assert_eq!(list_songs(&env.state, stale).unwrap_err(), msg);
-        assert_eq!(reload_info(&env.state, stale).unwrap_err(), msg);
+        assert_eq!(list_songs(&env.state, stale).unwrap_err(), expected);
+        assert_eq!(reload_info(&env.state, stale).unwrap_err(), expected);
         // A root that only differs by spelling (not the canonical form) is also stale.
         let uncanonical = format!("{}/", beta.root);
-        assert_eq!(list_songs(&env.state, &uncanonical).unwrap_err(), msg);
+        assert_eq!(list_songs(&env.state, &uncanonical).unwrap_err(), expected);
 
         for info in [&alpha, &beta] {
             let songs = Path::new(&info.root).join("songs");
@@ -812,9 +744,9 @@ mod tests {
         );
         let err = new_song(&env.state, &env.root(), "jam").unwrap_err();
         assert!(err.message.contains("already exists"), "{}", err.message);
-        assert_eq!(err.kind, SongErrorKind::SongExists);
+        assert_eq!(err.kind, CommandErrorKind::Exists);
         let err = new_song(&env.state, &env.root(), "bad/name").unwrap_err();
-        assert_eq!(err.kind, SongErrorKind::InvalidName);
+        assert_eq!(err.kind, CommandErrorKind::InvalidName);
         let paths: Vec<_> = list_songs(&env.state, &env.root())
             .unwrap()
             .into_iter()
@@ -850,47 +782,27 @@ mod tests {
         let env = Env::new();
         env.create("alpha");
         let root = env.root();
-        let kind = |e: SongError| e.kind;
+        let kind = |e: CommandError| e.kind;
         assert_eq!(
             kind(rename_song(&env.state, &root, "songs/main.js", "main").unwrap_err()),
-            SongErrorKind::SongExists
+            CommandErrorKind::Exists
         );
         let err = rename_song(&env.state, &root, "songs/nope.js", "x").unwrap_err();
-        assert_eq!(err.kind, SongErrorKind::SongNotFound);
+        assert_eq!(err.kind, CommandErrorKind::NotFound);
         assert_eq!(err.message, "song songs/nope.js not found");
         assert_eq!(
             kind(delete_song(&env.state, &root, "songs/nope.js").unwrap_err()),
-            SongErrorKind::SongNotFound
+            CommandErrorKind::NotFound
         );
         assert_eq!(
             kind(rename_song(&env.state, &root, "songs/main.js", "a/b").unwrap_err()),
-            SongErrorKind::InvalidName
+            CommandErrorKind::InvalidName
         );
         // Path scoping and I/O failures are `other`.
         assert_eq!(
             kind(delete_song(&env.state, &root, "../x.js").unwrap_err()),
-            SongErrorKind::Other
+            CommandErrorKind::Other
         );
-    }
-
-    #[test]
-    fn song_error_serializes_as_kind_and_message() {
-        let err = SongError {
-            kind: SongErrorKind::SongExists,
-            message: "song songs/x.js already exists".into(),
-        };
-        assert_eq!(
-            serde_json::to_string(&err).unwrap(),
-            r#"{"kind":"songExists","message":"song songs/x.js already exists"}"#
-        );
-        for (kind, wire) in [
-            (SongErrorKind::SongNotFound, "songNotFound"),
-            (SongErrorKind::InvalidName, "invalidName"),
-            (SongErrorKind::ProjectChanged, "projectChanged"),
-            (SongErrorKind::Other, "other"),
-        ] {
-            assert_eq!(serde_json::to_value(kind).unwrap(), wire);
-        }
     }
 
     #[test]
@@ -919,7 +831,7 @@ mod tests {
         let plain = env.dir("plain");
         fs::create_dir(&plain).unwrap();
         let err = root_of(&plain).unwrap_err();
-        assert!(err.contains("not a strudeland project"), "{err}");
+        assert!(err.message.contains("not a strudeland project"), "{err}");
         assert!(root_of(&env.dir("missing")).is_err());
         assert!(env.state.current().is_err());
         assert!(env.recent_entries().is_empty());
@@ -933,7 +845,7 @@ mod tests {
         close_project(&env.state);
         assert_eq!(
             list_songs(&env.state, "/nowhere").unwrap_err(),
-            "no project is open"
+            CommandError::no_project()
         );
         assert_eq!(fs::read_to_string(env.recents()).unwrap(), before);
         close_project(&env.state);

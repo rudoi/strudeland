@@ -6,6 +6,7 @@ import {
   createExportDialog,
   showMp3Warning,
 } from '../src/lib/export/controller';
+import { ExportError } from '../src/lib/export/error';
 import type { SessionState } from '../src/lib/project/session';
 import { buildStructure } from '../src/lib/strudel/structure';
 
@@ -217,7 +218,7 @@ describe('export dialog', () => {
 
   test('retries a failed preview', async () => {
     const { api, dialog, state } = setup();
-    api.preview.mockRejectedValueOnce({ message: 'folder missing', written: [] });
+    api.preview.mockRejectedValueOnce(new ExportError('folder missing', 'other', []));
     await dialog.refresh();
     expect(state().preview).toEqual({ kind: 'error', message: 'folder missing' });
     await dialog.start();
@@ -282,7 +283,7 @@ describe('export dialog', () => {
     expect(state().activity.kind).toBe('writing');
 
     api.preview.mockResolvedValueOnce([opening, loop]);
-    render.reject({ message: 'destination full', written: [opening.path] });
+    render.reject(new ExportError('destination full', 'other', [opening.path]));
     await running;
     expect(state().failure).toEqual({ message: 'destination full', written: [opening.path] });
     expect(state().preview).toMatchObject({ kind: 'ready', target: [opening, loop] });
@@ -330,7 +331,7 @@ describe('export dialog', () => {
     api.start.mockReturnValueOnce(exportDone.promise);
     const running = dialog.start();
     const quit = dialog.requestQuit();
-    exportDone.reject({ message: 'destination full', written: [opening.path] });
+    exportDone.reject(new ExportError('destination full', 'other', [opening.path]));
     await running;
     expect(state().quit).toBe('result');
     expect(state().failure).toEqual({ message: 'destination full', written: [opening.path] });
@@ -346,7 +347,7 @@ describe('export dialog', () => {
   test('lets the user review a result that overtakes the native Quit event', async () => {
     const { api, dialog, state } = setup();
     await dialog.refresh();
-    api.start.mockRejectedValueOnce({ message: 'destination full', written: [opening.path] });
+    api.start.mockRejectedValueOnce(new ExportError('destination full', 'other', [opening.path]));
     await dialog.start();
     const quit = dialog.requestQuit();
     expect(state().quit).toBe('result');

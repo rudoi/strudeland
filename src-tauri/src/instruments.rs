@@ -9,20 +9,21 @@ use strudeland_render::{
 use tauri::State;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
+use crate::command_error::CommandError;
 use crate::project::{ProjectState, with_project};
 
 #[tauri::command]
-pub async fn instrument_library_entries() -> Result<Vec<InstrumentEntry>, String> {
+pub async fn instrument_library_entries() -> Result<Vec<InstrumentEntry>, CommandError> {
     InstrumentLibrary::open_default()
         .and_then(|library| library.entries())
-        .map_err(|e| e.to_string())
+        .map_err(CommandError::other)
 }
 
 #[tauri::command]
 pub async fn project_instrument_entries(
     state: State<'_, ProjectState>,
     root: String,
-) -> Result<Vec<InstrumentEntry>, String> {
+) -> Result<Vec<InstrumentEntry>, CommandError> {
     with_project(&state, &root, Project::instrument_entries)
 }
 
@@ -31,12 +32,12 @@ fn capture(
     root: Option<&str>,
     id: &str,
     fingerprint: &str,
-) -> Result<InstrumentDefinition, String> {
+) -> Result<InstrumentDefinition, CommandError> {
     match root {
         Some(root) => with_project(state, root, |p| p.instrument_definition(id, fingerprint)),
         None => InstrumentLibrary::open_default()
             .and_then(|lib| lib.definition(id, fingerprint))
-            .map_err(|e| e.to_string()),
+            .map_err(CommandError::other),
     }
 }
 
@@ -46,7 +47,7 @@ pub async fn instrument_definition(
     root: Option<String>,
     id: String,
     fingerprint: String,
-) -> Result<InstrumentDefinition, String> {
+) -> Result<InstrumentDefinition, CommandError> {
     capture(&state, root.as_deref(), &id, &fingerprint)
 }
 
@@ -57,7 +58,7 @@ pub async fn project_write_instrument_pin(
     id: String,
     library_fingerprint: String,
     pin_fingerprint: Option<String>,
-) -> Result<InstrumentEntry, String> {
+) -> Result<InstrumentEntry, CommandError> {
     with_project(&state, &root, |project| {
         project.write_instrument_pin(
             &InstrumentLibrary::open_default()?,
@@ -70,10 +71,10 @@ pub async fn project_write_instrument_pin(
 
 static PREVIEW: Semaphore = Semaphore::const_new(1);
 
-fn reserve_preview() -> Result<SemaphorePermit<'static>, String> {
+fn reserve_preview() -> Result<SemaphorePermit<'static>, CommandError> {
     PREVIEW
         .try_acquire()
-        .map_err(|_| "instrument preview is busy".into())
+        .map_err(|_| CommandError::busy("instrument preview is busy"))
 }
 
 #[tauri::command]
@@ -82,16 +83,18 @@ pub async fn instrument_preview(
     root: Option<String>,
     id: String,
     fingerprint: String,
-) -> Result<tauri::ipc::Response, String> {
+) -> Result<tauri::ipc::Response, CommandError> {
     let permit = reserve_preview()?;
     let definition = capture(&state, root.as_deref(), &id, &fingerprint)?;
     tauri::async_runtime::spawn_blocking(move || {
         // Keep the render slot until the worker exits, including when its caller disconnects.
         let _permit = permit;
-        render_preview(id, definition).map(tauri::ipc::Response::new)
+        render_preview(id, definition)
+            .map(tauri::ipc::Response::new)
+            .map_err(CommandError::other)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(CommandError::other)?
 }
 
 // At 120 BPM one 4/4 bar lasts two seconds. Limit the wet reverb's impulse response
@@ -195,7 +198,10 @@ mod tests {
     #[test]
     fn a_second_preview_fails_immediately_while_the_worker_has_the_slot() {
         let active = reserve_preview().unwrap();
-        assert!(reserve_preview().unwrap_err().contains("busy"));
+        assert_eq!(
+            reserve_preview().unwrap_err(),
+            CommandError::busy("instrument preview is busy")
+        );
         drop(active);
         assert!(reserve_preview().is_ok());
     }
@@ -249,7 +255,7 @@ mod tests {
         state.open_unwatched(next);
         assert_eq!(
             capture(&state, Some(&root), &entry.id, &entry.fingerprint).unwrap_err(),
-            crate::project::PROJECT_CHANGED
+            CommandError::project_changed()
         );
     }
 }

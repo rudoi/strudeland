@@ -1,4 +1,8 @@
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
+import { invokeCommand } from '../ipc/invoke';
+import { toExportError } from './error';
+
+export { ExportError } from './error';
 
 export type ExportFormat = 'wav' | 'mp3' | 'ogg' | 'opus';
 export type ExportPreset = 'intro-loop' | 'tagged-loop' | 'folded-loop' | 'one-shot';
@@ -52,15 +56,29 @@ export interface ExportApi {
   ): Promise<ExportResult | null>;
 }
 
+/** An export command's result; a rejection becomes an `ExportError`. */
+async function exportInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+  try {
+    return await invokeCommand(cmd, args);
+  } catch (e) {
+    throw toExportError(e);
+  }
+}
+
 export const exportApi: ExportApi = {
-  pickFolder: () => invoke('export_audio_pick_folder'),
-  preview: (request) => invoke('export_audio_preview', { request }),
+  pickFolder: () => exportInvoke('export_audio_pick_folder') as Promise<string | null>,
+  preview: (request) => exportInvoke('export_audio_preview', { request }) as Promise<ExportPreview>,
   start(request, source, preview, onProgress) {
     const channel = new Channel<ExportProgress>(onProgress);
-    return invoke('export_audio_start', { request, source, preview, onProgress: channel });
+    return exportInvoke('export_audio_start', {
+      request,
+      source,
+      preview,
+      onProgress: channel,
+    }) as Promise<ExportResult | null>;
   },
 };
 
 export function setExportMenuAvailable(available: boolean): Promise<void> {
-  return invoke('export_audio_set_available', { available });
+  return invokeCommand('export_audio_set_available', { available }) as Promise<void>;
 }

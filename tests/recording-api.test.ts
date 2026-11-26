@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+import { errorMessage } from '../src/lib/errors';
 import { RECORDING_ERROR_KINDS, RecordingError } from '../src/lib/recording/types';
 
 const calls: { cmd: string; args: unknown }[] = [];
@@ -254,6 +255,12 @@ describe('createTauriRecordingApi', () => {
       ),
     );
     expect(g).toMatchObject({ kind: 'other', message: 'the project changed' });
+    const h = await rejection(
+      invoked((api) => api.start({ root: '/p', fields: {} as never }), reject('noProject')),
+    );
+    expect(h).toBeInstanceOf(Error);
+    expect(h).toMatchObject({ kind: 'other', message: 'no: noProject' });
+    expect(errorMessage(h)).toBe('no: noProject');
   });
 
   test('onLevel and onState listen to the recording events and unlisten', async () => {
@@ -268,8 +275,18 @@ describe('createTauriRecordingApi', () => {
     expect(STATE_EVENT).toBe('recording://state');
     listeners[0]!.handler({ payload: { peak: 0.5, rms: 0.1 } });
     listeners[1]!.handler({ payload: { state: 'armed' } });
+    listeners[1]!.handler({
+      payload: { state: 'idle', error: { kind: 'limitReached', message: 'cap' } },
+    });
+    listeners[1]!.handler({
+      payload: { state: 'idle', error: { kind: 'noProject', message: 'no project is open' } },
+    });
     expect(levels).toEqual([{ peak: 0.5, rms: 0.1 }]);
-    expect(states).toEqual([{ state: 'armed' }]);
+    expect(states).toEqual([
+      { state: 'armed' },
+      { state: 'idle', error: { kind: 'limitReached', message: 'cap' } },
+      { state: 'idle', error: { kind: 'other', message: 'no project is open' } },
+    ]);
     const before = unlistened;
     offLevel();
     offState();
