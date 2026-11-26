@@ -1,14 +1,15 @@
-//! A pipeline that returns canned results and records what it was asked to do. Compiled into
-//! non-test builds for the CLI's tests, so it never unwraps or indexes.
+//! Test support for this crate's tests and the CLI's: a pipeline that returns canned results
+//! and records what it was asked to do, and summary fixtures. Compiled into non-test builds, so
+//! it never unwraps or indexes.
 
 use std::path::PathBuf;
 
-use super::Error;
-use super::pipeline::Pipeline;
-use super::publish::{PublishStep, publish_file};
+use strudeland_host::{Layout, PlannedWindow};
+
+use crate::export::{Error, Pipeline, PublishStep, publish_file};
 use crate::{
-    ExportFile, ExportPreset, Progress, RenderError, RenderOptions, RenderOutput, StemExport,
-    StemGrouping, StemTarget,
+    ExportFile, ExportPreset, Format, Progress, RenderError, RenderOptions, RenderOutput,
+    StemExport, StemGrouping, StemTarget, Summary, Timings,
 };
 
 #[derive(Debug, Default)]
@@ -31,11 +32,9 @@ pub struct FakePipeline {
     pub stem_targets: Vec<PathBuf>,
     /// The paths of successful publishes.
     pub published: Vec<PathBuf>,
-    /// Returned by the publish after `publishes_before_error` successful ones.
-    pub publish_error: Option<Error>,
-    pub publishes_before_error: usize,
-    /// `false`: a publish records only and touches no disk; `true`: it also calls
-    /// [`publish_file`].
+    /// `(n, error)`: the publish after `n` successful ones returns `error`, once.
+    pub publish_error: Option<(usize, Error)>,
+    /// `false`: a publish records only and touches no disk; `true`: it also publishes for real.
     pub real_publish: bool,
 }
 
@@ -92,8 +91,11 @@ impl Pipeline for FakePipeline {
     }
 
     fn publish(&mut self, step: &PublishStep<'_>, bytes: &[u8]) -> Result<(), Error> {
-        if self.published.len() == self.publishes_before_error
-            && let Some(error) = self.publish_error.take()
+        if self
+            .publish_error
+            .as_ref()
+            .is_some_and(|(before, _)| *before == self.published.len())
+            && let Some((_, error)) = self.publish_error.take()
         {
             return Err(error);
         }
@@ -102,5 +104,34 @@ impl Pipeline for FakePipeline {
         }
         self.published.push(step.path.to_owned());
         Ok(())
+    }
+}
+
+/// A one-bar, 3-byte WAV summary with `warnings`.
+pub fn summary(warnings: &[&str]) -> Summary {
+    Summary {
+        format: Some(Format::Wav),
+        bytes: Some(3),
+        window: PlannedWindow {
+            from_bar: 0,
+            to_bar: 1,
+            layout: Layout::Linear,
+        },
+        frames: 0,
+        seconds: 0.0,
+        sample_rate: 44_100,
+        chunks: 1,
+        jobs: 1,
+        loudness: None,
+        timings: Timings::default(),
+        warnings: warnings.iter().map(|w| w.to_string()).collect(),
+    }
+}
+
+/// `bytes` with [`summary`]`(warnings)`.
+pub fn output(bytes: &[u8], warnings: &[&str]) -> RenderOutput {
+    RenderOutput {
+        bytes: bytes.to_vec(),
+        summary: summary(warnings),
     }
 }

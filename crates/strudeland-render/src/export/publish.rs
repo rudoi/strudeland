@@ -22,11 +22,9 @@ pub enum ReplacePolicy {
 /// How one file is published, chosen by the policy and the preview snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
-    /// `ReplacePolicy::Always`: write over the path, never stat it.
-    Always,
-    /// `CreateNew` and the snapshot said the file exists: check it is still a regular file,
-    /// then replace it.
-    Replace,
+    /// Write over the path. `verify` (`CreateNew` and the snapshot said the file exists) first
+    /// checks it is still a regular file; `ReplacePolicy::Always` never stats it.
+    Write { verify: bool },
     /// `CreateNew` and the snapshot said no file: create it, never replacing one.
     Create,
 }
@@ -43,7 +41,7 @@ pub struct PublishStep<'a> {
 }
 
 /// Publishes one mix file atomically, by the destination and the mode.
-pub fn publish_file(step: &PublishStep<'_>, bytes: &[u8]) -> Result<(), Error> {
+pub(crate) fn publish_file(step: &PublishStep<'_>, bytes: &[u8]) -> Result<(), Error> {
     let path = step.path;
     let project_error = |source| Error::Project {
         at: path.to_owned(),
@@ -52,18 +50,16 @@ pub fn publish_file(step: &PublishStep<'_>, bytes: &[u8]) -> Result<(), Error> {
     if let Place::ChosenFolder(folder) = step.place {
         check_chosen_folder(folder)?;
     }
-    if step.mode == Mode::Replace {
+    if step.mode == (Mode::Write { verify: true }) {
         render_exists(path).map_err(project_error)?;
     }
     match (step.place, step.mode) {
-        (Place::Project(project), Mode::Always | Mode::Replace) => {
-            project.write_render(path, bytes)
-        }
+        (Place::Project(project), Mode::Write { .. }) => project.write_render(path, bytes),
         (Place::Project(project), Mode::Create) => project.create_render(path, bytes),
-        (Place::Explicit | Place::ChosenFolder(_), Mode::Always | Mode::Replace) => {
+        (Place::Explicit(_) | Place::ChosenFolder(_), Mode::Write { .. }) => {
             atomic_write_bytes(path, bytes)
         }
-        (Place::Explicit | Place::ChosenFolder(_), Mode::Create) => {
+        (Place::Explicit(_) | Place::ChosenFolder(_), Mode::Create) => {
             atomic_create_bytes(path, bytes)
         }
     }

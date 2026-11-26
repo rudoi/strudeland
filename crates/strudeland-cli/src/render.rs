@@ -65,8 +65,8 @@ pub fn prepare(args: &RenderArgs) -> Result<Prepared, RenderError> {
     .map_err(cli_error)
 }
 
-/// The CLI's wording of an export error: the pipeline's, except a role mismatch keeps the text
-/// the CLI printed before the module.
+/// The CLI's wording of an export error: the pipeline's, except a role mismatch, which the CLI
+/// words as an unexpected intro file.
 pub fn cli_error(e: export::Error) -> RenderError {
     match e {
         export::Error::RolesMismatch => RenderError::Render("unexpected intro file".into()),
@@ -76,15 +76,10 @@ pub fn cli_error(e: export::Error) -> RenderError {
 
 /// Prints the partial-export line for a mix that wrote at least one file, and returns the error.
 pub fn failure(lines: &ProgressLines<'_>, e: RunError) -> RenderError {
-    match e {
-        RunError::Failed(e) => cli_error(e),
-        RunError::PartialWrite(p) => {
-            if let (Some(failed), Some(last)) = (&p.failed, p.written.last()) {
-                lines.partial_write(&last.absolute, failed);
-            }
-            cli_error(p.source)
-        }
+    if let (Some(failed), Some(last)) = (&e.failed, e.written.last()) {
+        lines.partial_write(&last.absolute, failed);
     }
+    cli_error(e.source)
 }
 
 /// The flags `--stems` rejects, checked in order. The stem output itself is fixed by the export.
@@ -622,11 +617,13 @@ mod tests {
         assert_eq!(json["files"][0]["warnings"][0], "w one");
         assert_eq!(json["files"][1]["warnings"][0], "w one");
         let mut fake = with_export(pair());
-        fake.publishes_before_error = 1;
-        fake.publish_error = Some(export::Error::Render(RenderError::Io {
-            path: body.clone(),
-            source: std::io::Error::other("disk full"),
-        }));
+        fake.publish_error = Some((
+            1,
+            export::Error::Render(RenderError::Io {
+                path: body.clone(),
+                source: std::io::Error::other("disk full"),
+            }),
+        ));
         let o = run(&args, &mut fake);
         assert_eq!(o.code, 1, "{}", o.stderr);
         assert_eq!(fake.published, vec![intro.clone()]);
@@ -1373,10 +1370,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (song, out) = (song(dir.path()), dir.path().join("o.wav"));
         let mut fake = ok();
-        fake.publish_error = Some(export::Error::Render(RenderError::Io {
-            path: out.clone(),
-            source: std::io::Error::other("disk full"),
-        }));
+        fake.publish_error = Some((
+            0,
+            export::Error::Render(RenderError::Io {
+                path: out.clone(),
+                source: std::io::Error::other("disk full"),
+            }),
+        ));
         let o = run(
             &["render", &song, "--out", out.to_str().unwrap()],
             &mut fake,

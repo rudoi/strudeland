@@ -72,36 +72,23 @@ pub struct PreviewFile {
     pub exists: bool,
 }
 
-/// How a mix file is published, from the destination.
+/// Where a mix's files go, from the destination: how each is named and published.
 #[derive(Debug)]
 pub(super) enum Place {
-    Explicit,
+    /// The given path, or for a split export the base of its file names.
+    Explicit(PathBuf),
     ChosenFolder(PathBuf),
     Project(Project),
 }
 
-/// Names the mix files of one destination.
-pub(super) struct MixNames<'a> {
-    request: &'a Request,
-    preset: Option<ExportPreset>,
-    ext: &'static str,
-    naming: Naming,
-}
-
-enum Naming {
-    Explicit(PathBuf),
-    Folder { folder: PathBuf, stem: String },
-    Project { project: Project, stem: String },
-}
-
-impl<'a> MixNames<'a> {
-    /// Derives the song's stem when the destination needs it ([`Error::InvalidSongName`]).
-    pub(super) fn new(
-        request: &'a Request,
-        preset: Option<ExportPreset>,
-        ext: &'static str,
+impl Place {
+    /// The place of a mix and the song's stem, which names the files of a folder or project
+    /// (empty for an explicit path). Derives the stem only when it is needed
+    /// ([`Error::InvalidSongName`]).
+    pub(super) fn for_mix(
+        request: &Request,
         destination: Destination,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Place, String), Error> {
         let song_stem = || {
             request
                 .song
@@ -110,37 +97,36 @@ impl<'a> MixNames<'a> {
                 .map(str::to_owned)
                 .ok_or(Error::InvalidSongName)
         };
-        let naming = match destination {
-            Destination::Explicit(out) => Naming::Explicit(out),
-            Destination::ChosenFolder(folder) => Naming::Folder {
-                folder,
-                stem: song_stem()?,
-            },
-            Destination::Project {
-                project,
-                stem: Some(stem),
-            } => Naming::Project { project, stem },
-            Destination::Project {
-                project,
-                stem: None,
-            } => Naming::Project {
-                project,
-                stem: song_stem()?,
-            },
-        };
-        Ok(MixNames {
-            request,
-            preset,
-            ext,
-            naming,
+        Ok(match destination {
+            Destination::Explicit(out) => (Place::Explicit(out), String::new()),
+            Destination::ChosenFolder(folder) => (Place::ChosenFolder(folder), song_stem()?),
+            Destination::Project { project, stem } => {
+                let stem = match stem {
+                    Some(stem) => stem,
+                    None => song_stem()?,
+                };
+                (Place::Project(project), stem)
+            }
         })
     }
+}
 
+/// Names the mix files of one place.
+pub(super) struct MixNames<'a> {
+    pub(super) request: &'a Request,
+    pub(super) preset: Option<ExportPreset>,
+    pub(super) ext: &'static str,
+    pub(super) place: &'a Place,
+    pub(super) stem: &'a str,
+}
+
+impl MixNames<'_> {
     /// The path of one role's file. Creates nothing.
     pub(super) fn path(&self, role: ExportRole) -> Result<PathBuf, Error> {
         let suffix = suffix(&self.request.length, self.preset, role)?;
-        match &self.naming {
-            Naming::Explicit(out) => match (self.preset, suffix) {
+        let stem = self.stem;
+        match self.place {
+            Place::Explicit(out) => match (self.preset, suffix) {
                 (Some(ExportPreset::IntroLoop), Some(suffix)) => {
                     let mut name = out
                         .file_stem()
@@ -156,26 +142,18 @@ impl<'a> MixNames<'a> {
                 }
                 _ => Ok(out.clone()),
             },
-            Naming::Folder { folder, stem } => render_filename(stem, suffix.as_deref(), self.ext)
+            Place::ChosenFolder(folder) => render_filename(stem, suffix.as_deref(), self.ext)
                 .map(|name| folder.join(name))
                 .map_err(|source| Error::Project {
                     at: folder.clone(),
                     source,
                 }),
-            Naming::Project { project, stem } => project
+            Place::Project(project) => project
                 .render_path(stem, suffix.as_deref(), self.ext)
                 .map_err(|source| Error::Project {
                     at: project.root().join("renders"),
                     source,
                 }),
-        }
-    }
-
-    pub(super) fn into_place(self) -> Place {
-        match self.naming {
-            Naming::Explicit(_) => Place::Explicit,
-            Naming::Folder { folder, .. } => Place::ChosenFolder(folder),
-            Naming::Project { project, .. } => Place::Project(project),
         }
     }
 }
@@ -187,7 +165,7 @@ pub(super) fn stem_target(
 ) -> Result<StemTarget, Error> {
     let (song, length) = (&request.song, &request.length);
     match destination {
-        Destination::Explicit(out) => stems::resolve_stem_output(Some(&out), song, length),
+        Destination::Explicit(out) => stems::explicit_target(&out),
         Destination::ChosenFolder(folder) => stems::resolve_stem_output_in(&folder, song, length),
         Destination::Project {
             project,

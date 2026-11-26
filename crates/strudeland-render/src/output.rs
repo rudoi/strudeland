@@ -70,16 +70,12 @@ pub(crate) fn render_suffix(length: &LengthRequest) -> Option<String> {
 }
 
 /// The suffix for a preset asset in a default filename. Both the CLI and desktop use this rule.
+/// A role outside the preset's role table is an error.
 pub(crate) fn export_suffix(
     length: &LengthRequest,
     preset: ExportPreset,
     role: ExportRole,
 ) -> Result<String, RenderError> {
-    if !crate::export::roles(Some(preset)).contains(&role) {
-        return Err(RenderError::Render(
-            "invalid output role for export preset".into(),
-        ));
-    }
     let suffix = match (preset, role) {
         (ExportPreset::IntroLoop, ExportRole::Intro) => "intro",
         (ExportPreset::IntroLoop, ExportRole::Loop) => "loop",
@@ -134,30 +130,10 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    use crate::{Summary, Timings};
-    use strudeland_host::{Layout, PlannedWindow};
+    use crate::testing;
 
     fn output(bytes: &[u8]) -> RenderOutput {
-        RenderOutput {
-            bytes: bytes.to_vec(),
-            summary: Summary {
-                format: None,
-                bytes: None,
-                window: PlannedWindow {
-                    from_bar: 0,
-                    to_bar: 1,
-                    layout: Layout::Linear,
-                },
-                frames: 0,
-                seconds: 0.0,
-                sample_rate: 44_100,
-                chunks: 0,
-                jobs: 1,
-                loudness: None,
-                timings: Timings::default(),
-                warnings: vec![],
-            },
-        }
+        testing::output(bytes, &[])
     }
 
     #[test]

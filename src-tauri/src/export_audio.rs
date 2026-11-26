@@ -154,12 +154,9 @@ fn export_error(error: export::Error) -> ExportError {
 
 /// A failed run, with the files already published when it stopped part way.
 fn run_error(error: export::RunError) -> ExportError {
-    match error {
-        export::RunError::Failed(e) => export_error(e),
-        export::RunError::PartialWrite(partial) => ExportError {
-            message: export_message(&partial.source),
-            written: partial.written.into_iter().map(|w| w.path).collect(),
-        },
+    ExportError {
+        message: export_message(&error.source),
+        written: error.written.into_iter().map(|w| w.path).collect(),
     }
 }
 
@@ -799,18 +796,18 @@ mod tests {
         ];
         for (error, text) in cases {
             let label = format!("{error:?}");
-            let e = run_error(export::RunError::Failed(error));
+            let e = run_error(error.into());
             assert_eq!(e.message, text, "{label}");
             assert!(e.written.is_empty(), "{label}");
         }
-        let e = run_error(export::RunError::PartialWrite(export::PartialWrite {
+        let e = run_error(export::RunError {
             written: vec![export::WrittenPath {
                 path: "renders/main-intro.wav".into(),
                 absolute: "/abs/renders/main-intro.wav".into(),
             }],
             failed: Some("renders/main-loop.wav".into()),
             source: export::Error::RolesMismatch,
-        }));
+        });
         assert_eq!(e.message, "the rendered files do not match the preview");
         assert_eq!(e.written, [PathBuf::from("renders/main-intro.wav")]);
     }

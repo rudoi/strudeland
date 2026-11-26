@@ -1,13 +1,13 @@
 use std::cell::RefCell;
 use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
-use strudeland_host::{Layout, PlannedWindow};
 use strudeland_project::Project;
 
 use super::*;
-use crate::testing::FakePipeline;
-use crate::{Format, LengthRequest, RenderError, RenderOutput, Timings};
+use crate::testing::{FakePipeline, output};
+use crate::{Format, LengthRequest, RenderError};
 
 const CLIP: LengthRequest = LengthRequest::Clip { loops: None };
 
@@ -36,33 +36,6 @@ fn stems(song: &Path, length: LengthRequest) -> Request {
         },
         jobs: None,
         plan_timeout: None,
-    }
-}
-
-fn summary(warnings: &[&str]) -> Summary {
-    Summary {
-        format: Some(Format::Wav),
-        bytes: Some(3),
-        window: PlannedWindow {
-            from_bar: 0,
-            to_bar: 1,
-            layout: Layout::Linear,
-        },
-        frames: 0,
-        seconds: 0.0,
-        sample_rate: 44_100,
-        chunks: 1,
-        jobs: 1,
-        loudness: None,
-        timings: Timings::default(),
-        warnings: warnings.iter().map(|w| w.to_string()).collect(),
-    }
-}
-
-fn output(bytes: &[u8], warnings: &[&str]) -> RenderOutput {
-    RenderOutput {
-        bytes: bytes.to_vec(),
-        summary: summary(warnings),
     }
 }
 
@@ -105,15 +78,15 @@ fn project(dir: &Path) -> (Project, PathBuf) {
 
 fn failed(result: Result<Finished, RunError>) -> Error {
     match result {
-        Err(RunError::Failed(e)) => e,
-        other => panic!("not Failed: {other:?}"),
+        Err(e) if e.written.is_empty() => e.source,
+        other => panic!("not a failure before any publish: {other:?}"),
     }
 }
 
-fn partial(result: Result<Finished, RunError>) -> PartialWrite {
+fn partial(result: Result<Finished, RunError>) -> RunError {
     match result {
-        Err(RunError::PartialWrite(p)) => p,
-        other => panic!("not PartialWrite: {other:?}"),
+        Err(e) if !e.written.is_empty() => e,
+        other => panic!("not a partial write: {other:?}"),
     }
 }
 
@@ -376,8 +349,7 @@ fn a_first_file_failure_is_not_partial() {
         .unwrap();
         let mut fake = FakePipeline {
             export: Some(Ok(intro_loop())),
-            publish_error: Some(Error::Render(RenderError::Render("disk".into()))),
-            publishes_before_error: before,
+            publish_error: Some((before, Error::Render(RenderError::Render("disk".into())))),
             ..FakePipeline::default()
         };
         let result = prepared.run(

@@ -31,6 +31,8 @@ mod plan;
 mod render;
 mod stems;
 mod summary;
+#[doc(hidden)]
+pub mod testing;
 
 use std::time::Instant;
 
@@ -50,12 +52,6 @@ pub use strudeland_host::{
     ExportPreset, HostError, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC, timeout_from_secs,
 };
 pub use summary::{Progress, RenderOutput, RenderedAudio, Summary, Timings};
-
-/// The fake pipeline, for this crate's tests and the CLI's.
-#[doc(hidden)]
-pub mod testing {
-    pub use crate::export::fake::FakePipeline;
-}
 
 /// Plans, renders, joins, levels and encodes. Equivalent to `finish(&render_audio(..)?, ..)`.
 pub fn render(

@@ -121,28 +121,15 @@ impl StemTarget {
     }
 }
 
-/// Resolve an explicit set directory or the default directory of a song within a project.
-pub(crate) fn resolve_stem_output(
-    out: Option<&Path>,
-    song: &Path,
-    length: &LengthRequest,
-) -> Result<StemTarget, RenderError> {
-    if let Some(path) = out {
-        if path.file_name().is_none() {
-            return Err(bad_output("a stem set needs a directory name for --out"));
-        }
-        return Ok(StemTarget {
-            path: path.to_owned(),
-            destination: Destination::Explicit,
-        });
+/// An explicit set directory (`--out`), which must name a directory.
+pub(crate) fn explicit_target(path: &Path) -> Result<StemTarget, RenderError> {
+    if path.file_name().is_none() {
+        return Err(bad_output("a stem set needs a directory name for --out"));
     }
-    let (project, stem) = Project::find(song).ok_or_else(|| {
-        bad_output(format!(
-            "--out is required: {} is not in a strudeland project",
-            song.display()
-        ))
-    })?;
-    project_target(&project, &stem, length)
+    Ok(StemTarget {
+        path: path.to_owned(),
+        destination: Destination::Explicit,
+    })
 }
 
 /// Resolve the default path under an already-open project, including for an unsaved editor buffer.

@@ -29,21 +29,25 @@ pub enum Error {
     PreviewRequired,
 }
 
-/// An export that failed before anything was published, or after some files were.
+/// An export that stopped. `written` lists the files published before `source` stopped it;
+/// empty, nothing was published.
 #[derive(Debug)]
-pub enum RunError {
-    Failed(Error),
-    PartialWrite(PartialWrite),
+pub struct RunError {
+    pub source: Error,
+    pub written: Vec<WrittenPath>,
+    /// The mix file whose publish failed (its target path); `None` for a failure before the
+    /// publish and for a stem set.
+    pub failed: Option<PathBuf>,
 }
 
-/// At least one file was published before `source` stopped the export.
-#[derive(Debug)]
-pub struct PartialWrite {
-    /// Never empty.
-    pub written: Vec<WrittenPath>,
-    /// The mix file that failed (its target path); `None` for a stem set.
-    pub failed: Option<PathBuf>,
-    pub source: Error,
+impl From<Error> for RunError {
+    fn from(source: Error) -> Self {
+        RunError {
+            source,
+            written: Vec::new(),
+            failed: None,
+        }
+    }
 }
 
 /// A published file: the path as resolved, and as the CLI prints it.

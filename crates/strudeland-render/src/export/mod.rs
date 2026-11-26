@@ -11,19 +11,20 @@
 
 mod destination;
 mod error;
-pub(crate) mod fake;
 mod pipeline;
 mod publish;
 mod request;
 
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub use destination::{Destination, Preview, PreviewFile};
-pub use error::{Error, PartialWrite, RunError, WrittenPath};
+pub use error::{Error, RunError, WrittenPath};
 pub use pipeline::{Pipeline, RealPipeline};
-pub use publish::{PublishStep, ReplacePolicy, check_chosen_folder, publish_file};
-pub use request::{ExportProblem, Kind, Request, check_length_for_preset, roles};
+pub(crate) use publish::publish_file;
+pub use publish::{PublishStep, ReplacePolicy, check_chosen_folder};
+pub(crate) use request::roles;
+pub use request::{ExportProblem, Kind, Request, check_length_for_preset};
 
 use destination::{MixNames, Place, stem_target};
 use publish::Mode;
@@ -36,9 +37,9 @@ use crate::{
 
 /// One mix file's destination.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Target {
-    pub role: ExportRole,
-    pub path: PathBuf,
+pub(crate) struct Target {
+    pub(crate) role: ExportRole,
+    pub(crate) path: PathBuf,
 }
 
 /// A request with its destination resolved. Nothing has been created.
@@ -64,36 +65,7 @@ enum Targets {
 /// reverse table order, primary first, and stored in table order. A stem set's availability is
 /// left to the render.
 pub fn prepare(request: Request, destination: Destination) -> Result<Prepared, Error> {
-    let targets = match &request.kind {
-        Kind::Mix { preset, output } => {
-            let names = MixNames::new(
-                &request,
-                *preset,
-                output.encoder.format().ext(),
-                destination,
-            )?;
-            let mut files = roles(*preset)
-                .iter()
-                .rev()
-                .map(|&role| {
-                    Ok(Target {
-                        role,
-                        path: names.path(role)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, Error>>()?;
-            files.reverse();
-            Targets::Mix {
-                files,
-                place: names.into_place(),
-            }
-        }
-        Kind::Stems { grouping } => Targets::Stems {
-            grouping: *grouping,
-            target: stem_target(&request, destination)?,
-        },
-    };
-    Ok(Prepared { request, targets })
+    resolve(request, destination, false).map(|(prepared, _)| prepared)
 }
 
 /// Resolves the destination and previews it (the app): each mix role in table order is
@@ -103,40 +75,59 @@ pub fn prepare_previewed(
     request: Request,
     destination: Destination,
 ) -> Result<(Prepared, Preview), Error> {
+    resolve(request, destination, true)
+}
+
+/// Resolves the destination. With `stat` (the app), mix roles go in table order and each is
+/// checked for an existing file before the next is resolved, and a stem set's directory must be
+/// available. Without it (the CLI), mix roles go in reverse table order, nothing is checked and
+/// the returned preview, whose `exists` are all false, is for discarding.
+fn resolve(
+    request: Request,
+    destination: Destination,
+    stat: bool,
+) -> Result<(Prepared, Preview), Error> {
     let (targets, preview) = match &request.kind {
         Kind::Mix { preset, output } => {
-            let names = MixNames::new(
-                &request,
-                *preset,
-                output.encoder.format().ext(),
-                destination,
-            )?;
-            let mut files = Vec::new();
-            let mut preview = Vec::new();
-            for &role in roles(*preset) {
-                let path = names.path(role)?;
-                let exists = render_exists(&path).map_err(|source| Error::Project {
-                    at: path.clone(),
-                    source,
-                })?;
-                preview.push(PreviewFile {
-                    role,
-                    path: path.clone(),
-                    exists,
-                });
-                files.push(Target { role, path });
+            let (place, stem) = Place::for_mix(&request, destination)?;
+            let names = MixNames {
+                request: &request,
+                preset: *preset,
+                ext: output.encoder.format().ext(),
+                place: &place,
+                stem: &stem,
+            };
+            let mut order = roles(*preset).to_vec();
+            if !stat {
+                order.reverse();
             }
-            (
-                Targets::Mix {
-                    files,
-                    place: names.into_place(),
-                },
-                Preview::Mix(preview),
-            )
+            let mut preview = Vec::with_capacity(order.len());
+            for role in order {
+                let path = names.path(role)?;
+                let exists = stat
+                    && render_exists(&path).map_err(|source| Error::Project {
+                        at: path.clone(),
+                        source,
+                    })?;
+                preview.push(PreviewFile { role, path, exists });
+            }
+            if !stat {
+                preview.reverse();
+            }
+            let files = preview
+                .iter()
+                .map(|file| Target {
+                    role: file.role,
+                    path: file.path.clone(),
+                })
+                .collect();
+            (Targets::Mix { files, place }, Preview::Mix(preview))
         }
         Kind::Stems { grouping } => {
             let target = stem_target(&request, destination)?;
-            target.check_available().map_err(Error::Render)?;
+            if stat {
+                target.check_available().map_err(Error::Render)?;
+            }
             let directory = target.path().to_owned();
             (
                 Targets::Stems {
@@ -177,9 +168,9 @@ pub struct Published {
     pub loop_points: Option<LoopPoints>,
 }
 
-/// A finished export. Built once per export and moved to the adapter, so the stem set's
-/// summary stays inline.
+/// A finished export.
 #[derive(Debug)]
+// Built once per export, so the stem set's summary is not boxed.
 #[allow(clippy::large_enum_variant)]
 pub enum Finished {
     Mix {
@@ -196,7 +187,8 @@ pub enum Finished {
 
 impl Prepared {
     /// The mix files in table order; empty for a stem set.
-    pub fn targets(&self) -> &[Target] {
+    #[cfg(test)]
+    pub(crate) fn targets(&self) -> &[Target] {
         match &self.targets {
             Targets::Mix { files, .. } => files,
             Targets::Stems { .. } => &[],
@@ -204,7 +196,8 @@ impl Prepared {
     }
 
     /// The stem set's directory; `None` for a mix.
-    pub fn stem_directory(&self) -> Option<&Path> {
+    #[cfg(test)]
+    pub(crate) fn stem_directory(&self) -> Option<&std::path::Path> {
         match &self.targets {
             Targets::Mix { .. } => None,
             Targets::Stems { target, .. } => Some(target.path()),
@@ -286,7 +279,7 @@ fn modes(
     preview: Option<&Preview>,
 ) -> Result<Vec<Mode>, Error> {
     let ReplacePolicy::CreateNew { approved } = policy else {
-        return Ok(vec![Mode::Always; files.len()]);
+        return Ok(vec![Mode::Write { verify: false }; files.len()]);
     };
     let snapshot = match preview {
         None => return Err(Error::PreviewRequired),
@@ -307,7 +300,7 @@ fn modes(
         .iter()
         .map(|file| {
             if file.exists {
-                Mode::Replace
+                Mode::Write { verify: true }
             } else {
                 Mode::Create
             }
@@ -329,7 +322,7 @@ fn run_mix(
         policy,
         preview,
     } = run;
-    let modes = modes(&files, policy, preview).map_err(RunError::Failed)?;
+    let modes = modes(&files, policy, preview)?;
     let forward = |p| progress(Event::Pipeline(p));
     let rendered = match preset {
         None => pipeline.render(code, opts, &forward).map(|output| {
@@ -341,13 +334,13 @@ fn run_mix(
         }),
         Some(preset) => pipeline.render_export(code, opts, preset, &forward),
     }
-    .map_err(|e| RunError::Failed(Error::Render(e)))?;
+    .map_err(Error::Render)?;
     if !rendered
         .iter()
         .map(|file| file.role)
         .eq(files.iter().map(|target| target.role))
     {
-        return Err(RunError::Failed(Error::RolesMismatch));
+        return Err(Error::RolesMismatch.into());
     }
     progress(Event::Publishing);
     let mut published: Vec<Published> = Vec::with_capacity(files.len());
@@ -361,20 +354,16 @@ fn run_mix(
             place: &place,
         };
         if let Err(source) = pipeline.publish(&step, &file.output.bytes) {
-            return Err(if published.is_empty() {
-                RunError::Failed(source)
-            } else {
-                RunError::PartialWrite(PartialWrite {
-                    written: published
-                        .iter()
-                        .map(|file| WrittenPath {
-                            path: file.path.clone(),
-                            absolute: file.absolute.clone(),
-                        })
-                        .collect(),
-                    failed: Some(target.path),
-                    source,
-                })
+            return Err(RunError {
+                source,
+                written: published
+                    .iter()
+                    .map(|file| WrittenPath {
+                        path: file.path.clone(),
+                        absolute: file.absolute.clone(),
+                    })
+                    .collect(),
+                failed: Some(target.path),
             });
         }
         let mut new_warnings = Vec::new();
@@ -424,21 +413,13 @@ fn run_stems(
         }
         progress(Event::Pipeline(event));
     });
-    match result {
-        Ok(export) => Ok(Finished::Stems { grouping, export }),
-        Err(e) => {
-            let written = written.into_inner();
-            Err(if written.is_empty() {
-                RunError::Failed(Error::Render(e))
-            } else {
-                RunError::PartialWrite(PartialWrite {
-                    written,
-                    failed: None,
-                    source: Error::Render(e),
-                })
-            })
-        }
-    }
+    result
+        .map(|export| Finished::Stems { grouping, export })
+        .map_err(|e| RunError {
+            source: Error::Render(e),
+            written: written.into_inner(),
+            failed: None,
+        })
 }
 
 #[cfg(test)]
