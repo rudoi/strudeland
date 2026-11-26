@@ -17,7 +17,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{Value, json};
-use strudeland_record::takes::{Prefs, RepairOutcome, write_prefs};
+use strudeland_project::RecordingInput;
+use strudeland_record::takes::RepairOutcome;
 use strudeland_record::testing::{FakeHandle, Limits};
 use strudeland_record::{Ended, Event, FaultKind, TakeResult};
 
@@ -147,7 +148,7 @@ impl Script {
         let result = self
             .rig
             .takes
-            .arm(&self.rig.prefs(), device.map(str::to_string), channel)
+            .arm(&self.rig.app_data(), device.map(str::to_string), channel)
             .map(RecordingStatus::from)
             .map_err(CommandError::from);
         self.take_handles();
@@ -157,10 +158,10 @@ impl Script {
     /// `arm()` on another thread; it blocks in a gated permission request.
     fn spawn_arm(&self) -> JoinHandle<Result<RecordingStatus, CommandError>> {
         let takes = Arc::clone(&self.rig.takes);
-        let prefs = self.rig.prefs();
+        let app_data = self.rig.app_data();
         std::thread::spawn(move || {
             takes
-                .arm(&prefs, None, None)
+                .arm(&app_data, None, None)
                 .map(RecordingStatus::from)
                 .map_err(CommandError::from)
         })
@@ -192,14 +193,14 @@ impl Script {
         let result = self
             .rig
             .takes
-            .disarm(&self.rig.prefs())
+            .disarm(&self.rig.app_data())
             .map(RecordingStatus::from)
             .map_err(CommandError::from);
         self.call("disarm", result);
     }
 
     fn status(&mut self) {
-        let result = RecordingStatus::from(self.rig.takes.status(&self.rig.prefs()));
+        let result = RecordingStatus::from(self.rig.takes.status(&self.rig.app_data()));
         self.call("status", Ok::<_, CommandError>(result));
     }
 
@@ -207,18 +208,18 @@ impl Script {
         let result = self
             .rig
             .takes
-            .devices(&self.rig.prefs())
+            .devices(&self.rig.app_data())
             .map(DevicesResult::from)
             .map_err(CommandError::from);
         self.call("devices", result);
     }
 
     fn write_prefs(&mut self, device: &str, channel: u16) {
-        let prefs = Prefs {
+        let input = RecordingInput {
             device_id: Some(device.to_string()),
             channel,
         };
-        let result = write_prefs(&self.rig.prefs(), &prefs);
+        let result = input.save(&self.rig.app_data());
         self.observe(&format!("write prefs {device} channel {channel}"), |_| {
             json!(result.is_ok())
         });

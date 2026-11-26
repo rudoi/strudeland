@@ -160,8 +160,9 @@ the V8 download the host brings.
   atomic writes, templates) and the owner of the app data dir and its documents: `AppData`
   (`app_data.rs`) locates the dir without Tauri and holds the one load and save, with one
   bad-file policy (a missing, unreadable, corrupt or wrong-schema file gives the defaults, stays
-  in place and is reported to the caller to log), for `prefs.json` (app preferences) and
-  `recent.json` (recent projects). The app resolves it once as `AppDataState`. No Tauri
+  in place and is reported to the caller to log), for `prefs.json` (app preferences),
+  `recent.json` (recent projects) and `recording.json` (the saved recording input,
+  `RecordingInput`). The app resolves it once as `AppDataState`. No Tauri
   dependency, so the CLI can reuse it.
 - The instrument library store and project pins live in `crates/strudeland-project`.
   `src/lib/strudel/instruments.ts` binds the pinned snapshot as `instruments` at
@@ -307,12 +308,13 @@ the V8 download the host brings.
   the threads, format and the capture-timestamp decision).
   `crates/strudeland-record/src/takes/` the take lifecycle (`Takes` over the `Platform`,
   `Sink` and `RecorderMaker` ports; `TakeState`, idle, armed, recording or ended; the
-  sidecar build, the device prefs file and the repair skip; `TakeError`; the fakes in
-  `testing`). `crates/strudeland-project/src/recordings.rs`
+  sidecar build, the input selection over the saved `RecordingInput` and the repair skip;
+  `TakeError`; the fakes in `testing`). `crates/strudeland-project/src/recordings.rs`
   names, lists, renames and deletes memos, owns the sidecar (schema 1) and repairs `.partial` files.
   `src-tauri/src/recording.rs` the wire types, the mapping of `TakeError` and `TakeEvent` to
   `CommandError` and `recording://state`, `SystemPlatform` (the microphone permission),
-  `AppSink`, `RecorderState` and the commands (device prefs in `recording.json` in the app data dir);
+  `AppSink`, `RecorderState` and the commands (the saved input is `strudeland-project`'s
+  `RecordingInput`, `recording.json` in the app data dir);
   `src-tauri/Info.plist` (`NSMicrophoneUsageDescription`) and `Entitlements.plist` (audio input).
   `src/lib/recording/`: `api.ts` (the only Tauri caller for recording), `controller.ts` (the take
   state machine), `backing.ts`, `sync.ts`, `memos.ts`, `memo-ui.ts`, `types.ts`. `src/lib/audio/`

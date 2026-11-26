@@ -3,6 +3,7 @@
 
 use super::*;
 use std::ops::Deref;
+use std::path::PathBuf;
 
 use serde_json::json;
 pub(super) use strudeland_record::testing::{

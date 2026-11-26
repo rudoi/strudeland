@@ -8,7 +8,6 @@
 //! events), and holds the `#[tauri::command]` wrappers, which only resolve paths and move the
 //! work onto a blocking thread; the state mutex is only held there, never across an `.await`.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -25,13 +24,12 @@ use strudeland_record::{DeviceInfo, Level, RecordError, Recorder};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::command_error::{CommandError, CommandErrorKind};
-use crate::project::ProjectState;
+use crate::project::{AppDataState, ProjectState};
 
 /// `{peak, rms}`, about 30 Hz while armed or recording.
 pub const LEVEL_EVENT: &str = "recording://level";
 /// `{state, stem?, error?}` on every recorder transition.
 pub const STATE_EVENT: &str = "recording://state";
-const PREFS_FILE: &str = "recording.json";
 
 // --- errors ---
 
@@ -424,13 +422,6 @@ pub fn system_state(app: &AppHandle) -> RecorderState {
 
 // --- Tauri commands ---
 
-fn prefs_path(app: &AppHandle) -> Result<PathBuf, CommandError> {
-    app.path()
-        .app_data_dir()
-        .map(|d| d.join(PREFS_FILE))
-        .map_err(|e| CommandError::other(e.to_string()))
-}
-
 /// Runs `f` on a blocking thread with the app's states.
 async fn blocking<T: Send + 'static>(
     app: AppHandle,
@@ -447,16 +438,16 @@ async fn blocking<T: Send + 'static>(
 
 #[tauri::command]
 pub async fn recording_status(app: AppHandle) -> Result<RecordingStatus, CommandError> {
-    let prefs = prefs_path(&app)?;
-    blocking(app, move |takes, _| Ok(takes.status(&prefs).into())).await
+    let app_data = app.state::<AppDataState>().get()?.clone();
+    blocking(app, move |takes, _| Ok(takes.status(&app_data).into())).await
 }
 
 #[tauri::command]
 pub async fn recording_devices(app: AppHandle) -> Result<DevicesResult, CommandError> {
-    let prefs = prefs_path(&app)?;
+    let app_data = app.state::<AppDataState>().get()?.clone();
     blocking(app, move |takes, _| {
         takes
-            .devices(&prefs)
+            .devices(&app_data)
             .map(DevicesResult::from)
             .map_err(CommandError::from)
     })
@@ -469,10 +460,10 @@ pub async fn recording_arm(
     device_id: Option<String>,
     channel: Option<u16>,
 ) -> Result<RecordingStatus, CommandError> {
-    let prefs = prefs_path(&app)?;
+    let app_data = app.state::<AppDataState>().get()?.clone();
     blocking(app, move |takes, _| {
         takes
-            .arm(&prefs, device_id, channel)
+            .arm(&app_data, device_id, channel)
             .map(RecordingStatus::from)
             .map_err(CommandError::from)
     })
@@ -481,10 +472,10 @@ pub async fn recording_arm(
 
 #[tauri::command]
 pub async fn recording_disarm(app: AppHandle) -> Result<RecordingStatus, CommandError> {
-    let prefs = prefs_path(&app)?;
+    let app_data = app.state::<AppDataState>().get()?.clone();
     blocking(app, move |takes, _| {
         takes
-            .disarm(&prefs)
+            .disarm(&app_data)
             .map(RecordingStatus::from)
             .map_err(CommandError::from)
     })
@@ -582,6 +573,7 @@ mod transcript;
 mod tests {
     use super::rig::*;
     use super::*;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::{Duration, Instant, SystemTime};
 

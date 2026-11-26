@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use strudeland_project::{Project, Sidecar};
+use strudeland_project::{AppData, Project, RecordingInput, Sidecar};
 
 use super::{
     Permission, Platform, RecorderMaker, Sink, TakeError, TakeEvent, TakeStart, Takes, TakesConfig,
@@ -195,7 +195,7 @@ pub struct TakesRig {
 }
 
 impl TakesRig {
-    /// Takes over `project`, with its prefs under `dir/data`.
+    /// Takes over `project`, with its app data under `dir/data`.
     pub fn new(dir: &Path, project: Arc<Project>, limits: Limits, config: TakesConfig) -> TakesRig {
         let platform = Arc::new(FakePlatform::new());
         let sink = Arc::new(CollectingSink::default());
@@ -218,8 +218,14 @@ impl TakesRig {
         }
     }
 
+    /// The rig's app data dir, `dir/data`.
+    pub fn app_data(&self) -> AppData {
+        AppData::at(self.dir.join("data"))
+    }
+
+    /// The saved input's file, `dir/data/recording.json`.
     pub fn prefs(&self) -> PathBuf {
-        self.dir.join("data").join("recording.json")
+        RecordingInput::file(&self.app_data())
     }
 
     pub fn project(&self) -> Arc<Project> {
@@ -250,7 +256,7 @@ impl TakesRig {
     }
 
     pub fn arm(&self) -> FakeHandle {
-        self.takes.arm(&self.prefs(), None, None).unwrap();
+        self.takes.arm(&self.app_data(), None, None).unwrap();
         self.next_handle()
     }
 

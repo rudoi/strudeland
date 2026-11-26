@@ -1,6 +1,6 @@
 //! Project folders for strudeland: the on-disk layout, `project.json`, song discovery,
 //! path-scoped reads and atomic writes, voice memos (`recordings/`), file templates, and the app
-//! data dir and its documents (preferences, recent projects).
+//! data dir and its documents (preferences, recent projects, the recording input).
 //!
 //! This crate has no Tauri dependency so the app and the CLI can share it.
 
@@ -10,6 +10,7 @@ mod instruments;
 mod prefs;
 mod project;
 mod recents;
+mod recording_input;
 mod recordings;
 mod template;
 
@@ -27,6 +28,7 @@ pub use project::{
     list_songs, render_exists, render_filename, song_rel_path,
 };
 pub use recents::{MAX_RECENTS, RECENTS_FILE, RecentProject, Recents};
+pub use recording_input::{RECORDING_INPUT_FILE, RecordingInput};
 pub use recordings::{
     ClockOffsetSample, HostNs, OffsetNs, RECORDINGS_DIR, RecordingEntry, RecoveredRecording,
     RepairReport, RepairSkip, SIDECAR_SCHEMA, Sidecar, SidecarApp, SidecarBacking,
