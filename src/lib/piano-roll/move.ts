@@ -101,6 +101,7 @@ export function moveFitsSections(
   note: Span,
   move: Span,
   period?: number,
+  requireSameCps = false,
 ): boolean {
   const sourceStart = Fraction(note.start);
   const sourceEnd = Fraction(note.end);
@@ -127,6 +128,18 @@ export function moveFitsSections(
       if (!audible(a, b) && !audible(c, d)) continue;
       if (a.lt(0) || b.gt(time.end) || c.lt(0) || d.gt(time.end)) return false;
       if (!quarterLength(a, b, time).eq(quarterLength(c, d, time))) return false;
+      if (
+        requireSameCps &&
+        !spansUseSameCps(
+          time,
+          { start: a.toFraction(), end: b.toFraction() },
+          {
+            start: c.toFraction(),
+            end: d.toFraction(),
+          },
+        )
+      )
+        return false;
     }
     return true;
   });

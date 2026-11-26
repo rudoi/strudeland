@@ -62,7 +62,7 @@
     mode: typeof mode;
   } | null>(null);
   let anchorChoice = $state.raw<{ contexts: ReadonlySet<string>; name: string } | null>(null);
-  let shared = $state.raw<{ context: string; name: string } | null>(null);
+  let shared = $state.raw<{ contexts: ReadonlySet<string>; name: string } | null>(null);
   let approvedDraft = $state.raw<{ song: string; code: string }>();
   let retained = $state.raw<{ snapshot: PianoRollSnapshot; target: RollTarget }>();
   let lastContext = $state.raw<{ song: string; label: string }>();
@@ -112,7 +112,7 @@
     target ? JSON.stringify([songKey, target.expression.from, target.expression.to]) : '',
   );
   const definitionMode = $derived(
-    definition && shared?.context === contextKey && shared.name === definition.name,
+    definition && shared?.contexts.has(contextKey) && shared.name === definition.name,
   );
   const inDefinition = $derived(target !== null && targetsDefinition(target));
   const expressionFrom = $derived(
@@ -352,7 +352,7 @@
   function openDefinition() {
     if (!snapshot || !definition) return;
     mode = 'expression';
-    shared = { context: contextKey, name: definition.name };
+    shared = { contexts: new Set([contextKey]), name: definition.name };
     page = null;
   }
 
@@ -393,9 +393,12 @@
     const expression = { from: expressionFrom, to: expressionTo };
     const move =
       change.kind === 'move' && note && crossesRollBar(note, change) ? change : undefined;
-    if (move && note && mode === 'expression' && structure) {
-      const placements = resolveMovePlacements(snapshot.code, expression);
-      const period = expressionEditPeriod(snapshot.code, expression, note);
+    const placements =
+      move && mode === 'expression' && structure
+        ? resolveMovePlacements(snapshot.code, expression)
+        : undefined;
+    const period = placements && note && expressionEditPeriod(snapshot.code, expression, note);
+    if (move && note && placements && structure) {
       if (
         placements.kind === 'unproved' ||
         (placements.kind === 'sections' &&
@@ -412,7 +415,9 @@
         mode === 'song'
           ? note.event?.placement === 'song' && spansUseSameCps(moveTime, note)
           : hasAuthoredMoveSource(snapshot.code, expression) ||
-            spansUseSameCps(moveTime, note, move);
+            (spansUseSameCps(moveTime, note, move) &&
+              (placements?.kind !== 'sections' ||
+                moveFitsSections(structure, placements.names, note, move, period, true)));
       if (!safeOrigin) {
         notice = 'The source meter cannot be verified for this event move.';
         return false;
@@ -457,7 +462,9 @@
       // The earlier offsets identify this same target again after undo.
       anchorChoice = { ...anchorChoice, contexts: new Set([...anchorChoice.contexts, contextKey]) };
     }
-    if (shared?.context === previousContext) shared = { ...shared, context: contextKey };
+    if (shared?.contexts.has(previousContext) && !shared.contexts.has(contextKey)) {
+      shared = { ...shared, contexts: new Set([...shared.contexts, contextKey]) };
+    }
     goToPage(previousPage);
     if (wasApproved) approvedDraft = { song: songKey, code: result.snapshot.code };
     const edited = new Set(preview.edited.map(({ id }) => id));

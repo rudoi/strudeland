@@ -74,6 +74,12 @@ describe('musical move intervals', () => {
     expect(spansUseSameCps(time, a, b)).toBe(false);
     expect(spansUseSameCps(time, { start: '1/2', end: '1' })).toBe(true);
     expect(spansUseSameCps(time, { start: '1/2', end: '5/4' })).toBe(false);
+    const acrossChange = { start: '1/2', end: '5/4' };
+    const equalLength = { start: '2', end: '71/24' };
+    expect(moveFitsSections(structure, ['verse'], acrossChange, equalLength)).toBe(true);
+    expect(moveFitsSections(structure, ['verse'], acrossChange, equalLength, undefined, true)).toBe(
+      false,
+    );
   });
 });
 
