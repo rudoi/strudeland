@@ -1,18 +1,18 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
 import { RECORDING_ERROR_KINDS, RecordingError } from '../src/lib/recording/types';
-import { mockTauriCore } from './helpers/tauri-core-mock';
+import { mockTauriCore, mockTauriModule } from './helpers/tauri-core-mock';
 
 const core = mockTauriCore();
 const listeners: { event: string; handler: (e: { payload: unknown }) => void }[] = [];
 let unlistened = 0;
 
-mock.module('@tauri-apps/api/event', () => ({
+mockTauriModule('@tauri-apps/api/event', {
   listen: async (event: string, handler: (e: { payload: unknown }) => void) => {
     listeners.push({ event, handler });
     return () => void unlistened++;
   },
-}));
+});
 
 const { createTauriRecordingApi, parseHostNs, toRecordingError } =
   await import('../src/lib/recording/api');

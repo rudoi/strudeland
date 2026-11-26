@@ -1,6 +1,6 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
-import { mockTauriCore } from './helpers/tauri-core-mock';
+import { mockTauriCore, mockTauriModule } from './helpers/tauri-core-mock';
 import {
   isProjectMenuAction,
   pickedFolder,
@@ -48,12 +48,12 @@ test('the folder picker result is one path or null', () => {
 
 const core = mockTauriCore();
 const listened: string[] = [];
-mock.module('@tauri-apps/api/event', () => ({
+mockTauriModule('@tauri-apps/api/event', {
   listen: async (event: string) => {
     listened.push(event);
     return () => {};
   },
-}));
+});
 
 const { createTauriProjectApi, ProjectError, toProjectError } =
   await import('../src/lib/project/api');

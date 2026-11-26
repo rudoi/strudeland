@@ -1,10 +1,10 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
-import { FakeChannel, mockTauriCore } from './helpers/tauri-core-mock';
+import { FakeChannel, mockTauriCore, mockTauriModule } from './helpers/tauri-core-mock';
 
 const core = mockTauriCore();
 // The host clock comes through the recording API, which also imports `listen`.
-mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+mockTauriModule('@tauri-apps/api/event', { listen: async () => () => {} });
 
 const { PlaybackError, tauriPlaybackApi, toPlaybackError } =
   await import('../src/lib/audio/playback-api');

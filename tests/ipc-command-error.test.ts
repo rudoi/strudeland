@@ -1,12 +1,12 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
 import { ExportError, toExportError } from '../src/lib/export/error';
 import { COMMAND_ERROR_KINDS } from '../src/lib/ipc/bindings';
 import { CommandError, narrowKind, toCommandError } from '../src/lib/ipc/command-error';
-import { mockTauriCore } from './helpers/tauri-core-mock';
+import { mockTauriCore, mockTauriModule } from './helpers/tauri-core-mock';
 
 const core = mockTauriCore();
-mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+mockTauriModule('@tauri-apps/api/event', { listen: async () => () => {} });
 const { invokeCommand } = await import('../src/lib/ipc/invoke');
 
 describe('CommandError', () => {

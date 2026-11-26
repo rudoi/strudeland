@@ -1,16 +1,16 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
-import { mockTauriCore } from './helpers/tauri-core-mock';
+import { mockTauriCore, mockTauriModule } from './helpers/tauri-core-mock';
 
 // One guard per adapter: a rejection is an `Error` with the command's message, so a raw object
 // never reaches `errorMessage`.
 
 const core = mockTauriCore();
 let unlistened = 0;
-mock.module('@tauri-apps/api/event', () => ({
+mockTauriModule('@tauri-apps/api/event', {
   listen: async () => () => void unlistened++,
-}));
-mock.module('@tauri-apps/plugin-opener', () => ({ openUrl: async () => {} }));
+});
+mockTauriModule('@tauri-apps/plugin-opener', { openUrl: async () => {} });
 
 const { createTauriPrefsApi } = await import('../src/lib/prefs/api');
 const { inspectPianoRoll } = await import('../src/lib/piano-roll/api');

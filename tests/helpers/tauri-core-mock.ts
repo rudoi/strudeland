@@ -12,8 +12,20 @@ export class FakeChannel<T> {
 }
 
 /**
- * Mocks `@tauri-apps/api/core` with the whole surface the app imports (`invoke`, `Channel`,
- * `isTauri`). `answer` sets how each invoke resolves or throws; `calls` logs them.
+ * Mocks the Tauri module `specifier` with its real exports, then `overrides` over them.
+ * `mock.module` is process-wide, so a partial mock breaks every later importer of a name it
+ * left out (`dpi.js` imports `SERIALIZE_TO_IPC_FN` from core, `window.js` imports
+ * `TauriEvent` from event), whichever test file loads them first.
+ */
+export function mockTauriModule(specifier: string, overrides: Record<string, unknown>) {
+  const real: Record<string, unknown> = { ...require(specifier) };
+  mock.module(specifier, () => ({ ...real, ...overrides }));
+}
+
+/**
+ * Mocks `@tauri-apps/api/core`: the real exports, with `invoke`, `Channel` and `isTauri` (the
+ * surface the app imports) replaced. `answer` sets how each invoke resolves or throws; `calls`
+ * logs them.
  */
 export function mockTauriCore() {
   const state = {
@@ -21,14 +33,14 @@ export function mockTauriCore() {
     impl: (() => undefined) as (cmd: string, args: unknown) => unknown,
     tauri: true,
   };
-  mock.module('@tauri-apps/api/core', () => ({
+  mockTauriModule('@tauri-apps/api/core', {
     invoke: async (cmd: string, args: unknown) => {
       state.calls.push({ cmd, args });
       return state.impl(cmd, args);
     },
     Channel: FakeChannel,
     isTauri: () => state.tauri,
-  }));
+  });
   return {
     calls: state.calls,
     /** Each later invoke returns (or throws from) `impl`; the call log is cleared. */
