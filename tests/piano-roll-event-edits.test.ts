@@ -21,7 +21,11 @@ import {
   eventPitch,
   type EventEditEntry,
 } from '../src/lib/strudel/event-edits';
-import { planEventEdit, preparePhraseEvents } from '../src/lib/piano-roll/event-source';
+import {
+  expressionEditPeriod,
+  planEventEdit,
+  preparePhraseEvents,
+} from '../src/lib/piano-roll/event-source';
 import { songEditComment } from '../src/lib/strudel/event-document';
 import { buildStructure } from '../src/lib/strudel/structure';
 import { INITIAL_SEGMENTS, LINEAR_SEGMENTS } from '../src/lib/strudel/transport';
@@ -142,6 +146,7 @@ test('Expression wrappers are parseable, retain shorthand semantics and update o
       kind: 'move',
       id: n.id,
       start: '2',
+      end: '3',
     }),
   );
   expect(next.match(/id: 'roll1'/g)?.length).toBe(1);
@@ -173,10 +178,16 @@ test('a saved final-output edit survives formatting and updates the same entry f
   const updated = { ...n, pitch: 65, event: identifyEvent(changed[1], changed, false, false) };
   const next = apply(
     first,
-    planEventEdit(first, { kind: 'song' }, updated, { kind: 'move', id: 'a', start: '3/2' }),
+    planEventEdit(first, { kind: 'song' }, updated, {
+      kind: 'move',
+      id: 'a',
+      start: '3/2',
+      end: '5/2',
+    }),
   );
   expect(songEditComment(next)?.spec.entries).toHaveLength(1);
   expect(songEditComment(next)?.spec.entries[0]).toMatchObject({ pitch: 63, key: 65, to: '3/2' });
+  expect(songEditComment(next)?.spec.entries[0]).not.toHaveProperty('until');
   expect(transpiler(next, {}).output).not.toContain('@piano-edits');
 });
 
@@ -230,6 +241,90 @@ test('known local phrase periods repeat source-backed edits across the period bo
       from + 0.5,
     ]);
   }
+});
+
+test('a mixed-meter move saves both edges and replays its gate in partitioned queries', () => {
+  const source = new TimeSpan('1/4', '1/2');
+  const p = new Pattern((s: any) => {
+    const part = source.intersection(s.span);
+    return part ? [new Hap(source, part, { note: 64, duration: 0.25, clip: 0.5, pan: 0.75 })] : [];
+  });
+  const all = query(p, 0, 1);
+  const n: RollNote = {
+    id: 'n',
+    start: '1/4',
+    end: '1/2',
+    pitch: 64,
+    event: identifyEvent(all[0], all, false, false),
+  };
+  const saved = apply(
+    'lead',
+    planEventEdit('lead', { kind: 'song' }, n, {
+      kind: 'move',
+      id: n.id,
+      start: '10/7',
+      end: '12/7',
+    }),
+  );
+  const spec = songEditComment(saved)!.spec;
+  expect(spec.entries[0]).toMatchObject({
+    from: ['1/4', '1/2'],
+    pitch: 64,
+    to: '10/7',
+    until: '12/7',
+  });
+  const result = editPatternEvents(p, spec);
+  expect(query(result, 0, 1)).toEqual([]);
+  const [whole] = query(result, 1, 2);
+  const parts = [...query(result, '10/7', '11/7'), ...query(result, '11/7', '12/7')];
+  expect(summary(parts)).toEqual([
+    ['10/7', '12/7', '10/7', '11/7', 64],
+    ['10/7', '12/7', '11/7', '12/7', 64],
+  ]);
+  expect(parts.map((h) => h.hasOnset())).toEqual([true, false]);
+  expect(whole.duration.toFraction()).toBe('1/7');
+  expect(whole.value).toMatchObject({ pan: 0.75, clip: 0.5 });
+  expect(parts.map((h) => h.value)).toEqual([whole.value, whole.value]);
+});
+
+test('moving a later repeat keeps both edges in the original entry phase', () => {
+  registerEventEdits();
+  const code =
+    "(note(60))._pianoEdits({ entries: [{ id: 'r', from: ['0','1'], pitch: 60, period: 2, key: 65, to: '10/7', until: '12/7' }] })";
+  const scope = { kind: 'expression', expression: { from: 0, to: code.length } } as const;
+  const p = new Function('note', transpiler(code, {}).output)(note);
+  const all = query(p, 5, 6);
+  const later = all.find((h: any) => h.value.note === 65);
+  const n: RollNote = {
+    id: 'n',
+    start: later.whole.begin.toFraction(),
+    end: later.whole.end.toFraction(),
+    pitch: 65,
+    event: identifyEvent(later, all, true, false),
+  };
+  expect(n).toMatchObject({ start: '38/7', end: '40/7', event: { entry: 'r' } });
+  expect(expressionEditPeriod(code, scope.expression, n)).toBe(2);
+  expect(
+    expressionEditPeriod(code, scope.expression, {
+      ...n,
+      event: { ...n.event!, entry: 'unrelated' },
+    }),
+  ).toBeUndefined();
+  const move = { kind: 'move', id: n.id, start: '11/2', end: '13/2' } as const;
+  const saved = apply(code, planEventEdit(code, scope, n, move));
+  expect(saved).toContain("to: '3/2', until: '5/2'");
+  const updated = new Function('note', transpiler(saved, {}).output)(note);
+  expect(
+    query(updated, 0, 7)
+      .filter((h: any) => h.value.note === 65 && h.hasOnset())
+      .map((h: any) => [h.whole.begin.toFraction(), h.whole.end.toFraction()]),
+  ).toEqual([
+    ['3/2', '5/2'],
+    ['7/2', '9/2'],
+    ['11/2', '13/2'],
+  ]);
+  expect(planEventEdit(code, scope, { ...n, start: '39/7' }, move)).toBeNull();
+  expect(planEventEdit(code, scope, n, { ...move, end: '300' })).toBeNull();
 });
 
 test('a first edit preserves an implicit statement boundary before an unlabelled pattern', () => {
@@ -378,6 +473,17 @@ test('masked note edits retain disjoint parts across whole and split requests an
       ['5/4', '5/4', '3/2', true],
       ['5/4', '7/4', '2', false],
     ]);
+    const scaled = editPatternEvents(p, {
+      entries: [{ ...verified, id: 'r', key: 65, to: '10/7', until: '12/7' }],
+    });
+    const scaledParts = [
+      ['10/7', '10/7', '3/2', true],
+      ['10/7', '11/7', '23/14', false],
+    ];
+    expect(targetParts(query(scaled, 1, 2))).toEqual(scaledParts);
+    expect(targetParts([...query(scaled, 1, '11/7'), ...query(scaled, '11/7', 2)])).toEqual(
+      scaledParts,
+    );
     expect(query(moved, 0, 1).filter((h: any) => h.value.note === 60).length).toBe(
       fragments.length - 2,
     );

@@ -57,7 +57,7 @@ export interface RollTarget {
 
 export type RollEdit =
   | { kind: 'pitch'; id: string; pitch: number }
-  | { kind: 'move'; id: string; start: string }
+  | { kind: 'move'; id: string; start: string; end: string }
   | { kind: 'resize'; id: string; end: string }
   | { kind: 'delete'; id: string }
   | { kind: 'insert'; start: string; end: string; pitch: number };

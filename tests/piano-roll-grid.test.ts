@@ -13,6 +13,8 @@ import {
   snapGrid,
 } from '../src/lib/piano-roll/grid';
 import type { RollNote } from '../src/lib/piano-roll/types';
+import { moveFitsSections, resolveRollMove, spansUseSameCps } from '../src/lib/piano-roll/move';
+import { buildStructure, meterAtBar } from '../src/lib/strudel/structure';
 
 const { bars, width } = rollGeometry([
   { cycle: 2, label: '3', numerator: 4, denominator: 4 },
@@ -21,6 +23,59 @@ const { bars, width } = rollGeometry([
 ]);
 
 const note = (pitch: number): RollNote => ({ id: String(pitch), start: '0', end: '1/4', pitch });
+
+describe('musical move intervals', () => {
+  const structure = buildStructure({
+    meter: '4/4',
+    meterChanges: [
+      { bar: 2, meter: '7/8' },
+      { bar: 3, meter: '6/8' },
+    ],
+    sections: [
+      { name: 'verse', bars: 3 },
+      { name: 'tail', bars: 2 },
+    ],
+  });
+  const time = { end: 3, meterAt: (bar: number) => meterAtBar(structure, bar) };
+
+  test('preserves a quarter note across 4/4, 7/8 and 6/8, including in reverse', () => {
+    const source = { ...note(64), start: '1/4', end: '1/2' };
+    const moved = resolveRollMove(source, '1/4', '10/7', time);
+    expect(moved).toMatchObject({ start: '10/7', end: '12/7' });
+    const next = resolveRollMove({ ...source, ...moved! }, '10/7', '2', time);
+    expect(next).toMatchObject({ start: '2', end: '7/3' });
+    expect(resolveRollMove({ ...source, ...next! }, '2', '1/4', time)).toMatchObject({
+      start: source.start,
+      end: source.end,
+    });
+  });
+
+  test('measures both halves of a carry-in note and fits exact boundaries', () => {
+    const source = { ...note(64), start: '3/4', end: '5/4' };
+    expect(resolveRollMove(source, '1', '2', time)).toMatchObject({
+      start: '12/7',
+      end: '55/24',
+    });
+    expect(resolveRollMove(source, '1', '0', time)).toBeNull();
+    expect(resolveRollMove(source, '1', '23/8', time)).toBeNull();
+    expect(resolveRollMove(note(60), '0', '8/3', time)).toMatchObject({ end: '3' });
+    expect(resolveRollMove(note(60), '0', '0', time)).toBeUndefined();
+  });
+
+  test('checks every affected phase in a section and every shared section', () => {
+    const a = { start: '1/4', end: '1/2' };
+    const b = { start: '10/7', end: '12/7' };
+    expect(moveFitsSections(structure, ['verse'], a, b)).toBe(true);
+    expect(moveFitsSections(structure, ['verse'], a, b, 2)).toBe(false);
+    expect(moveFitsSections(structure, ['verse'], a, b, 3)).toBe(true);
+    expect(moveFitsSections(structure, ['verse', 'tail'], a, b, 3)).toBe(false);
+    expect(moveFitsSections(structure, ['verse'], b, a, 2)).toBe(false);
+    expect(moveFitsSections(structure, ['tail'], { start: '1', end: '3' }, a)).toBe(false);
+    expect(spansUseSameCps(time, a, b)).toBe(false);
+    expect(spansUseSameCps(time, { start: '1/2', end: '1' })).toBe(true);
+    expect(spansUseSameCps(time, { start: '1/2', end: '5/4' })).toBe(false);
+  });
+});
 
 describe('piano roll geometry', () => {
   test('equivalent musical lengths have the same width across meter changes', () => {

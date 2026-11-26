@@ -21,15 +21,70 @@ describe('piano roll feedback', () => {
   test('a move carries exact timing and the original identity past regeneration', () => {
     const { edited, notes } = projectRollEdit(
       [note],
-      { kind: 'move', id: 'old', start: '7/8' },
+      { kind: 'move', id: 'old', start: '7/8', end: '9/8' },
       false,
     );
     expect(notes).toEqual(edited);
-    expect(edited[0]).toMatchObject({ start: '7/8', end: '11/8', event: note.event });
-    expect(edited[0]?.visibleEnd).toBeUndefined();
+    expect(edited[0]).toMatchObject({
+      start: '7/8',
+      end: '9/8',
+      visibleEnd: '1',
+      event: note.event,
+    });
     expect(sameRollPosition({ ...edited[0]!, id: 'fresh-host-id' }, notePosition(edited[0]!))).toBe(
       true,
     );
+  });
+
+  test('moves masked fragments together and refreshes their individual parts without moving a unison', () => {
+    const event = {
+      from: ['0', '1'] as [string, string],
+      pitch: 64,
+      voice: 'sine',
+      count: 2,
+      index: 0,
+    };
+    const left = {
+      ...note,
+      id: 'left',
+      start: '0',
+      end: '1',
+      event,
+      visibleStart: '0',
+      visibleEnd: '1/4',
+    };
+    const right = { ...left, id: 'right', visibleStart: '1/2', visibleEnd: '3/4' };
+    const unison = { ...right, id: 'unison', event: { ...event, index: 1 } };
+    const nextCycle = {
+      ...left,
+      id: 'repeat',
+      start: '2',
+      end: '3',
+      visibleStart: '2',
+      visibleEnd: '9/4',
+    };
+    const projected = projectRollEdit(
+      [left, right, unison, nextCycle],
+      { kind: 'move', id: 'right', start: '10/7', end: '12/7' },
+      false,
+    );
+    expect(projected.edited.map((n) => [n.id, n.visibleStart, n.visibleEnd])).toEqual([
+      ['left', '10/7', '3/2'],
+      ['right', '11/7', '23/14'],
+    ]);
+    expect(projected.notes.slice(2)).toEqual([unison, nextCycle]);
+    const refreshed = projected.edited
+      .map((n, index) => ({
+        ...n,
+        id: String(index),
+        event: { ...event, entry: 'roll1' },
+      }))
+      .reverse();
+    const reconciled = reconcileRollNotes(projected.notes, refreshed, new Set(['left', 'right']));
+    expect(reconciled.map((n) => [n.id, n.visibleStart, n.visibleEnd, n.event?.entry])).toEqual([
+      ['left', '10/7', '3/2', 'roll1'],
+      ['right', '11/7', '23/14', 'roll1'],
+    ]);
   });
 
   test('direct retuning flashes notes bound to one source token', () => {

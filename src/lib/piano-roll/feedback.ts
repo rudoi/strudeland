@@ -1,5 +1,6 @@
 import { Fraction } from '@strudel/core';
 import type { PianoRollCommit } from '../project/session';
+import { sameEventOrigin } from './event-source';
 import { resolveRollTarget } from './source';
 import type { RollEdit, RollNote } from './types';
 
@@ -51,10 +52,14 @@ function matchRollNotes(
         (note.event?.entry && candidate.event?.entry !== note.event.entry)
       )
         continue;
+      const samePart =
+        (candidate.visibleStart ?? candidate.start) === (note.visibleStart ?? note.start) &&
+        (candidate.visibleEnd ?? candidate.end) === (note.visibleEnd ?? note.end);
       const score =
-        4 * Number(Boolean(candidate.event?.entry) === edited.has(note.id)) +
-        2 * Number(candidate.event?.voice === note.event?.voice) +
-        Number(candidate.event?.index === note.event?.index);
+        8 * Number(Boolean(candidate.event?.entry) === edited.has(note.id)) +
+        4 * Number(candidate.event?.voice === note.event?.voice) +
+        2 * Number(candidate.event?.index === note.event?.index) +
+        Number(samePart);
       if (score > bestScore) {
         best = candidate;
         bestScore = score;
@@ -108,21 +113,36 @@ export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, di
   }
   const selected = notes.find((note) => note.id === change.id);
   const projected = notes.flatMap((note) => {
-    const linked =
+    const sameToken =
       direct &&
       change.kind === 'pitch' &&
       selected?.origin &&
       note.origin?.from === selected.origin.from &&
       note.origin.to === selected.origin.to;
-    if (note !== selected && !linked) return [note];
+    const sameOccurrence =
+      change.kind === 'move' &&
+      selected?.event &&
+      note.event &&
+      note.event.entry === selected.event.entry &&
+      sameEventOrigin(note.event, selected.event) &&
+      sameRollPosition(note, selected);
+    if (note !== selected && !sameToken && !sameOccurrence) return [note];
     if (change.kind === 'delete') return [];
     let next: RollNote;
     if (change.kind === 'pitch') {
       next = { ...note, pitch: change.pitch };
     } else if (change.kind === 'move') {
-      const length = Fraction(note.end).sub(Fraction(note.start));
-      const end = Fraction(change.start).add(length).toFraction();
-      next = { ...note, start: change.start, end, visibleStart: undefined, visibleEnd: undefined };
+      const start = Fraction(change.start);
+      const scale = Fraction(change.end).sub(start).div(Fraction(note.end).sub(note.start));
+      const moveEdge = (edge: string) =>
+        start.add(Fraction(edge).sub(note.start).mul(scale)).toFraction();
+      next = {
+        ...note,
+        start: change.start,
+        end: change.end,
+        ...(note.visibleStart !== undefined && { visibleStart: moveEdge(note.visibleStart) }),
+        ...(note.visibleEnd !== undefined && { visibleEnd: moveEdge(note.visibleEnd) }),
+      };
     } else {
       next = { ...note, end: change.end, visibleEnd: undefined };
     }

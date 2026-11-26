@@ -403,65 +403,56 @@ function editTime(
   phrase: AuthoredPhrase,
   edit: Exclude<RollEdit, { kind: 'pitch' }>,
   note?: RollNote,
-): { patch: RollPatch; expected: ExpectedNote[] } | undefined {
+): { patches: RollPatch[]; expected: ExpectedNote[] } | undefined {
   if (edit.kind !== 'insert' && (!note?.origin || !note.timeEditable)) return;
-  const boundedPosition = (value: string) => /^\d{1,8}(?:\/\d{1,8})?$/.test(value);
-  let start: Rational;
-  let end: Rational;
-  let pitch: number;
-  if (edit.kind === 'insert') {
-    if (!boundedPosition(edit.start) || !boundedPosition(edit.end)) return;
-    start = fraction(edit.start);
-    end = fraction(edit.end);
-    pitch = edit.pitch;
-    if (!isMidi(pitch)) return;
-  } else {
-    if (!note) return;
-    if (
-      (edit.kind === 'move' && !boundedPosition(edit.start)) ||
-      (edit.kind === 'resize' && !boundedPosition(edit.end))
-    )
-      return;
-    const initial = fraction(note.start);
-    const duration = fraction(note.end).sub(initial);
-    start = edit.kind === 'move' ? fraction(edit.start) : initial;
-    end = edit.kind === 'resize' ? fraction(edit.end) : start.add(duration);
-    pitch = note.pitch;
-    // The general cross-bar move remains a prototype gate.
-    if (start.floor().compare(initial.floor()) !== 0) return;
-  }
-
+  const startEdge = edit.kind === 'move' || edit.kind === 'insert' ? edit.start : note!.start;
+  const endEdge = edit.kind === 'delete' ? note!.end : edit.end;
+  const boundedPosition = (value: string) => /^\d{1,8}(?:\/[1-9]\d{0,7})?$/.test(value);
+  if (!boundedPosition(startEdge) || !boundedPosition(endEdge)) return;
+  const start = fraction(startEdge);
+  const end = fraction(endEdge);
+  const pitch = edit.kind === 'insert' ? edit.pitch : note!.pitch;
+  if (!isMidi(pitch)) return;
   const bar = start.floor().valueOf();
-  const target = phrase.editableBars[bar];
-  if (!target || end.compare(start) <= 0 || end.compare(bar + 1) > 0) return;
+  if (!phrase.editableBars[bar] || end.compare(start) <= 0 || end.compare(bar + 1) > 0) return;
+  const sourceBar = note ? fraction(note.start).floor().valueOf() : bar;
+  if (note && (!phrase.editableBars[sourceBar] || fraction(note.end).compare(sourceBar + 1) > 0))
+    return;
+  if (
+    edit.kind === 'move' &&
+    start.compare(fraction(note!.start)) === 0 &&
+    end.compare(fraction(note!.end)) === 0
+  )
+    return;
   const untouched = phrase.notes.filter((event) => event !== note);
-  const cells = untouched
-    .filter((event) => fraction(event.start).floor().compare(bar) === 0)
-    .map((event) => ({
-      start: fraction(event.start),
-      end: fraction(event.end),
-      spelling: source.slice(event.origin?.from, event.origin?.to),
-    }));
-  if (cells.some((cell) => atomPitch(cell.spelling) === undefined)) return;
-
   const expected: ExpectedNote[] = [...untouched];
+  const spelling = note?.origin ? source.slice(note.origin.from, note.origin.to) : namePitch(pitch);
   if (edit.kind !== 'delete') {
-    const spelling = note?.origin
-      ? source.slice(note.origin.from, note.origin.to)
-      : namePitch(pitch);
-    cells.push({ start, end, spelling });
     expected.push({ start: start.toFraction(), end: end.toFraction(), pitch });
   }
-  cells.sort((a, b) => a.start.compare(b.start));
-  const replacement = serialize(cells, bar);
-  if (replacement === null) return;
-  return {
-    patch: {
+  const affected = sourceBar === bar ? [bar] : [Math.min(bar, sourceBar), Math.max(bar, sourceBar)];
+  const patches: RollPatch[] = [];
+  for (const index of affected) {
+    const target = phrase.editableBars[index];
+    const cells = untouched
+      .filter((event) => fraction(event.start).floor().compare(index) === 0)
+      .map((event) => ({
+        start: fraction(event.start),
+        end: fraction(event.end),
+        spelling: event.origin ? source.slice(event.origin.from, event.origin.to) : '',
+      }));
+    if (index === bar && edit.kind !== 'delete') cells.push({ start, end, spelling });
+    if (cells.some((cell) => atomPitch(cell.spelling) === undefined)) return;
+    cells.sort((a, b) => a.start.compare(b.start));
+    const replacement = serialize(cells, index);
+    if (replacement === null) return;
+    patches.push({
       ...target.span,
-      insert: target.wrap && cells.length ? `[${replacement}]` : replacement,
-    },
-    expected,
-  };
+      insert: target.wrap && replacement.includes(' ') ? `[${replacement}]` : replacement,
+      ...(edit.kind === 'move' && index === bar ? { reveal: true } : {}),
+    });
+  }
+  return { patches, expected };
 }
 
 function noteKeys(notes: readonly ExpectedNote[]): string[] {
@@ -473,15 +464,17 @@ export function planPhraseEdit(
   source: string,
   phrase: AuthoredPhrase,
   edit: RollEdit,
-): RollPatch | null {
+): RollPatch[] | null {
   try {
     const note = edit.kind === 'insert' ? undefined : phrase.notes.find(({ id }) => edit.id === id);
-    let planned: { patch: RollPatch; expected: ExpectedNote[] } | undefined;
+    let planned: { patches: RollPatch[]; expected: ExpectedNote[] } | undefined;
     if (edit.kind === 'pitch') {
       if (!isMidi(edit.pitch) || !note?.origin || !note.pitchEditable) return null;
       const origin = note.origin;
       planned = {
-        patch: { ...origin, insert: namePitch(edit.pitch, source.slice(origin.from, origin.to)) },
+        patches: [
+          { ...origin, insert: namePitch(edit.pitch, source.slice(origin.from, origin.to)) },
+        ],
         expected: phrase.notes.map((event) =>
           event.origin?.from === origin.from && event.origin.to === origin.to
             ? { ...event, pitch: edit.pitch }
@@ -492,20 +485,22 @@ export function planPhraseEdit(
       planned = editTime(source, phrase, edit, note);
     }
     if (!planned) return null;
-    const { patch, expected } = planned;
-    if (source.slice(patch.from, patch.to) === patch.insert) return null;
+    const { patches, expected } = planned;
+    if (patches.every((patch) => source.slice(patch.from, patch.to) === patch.insert)) return null;
     const { input } = phrase;
     const inset = input.kind === 'numeric' ? 0 : 1;
-    const body =
-      source.slice(input.span.from + inset, patch.from) +
-      patch.insert +
-      source.slice(patch.to, input.span.to - inset);
+    const bodyStart = input.span.from + inset;
+    let body = input.body;
+    for (const patch of [...patches].reverse()) {
+      body =
+        body.slice(0, patch.from - bodyStart) + patch.insert + body.slice(patch.to - bodyStart);
+    }
     const projected = readPhrase({ ...input, body });
     if (projected?.bars !== phrase.bars) return null;
     const actual = noteKeys(projected.notes);
     const wanted = noteKeys(expected);
     return actual.length === wanted.length && actual.every((note, i) => note === wanted[i])
-      ? patch
+      ? patches
       : null;
   } catch {
     return null;

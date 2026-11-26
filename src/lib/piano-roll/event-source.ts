@@ -71,6 +71,12 @@ function entriesArray(node: AnyNode) {
   return prop.value;
 }
 
+export function readEventSpec(node: AnyNode) {
+  const data = literalData(node);
+  validateEventSpec(data);
+  return data;
+}
+
 function findExpression(code: string, span: SourceSpan) {
   const stack: { node: AnyNode; property?: AnyNode }[] = [{ node: parse(code, options) }];
   while (stack.length) {
@@ -92,6 +98,34 @@ function findExpression(code: string, span: SourceSpan) {
         )
           stack.push({ node: child, property: node });
       }
+  }
+}
+
+function expressionEntries(node: AnyNode) {
+  if (
+    node.type !== 'CallExpression' ||
+    node.callee.type !== 'MemberExpression' ||
+    node.callee.computed ||
+    node.callee.property.type !== 'Identifier' ||
+    node.callee.property.name !== '_pianoEdits'
+  )
+    return;
+  const spec = node.arguments[0];
+  if (!spec || node.arguments.length !== 1) throw new Error('expected one event spec');
+  const data = readEventSpec(spec);
+  return { entries: data.entries, array: entriesArray(spec) };
+}
+
+export function expressionEditPeriod(source: string, expression: SourceSpan, note: RollNote) {
+  const identity = note.event;
+  if (!identity?.entry) return identity?.period;
+  try {
+    const found = findExpression(source, expression);
+    const saved =
+      found && expressionEntries(found.node)?.entries.find((e) => e.id === identity.entry);
+    return saved?.period ?? identity.period;
+  } catch {
+    return;
   }
 }
 
@@ -122,13 +156,14 @@ function printJs(data: unknown): string {
   return JSON.stringify(data);
 }
 
-function sameEvent(a: EventEditIdentity, b: EventEditIdentity) {
+export function sameEventOrigin(a: EventEditIdentity, b: EventEditIdentity) {
   return (
     a.placement === b.placement &&
     a.from[0] === b.from[0] &&
     a.from[1] === b.from[1] &&
     a.pitch === b.pitch &&
     a.voice === b.voice &&
+    Boolean(a.continuous) === Boolean(b.continuous) &&
     (a.index ?? 0) === (b.index ?? 0) &&
     (a.count ?? 1) === (b.count ?? 1)
   );
@@ -159,24 +194,15 @@ export function planEventEdit(
       const n = found.node;
       scalar = n.type === 'Literal' || n.type === 'TemplateLiteral';
       if (scalar && /\bglobalThis\b/.test(source) && /\breify\b/.test(source)) return null;
-      if (
-        n.type === 'CallExpression' &&
-        n.callee.type === 'MemberExpression' &&
-        !n.callee.computed &&
-        n.callee.property.type === 'Identifier' &&
-        n.callee.property.name === '_pianoEdits'
-      ) {
-        const spec = n.arguments[0];
-        if (!spec || n.arguments.length !== 1) return null;
-        const data = literalData(spec);
-        validateEventSpec(data);
-        existing = data.entries;
-        array = entriesArray(spec);
+      const wrapper = expressionEntries(n);
+      if (wrapper) {
+        existing = wrapper.entries;
+        array = wrapper.array;
       }
     }
     const { entry: originalId, ...identity } = note.event;
     const index = existing.findIndex((e) =>
-      originalId ? e.id === originalId : sameEvent(e, identity),
+      originalId ? e.id === originalId : sameEventOrigin(e, identity),
     );
     let sequence = 1;
     while (source.includes('roll' + sequence)) sequence++;
@@ -184,11 +210,20 @@ export function planEventEdit(
     const entry: EventEditEntry = { ...(prior ?? identity), id: prior?.id ?? 'roll' + sequence };
     if (gesture.kind === 'pitch') entry.key = gesture.pitch;
     if (gesture.kind === 'move') {
-      if (entry.until !== undefined) {
-        const duration = Fraction(entry.until).sub(Fraction(entry.to ?? entry.from[0]));
-        entry.until = Fraction(gesture.start).add(duration).toFraction();
+      const sourceLength = Fraction(entry.from[1]).sub(entry.from[0]);
+      let offset = Fraction(0);
+      if (scope.kind === 'expression' && prior?.period !== undefined) {
+        const previousStart = Fraction(prior.to ?? prior.from[0]);
+        offset = Fraction(note.start).sub(previousStart);
+        if (!offset.mod(prior.period).eq(0)) return null;
+        const previousEnd = prior.until ?? previousStart.add(sourceLength);
+        if (!Fraction(note.end).sub(offset).eq(previousEnd)) return null;
       }
-      entry.to = gesture.start;
+      const start = Fraction(gesture.start).sub(offset);
+      const end = Fraction(gesture.end).sub(offset);
+      entry.to = start.toFraction();
+      if (entry.until !== undefined || !end.sub(start).eq(sourceLength))
+        entry.until = end.toFraction();
     }
     if (gesture.kind === 'resize') entry.until = gesture.end;
     if (gesture.kind === 'delete') entry.remove = true;
