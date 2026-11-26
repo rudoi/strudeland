@@ -21,6 +21,10 @@ the `Codec` seam until stage 005.
    - Replace `encode_mp3` and `encode_mp3_with_loop` with one `pub fn encode_mp3(channels,
      sample_rate, mode, quality, flush: Mp3Flush, loop_range: Option<Range<u64>>)`. It matches
      the flush onto `encode_mp3_file::<FlushNoGap>` or `encode_mp3_file::<FlushGap>`.
+   - `Mp3Flush::NoGap` with `Some(range)` returns `RenderError::Encode("mp3: loop metadata
+     needs the gap flush")` before encoding. No caller asks for it (plain renders have no loop),
+     and a loop is only tagged on a stream a gapless decoder can trim. The `Mp3Flush` doc says
+     so.
    - Keep `encode_mp3_file` as it is.
 2. **`src/encode/mod.rs`:**
    - `pub use mp3::Mp3Flush;`
@@ -49,13 +53,27 @@ the `Codec` seam until stage 005.
      `encode_once(&EncodeRequest { channels, sample_rate, encoder: &options.encoder, mp3_flush:
      Mp3Flush::Gap, loop_range: range })`.
    - `verify::decoded_true_peak_db` stays direct here, until stage 005.
-4. **Callers:**
-   - `tests/encode.rs`: each `encode_once(x, SR, &enc)` becomes `encode_once(&EncodeRequest {
-     channels: x, sample_rate: SR, encoder: &enc, mp3_flush: Mp3Flush::NoGap, loop_range: None
-     })`. Add a local `fn once(x, enc)` helper; `:273-274` becomes `encode_mp3(.., Mp3Flush::Gap,
-     ..)`.
-   - `tests/pipeline.rs:9`/`:551`: the same.
-   - Grep for any other `encode_mp3(`.
+4. **Callers.** Every call site of the public `encode_once`, `encode_mp3` and
+   `encode_mp3_with_loop` (line numbers at the plan commit):
+   - `tests/encode.rs`:
+     - the imports `:6` (`encode_mp3_with_loop`, which becomes `encode_mp3` and `Mp3Flush`) and
+       `:11` (`encode_once`, plus `EncodeRequest`);
+     - `encode_once` at `:228`, `:235`, `:247`, `:407`, `:415`, `:420`, `:431`, `:472`, `:567`,
+       `:576`, `:581`, `:784` and `:834`. Each `encode_once(x, SR, &enc)` becomes
+       `encode_once(&EncodeRequest { channels: x, sample_rate: SR, encoder: &enc, mp3_flush:
+       Mp3Flush::NoGap, loop_range: None })`. Add a local `fn once(x, sample_rate, enc)` helper
+       (`:431` and `:581` pass rate 0);
+     - `encode_mp3_with_loop` at `:273-274`, which becomes `encode_mp3(.., Mp3Flush::Gap, ..)`.
+   - `tests/pipeline.rs`: the import `:9` and the call `:551`, the same way.
+   - In `src/`: `encode/mod.rs`'s own `encode_once`/`encode_once_with_loop` and `Real`, and
+     `loop_export.rs:8`/`:381`.
+   - Then `rg -n "encode_once|encode_mp3" crates/ src-tauri/` to confirm nothing else calls
+     them.
+
+   **These are deliberate public-API changes of the crate:** `encode_once` and `encode_mp3`
+   change signature, and `encode_mp3_with_loop` is deleted (stage 005 deletes `encode::encode`
+   and `encode::Encoded`). No caller outside `strudeland-render` uses any of them (the CLI and
+   app import only top-level items), so nothing outside the crate breaks.
 
 ## Tests
 
@@ -69,6 +87,8 @@ the `Codec` seam until stage 005.
     without one.
   - **`encode_once_honours_the_flush_only_for_mp3`:** for WAV, Ogg and Opus, `NoGap` and `Gap`
     requests give identical bytes.
+  - **`encode_mp3_refuses_a_loop_without_the_gap_flush`:** `NoGap` with `Some(0..n)` is
+    `Err(Encode(..))` with the exact text.
 - **New (`encode/mod.rs`): `loop_points_resample_each_end_for_opus`:**
   - Opus at 44.1 kHz: `147..294` gives `160..320`, and `LoopPoints { start_frame: 160,
     length_frames: 160, sample_rate: 48_000 }`.

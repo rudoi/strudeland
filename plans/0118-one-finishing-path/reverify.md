@@ -55,7 +55,9 @@ paths are under `crates/strudeland-render/` unless stated.
   `src/encode/mod.rs:68-77`.
 - **Opus loop points** are resampled per end with `opus::resampled_len` at 48 kHz
   (`src/loop_export.rs:361-380`).
-- **Progress:** `Encoded { pass }` is emitted once per pass, after every file (`:419`).
+- **Progress:** `Encoded { pass }` is emitted once per pass, after every file's encode and
+  decode and before the correction check (`:419`). An encode or decode error on any file in
+  pass `p` returns with only `Encoded{1..p-1}` emitted.
 - **The correction** is `gain_db -= worst_peak - ceiling + CORRECTION_MARGIN_DB` (`:424`). The
   exhausted warning uses the worst peak (`:427`).
 - **The loudness summary** has `limiter_ceiling_dbtp: None` and `limiter_samples: 0`. Window,
@@ -96,7 +98,10 @@ paths are under `crates/strudeland-render/` unless stated.
 - **No caller outside the crate** uses `encode::encode`, `encode_once`, `encode_mp3` or
   `encode_mp3_with_loop`. The CLI and app import only top-level items (`rg` over
   `crates/strudeland-cli`, `src-tauri`). The in-crate test users are:
-  - `tests/encode.rs:6`, `:11`, `:273-274`, and `:741-756` (the `encode::encode` helper);
+  - `tests/encode.rs`: the imports `:6` and `:11`; `encode_once` at `:228`, `:235`, `:247`,
+    `:407`, `:415`, `:420`, `:431`, `:472`, `:567`, `:576`, `:581`, `:784` and `:834`;
+    `encode_mp3_with_loop` at `:273-274`; and `:739-758` (the `encode_loop` helper over
+    `encode::encode`, returning `encode::Encoded`);
   - `tests/pipeline.rs:9` and `:551`;
   - `bench.rs:349` and `:370` (`finish`).
 - **`src-tauri/src/instruments.rs:126-146`** calls `render_audio`, then `encode_wav` itself. It
@@ -104,7 +109,10 @@ paths are under `crates/strudeland-render/` unless stated.
 
 ### Docs that state only the limiter rule
 
-- **`README.md:122-131`** ("The lossy correction loop"). The loop sentence is at `:107-110`.
+- **`README.md:124-133`** (`### The lossy correction loop`). The loop paragraph is at
+  `:108-111`. "Pipeline and modules" steps 4 and 5 (`:24-32`) put the correction loop in
+  `encode/`, and `## Determinism` is at `:144`.
+- **`AGENTS.md:251-252`** (Layout) lists "the true-peak correction loop" under `encode/`.
 - **`AGENTS.md:397-399`:** "corrected by lowering the limiter ceiling (at most twice, then a
   warning); never loosen that".
 - **`src/lib.rs:273-276`** names `encode::encode`.
@@ -131,7 +139,15 @@ paths are under `crates/strudeland-render/` unless stated.
 - **Lossy encoder floats and the platform `pow`/`log10` can differ by OS and architecture.** The
   golden needs a reference platform, as `jsmath`'s `pow`/`tanh` have (`AGENTS.md` engine rule).
 - **`sha2 = 0.10.9` is already in `Cargo.lock`** (`crates/strudeland-host/Cargo.toml:29`). Use it
-  as an exact-pinned dev-dependency, which `tests/licence.rs` requires.
+  as an exact-pinned dev-dependency, which `tests/licence.rs` requires. The lock also holds
+  `sha2 0.11.1`, so `strudeland-render` gains a `"sha2 0.10.9"` edge (no new package).
+- **`profile.dev.package."*"` (opt-level 3) covers dependencies only** (`Cargo.toml:5-6`). The
+  render crate itself is unoptimised in a debug build; only the encoders are optimised.
+- **`bun run lint` is `prettier --check .`** (`package.json:33`), and `.prettierignore` already
+  excludes the render crate's `tests/vectors/`, not a `tests/golden/`.
+- **`testing::audio`'s `0..1` window** would make `splice` reject any loop start bar above 0
+  ("loop start is outside the planned window", `src/loop_export.rs:75-77`), so loop fixtures
+  override it.
 
 ## Conclusion
 

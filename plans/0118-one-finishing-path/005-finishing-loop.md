@@ -15,8 +15,8 @@ The loop presets' correction gets forced-overshoot tests. There is no behaviour 
 ## Prerequisites
 
 - **Stage 004 is committed,** and the characterization passes.
-- **Read the proposal's** "One finishing loop (stage 005)", including its byte-identity
-  arguments, and Decisions 2, 5 and 6.
+- **Read the proposal's** "One finishing loop (stage 005)", including its progress table and
+  byte-identity arguments, and Decisions 2, 5 and 6.
 - **Keep three reference functions open:** `encode_with` (`encode/mod.rs`), `finish_loop`
   (`loop_export.rs`) and `Prepared::level` (`level/mod.rs`). Each expression below is lifted
   from them.
@@ -25,9 +25,9 @@ The loop presets' correction gets forced-overshoot tests. There is no behaviour 
 
 1. **Create `src/finish.rs`** (`mod finish;` in `lib.rs`), with the module doc: "Finishing: level,
    encode, verify and correct every file cut of a render. One loop, two leveling strategies."
-   - **Move `FileCut`** here from `splice.rs`. Add `FileCut::whole(audio: &RenderedAudio) ->
-     FileCut<'_>`: `Single`, `Cow::Borrowed(&audio.channels)`, bars `window.from_bar..to_bar`,
-     no range.
+   - **Import `FileCut`** from `splice` (it stays defined there). Add `FileCut::whole(audio:
+     &RenderedAudio) -> FileCut<'_>`: `Single`, `Cow::Borrowed(&audio.channels)`, bars
+     `window.from_bar..to_bar`, no range.
    - Add `Leveling`, `Finishing` and `finish_files`, as in the proposal.
    - **The strategy state** is a private enum:
 
@@ -67,14 +67,19 @@ The loop presets' correction gets forced-overshoot tests. There is no behaviour 
      Keep exactly that operand order.
 2. **`finish_files`,** following the proposal's four-step sequence:
    - `setup_warnings` from `setup`;
-   - then the MP3 loop warning, if `format == Mp3 && cuts.iter().any(|c| c.loop_range.is_some())`;
+   - then the MP3 loop warning, if `format == Mp3 && cuts.iter().any(|c| c.loop_range.is_some())`.
+     This equals today's unconditional `format == Format::Mp3` in `finish_loop`
+     (`loop_export.rs:332-334`): every loop preset has a cut with a range, and no Limited cut
+     has one;
    - then `for pass in 1..=MAX_ENCODES`:
      - `pass_warnings.clear()`, `worst = NEG_INFINITY`, and a vector of files.
      - **For each `(index, cut)`:**
        1. time the level;
        2. encode through `codec.encode(&EncodeRequest { .., mp3_flush, loop_range })`, using
           `encode::loop_points` for the range and points;
-       3. if this is the last cut, emit `progress(Progress::Encoded { pass })`;
+       3. **Limited only:** emit `progress(Progress::Encoded { pass })` right after the encode
+          and before the decode, as `encode/mod.rs:165` does. For WAV this is the pass's last
+          step;
        4. if the format is not WAV, drop the leveled channels and decode
           (`codec.decoded_true_peak_db`), then `worst = worst.max(dp)`;
        5. time the encode and decode;
@@ -84,8 +89,12 @@ The loop presets' correction gets forced-overshoot tests. There is no behaviour 
           - Limited leaves them;
           - both set `format`, `bytes`, and `loudness` with `decoded_true_peak_db` and
             `encodes = pass`.
-     - **After the cuts:** if `out.loudness` is `On { true_peak_db: ceiling, .. }` and `worst >
-       ceiling`:
+     - **After the cuts, RepeatSafeStatic only:** emit `progress(Progress::Encoded { pass })`
+       once, after every cut's encode and decode and before the correction check, as
+       `loop_export.rs:419` does. An encode or decode error on any cut in pass `p` therefore
+       leaves only `Encoded{1..p-1}`.
+     - **Then the correction check:** if `out.loudness` is `On { true_peak_db: ceiling, .. }`
+       and `worst > ceiling`:
        - with `pass < MAX_ENCODES`, call `level.correct(worst, ceiling)` and `continue`;
        - otherwise push the exhausted warning (the exact text from `encode_with` and
          `finish_loop`, with `{worst:.2}` and `{ceiling:.1}`).
@@ -122,7 +131,8 @@ The loop presets' correction gets forced-overshoot tests. There is no behaviour 
    - Move the `encode/mod.rs` test `Stub` into `finish.rs`'s tests.
    - It records each request as `(frames, loop_range, mp3_flush)` in a `RefCell<Vec<_>>`.
    - `boost_db` is indexed by decode call: the entry at the decode count, else the last.
-   - Add `fail_decode_at: Option<usize>`, which returns `Err(Encode("stub"))` on that decode.
+   - Add `fail_decode_at: Option<usize>`, which returns `Err(Encode("stub"))` on that decode
+     (0-based over the whole run, across cuts and passes).
 
 ## Tests
 
@@ -172,8 +182,14 @@ The loop presets' correction gets forced-overshoot tests. There is no behaviour 
   - Static intro-loop cuts record `[(.., None, Gap), (.., Some(0..body), Gap)]`.
   - Opus records the resampled range, and the file's `loop_points` has `sample_rate: 48_000`.
 - **`limited_finishes_exactly_one_cut`:** two cuts give the exact error.
-- **`progress_precedes_the_last_decode`:** `fail_decode_at: Some(0)` on one cut gives `Err`, and
-  the events were `[Encoded{1}]`.
+- **`progress_precedes_the_last_decode`** (Limited only): `fail_decode_at: Some(0)` on the one
+  cut gives `Err`, and the events were `[Encoded{1}]`.
+- **`static_progress_follows_the_whole_pass`** (RepeatSafeStatic, ogg):
+  - a one-cut loop with `fail_decode_at: Some(0)` (the only cut) gives `Err`, and the events
+    were `[]`;
+  - intro-loop cuts with `fail_decode_at: Some(1)` (cut 2 of pass 1) give `Err` and `[]`;
+  - a one-cut loop with boosts `[1.0, 0.0]` (pass 1 overshoots) and `fail_decode_at: Some(1)`
+    (pass 2) gives `Err` and `[Encoded{1}]`.
 
 **`tests/encode.rs`:** move `encode_loop_corrects_a_lossy_overshoot_within_two_passes` and
 `encode_loop_reports_but_never_corrects_with_loudness_off` off `encode::encode`. The `encode_loop`

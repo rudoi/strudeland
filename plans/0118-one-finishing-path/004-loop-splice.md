@@ -18,7 +18,8 @@ no behaviour change.
 1. **Create `src/splice.rs`** (`mod splice;` in `lib.rs`), with the module doc: "The loop
    splice: the continuous opening-plus-repeat PCM a loop preset is cut from, and its file cuts."
    - **`FileCut<'a>`** and **`Splice`**, as in the proposal. A `FileCut` from the splice owns its
-     channels (`Cow::Owned`).
+     channels (`Cow::Owned`). `FileCut` is defined here for good: stage 005's `finish.rs`
+     imports it from `splice` rather than moving it.
    - **`splice(...)`** is `loop_export.rs:75-147` moved verbatim. Its inputs:
      - `channels`, which was `audio.channels`;
      - `music_frames`, which was `audio.music_frames`;
@@ -45,15 +46,16 @@ no behaviour change.
    - **`finish_loop`** takes `Vec<FileCut<'_>>`; rename `part` to `cut` and read `&cut.channels`.
      Its logic is unchanged.
    - Delete `Part`.
-3. **Keep the error order:**
-   - "the plan has no loop start";
-   - "loop start is outside the planned window";
-   - the frame conversions;
-   - "loop has no frames";
-   - allocation;
-   - "the plan has inconsistent loop history";
-   - the fold and join errors;
-   - `check_input`.
+3. **Keep the error order exactly** (`loop_export.rs:74-107` at the plan commit):
+   1. "the plan has no loop start" (in `finish_export`);
+   2. "loop start is outside the planned window";
+   3. "loop start is too large" (the start frame's conversion);
+   4. "loop end is too large" (the end frame's conversion);
+   5. "loop has no frames";
+   6. "the combined loop is too large";
+   7. then `copy_opening`'s error ("opening extends past the rendered PCM", "cannot allocate
+      the loop opening") in the bar-0 arm, or "the plan has inconsistent loop history";
+   8. then the fold, the join and `check_input`.
 
 ## Tests
 
@@ -85,7 +87,9 @@ no behaviour change.
   - a body shorter than the loop ("… loop extends past the rendered PCM");
   - a ragged opening (`check_input`'s text).
 - **`the_peak_covers_the_wrap`:** a body with a step at the wrap gives `peak_db >
-  program.true_peak_db`. A smooth one gives `peak_db == program.true_peak_db`.
+  program.true_peak_db`. The program's handoff mirrors the wrap through the 10 ms blend, so the
+  wrap is strictly higher only by the blend's residue: give the opening a last 10 ms that
+  opposes the repeat's tail. A smooth one gives `peak_db == program.true_peak_db`.
 
 ## Validation
 

@@ -63,6 +63,8 @@ The stages run in order. Each one is one commit, green with `cargo test --worksp
     cargo test --workspace > "$S/0118-<stage>-test.log" 2>&1; echo "exit $?" >> "$S/0118-<stage>-test.log"
     ```
 
+  - Stage 001 also runs `bun run lint` once: it adds the golden directory to
+    `.prettierignore`, and `lint` is `prettier --check .`.
   - Building the render crate needs `cmake` and a C compiler. `cargo test -p strudeland-cli`
     needs the V8 download the host brings.
 - **The crate lint** `deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)`

@@ -50,7 +50,7 @@ The [re-verification](0118-one-finishing-path/reverify.md) has the evidence, wit
 | Silence warning | `SILENCE_WARNING` | same | "loudness: skipped normalization … the true-peak ceiling still applies" |
 | Extra warning | none | none | MP3: "mp3 encoder delay and padding can cause gaps …" |
 | Corrected-pass warnings | replace the first pass's (truncate) | same | computed once |
-| `Encoded{pass}` | after the encode, before the decode | same | once per pass, after every file's decode |
+| `Encoded{pass}` | after the encode, before the decode | same | once per pass, after every file's encode and decode, before the correction check |
 | Summary window, frames | the render's | the trimmed render's | each file's own bars and frames |
 | Loudness summary | `limiterCeilingDbtp` and `limiterSamples` from the limiter | same | `limiterCeilingDbtp: null`, `limiterSamples: 0` |
 | Loop points | none | none | input-rate frames, except Opus: resampled to 48 kHz |
@@ -104,17 +104,29 @@ Out:
   - `summaries`: each file's `Summary` as JSON, with `timings` set to `Timings::default()`
     (warnings included);
   - `progress`: each event's `Debug` text.
-- **`STRUDELAND_WRITE_FINISH_GOLDEN=1`** writes the file. Otherwise the test compares case by
-  case and names every differing case and field.
-- **Reference platform:** the comparison runs on macOS aarch64 only, as `jsmath`'s exact
-  `pow`/`tanh` tests do. The gains go through the platform's `pow` and `log10`, and the lossy
-  encoders' float paths differ by architecture. Other platforms run every case (no panic, `Ok`)
-  and skip the comparison with a printed note.
+
+  An expected-error case (the error section below) records `{ name, error, progress }` instead.
+- **Prettier:** `bun run lint` is `prettier --check .`, and serde's pretty JSON is not
+  prettier's layout. Stage 001 adds `crates/strudeland-render/tests/golden/` to
+  `.prettierignore`, beside the render crate's vectors entry.
+- **`STRUDELAND_WRITE_FINISH_GOLDEN=1`** writes the file, and refuses (fails the test without
+  writing) unless the target is macOS aarch64. Otherwise the test compares case by case and
+  names every differing case and field.
+- **Reference platform:** the comparison runs on macOS aarch64 only. The `jsmath` precedent
+  (`crates/strudeland-engine/tests/v8_math.rs:31`) gates on `target_os = "macos"` alone; the
+  golden's `macos` plus `aarch64` is stricter, because the lossy encoders' float paths differ by
+  architecture as well as the platform's `pow` and `log10`. The macOS workflow
+  (`.github/workflows/macos.yml`: `macos-15`, arm64, a debug `cargo test --locked --workspace`)
+  enforces it on every push. Other platforms run every case (no panic, the expected `Ok` or
+  error) and skip the comparison with a printed note. Stage 001 also runs the golden once under
+  `--release`, to show the comparison holds in both profiles.
 - **Seam:** stage 001 makes one move, with no behaviour change. The body of `render_export`
   after `render_audio_for` becomes `pub(crate) fn finish_export(pipeline: PipelineAudio, preset:
   ExportPreset, out: &OutputOptions, progress: &dyn Fn(Progress)) -> Result<Vec<ExportFile>,
   RenderError>`. Standard cases enter through the public `finish`. These two entry points are
-  the test's only calls into the pipeline, and both survive every later stage.
+  the test's only calls into the pipeline, and both survive every later stage. `PipelineAudio`
+  and `LoopAudio` need no visibility change: they are private items of the crate root, so its
+  descendant modules (`loop_export`, `characterization`) already see them and their fields.
 - **`testing::audio(channels, sample_rate) -> RenderedAudio`:** a doc-hidden fixture with one
   linear window, no chunks and an empty structure. `testing::structure()` gives the empty
   structure. Both are compiled into non-test builds: no `unwrap` and no indexing. Stage 005's
@@ -127,6 +139,12 @@ Out:
     - `tagged-loop` and `folded-loop` with the loop at bar 0 (no isolated body, tail on the
       opening, longer than one body so it folds twice);
     - `intro-loop` at bar 0.
+
+    Each is a 4-bar window at cps 2.0 (0.5 s per bar, a 2 s window). `testing::audio` gives a
+    `0..1` window, so the loop fixtures override it explicitly, or `splice` fails with "loop
+    start is outside the planned window": `summary.window.to_bar = 4`, `cps = 2.0`, a start bar
+    inside `0..4`, and for the bar-0 tail case `music_frames` (the window) shorter than the
+    channels (window plus tail).
   - **Formats:** wav16, wav24, wav f32, mp3 cbr, mp3 vbr V2, ogg q6 and opus 160.
   - **Loudness:** on (-14 LUFS, -1 dBTP) and off.
   - **Extra cases:**
@@ -134,15 +152,44 @@ Out:
     - hot input over 0 dBTP with loudness off (standard and folded; wav24 and mp3 cbr);
     - **forced overshoots:** dense seeded noise at -3 LUFS / -1 dBTP for standard, one-shot,
       intro-loop and folded-loop, in mp3 cbr, ogg and opus.
+    - **the wrap peak:** a folded (or tagged) loop whose repeat has a step at the wrap, so the
+      wrap peak sets `gain_db`. The handoff in the program mirrors the wrap through the 10 ms
+      blend, so the wrap wins only by the blend's residue: make the opening's last 10 ms oppose
+      the repeat's tail, so the handoff is slightly lower than the wrap. WAV, loudness on with a
+      target whose ideal gain exceeds the cap.
+    - **an unmeasurable body:** an intro-loop whose loop cut is under 400 ms (its
+      `input_lufs`/`output_lufs` are `-inf`) while the program is measurable. `LoopAudio`'s
+      `start_frame` is set inside the last bar (for example `music_frames - 0.3 s`), since
+      `splice` does not tie the frame to the bar.
+    - **a silent two-cut intro-loop:** zeros in the loop fixture's shape, loudness on. The cap
+      is `+inf` and the ideal 0 (unmeasurable), so `gain_db == 0.0`: the 0 dB shortcut, with
+      `after = before`.
+  - **The error section** (expected errors, recorded as `{ name, error, progress }`):
+    - `Ogg { quality: 99 }` for standard, one-shot and intro-loop: an `Encode` error, with no
+      `Encoded` event;
+    - a NaN sample, for standard and one loop preset: `check_input`'s text ("the render
+      contains a non-finite sample (frame …, channel …)"), with no `Encoded` event.
+
+    The test asserts that exactly these cases error and every other case is `Ok`, so a fixture
+    mistake is caught.
   - **The overshoot guard:** the test asserts that at least one Limited case and one loop case
     in the overshoot group have `encodes >= 2`. If the real codecs do not overshoot, raise the
     target until they do, so the correction paths are pinned.
+  - **The cap guards,** read from the summaries alone (WAV cases, one pass, one cut, so
+    `input_*` is the program's):
+    - one loop case binds the cap on its own peak: `gain_db == ceiling_dbtp -
+      input_true_peak_db`, bit for bit, and `gain_db < target_lufs - input_lufs`;
+    - the wrap case takes `peak_db` from the wrap: `gain_db < ceiling_dbtp -
+      input_true_peak_db` and `gain_db < target_lufs - input_lufs`.
 - **The synthetic PCM:** 2.0 s stereo at 44.1 kHz. It is a seeded LCG noise bed (the
   `noise()` of `encode/mod.rs` tests) under two sines, so that LUFS is finite and the limiter
   engages at -14 LUFS for the hot variant. One-shot input has a decaying tail after
   `music_frames` and then exact zeros, so the trim is observable.
-- **Dev-dependency:** `sha2 = "=0.10.9"`. It is already in `Cargo.lock` through
-  `strudeland-host`, and `tests/licence.rs` requires exact pins.
+- **Dev-dependency:** `sha2 = "=0.10.9"`. The package is already in `Cargo.lock` through
+  `strudeland-host` (beside `sha2 0.11.1`), so the lock gains only the `"sha2 0.10.9"` edge in
+  `strudeland-render`'s dependency list, no new package. Commit that lock change: CI builds with
+  `--locked`. `tests/licence.rs` (`every_dependency_is_pinned_exactly`) accepts a `= "=…"`
+  dev-dependency line, and sha2 is MIT OR Apache-2.0.
 
 ### Planning split (stage 002)
 
@@ -169,9 +216,17 @@ pub(crate) fn render_planned(
   3. `plan::plan`;
   4. `render_planned(.., &EngineChunks, ..)`.
 
-  Lines `lib.rs:105-246` move into `render_planned` unchanged, except that `renderer.render` is
-  called where `strudeland_engine::render` or `render_with_stems` is called today. `total_ms`
-  still runs from `started`.
+  Lines `lib.rs:105-246` move into `render_planned` as a pure cut and paste, with two closure
+  substitutions: the opening pass's `match &stems` closure (`:166-169`) becomes `|job|
+  renderer.render(job, stems.as_ref())`, and the repeat pass's plain `strudeland_engine::render`
+  (`:199`) becomes `|job| renderer.render(job, None)`. The repeat pass passes `None` as the stem
+  layout because it does today. `total_ms` still runs from `started`.
+- **The tests' expected values come from reading `lib.rs:105-246` before the move,** not from
+  the moved code, so a slip in the paste cannot set its own expectations.
+- **Error types:** `ChunkRenderer::render` returns `strudeland_engine::JobError`, as
+  `render_window`'s closure does today. The per-hap errors a fake returns in `Rendered.errors`
+  are `strudeland_engine::RenderError` (imported as `EngineRenderError`, as `render.rs:8`
+  does).
 - **`PipelineAudio`, `LoopAudio` and `AudioMode` stay as they are.**
 
 ### Encode request (stage 003)
@@ -207,6 +262,19 @@ pub(crate) struct Real;
 
 - **`encode_mp3_with_loop` and `encode_once_with_loop` are deleted.** `encode_once` takes the
   request.
+- **Deliberate public-API changes of the crate.** `encode::encode` and `encode::Encoded`
+  (deleted in stage 005), `encode_once` (new signature), `encode_mp3` (new signature) and
+  `encode_mp3_with_loop` (deleted) are `pub` today. No caller outside `strudeland-render` uses
+  them (`rg` over the workspace finds none in `strudeland-cli`, `src-tauri` or any other
+  crate), so these are intended removals and changes, not breaks.
+- **`Mp3Flush::NoGap` with `Some(range)` is an `Encode` error** ("mp3: loop metadata needs the
+  gap flush"). No caller asks for it: a loop is only tagged on a stream a gapless decoder can
+  trim.
+- **Every call site to update in stage 003** (line numbers at the plan commit):
+  - `tests/encode.rs`: the imports `:6` (`encode_mp3_with_loop`) and `:11` (`encode_once`);
+    `encode_once` at `:228`, `:235`, `:247`, `:407`, `:415`, `:420`, `:431`, `:472`, `:567`,
+    `:576`, `:581`, `:784` and `:834`; `encode_mp3_with_loop` at `:273-274`;
+  - `tests/pipeline.rs`: the import `:9` and the call `:551`.
 - **The flush stays crate-internal to rendering.** It is a field of the encode request, not of
   the user-facing `EncoderOptions`, so the CLI, the app and `RenderOptions` are untouched.
 - **The flush per path:** `finish` → `NoGap`; one-shot → `Gap`; loop files → `Gap`.
@@ -238,6 +306,18 @@ pub(crate) fn splice(channels: Vec<Vec<f32>>, music_frames: u64, window: Planned
 
 - **What moves to `splice.rs`:** `copy_opening`, `fold_tail`, `join_opening` and `wrap_peak`,
   with their tests, and `loop_export.rs:69-147`. Every error text stays the same.
+- **`FileCut` is defined in `splice.rs` and stays there.** Stage 005's `finish.rs` imports it
+  (and adds `FileCut::whole` in an `impl` there or in `splice.rs`); it does not move between
+  stages.
+- **The error order is kept exactly** (`loop_export.rs:74-107`):
+  1. "the plan has no loop start" (stays in `finish_export`);
+  2. "loop start is outside the planned window";
+  3. "loop start is too large" (the start frame's conversion);
+  4. "loop end is too large" (the end frame's conversion);
+  5. "loop has no frames";
+  6. "the combined loop is too large";
+  7. then either `copy_opening`'s error (bar 0) or "the plan has inconsistent loop history";
+  8. then the fold, the join and `check_input`.
 - **What `finish_export` keeps:** the measure timing (`measure_start` and `summary.timings.level_ms`)
   around the call.
 - **`trim_silent_post_roll` stays** in `loop_export.rs`.
@@ -255,7 +335,7 @@ pub(crate) enum Leveling {
     RepeatSafeStatic { program: Measure, peak_db: f64 },
 }
 pub(crate) struct Finishing<'a> {
-    pub cuts: Vec<FileCut<'a>>,  // FileCut moves here from splice.rs
+    pub cuts: Vec<FileCut<'a>>,  // FileCut is imported from splice.rs
     /// The render's summary: the base of every file's.
     pub summary: Summary,
     pub leveling: Leveling,
@@ -276,7 +356,9 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
      `ceiling` and `gain_db`, with the off ("may clip") and unmeasurable setup warnings,
      exactly as `loop_export.rs:298-331`.
    - **MP3 with a loop:** when the format is MP3 and any cut has a loop range, push the MP3 loop
-     warning after the strategy's setup warnings.
+     warning after the strategy's setup warnings. This equals today's unconditional `format ==
+     Format::Mp3` in `finish_loop` (`loop_export.rs:332-334`): every loop preset has a cut with
+     a range (the intro-loop's loop cut, the tagged or folded cut), and no Limited cut has one.
 2. **Each pass, 1 to `MAX_ENCODES`, visits the cuts in order.** For each cut:
    1. Level it:
       - **Limited:** `prepared.level(trim, &mut pass_warnings)`.
@@ -284,14 +366,18 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
         f32`, skipped when `gain_db == 0.0`. `after` is `before` when the gain is 0, else
         `measure`.
    2. Encode through `codec.encode` with `mp3_flush` and `loop_points(format, range, rate)`.
-   3. After the pass's **last** cut is encoded, and before its decode, emit
-      `Progress::Encoded { pass }`.
+   3. **Limited only:** emit `Progress::Encoded { pass }` right after the encode, before the
+      decode (`encode/mod.rs:165`). For WAV that is the last thing the pass does.
    4. If the format is not WAV, decode through `codec.decoded_true_peak_db`. Track the worst
       decoded peak.
    5. Build the file's `LoudnessSummary`:
       - **Limited:** the leveled summary, with `decoded_true_peak_db` and `encodes` set.
       - **Static:** `limiter_ceiling_dbtp: None` and `limiter_samples: 0`, as
         `loop_export.rs:399-412`.
+
+   **RepeatSafeStatic only:** after every cut of the pass is encoded and decoded, and before
+   the correction check, emit `Progress::Encoded { pass }` once (`loop_export.rs:419`). So an
+   encode or decode error on any cut in pass `p` leaves only `Encoded{1..p-1}`.
 3. **Correct after the pass.** With `Loudness::On`, a worst peak over the ceiling, and a pass
    below `MAX_ENCODES`:
    - **Limited:** `trim -= worst - ceiling + CORRECTION_MARGIN_DB`.
@@ -307,6 +393,25 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
      level time`, and `encode_ms` is set. `total_ms += level_ms + encode_ms`. Warnings are the
      setup warnings, then the last pass's warnings, then the exhausted warning, appended after
      the render's.
+
+**Progress is unchanged per strategy.** On every real path `Planned` and the
+`ChunkRendered*` events come first, from `render_audio_for`; the characterization enters below
+planning, so it records only the finishing events. The finishing events, today and after stage
+005:
+
+| Path | Outcome | Finishing events |
+|---|---|---|
+| Limited (standard, one-shot) | lossy, ends in pass `n` (1 to 3) | `Encoded{1}` … `Encoded{n}` |
+| Limited | WAV (emits, then returns undecoded) | `Encoded{1}` |
+| Limited | loudness off, lossy | `Encoded{1}` |
+| Limited | overshoot after 2 corrections | `Encoded{1}`, `Encoded{2}`, `Encoded{3}`, then the exhausted warning |
+| Limited | `prepare` or `check_input` error (NaN, ragged), one-shot trim error | none |
+| Limited | encode error in pass `p` | `Encoded{1}` … `Encoded{p-1}` |
+| Limited | decode error in pass `p` | `Encoded{1}` … `Encoded{p}` (emitted before the decode) |
+| Loop presets | splice error (no loop start, window, frames, history, fold, join) or `check_input` | none, before any `Encoded` |
+| Loop presets | ends in pass `n` (WAV and loudness off: `n = 1`) | `Encoded{1}` … `Encoded{n}` |
+| Loop presets | overshoot after 2 corrections | `Encoded{1}`, `Encoded{2}`, `Encoded{3}`, then the exhausted warning |
+| Loop presets | encode or decode error on any cut in pass `p` | `Encoded{1}` … `Encoded{p-1}` |
 
 **Callers:**
 
@@ -330,7 +435,9 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
   decode and no correction.
 - **One-shot:** the trim already set frames and seconds to the cut's, and Limited leaves them.
 - **The `level_ms` base is 0** for every Limited input today: `render_audio_for` sets 0, and the
-  trim adds to `render_ms`.
+  trim adds to `render_ms`. So `finish_files`'s `base + level time` equals `finish_file`'s plain
+  assignment for Limited, and `finish_loop`'s `summary.timings.level_ms + …` for Static.
+- **Progress:** each strategy keeps its own emit point (the table above), so no event moves.
 
 ## Tests
 
@@ -364,6 +471,7 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
     `Gap` and no range equals the old standalone bytes (the characterization covers this too).
   - **`loop_points` unit tests:** Opus at 44.1 kHz (147..294 → 160..320, length 160, rate
     48000); WAV, Ogg and MP3 are the identity.
+  - **`Mp3Flush::NoGap` with a loop range** is the `Encode` error, with its exact text.
   - The `encode/mod.rs` stub implements the request signature.
 - **Stage 004, `splice.rs` tests:**
   - the three moved helper tests;
@@ -374,7 +482,8 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
   - **bar 0 with a two-body tail:** folded twice, so the body equals the sum;
   - **errors, with exact text:** "the plan has no loop start" stays in `finish_export`. The
     splice errors are "loop start is outside the planned window", "loop has no frames" and "the
-    plan has inconsistent loop history" (`Some` body at start 0, `None` body at start > 0);
+    plan has inconsistent loop history" (`Some` body at start 0, `None` body at start > 0), in
+    the order of "Loop splice (stage 004)";
   - `peak_db >= program.true_peak_db`, and equality when the wrap is quieter.
 - **Stage 005, `finish.rs` tests** with the stub, extended to record each request's frames,
   loop range and flush, and to boost by decode index:
@@ -398,9 +507,13 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
     - the one-shot through Limited records `Gap` with no range;
     - loop cuts record `Gap` with their ranges, resampled for Opus.
   - **Limited with two cuts** is an error.
-  - **Progress is emitted before the last cut's decode:** a stub decode error on the last cut
-    still recorded `Encoded{1}`.
-- **`tests/encode.rs:741-847`** (`encode_loop_*` through the public `encode::encode`) move to
+  - **Progress keeps each strategy's emit point** (the progress table):
+    - **Limited:** a stub decode error on the only cut still recorded `Encoded{1}`.
+    - **Static, one-cut loop:** a decode failure on the only cut gives `Err` and no events.
+    - **Static, intro-loop:** a decode failure on cut 2 of pass 1 gives `Err` and no events.
+    - **Static, pass 2:** an overshoot in pass 1, then a decode failure in pass 2, gives `Err`
+      and `[Encoded{1}]`.
+- **`tests/encode.rs:739-847`** (`encode_loop_*` through the public `encode::encode`) move to
   `strudeland_render::finish(&testing::audio(input, SR), ..)` and read `summary.loudness` and
   `summary.warnings`.
 - **`tests/pipeline.rs`** stays as it is, except for the `encode_once` import (request form).
@@ -419,9 +532,6 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
   drift.
 - **Warnings per pass versus once.** Limited's prepared warnings must not accumulate across
   passes, and Static's setup warnings must not repeat. Pinned by the golden and the stub tests.
-- **Progress order and timing.** The emit point is unified to "after the pass's last encode".
-  For a loop preset this is earlier than today by the final decode. It is observable only when a
-  verify decode fails, which is an internal error of our own output (Decision 6).
 - **Opus loop points.** The resampling is per end (`resampled_len(start)..resampled_len(end)`),
   never by length. The golden includes Opus loop cases.
 - **Platform libm.** The golden is judged on macOS aarch64 only. Other CI platforms run the
@@ -430,9 +540,11 @@ pub(crate) fn finish_files(finishing: Finishing<'_>, out: &OutputOptions, codec:
   `splice.rs` and `finish.rs` are non-test code.
 - **Windows `clippy::result_large_err`.** Box any new large `Err` payload; `export/error.rs:40`
   is the precedent. No new error type is planned.
-- **Test runtime.** About 120 cases with LAME, Vorbis and Opus. The dependencies build at
-  opt-level 3 in dev, and 2 s inputs keep this to seconds. Measure it in stage 001 and shorten
-  the inputs if it is over 30 s.
+- **Test runtime.** About 120 cases with LAME, Vorbis and Opus. `profile.dev.package."*"` (opt
+  level 3) applies to dependencies only, so the encoders are optimised in a debug build but the
+  render crate itself (measuring, limiting, true peak, the splice) is not. The loop fixtures use
+  cps 2.0, so a 4-bar window is 2 s rather than 8 s. Measure the run time in stage 001 and
+  shorten the inputs (keeping them over 400 ms) if it is over 30 s.
 
 ## Complexity
 
@@ -453,9 +565,11 @@ green on its own, with the golden unchanged.
    It is refreshed only on encoder crate bumps, and must pass unchanged after every stage.
 5. **Per-strategy warning texts, summary shapes and progress granularity are kept,** with one
    `Encoded{pass}` per pass per group.
-6. **`Encoded{pass}` is emitted after the pass's last encode, before that file's decode.** This
-   is Limited's point today. A loop preset emits it one decode earlier, which is visible only on
-   a verify-decode error. Success-path order and count are unchanged.
+6. **Progress is unchanged per strategy, with no visible change.** The emit point is a property
+   of the strategy: Limited emits `Encoded{pass}` right after the encode and before the decode
+   (WAV emits, then returns); RepeatSafeStatic emits it once after the whole pass's encode and
+   decode loop, before the correction check. The success and failure orders in the progress
+   table are today's, and the stage 005 stub tests pin both.
 7. **The flush lives on `EncodeRequest`, not `EncoderOptions`.** This keeps the CLI, the app and
    `RenderOptions` untouched.
 8. **The glossary names:**
@@ -466,6 +580,7 @@ green on its own, with the golden unchanged.
 
    "Part" and "arrangement" are avoided per the glossary, and so is "layout", the transport's
    term.
-9. **The golden is judged on macOS aarch64 only,** following the `jsmath` precedent.
+9. **The golden is judged on macOS aarch64 only,** following and tightening the `jsmath`
+   precedent (which gates on macOS alone). The macOS workflow runs it on every push.
 10. **The characterization enters through `finish` and `finish_export`.** These are the two
     seams that survive every stage, so its test file is not edited after stage 001.

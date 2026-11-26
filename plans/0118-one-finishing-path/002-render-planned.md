@@ -25,7 +25,9 @@ tested on hand-built plans with synthetic PCM. There is no behaviour change.
    ```
 
    `EngineChunks` calls `strudeland_engine::render_with_stems(job, layout)` for `Some` and
-   `strudeland_engine::render(job)` for `None`.
+   `strudeland_engine::render(job)` for `None`. The error type is `strudeland_engine::JobError`,
+   as `render_window`'s closure has today; the per-hap errors inside `Rendered.errors` are
+   `strudeland_engine::RenderError` (`EngineRenderError`, as `render.rs:8` imports it).
 2. **`pub(crate) struct PlanTiming { pub started: Instant, pub plan_ms: f64 }`.**
 3. **`render_planned`:**
 
@@ -35,11 +37,15 @@ tested on hand-built plans with synthetic PCM. There is no behaviour change.
        -> Result<PipelineAudio, RenderError>
    ```
 
-   Its body is `lib.rs:105-246` moved verbatim. `planned` is taken by value, and `let mut
-   planned` is used for `take_jobs`. There are two substitutions:
-   - **The opening pass's closure** becomes `|job| renderer.render(job, stems.as_ref())`.
-   - **The repeat pass's `strudeland_engine::render`** becomes `|job| renderer.render(job,
-     None)`.
+   Its body is `lib.rs:105-246`, moved as a pure cut and paste. `planned` is taken by value,
+   and `let mut planned` is used for `take_jobs`. There are exactly two substitutions:
+   - **The opening pass's closure** (the `match &stems` at `:166-169`) becomes `|job|
+     renderer.render(job, stems.as_ref())`.
+   - **The repeat pass's plain `strudeland_engine::render`** (`:199`) becomes `|job|
+     renderer.render(job, None)`. The repeat pass passes `None` as the stem layout because it
+     renders without stems today.
+
+   Nothing else in the moved lines changes: no reordering, renaming or tidying.
 
    `total_ms` is `ms_since(timing.started)` and `plan_ms` is `timing.plan_ms`.
 4. **`render_audio_for`:**
@@ -57,6 +63,11 @@ tested on hand-built plans with synthetic PCM. There is no behaviour change.
 ## Tests
 
 These go in `#[cfg(test)]` in the file that holds `render_planned`.
+
+**Expected values** come from reading `lib.rs:105-246` at the stage's start, before the move,
+not from the moved code: the error texts, the progress offsets, the `jobs` and `chunks`
+arithmetic and the warning order. A slip in the paste then fails a test instead of setting its
+expectation.
 
 **Helpers:**
 
@@ -86,6 +97,7 @@ These go in `#[cfg(test)]` in the file that holds `render_planned`.
 - **`missing_frames_fall_back_to_the_window`:** `music_frames: None` and `loop_start_frame:
   None`. `loop_audio.start_frame == join::window_frames(from, start_bar, cps)`.
 - **`the_isolated_body_renders_after_the_opening`:** an export with `repeat` holding one chunk.
+  The `Ramp` saw `None` as the layout for the repeat chunk.
   - Progress is `Planned{2}` and `ChunkRendered{0,2}`, then `ChunkRendered{1,2}`. The repeat's
     index is offset.
   - `loop_audio.isolated_body` is the repeat ramp plus its tail.
@@ -101,8 +113,10 @@ These go in `#[cfg(test)]` in the file that holds `render_planned`.
     every chunk.
   - `music_frames: Some(1 << 29)` gives the `stems::validate_budget` error before any render
     (`Ramp` calls 0).
-- **`engine_errors_become_render_warnings`:** a `Ramp` with one `EngineRenderError` and a plan
-  error. `summary.warnings` is `["plan: …", "render: …"]`.
+- **`engine_errors_become_render_warnings`:** a `Ramp` whose `Rendered.errors` holds one
+  `strudeland_engine::RenderError` (`EngineRenderError::new(ErrorKind::Hap, .., Some(bar))`), and
+  a plan error. `summary.warnings` is `["plan: …", "render: …"]`, in the order
+  `render::warnings` gives.
 
 The existing `tests/pipeline.rs` and `tests/stems.rs` cover the real path unchanged.
 
