@@ -11,6 +11,7 @@ use strudeland_ctl::{
     SongRenameParams, SongSwitchParams, StopResult, codes,
 };
 use strudeland_project::{InstrumentLibrary, Project, ProjectError, RecordingEntry, Sidecar};
+use strudeland_render::export::{self, Finished, ReplacePolicy};
 use strudeland_transcribe::load::{Span, load_wav_span};
 use strudeland_transcribe::report::BackingReport;
 use strudeland_transcribe::{
@@ -24,7 +25,7 @@ use crate::cli::{
 };
 use crate::docs;
 use crate::output::{self, Report};
-use crate::render::{self, Destination, ProgressLines, RenderBackend, StrudelandBackend};
+use crate::render::{self, ProgressLines};
 use crate::skill;
 
 mod instruments;
@@ -132,17 +133,17 @@ impl From<CallError> for Failure {
 
 /// Runs a command and returns the process exit code.
 pub fn run(cli: &Cli, transport: &mut dyn Transport, env: &mut Env) -> i32 {
-    run_with(cli, transport, &mut StrudelandBackend, env)
+    run_with(cli, transport, &mut export::RealPipeline, env)
 }
 
-/// [`run`] with the render pipeline injected.
+/// [`run`] with the export pipeline injected.
 pub fn run_with(
     cli: &Cli,
     transport: &mut dyn Transport,
-    backend: &mut dyn RenderBackend,
+    pipeline: &mut dyn export::Pipeline,
     env: &mut Env,
 ) -> i32 {
-    match execute(cli, transport, backend, env) {
+    match execute(cli, transport, pipeline, env) {
         Ok(code) => code,
         Err(f) => {
             let _ = writeln!(env.stderr, "{}", f.message());
@@ -209,13 +210,13 @@ fn stdout_only(stdout: String) -> Report {
 fn execute(
     cli: &Cli,
     transport: &mut dyn Transport,
-    backend: &mut dyn RenderBackend,
+    pipeline: &mut dyn export::Pipeline,
     env: &mut Env,
 ) -> Result<i32, Failure> {
     let json = cli.json;
     match &cli.command {
         Command::Mcp => Ok(mcp::serve(cli.socket.clone(), cli.timeout, env.stderr)),
-        Command::Render(args) => run_render(args, json, backend, env),
+        Command::Render(args) => run_render(args, json, pipeline, env),
         Command::Instrument { command } => run_instrument(
             command,
             json,
@@ -479,46 +480,32 @@ fn run_docs(name: Option<&str>, search: Option<&str>, json: bool, env: &mut Env)
 fn run_render(
     args: &crate::cli::RenderArgs,
     json: bool,
-    backend: &mut dyn RenderBackend,
+    pipeline: &mut dyn export::Pipeline,
     env: &mut Env,
 ) -> Result<i32, Failure> {
     let code = read_utf8_file(&args.song, &args.song.display().to_string())?;
-    let mut plan = render::plan(args).map_err(Failure::Render)?;
-    if let Some((project, _)) = Project::find(&args.song) {
-        plan.opts.instruments = project.instrument_snapshot().map_err(Failure::Project)?;
-    }
-    let lines = ProgressLines::new(&mut *env.stderr);
-    let progress = |p| lines.report(p);
-    let summary = match plan.destination {
-        Destination::Standard(target) => {
-            let out = backend
-                .render(&code, &plan.opts, &progress)
-                .map_err(Failure::Render)?;
-            let path = backend
-                .write(&out, &target, &progress)
-                .map_err(Failure::Render)?;
-            lines.warnings(&out.summary.warnings);
-            if json {
-                format!("{}\n", render::json_line(&out.summary, &path))
-            } else {
-                render::human_summary(&out.summary, &path)
-            }
-        }
-        Destination::Export(export) => {
-            let files = backend
-                .render_export(&code, &plan.opts, export.preset, &progress)
-                .map_err(Failure::Render)?;
-            export
-                .write(&files, backend, &lines, json)
-                .map_err(Failure::Render)?
-        }
-        Destination::Stems { grouping, target } => {
-            let export = backend
-                .render_stems(&code, &plan.opts, grouping, &target, &progress)
-                .map_err(Failure::Render)?;
+    let prepared = render::prepare(args).map_err(Failure::Render)?;
+    let instruments = match Project::find(&args.song) {
+        Some((project, _)) => project.instrument_snapshot().map_err(Failure::Project)?,
+        None => Default::default(),
+    };
+    let preset = prepared.preset().is_some();
+    let summary = {
+        let lines = ProgressLines::new(&mut *env.stderr);
+        let finished = prepared
+            .run(
+                pipeline,
+                &code,
+                ReplacePolicy::Always,
+                None,
+                instruments,
+                &|e| lines.event(e, preset),
+            )
+            .map_err(|e| Failure::Render(render::failure(&lines, e)))?;
+        if let Finished::Stems { export, .. } = &finished {
             lines.warnings(&export.summary.warnings);
-            render::stems_summary(&export, grouping, json)
         }
+        render::summary(&finished, json)
     };
     let _ = env.stdout.write_all(summary.as_bytes());
     let _ = env.stdout.flush();
