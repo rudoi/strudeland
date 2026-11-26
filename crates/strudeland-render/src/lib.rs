@@ -118,7 +118,7 @@ fn render_audio_for(
     )
 }
 
-/// Steps 5 and 6: level and encode a joined buffer, verifying and correcting a lossy file's
+/// Step 5 (finish): level and encode a joined buffer, verifying and correcting a lossy file's
 /// decoded true peak, through the finishing loop with limited leveling (the static gain, then the
 /// true-peak limiter). Callable several times on one [`RenderedAudio`]. The summary starts from
 /// `audio.summary` and gains the format, size, loudness and timings; level and encoder warnings
@@ -142,7 +142,9 @@ pub fn finish(
     let mut files = files.into_iter();
     match (files.next(), files.next()) {
         (Some(file), None) => Ok(file.output),
-        _ => Err(RenderError::render("finishing returned no file")),
+        _ => Err(RenderError::render(
+            "finishing did not return exactly one file",
+        )),
     }
 }
 
