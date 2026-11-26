@@ -736,8 +736,26 @@ impl StageSpec {
     }
 }
 
-/// The plan of a voice: its source kind, the stage specs `Voice::build` walks, which FM
-/// modulators are noise, and superdough's `nodes` tracker in insertion order (`Object.keys`
+/// One FM matrix side as planned: the modulator number (1..=8), its position in creation
+/// order, and whether this side creates it (its first use in the walk).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FmSide {
+    pub idx: usize,
+    pub pos: usize,
+    pub first_use: bool,
+}
+
+/// One entry of `applyFM`'s matrix walk as planned: the source side, then the target side
+/// (`None` for the carrier), and whether the entry connects (its target is the carrier or a
+/// modulator that is not noise).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FmStep {
+    pub sides: [Option<FmSide>; 2],
+    pub connects: bool,
+}
+
+/// The plan of a voice: its source kind, the stage specs `Voice::build` walks, the FM matrix
+/// walk, which FM modulators are noise, and superdough's `nodes` tracker in insertion order (`Object.keys`
 /// order: a later write of a key replaces its list in place). [`NodeTable::plan`] is the only
 /// constructor besides [`NodeTable::empty`]; the modulator loop adds `lfo_<id>`/`env_<id>`.
 #[derive(Debug, Clone)]
@@ -745,6 +763,8 @@ pub struct NodeTable {
     entries: Vec<(FxKey, String, NodeList)>,
     source: SourceKind,
     specs: Vec<StageSpec>,
+    /// The FM matrix walk, one step per matrix entry in order.
+    fm_steps: Vec<FmStep>,
     /// Per FM modulator position, whether it plays noise (no `frequency` param).
     fm_noise: Vec<bool>,
 }
@@ -820,6 +840,11 @@ impl NodeTable {
         &self.specs
     }
 
+    /// The planned FM matrix walk `apply_fm` builds from, one step per matrix entry.
+    pub fn fm_steps(&self) -> &[FmStep] {
+        &self.fm_steps
+    }
+
     /// Whether FM modulator `pos` plays noise.
     pub fn fm_is_noise(&self, pos: usize) -> bool {
         self.fm_noise.get(pos).copied().unwrap_or(false)
@@ -851,6 +876,7 @@ impl NodeTable {
             entries: Vec::new(),
             source,
             specs: Vec::new(),
+            fm_steps: Vec::new(),
             fm_noise: Vec::new(),
         }
     }
@@ -930,28 +956,34 @@ impl NodeTable {
 /// entry creating its modulator on first use (`fm_<i> = [osc]`) and writing `fm_<i>_gain =
 /// [gAmt]` (replacing): the source side's `Gain(amt)` is connection `n` ([`Node::FmAmount`]) when
 /// the entry connects, the target side's (and the source side's of an entry whose target is a
-/// noise modulator) is [`Node::Detached`].
+/// noise modulator) is [`Node::Detached`]. Records the walk as one [`FmStep`] per entry, which
+/// `apply_fm` builds from.
 fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
     let mut created: [Option<usize>; 9] = [None; 9];
     let mut connections = 0;
     let is_noise = |idx: usize| crate::voice::noise_wave(&params.fm.mods[idx - 1]).is_some();
     for e in &params.fm.entries {
         let connects = e.target == 0 || !is_noise(e.target);
+        let mut sides = [None, None];
         for (k, idx) in [e.source, e.target].into_iter().enumerate() {
             if idx == 0 {
                 continue;
             }
-            let pos = match created[idx] {
-                Some(pos) => pos,
+            let (pos, first_use) = match created[idx] {
+                Some(pos) => (pos, false),
                 None => {
                     let pos = t.fm_noise.len();
                     t.fm_noise.push(is_noise(idx));
                     created[idx] = Some(pos);
                     t.one(FxKey::Main, &format!("fm_{idx}"), Node::FmOsc(pos));
-                    pos
+                    (pos, true)
                 }
             };
-            let _ = pos;
+            sides[k] = Some(FmSide {
+                idx,
+                pos,
+                first_use,
+            });
             let node = if k == 0 && connects {
                 Node::FmAmount(connections)
             } else {
@@ -961,6 +993,7 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
             };
             t.one(FxKey::Main, &format!("fm_{idx}_gain"), node);
         }
+        t.fm_steps.push(FmStep { sides, connects });
         if connects {
             connections += 1;
         }
@@ -2013,6 +2046,65 @@ mod tests {
         // No FM: no entry.
         let v = voice(json!({ "s": "sine" }));
         assert_eq!(entry(&v, "fm_1_gain"), None);
+    }
+
+    #[test]
+    fn fm_steps_follow_the_matrix_walk() {
+        let side = |idx, pos, first_use| {
+            Some(FmSide {
+                idx,
+                pos,
+                first_use,
+            })
+        };
+        let step = |sides, connects| FmStep { sides, connects };
+        let plan = |v: serde_json::Value, source: SourceKind| {
+            let map: ValueMap = serde_json::from_value(v).unwrap();
+            let p = parse_voice_params(&map, 0.1, 0.5).unwrap();
+            let t = NodeTable::plan(&p, source);
+            (t.fm_steps().to_vec(), p.fm.entries.len())
+        };
+        let synths = [SourceKind::Osc, SourceKind::Supersaw, SourceKind::Pulse];
+        let others = [SourceKind::Bus, SourceKind::Constant, SourceKind::Noise];
+        let cases = [
+            // Matrix order: fmi (1 -> 0), fmi13 (1 -> 3), fmi2 (2 -> 1).
+            (
+                json!({ "s": "sine", "fmi": 1, "fmi13": 3, "fmi2": 2 }),
+                vec![
+                    step([side(1, 0, true), None], true),
+                    step([side(1, 0, false), side(3, 1, true)], true),
+                    step([side(2, 2, true), side(1, 0, false)], true),
+                ],
+            ),
+            // A noise target: the entry does not connect.
+            (
+                json!({ "s": "sine", "fmi": 1, "fmi13": 3, "fmwave3": "white" }),
+                vec![
+                    step([side(1, 0, true), None], true),
+                    step([side(1, 0, false), side(3, 1, true)], false),
+                ],
+            ),
+            // The connection after a skipped one is connection 0.
+            (
+                json!({ "s": "sine", "fmi13": 3, "fmwave3": "white", "fmi2": 2 }),
+                vec![
+                    step([side(1, 0, true), side(3, 1, true)], false),
+                    step([side(2, 2, true), side(1, 0, false)], true),
+                ],
+            ),
+            (json!({ "s": "sine" }), vec![]),
+        ];
+        for (v, expected) in cases {
+            for source in synths {
+                let (steps, entries) = plan(v.clone(), source);
+                // One step per matrix entry: `apply_fm`'s zip drops none.
+                assert_eq!(steps.len(), entries, "{source:?} {v}");
+                assert_eq!(steps, expected, "{source:?} {v}");
+            }
+            for source in others {
+                assert_eq!(plan(v.clone(), source).0, vec![], "{source:?} {v}");
+            }
+        }
     }
 
     #[test]

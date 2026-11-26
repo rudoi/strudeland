@@ -32,9 +32,9 @@ use crate::adsr::{Curve, get_adsr_values, get_param_adsr};
 use crate::biquad::{Biquad, FilterKind};
 use crate::bus::BusBank;
 use crate::chain::{
-    DEFAULT_SOUND, EntryTimes, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef, ParamSlot,
-    SourceEnd, SourceKind, Stage, StageId, StageInputs, StageSpec, Teardown, VoiceBus, build_stage,
-    delay_applies, input_connected, set_worklet_value,
+    DEFAULT_SOUND, EntryTimes, FmStep, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef,
+    ParamSlot, SourceEnd, SourceKind, Stage, StageId, StageInputs, StageSpec, Teardown, VoiceBus,
+    build_stage, delay_applies, input_connected, set_worklet_value,
 };
 use crate::coerce::{js_max, js_min, js_to_string};
 use crate::job::{ErrorKind, Value};
@@ -771,57 +771,56 @@ struct BuildContext<'a> {
     now: u64,
 }
 
-/// `applyFM(carrier.frequency, value, begin)` (helpers.mjs:429-512): walks the matrix in its
-/// order, creating each modulator on first use (source side, then target side) and checking
-/// each side's `gainNode(amt)` and `gainNode(modfreq)` as superdough builds them (the target
-/// side's pair carries no signal); a connection to a noise modulator (no `frequency` param) is
-/// skipped (`NodeTable::plan` registers the `fm_<i>` and `fm_<i>_gain` entries of this walk).
+/// `applyFM(carrier.frequency, value, begin)` (helpers.mjs:429-512): walks the steps
+/// `NodeTable::plan` recorded, in the matrix order. It builds each modulator at its planned
+/// first use and checks each side's `gainNode(amt)` and `gainNode(modfreq)` as superdough
+/// builds them (the target side's pair carries no signal, but its checks still throw). It skips
+/// a connection the plan marks as not connecting (a noise target, no `frequency` param).
 /// `None` when no entry is active.
 fn apply_fm(
     params: &VoiceParams,
+    steps: &[FmStep],
     carrier_freq: f32,
     begin: f64,
     ctx: &mut BuildContext,
 ) -> Result<Option<Fm>, VoiceError> {
-    if params.fm.entries.is_empty() {
+    if steps.is_empty() {
         return Ok(None);
     }
     let mut fm = Fm {
         modulators: Vec::new(),
         connections: Vec::new(),
     };
-    // Modulator number -> (position, modfreq).
-    let mut created: [Option<(usize, f64)>; 9] = [None; 9];
-    for e in &params.fm.entries {
-        let mut sides = [None, None];
-        for (k, idx) in [e.source, e.target].into_iter().enumerate() {
-            if idx == 0 {
-                continue;
-            }
-            if created[idx].is_none() {
-                let (m, modfreq) = build_modulator(idx, &params.fm.mods, carrier_freq, begin, ctx)?;
-                created[idx] = Some((fm.modulators.len(), modfreq));
+    // Per modulator position, its modfreq.
+    let mut modfreqs: Vec<f64> = Vec::new();
+    for (e, step) in params.fm.entries.iter().zip(steps) {
+        let mut values = [None, None];
+        for (k, side) in step.sides.iter().enumerate() {
+            let Some(side) = side else { continue };
+            if side.first_use {
+                let (m, modfreq) =
+                    build_modulator(side.idx, &params.fm.mods, carrier_freq, begin, ctx)?;
                 fm.modulators.push(m);
+                modfreqs.push(modfreq);
+                debug_assert_eq!(side.pos, fm.modulators.len() - 1);
             }
-            let (pos, modfreq) = created[idx].expect("created above");
             let amount = idl_float(e.amount, "gain")?;
-            let freq = idl_float(modfreq, "gain")?;
-            fm.modulators[pos].freq = freq;
-            sides[k] = Some((pos, amount, freq));
+            let freq = idl_float(modfreqs[side.pos], "gain")?;
+            fm.modulators[side.pos].freq = freq;
+            values[k] = Some((amount, freq));
         }
-        let (source, amount, freq) = sides[0].expect("the source is a modulator");
-        let target = match sides[1] {
+        let source = step.sides[0].expect("the source is a modulator");
+        let (amount, freq) = values[0].expect("the source side is checked");
+        if !step.connects {
+            // superdough logs "failed to connect FM ..." and goes on.
+            continue;
+        }
+        let target = match step.sides[1] {
             None => FmTarget::Carrier,
-            Some((pos, ..)) => {
-                if matches!(fm.modulators[pos].source(), ModSource::Noise(_)) {
-                    // superdough logs "failed to connect FM ..." and goes on.
-                    continue;
-                }
-                FmTarget::Modulator(pos)
-            }
+            Some(side) => FmTarget::Modulator(side.pos),
         };
         fm.connections.push(FmConnection {
-            source,
+            source: source.pos,
             target,
             amount: GainNode::constant(amount),
             freq: GainNode::constant(freq),
@@ -1092,6 +1091,7 @@ fn canonical(s: &str) -> &str {
 fn build_oscillator(
     s: &str,
     params: &VoiceParams,
+    fm: &[FmStep],
     t: f64,
     ctx: &mut BuildContext,
 ) -> Result<OscSource, VoiceError> {
@@ -1122,7 +1122,7 @@ fn build_oscillator(
         pitch_envelope(&mut carrier.detune, params, t, t + params.duration, now)?;
     }
     // `fm()` reads `frequencyparam.value`: the carrier's float intrinsic value.
-    let fm = apply_fm(params, carrier.frequency.value(), t, ctx)?;
+    let fm = apply_fm(params, fm, carrier.frequency.value(), t, ctx)?;
     let noise_mix = match params.noise {
         Some(noise) => {
             let pink = noise_source(NoiseKind::Pink, DEFAULT_DENSITY, t, ctx)?;
@@ -1284,6 +1284,7 @@ impl WorkletSource {
 fn build_worklet_synth(
     s: &str,
     params: &VoiceParams,
+    fm: &[FmStep],
     t: f64,
     release: f64,
     ctx: &mut BuildContext,
@@ -1343,7 +1344,7 @@ fn build_worklet_synth(
     let vibrato =
         build_vibrato(params, t, ctx.tables, now)?.map(|v| (v.osc, GainNode::new(v.depth)));
     // `fm()` reads `frequencyparam.value`: the param's float intrinsic value.
-    let fm = apply_fm(params, carrier_freq, t, ctx)?;
+    let fm = apply_fm(params, fm, carrier_freq, t, ctx)?;
     Ok((
         WorkletSource {
             synth,
@@ -1495,6 +1496,7 @@ impl Voice {
             SourceKind::Osc => Source::Osc(Box::new(build_oscillator(
                 canonical(&s),
                 params,
+                node_table.fm_steps(),
                 t,
                 &mut ctx,
             )?)),
@@ -1506,7 +1508,8 @@ impl Voice {
                 Source::Noise(noise_source(noise, density, t, &mut ctx)?)
             }
             SourceKind::Supersaw | SourceKind::Pulse => {
-                let (w, peak) = build_worklet_synth(&s, params, t, adsr[3], &mut ctx)?;
+                let (w, peak) =
+                    build_worklet_synth(&s, params, node_table.fm_steps(), t, adsr[3], &mut ctx)?;
                 worklet_peak = Some(peak);
                 Source::Worklet(Box::new(w))
             }
