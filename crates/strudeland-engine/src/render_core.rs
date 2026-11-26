@@ -357,9 +357,8 @@ impl Core {
         self.ir_cache.insert(key, convolver);
     }
 
-    /// The reverb at `target`, when it still exists. [`Self::reverb`] is the same lookup
-    /// through a shared reference: a change to one is made to both.
-    fn target_reverb_mut(&mut self, target: IrTarget) -> Option<&mut Reverb> {
+    /// The reverb at `target`, when it still exists.
+    pub(crate) fn target_reverb_mut(&mut self, target: IrTarget) -> Option<&mut Reverb> {
         match target {
             IrTarget::Orbit(k) => self.orbits.orbits_mut().get_mut(k)?.reverb_mut(),
             IrTarget::Local { seq, stage } => self
@@ -368,28 +367,6 @@ impl Core {
                 .find(|s| s.seq == seq)?
                 .voice
                 .local_reverb_mut(stage),
-        }
-    }
-
-    /// The reverb at `target` (tests): a second copy of `target_reverb_mut`'s lookup, kept
-    /// apart only because that one returns `&mut`.
-    #[cfg(test)]
-    pub(crate) fn reverb(&self, target: IrTarget) -> Option<&Reverb> {
-        match target {
-            IrTarget::Orbit(k) => self.orbits.orbits().get(k)?.reverb(),
-            IrTarget::Local { seq, stage } => {
-                match self
-                    .slots
-                    .iter()
-                    .find(|s| s.seq == seq)?
-                    .voice
-                    .stages()
-                    .get(stage)
-                {
-                    Some(crate::chain::Stage::LocalReverb(r)) => Some(&r.reverb),
-                    _ => None,
-                }
-            }
         }
     }
 
@@ -889,10 +866,10 @@ pub(crate) mod tests {
         };
         core.land_ir(target, 1, one_frame);
         assert!(called.get());
-        assert_eq!(core.reverb(target).unwrap().applied(), 1);
+        assert_eq!(core.target_reverb_mut(target).unwrap().applied(), 1);
         called.set(false);
         core.land_ir(target, 1, one_frame);
-        assert_eq!(core.reverb(target).unwrap().applied(), 1);
+        assert_eq!(core.target_reverb_mut(target).unwrap().applied(), 1);
         assert!(!called.get(), "an old request is ignored");
     }
 

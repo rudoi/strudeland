@@ -141,7 +141,6 @@ impl IrLink {
 /// later miss of this settle is built in place with `build_ir` (`Convolver::new_live`).
 struct WorkerSettler<'a> {
     link: Option<&'a mut IrLink>,
-    dropped: bool,
 }
 
 impl IrSettler for WorkerSettler<'_> {
@@ -173,7 +172,6 @@ impl IrSettler for WorkerSettler<'_> {
                     });
                     if let Err(e) = sent {
                         self.link = None;
-                        self.dropped = true;
                         return build_in_place(reverb, request, e.0, cache);
                     }
                     link.in_flight.insert(key.clone(), id);
@@ -329,12 +327,9 @@ impl LiveEngine {
         if !self.options.sync_ir
             && let Some(link) = self.ir.as_mut()
         {
-            let mut s = WorkerSettler {
-                link: Some(link),
-                dropped: false,
-            };
-            self.core.settle_reverbs(&mut s);
-            let dropped = s.dropped;
+            let mut settler = WorkerSettler { link: Some(link) };
+            self.core.settle_reverbs(&mut settler);
+            let dropped = settler.link.is_none();
             if dropped {
                 self.ir = None;
             }
@@ -400,16 +395,9 @@ impl LiveEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::job::Value;
+    use crate::render_core::tests::{first_nonzero, value_map};
     use serde_json::json;
     use std::sync::mpsc;
-
-    fn value_map(v: serde_json::Value) -> ValueMap {
-        match Value::from_json(v).unwrap() {
-            Value::Obj(m) => m,
-            other => panic!("{other:?}"),
-        }
-    }
 
     fn orbit1() -> Option<OrbitSpec> {
         Some(OrbitSpec {
@@ -439,10 +427,6 @@ mod tests {
             left.extend(buf.iter().step_by(2));
         }
         left
-    }
-
-    fn first_nonzero(x: &[f32]) -> Option<usize> {
-        x.iter().position(|s| *s != 0.0)
     }
 
     fn sine() -> ValueMap {
@@ -748,14 +732,14 @@ mod tests {
         render(&mut e, 1);
         built_tx.send(older).unwrap();
         render(&mut e, 1);
-        let r = e.core.reverb(IrTarget::Orbit(0)).unwrap();
+        let r = e.core.target_reverb_mut(IrTarget::Orbit(0)).unwrap();
         assert_eq!(r.applied(), 2);
         assert_eq!(r.convolver().unwrap().length(), newer_len);
         assert_eq!(newer_len, (2.0f64 * 1.5 * SR).round() as usize);
 
         e.schedule(hap(e.now_frame() as f64 / SR, 0.02, 0, 0.5));
         render(&mut e, 1);
-        let r = e.core.reverb(IrTarget::Orbit(0)).unwrap();
+        let r = e.core.target_reverb_mut(IrTarget::Orbit(0)).unwrap();
         assert_eq!(
             r.applied(),
             3,
@@ -798,7 +782,7 @@ mod tests {
             seq: slot.seq(),
             stage,
         };
-        assert_eq!(e.core.reverb(local).unwrap().applied(), 1);
+        assert_eq!(e.core.target_reverb_mut(local).unwrap().applied(), 1);
         assert!(
             after_dry(&mut e).iter().any(|x| *x != 0.0),
             "built in place"
@@ -829,7 +813,7 @@ mod tests {
         e.add_value(0, local, orbit1());
         e.schedule(hap(0.0, 0.5, 0, 0.5));
         render(&mut e, 1);
-        let applied = |e: &LiveEngine| {
+        let applied = |e: &mut LiveEngine| {
             let stage = e.core.slots()[0]
                 .voice()
                 .stages()
@@ -838,18 +822,18 @@ mod tests {
                 .unwrap();
             let seq = e.core.slots()[0].seq();
             e.core
-                .reverb(IrTarget::Local { seq, stage })
+                .target_reverb_mut(IrTarget::Local { seq, stage })
                 .unwrap()
                 .applied()
         };
-        assert_eq!(applied(&e), 0, "waiting for the worker");
+        assert_eq!(applied(&mut e), 0, "waiting for the worker");
         let reqs: Vec<IrRequest> = req_rx.try_iter().collect();
         assert_eq!(reqs.len(), 1);
         for r in reqs {
             built_tx.send(build_ir(r)).unwrap();
         }
         render(&mut e, 20);
-        assert_eq!(applied(&e), 1, "landed on the voice");
+        assert_eq!(applied(&mut e), 1, "landed on the voice");
         assert!(e.ir.as_ref().unwrap().waiting.is_empty());
         assert!(e.take_events().is_empty());
     }

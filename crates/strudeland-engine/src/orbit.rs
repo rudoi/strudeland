@@ -30,9 +30,9 @@
 //! processed first each quantum: the sends of its voices (in voice order, after the feedback),
 //! then its return, which is added to the summing node before any voice.
 //!
-//! The orbit's reverb (`Reverb`, created by the first hap with `room > 0`, `getReverb`) keeps
-//! its stored settings and IR requests; each pause is settled after its haps are scheduled
-//! (the render core's `settle_reverbs`), generating the newest request's IR and building a new convolver for
+//! The orbit's reverb (`Reverb`, created by the first hap with `room > 0`, `getReverb`) keeps its
+//! stored settings and IR requests; each pause is settled after its haps are scheduled (the render
+//! core's `settle_reverbs`), generating the newest request's IR and building a new convolver for
 //! it. Each quantum its room sends (in voice order, each scaled by its level) are summed into the
 //! convolver's input (mono when every send is mono), and its return joins the summing node.
 //!
