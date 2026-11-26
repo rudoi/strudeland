@@ -33,7 +33,7 @@ The issue stands. The line numbers below are corrected.
 - :590 ('getCps follows the audible meter and tempo across a change to both');
 - the clock part of :540.
 
-Everything else in the mixed-meter block (:489-712) is integration and stays.
+Everything else in the mixed-meter block (:452-712: `MIXED_HEADER` at :452, the first test at :459) is integration and stays.
 
 ## Tempo shown by hand
 

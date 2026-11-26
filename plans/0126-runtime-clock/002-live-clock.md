@@ -20,8 +20,9 @@ clock", the call-site table, "Why `start` restores with `structure: liveClock.st
 - `src/lib/strudel/live-clock.ts` (new).
 - `src/lib/strudel/runtime.ts`.
 - `tests/live-clock.test.ts` (new).
-- `tests/runtime-backends.test.ts`: :556 deleted, :590 shrunk, one check out of :540.
-- `AGENTS.md` (layout), `GLOSSARY.md` (**Live clock**).
+- `tests/runtime-backends.test.ts`: :556 deleted, :590 shrunk (:540 stays whole).
+- `AGENTS.md` (layout). No `GLOSSARY.md` term: the live clock is an internal module concept and
+  the glossary is song language.
 - `crates/strudeland-host/js/host.js`, `host.inputs.json`: rebuilt by `host:build` only (the new
   module joins the inputs).
 
@@ -50,7 +51,11 @@ clock", the call-site table, "Why `start` restores with `structure: liveClock.st
    - `edit(e)` = :494-515 in the same order (proposal), with `r.scheduler.started` →
      `port.started`, `r.scheduler.cps` → `port.cps`, `pending.cps` → `e.nextCps`,
      `pending.meter` → `e.meter`, `codeSetCps` → `e.codeSetCps`, `structure` → `e.structure`,
-     and `setLiveLayout(segments, anchor)` → `setLayout(e.segments, anchor)`; it returns `anchor`;
+     and `setLiveLayout(segments, anchor)` → `setLayout(e.segments, anchor)`; it returns `anchor`.
+     `history` is `readonly ClockHistoryEntry[]`, so the filter and push become `const next =
+     history.filter((h) => h.end.clock > audible); if (next.at(-1)?.end.clock !== a.clock)
+     next.push({ end: a, map, cps: port.cps, referenceMeter: structure?.meter }); history =
+     next;` (behaviour-identical: the filter already made a new array);
    - `reset()`: `phaseOffsetSec = 0; history = [];` (from :805-808);
    - `snapshot()`: `{ structure, map, history, phaseOffsetSec }` (no copies);
    - `restore(s)`: assigns those four fields from `s` and nothing else (a `from` or `saved` with
@@ -82,27 +87,23 @@ clock", the call-site table, "Why `start` restores with `structure: liveClock.st
 
    Then apply the proposal's call-site table row by row: `editPattern` (the `previous` object
    holds `clock: liveClock.snapshot()` plus the five pattern fields; undo restores it; the
-   :494-515 block becomes one `liveClock.edit(...)` call whose result is the `anchor` the
-   imminent check and nothing else uses; `meteredPlayback` gets `() => liveClock.map` and `() =>
-   liveClock.phaseOffsetSec`), `beforeEval`'s `setTime` and `setCpsFunc`, the `setCps` override,
-   `now` (`const now = liveClock.now`), `pruneAt`, the transport boundary, `performSwap`'s
-   `from`, `start` (its parameter type, save, `from` application and rollback), `cycleTime`,
-   `drawingScheduler` and `tempoNow`. Delete the `ClockHistory` type and every moved function
-   and variable. Keep `start`'s comments, adjusting names.
+   :494-515 block becomes one `liveClock.edit(...)` call, passing the `structure` editPattern
+   already read, whose result is the `anchor` the imminent check and nothing else uses; the
+   imminent check reads `liveClock.map`; `playbackPattern` is built when `liveClock.map &&
+   liveClock.structure`, as `meteredPlayback(seeded, liveClock.structure, () => liveClock.map,
+   () => liveClock.phaseOffsetSec, …)`), `beforeEval`'s `setTime` and `setCpsFunc`, the `setCps`
+   override, `now` (`const now = liveClock.now`), `pruneAt`, the transport boundary,
+   `performSwap` (`cycleTime(liveClock.toCycle(handoff))` with `handoff` raw, and the `from`
+   with `cycle: Math.max(0, handoff - early)`), `start` (its parameter type, save, `from`
+   application and rollback), `cycleTime` and `drawingScheduler`. `tempoNow` needs no edit: its
+   `now()` is now `liveClock.now`. Delete the `ClockHistory` type and every moved function and
+   variable, and the imports only they used: `buildStructure`, `cpsAtMeter`, `meterString` from
+   `./structure` and `type LayoutClock` from `./timing` (keep `layoutClock`: `query` uses it).
+   Keep `start`'s comments, adjusting names.
 5. **`AGENTS.md`**, in the `src/lib/strudel/` layout paragraph after `timing.ts`'s entry: ``
    `live-clock.ts` (the live clock: the audible playhead and cps across live tempo and meter
    edits, over a `ClockPort` the runtime builds on the scheduler; the edit history and phase
    offset, snapshotted as one value; no Strudel imports), ``.
-6. **`GLOSSARY.md`**, after **Shown tempo**:
-
-   ```
-   **Live clock**
-
-   Where the audible playhead is on the song's layout while playing: the map from the
-   scheduler's reference clock to song cycles, with the edits still inside the scheduler's
-   lookahead and the phase offset a tempo edit leaves.
-   _Avoid_: clock (the scheduler's, the scope's), timing (the static layout map)
-   ```
 
 ## Tests
 
@@ -115,11 +116,21 @@ clock", the call-site table, "Why `start` restores with `structure: liveClock.st
   - delete `repeated live tempo changes take effect…` (:556) and its `layoutClock` /
     `INITIAL_SEGMENTS` imports if now unused;
   - shrink `getCps follows the audible meter and tempo…` (:590) to the wiring, renamed `getCps
-    reads the live clock`: `0.5` after the evaluate, `toBeCloseTo(4 / 3)` after `tick(22)`,
-    `rt.scheduler.cps` after `rt.stop()`;
-  - in `editing a mixed meter preserves the play position…` (:540) drop the `anchor` variable
-    and the `rt.position().cycle` check; keep the `lastEnd` and `outside` onset checks.
-- **Unchanged:** every other test in the mixed-meter block (:489-712), the engine-switch and
+    reads the live clock`: `0.5` after the evaluate, `toBeCloseTo(4 / 3)` after `tick(22)`, then
+    the same edit (`changed`, `{ cps: 1.5, meter: { num: 2, den: 4 } }`) and `tick(3)` →
+    `toBeCloseTo(2)`, so the runtime's `edit()` wiring stays covered; `rt.scheduler.cps` after
+    `rt.stop()`. Only the post-edit `4 / 3` check and the `tick(6)` → `0.75` check go (case 4
+    covers them);
+  - keep `editing a mixed meter preserves the play position…` (:540) whole, including
+    `expect(rt.position().cycle).toBeCloseTo(anchor, 10)`: it is the runtime-level counterpart
+    of case 5.
+- **Fake port** (proposal, Tests): `tick()` does `lastBegin = lastEnd; lastEnd += tickDuration *
+  cps; lastTick += tickDuration`, the fake time stepping with `lastTick` (zyklus's `phase`);
+  after an `edit()` the test sets `port.cps = nextCps`, as `afterEval`'s `setCps` does. Case 4's
+  values: `4 / 3` (cps 0.5 at 4/4, in the 3/8 bar), still `4 / 3` after the edit until its anchor
+  sounds, then `cpsAtMeter(1.5, 2/4, 3/8)` = `2`, then `cpsAtMeter(1.5, 2/4, 4/4)` = `0.75`
+  (write the numbers in the test, not the calls).
+- **Unchanged:** every other test in the mixed-meter block (:452-712), the engine-switch and
   drain tests, stage 001's `tempoNow` test, `tests/runtime.test.ts`, and the control-handler
   tests.
 

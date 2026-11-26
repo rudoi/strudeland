@@ -13,19 +13,21 @@
 
 ## Stages
 
-Sequential: stage 002 builds on stage 001's `tempoNow` (it switches its `now()` to the clock's).
+Sequential: stage 002 builds on stage 001 (`tempoNow`'s `now()` becomes the clock's through
+`const now = liveClock.now`, with no edit to its body).
 Run each stage's gate before starting the next.
 
-1. [001-tempo-now.md](001-tempo-now.md): `tempoAtBar` and `Runtime.tempoNow()`; the Toolbar and
-   the `state` method read it; the stubs; one runtime test; a glossary term.
+1. [001-tempo-now.md](001-tempo-now.md): `tempoAtBar` and `Runtime.tempoNow()`; the Toolbar reads
+   `tempoNow`, the `state` method applies `tempoAtBar` to its own `position()`; the stubs; one
+   runtime test; a glossary term.
 2. [002-live-clock.md](002-live-clock.md): `live-clock.ts` with its port, snapshot and edit;
    `runtime.ts` moved onto it; `tests/live-clock.test.ts` replacing the clock-maths end-to-end
-   tests; the layout and glossary docs.
+   tests; the `AGENTS.md` layout line (no glossary term: the live clock is internal).
 
 ## Rules
 
 - **No visible change.** The toolbar readouts, the `state` values, the playhead, timing,
-  drawing, sound and engine switching stay identical, apart from the two one-frame toolbar
+  drawing, sound and engine switching stay identical, apart from the one-frame toolbar
   transients the proposal accepts under Decisions. If anything else seems to need a change,
   stop and report it.
 - **Boundaries.** No audible tempo (#156). No engine-router change (#157): `swapTo`, `stop`,
