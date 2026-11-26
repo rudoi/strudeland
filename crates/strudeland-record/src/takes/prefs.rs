@@ -25,7 +25,7 @@ struct PrefsFile {
 }
 
 /// Parses `recording.json`; the error names what is wrong.
-pub fn parse_prefs(bytes: &[u8]) -> Result<Prefs, String> {
+fn parse_prefs(bytes: &[u8]) -> Result<Prefs, String> {
     let file: PrefsFile = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if file.schema != PREFS_SCHEMA {
         return Err(format!("schema must be {PREFS_SCHEMA}"));
@@ -37,7 +37,7 @@ pub fn parse_prefs(bytes: &[u8]) -> Result<Prefs, String> {
 }
 
 /// The saved prefs, or the defaults when the file is missing or invalid (logged, left in place).
-pub fn read_prefs(path: &Path) -> Prefs {
+pub(super) fn read_prefs(path: &Path) -> Prefs {
     match std::fs::read(path) {
         Ok(bytes) => parse_prefs(&bytes).unwrap_or_else(|e| {
             eprintln!("recording: ignoring {}: {e}", path.display());
@@ -67,7 +67,7 @@ pub fn write_prefs(path: &Path, prefs: &Prefs) -> Result<(), String> {
 
 /// The saved device when present, else the default input (else the first); the saved channel
 /// when the device has it, else 0. `None` without devices.
-pub fn resolve_selection<'a>(
+pub(super) fn resolve_selection<'a>(
     devices: &'a [DeviceInfo],
     prefs: &Prefs,
 ) -> Option<(&'a DeviceInfo, u16)> {
@@ -98,14 +98,6 @@ mod tests {
 
     fn device(id: &str, name: &str, channels: u16, is_default: bool) -> DeviceInfo {
         FakePlatform::device(id, name, channels, is_default)
-    }
-
-    fn mic() -> DeviceInfo {
-        FakePlatform::mic()
-    }
-
-    fn usb() -> DeviceInfo {
-        FakePlatform::usb()
     }
 
     #[test]
@@ -178,7 +170,7 @@ mod tests {
 
     #[test]
     fn selection_resolution() {
-        let devices = [mic(), usb()];
+        let devices = [FakePlatform::mic(), FakePlatform::usb()];
         let saved = |id: Option<&str>, channel| Prefs {
             device_id: id.map(str::to_string),
             channel,
@@ -218,7 +210,7 @@ mod tests {
         // An exclusive endpoint reports no channels: any saved channel is kept.
         let exclusive = device("x", "x", 0, false);
         assert_eq!(saved_channel(&exclusive, &saved(7)), 7);
-        let usb = usb();
+        let usb = FakePlatform::usb();
         assert_eq!(saved_channel(&usb, &saved(3)), 3);
         assert_eq!(saved_channel(&usb, &saved(4)), 0);
         assert_eq!(saved_channel(&usb, &saved(9)), 0);

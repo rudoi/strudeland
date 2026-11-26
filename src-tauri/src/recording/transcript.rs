@@ -23,6 +23,15 @@ use strudeland_record::{Ended, Event, FaultKind, TakeResult};
 
 // --- adapters ---
 
+/// The flows' names for the fake devices.
+fn mic() -> DeviceInfo {
+    FakePlatform::mic()
+}
+
+fn usb() -> DeviceInfo {
+    FakePlatform::usb()
+}
+
 /// One flow's rig and the steps recorded so far.
 struct Script {
     rig: Rig,

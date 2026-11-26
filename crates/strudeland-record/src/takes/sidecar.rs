@@ -25,7 +25,7 @@ pub(super) struct TakeMeta {
 /// The fractional sample index of bar 1's downbeat: `frame_at` over the take's anchors, `None`
 /// when there is no bar-1 time, no anchor, or the result falls outside `[0, frames]` (the clocks
 /// disagree; logged).
-pub fn bar1_frame(
+pub(super) fn bar1_frame(
     anchors: &[Anchor],
     sample_rate: u32,
     frames: u64,
@@ -196,9 +196,7 @@ pub(super) fn complete_ended(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const RATE: u32 = 1_000;
-    const T0: u64 = 1_000_000_000;
+    use crate::testing::{RATE, T0};
 
     fn a(frame: u64, host_ns: u64) -> Anchor {
         Anchor { frame, host_ns }

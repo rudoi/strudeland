@@ -9,7 +9,7 @@
 //! [`crate::testing`].
 //!
 //! A take is finalized into the project captured at start, even if another project was opened
-//! meanwhile. Rust picks every name; the webview never writes files and passes no paths.
+//! meanwhile.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,10 +36,9 @@ pub(crate) mod testing;
 mod tests;
 
 pub use error::TakeError;
-pub use prefs::{Prefs, parse_prefs, read_prefs, resolve_selection, write_prefs};
-pub use sidecar::bar1_frame;
+pub use prefs::{Prefs, write_prefs};
 
-use prefs::saved_channel;
+use prefs::{read_prefs, resolve_selection, saved_channel};
 use sidecar::{TakeMeta, complete_ended, memo, publish_fallback};
 
 // --- domain types ---
@@ -227,6 +226,13 @@ enum TakeState {
 }
 
 impl TakeState {
+    /// Idle after anything but a refused stream open.
+    fn idle() -> TakeState {
+        TakeState::Idle {
+            stream_denied: false,
+        }
+    }
+
     /// The armed input, in every state that has one.
     fn armed(&self) -> Option<&ArmedInput> {
         match self {
@@ -260,9 +266,7 @@ impl Default for Inner {
         Inner {
             recorder: None,
             forwarder: None,
-            state: TakeState::Idle {
-                stream_denied: false,
-            },
+            state: TakeState::idle(),
             pending_loss_stem: None,
         }
     }
@@ -300,9 +304,7 @@ fn settle_ended(inner: &mut Inner) {
     if let TakeState::Ended { armed, .. } = &mut inner.state {
         let next = match armed.take() {
             Some(armed) => TakeState::Armed(armed),
-            None => TakeState::Idle {
-                stream_denied: false,
-            },
+            None => TakeState::idle(),
         };
         leave(inner, next);
     }
@@ -334,10 +336,9 @@ fn finalize_running(inner: &mut Inner) {
     if !inner.state.is_recording() {
         return;
     }
-    let idle = TakeState::Idle {
-        stream_denied: false,
-    };
-    let TakeState::Recording { armed, take } = std::mem::replace(&mut inner.state, idle) else {
+    let TakeState::Recording { armed, take } =
+        std::mem::replace(&mut inner.state, TakeState::idle())
+    else {
         unreachable!("the state is recording");
     };
     // The caller clears the armed input next.
@@ -413,10 +414,7 @@ impl Takes {
     /// sidecar and keep it for the webview's stop. A take a command already took is ignored.
     fn ended_by_itself(&self, result: TakeResult) {
         let mut inner = self.lock();
-        let idle = TakeState::Idle {
-            stream_denied: false,
-        };
-        let (armed, take) = match std::mem::replace(&mut inner.state, idle) {
+        let (armed, take) = match std::mem::replace(&mut inner.state, TakeState::idle()) {
             TakeState::Recording { armed, take } if take.path == result.path => (armed, take),
             other => {
                 inner.state = other;
@@ -460,17 +458,10 @@ impl Takes {
             return;
         }
         match &mut inner.state {
-            TakeState::Armed(_) => {
-                inner.state = TakeState::Idle {
-                    stream_denied: false,
-                }
-            }
+            TakeState::Armed(_) => inner.state = TakeState::idle(),
             TakeState::Ended { armed, .. } => *armed = None,
-            TakeState::Idle { .. } => {}
-            // Unreachable with a matching id: the recorder sends `TakeEnded` before `Failed`, and
-            // `start` sets the take under the lock this waits for. The take is kept and the event
-            // is the same: the closest form of dropping the armed input beside a take.
-            TakeState::Recording { .. } => {}
+            // Recording is unreachable with a matching id (`TakeEnded` comes first); its take stays.
+            TakeState::Idle { .. } | TakeState::Recording { .. } => {}
         }
         let mut event = TakeEvent::new(RecState::Idle).error(error.into());
         event.stem = stem;
@@ -565,10 +556,11 @@ impl Takes {
             // The status, not the handler's answer, decides.
             permission = self.platform.permission();
         }
-        if permission == Permission::Authorized {
-            return Ok(());
-        }
-        let error = TakeError::PermissionRefused(permission);
+        let error = match permission {
+            Permission::Authorized => return Ok(()),
+            Permission::Restricted => TakeError::PermissionRestricted,
+            Permission::NotDetermined | Permission::Denied => TakeError::PermissionDenied,
+        };
         self.emit(TakeEvent::new(RecState::Idle).error(error.clone()));
         Err(error)
     }
@@ -633,9 +625,7 @@ impl Takes {
                     return Err(RecordError::PermissionDenied.into());
                 }
                 Err(error) => {
-                    inner.state = TakeState::Idle {
-                        stream_denied: false,
-                    };
+                    inner.state = TakeState::idle();
                     return Err(error.into());
                 }
             };
@@ -679,9 +669,7 @@ impl Takes {
             }
             inner.state = match inner.state {
                 TakeState::Idle { stream_denied } => TakeState::Idle { stream_denied },
-                _ => TakeState::Idle {
-                    stream_denied: false,
-                },
+                _ => TakeState::idle(),
             };
         }
         self.emit(TakeEvent::new(RecState::Idle));
@@ -716,12 +704,7 @@ impl Takes {
         // An ended take is published first (if it is not yet), before the new take's clock
         // starts, and leaves its armed input behind.
         settle_ended(&mut inner);
-        let TakeState::Armed(armed) = std::mem::replace(
-            &mut inner.state,
-            TakeState::Idle {
-                stream_denied: false,
-            },
-        ) else {
+        let TakeState::Armed(armed) = std::mem::replace(&mut inner.state, TakeState::idle()) else {
             unreachable!("the state had an armed input");
         };
         inner.state = TakeState::Recording {
@@ -752,11 +735,9 @@ impl Takes {
     /// with the fallback sidecar.
     pub fn stop(&self, fields: Option<TakeStop>) -> Result<RecordingEntry, TakeError> {
         let mut inner = self.lock();
-        let idle = || TakeState::Idle {
-            stream_denied: false,
-        };
         if inner.state.is_recording() {
-            let TakeState::Recording { armed, take } = std::mem::replace(&mut inner.state, idle())
+            let TakeState::Recording { armed, take } =
+                std::mem::replace(&mut inner.state, TakeState::idle())
             else {
                 unreachable!("the state is recording");
             };
@@ -783,7 +764,7 @@ impl Takes {
             };
         }
         // The ended take is moved out, so a successful publish leaves the state without it.
-        let (armed, mut ended) = match std::mem::replace(&mut inner.state, idle()) {
+        let (armed, mut ended) = match std::mem::replace(&mut inner.state, TakeState::idle()) {
             TakeState::Ended { armed, ended } => (armed, ended),
             other => {
                 inner.state = other;
@@ -795,7 +776,7 @@ impl Takes {
         } else {
             RecState::Idle
         };
-        inner.state = armed.map(TakeState::Armed).unwrap_or_else(idle);
+        inner.state = armed.map(TakeState::Armed).unwrap_or_else(TakeState::idle);
         let stem = ended.meta.stem.clone();
         match complete_ended(&mut ended, fields.as_ref()) {
             Ok(entry) => {
@@ -805,7 +786,7 @@ impl Takes {
             Err(e) => {
                 if !ended.published {
                     eprintln!("recording: publishing {stem} failed: {e}");
-                    let armed = match std::mem::replace(&mut inner.state, idle()) {
+                    let armed = match std::mem::replace(&mut inner.state, TakeState::idle()) {
                         TakeState::Armed(armed) => Some(armed),
                         _ => None,
                     };
@@ -829,9 +810,7 @@ impl Takes {
         if let Some(recorder) = &inner.recorder {
             recorder.disarm();
         }
-        inner.state = TakeState::Idle {
-            stream_denied: false,
-        };
+        inner.state = TakeState::idle();
     }
 
     /// The app quits: finalizes a take in progress with the fallback sidecar, then shuts the
@@ -841,9 +820,7 @@ impl Takes {
             let mut inner = self.lock();
             finalize_running(&mut inner);
             if !matches!(inner.state, TakeState::Idle { .. }) {
-                inner.state = TakeState::Idle {
-                    stream_denied: false,
-                };
+                inner.state = TakeState::idle();
             }
             (inner.recorder.take(), inner.forwarder.take())
         };
@@ -859,7 +836,7 @@ impl Takes {
     }
 
     /// Whether a take runs or just ended in the project at `root`.
-    pub fn holds_project(&self, root: &Path) -> bool {
+    pub(crate) fn holds_project(&self, root: &Path) -> bool {
         let inner = self.lock();
         let here = |p: &Project| p.root() == root;
         match &inner.state {

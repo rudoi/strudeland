@@ -33,11 +33,14 @@ pub use source::{
 };
 pub use writer::max_frames;
 
-/// The fake source, test limits and the take lifecycle's fakes, for this crate's tests and the
-/// app's.
+/// The fake source, test limits, the take lifecycle's fakes and the rig over them, for this
+/// crate's tests and the app's.
 #[doc(hidden)]
 pub mod testing {
     pub use crate::recorder::Limits;
     pub use crate::source::{FakeHandle, FakeSource};
-    pub use crate::takes::testing::{CollectingSink, FakePlatform, fake_maker};
+    pub use crate::takes::testing::{
+        CollectingSink, FakePlatform, RATE, T0, TakesRig, WAIT, block_publication, fake_maker,
+        sidecar_of, start_fields,
+    };
 }

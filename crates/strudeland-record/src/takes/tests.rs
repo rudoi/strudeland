@@ -1,83 +1,46 @@
 //! The take lifecycle over `FakeSource`, `FakePlatform`, `CollectingSink` and a temp project.
 
 use super::*;
+use std::ops::Deref;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json::json;
-use strudeland_project::{Sidecar, SidecarInput};
+use strudeland_project::SidecarInput;
 use tempfile::TempDir;
 
 use crate::FaultKind;
-use crate::takes::testing::{CollectingSink, FakePlatform, fake_maker};
-use crate::testing::{FakeHandle, Limits};
+use crate::testing::{
+    FakeHandle, FakePlatform, Limits, RATE, T0, TakesRig, WAIT, block_publication, sidecar_of,
+    start_fields,
+};
 
-const RATE: u32 = 1_000;
-const WAIT: Duration = Duration::from_secs(5);
-/// The host time of the take's first frame in these tests.
-const T0: u64 = 1_000_000_000;
-
-fn mic() -> DeviceInfo {
-    FakePlatform::mic()
-}
-
-fn usb() -> DeviceInfo {
-    FakePlatform::usb()
-}
-
+/// [`TakesRig`] over a project `alpha` in a temporary directory.
 struct Rig {
     tmp: TempDir,
-    project: Arc<Project>,
-    takes: Arc<Takes>,
-    platform: Arc<FakePlatform>,
-    sink: Arc<CollectingSink>,
-    handles: Mutex<mpsc::Receiver<FakeHandle>>,
-    /// The recorder's next arm fails with this.
-    arm_failure: Arc<Mutex<Option<RecordError>>>,
+    core: TakesRig,
+}
+
+impl Deref for Rig {
+    type Target = TakesRig;
+
+    fn deref(&self) -> &TakesRig {
+        &self.core
+    }
 }
 
 fn rig_with(limits: Limits) -> Rig {
     let tmp = tempfile::tempdir().unwrap();
     let project = Arc::new(Project::create(&tmp.path().join("alpha"), "alpha").unwrap());
-    let platform = Arc::new(FakePlatform::new());
-    let sink = Arc::new(CollectingSink::default());
-    let arm_failure: Arc<Mutex<Option<RecordError>>> = Arc::default();
-    let (maker, handles) = fake_maker(limits, Arc::clone(&arm_failure));
-    let takes = Takes::new(
-        Box::new(Arc::clone(&platform)),
-        Arc::clone(&sink) as Arc<dyn Sink>,
-        maker,
-        TakesConfig {
-            app_version: "test".to_string(),
-        },
-    );
-    Rig {
-        tmp,
-        project,
-        takes,
-        platform,
-        sink,
-        handles: Mutex::new(handles),
-        arm_failure,
-    }
+    let config = TakesConfig {
+        app_version: "test".to_string(),
+    };
+    let core = TakesRig::new(tmp.path(), project, limits, config);
+    Rig { tmp, core }
 }
 
 fn rig() -> Rig {
     rig_with(Limits::default())
-}
-
-fn start_fields() -> TakeStart {
-    TakeStart {
-        tempo: serde_json::from_value(json!({
-            "bpm": 120, "meter": "4/4", "cps": 0.5, "beatsPerBar": 4, "tempoOverride": false,
-        }))
-        .unwrap(),
-        backing: serde_json::from_value(json!({
-            "song": true, "metronome": false, "countIn": true, "songPath": "songs/main.js",
-            "startSection": null, "loopSection": null,
-        }))
-        .unwrap(),
-    }
 }
 
 fn stop_fields(bar1_host_ns: Option<&str>) -> TakeStop {
@@ -103,49 +66,7 @@ fn stop_fields(bar1_host_ns: Option<&str>) -> TakeStop {
 }
 
 impl Rig {
-    fn prefs(&self) -> PathBuf {
-        self.tmp.path().join("data").join("recording.json")
-    }
-
-    fn project(&self) -> Arc<Project> {
-        Arc::clone(&self.project)
-    }
-
-    fn recordings_dir(&self) -> PathBuf {
-        self.project.root().join("recordings")
-    }
-
-    /// The names in `recordings/` but the template's `.gitkeep`, sorted.
-    fn files(&self) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(self.recordings_dir())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|name| name != ".gitkeep")
-            .collect();
-        names.sort();
-        names
-    }
-
-    fn next_handle(&self) -> FakeHandle {
-        self.handles.lock().unwrap().recv_timeout(WAIT).unwrap()
-    }
-
-    fn no_new_handle(&self) {
-        assert!(self.handles.lock().unwrap().try_recv().is_err());
-    }
-
-    fn arm(&self) -> FakeHandle {
-        self.takes.arm(&self.prefs(), None, None).unwrap();
-        self.next_handle()
-    }
-
-    /// The rig's project, as the resolver `start` calls.
-    fn resolve(&self) -> impl FnOnce() -> Result<Arc<Project>, TakeError> + use<> {
-        let project = self.project();
-        move || Ok(project)
-    }
-
-    /// Starts a take and delivers its first block (10 frames at `T0`) once it runs.
+    /// Starts a take in the rig's project and delivers its first block (10 frames at `T0`).
     fn start(&self, handle: &FakeHandle, song_stem: Option<&str>) -> Result<String, TakeError> {
         self.start_with(handle, song_stem, start_fields())
     }
@@ -157,44 +78,8 @@ impl Rig {
         song_stem: Option<&str>,
         fields: TakeStart,
     ) -> Result<String, TakeError> {
-        std::thread::scope(|s| {
-            let started = s.spawn(|| self.takes.start(self.resolve(), song_stem, fields));
-            while !started.is_finished() {
-                if handle.is_recording() {
-                    assert!(handle.push(&[0.25; 10], T0));
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            started.join().unwrap()
-        })
+        self.start_in(handle, self.resolve(), song_stem, fields)
     }
-
-    /// Delivers frames `from..to` (host time at the nominal rate) and waits for the writer.
-    fn push(&self, handle: &FakeHandle, from: u64, to: u64) {
-        let block = vec![0.5f32; (to - from) as usize];
-        assert!(handle.push(&block, T0 + from * 1_000_000));
-        assert!(handle.wait_drained(WAIT));
-    }
-
-    /// Arms, starts a take as `main-01` and records 1000 frames.
-    fn take(&self) -> FakeHandle {
-        let handle = self.arm();
-        assert_eq!(self.start(&handle, Some("main")).unwrap(), "main-01");
-        self.push(&handle, 10, 1_000);
-        handle
-    }
-}
-
-fn sidecar_of(rig: &Rig, stem: &str) -> Sidecar {
-    rig.project().read_sidecar(stem).unwrap().unwrap()
-}
-
-/// A competing sidecar prevents no-clobber publication on every supported filesystem.
-fn block_publication(rig: &Rig) -> PathBuf {
-    let path = rig.recordings_dir().join("main-01.json");
-    std::fs::write(&path, b"existing sidecar").unwrap();
-    path
 }
 
 /// The arm id of the state's armed input, if it has one.
@@ -226,7 +111,7 @@ fn not_determined_asks_then_refuses_when_denied() {
     *rig.platform.permission.lock().unwrap() = Permission::NotDetermined;
     *rig.platform.answer.lock().unwrap() = Permission::Denied;
     let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
-    assert_eq!(error, TakeError::PermissionRefused(Permission::Denied));
+    assert_eq!(error, TakeError::PermissionDenied);
     assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 1);
     rig.no_new_handle();
     assert_eq!(
@@ -238,11 +123,13 @@ fn not_determined_asks_then_refuses_when_denied() {
 
 #[test]
 fn denied_and_restricted_open_no_stream() {
-    for permission in [Permission::Denied, Permission::Restricted] {
+    for (permission, expected) in [
+        (Permission::Denied, TakeError::PermissionDenied),
+        (Permission::Restricted, TakeError::PermissionRestricted),
+    ] {
         let rig = rig();
         *rig.platform.permission.lock().unwrap() = permission;
         let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
-        let expected = TakeError::PermissionRefused(permission);
         assert_eq!(error, expected, "{permission:?}");
         assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 0);
         rig.no_new_handle();
@@ -264,7 +151,7 @@ fn on_a_desktop_without_a_prompt_the_stream_decides_access_and_can_be_retried() 
     );
     *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
     let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
-    assert_eq!(error, TakeError::PermissionRefused(Permission::Denied));
+    assert_eq!(error, TakeError::PermissionDenied);
     assert_eq!(
         rig.takes.status(&rig.prefs()).permission,
         Permission::Denied
@@ -359,14 +246,14 @@ fn a_channel_out_of_range_is_other() {
 fn arm_reports_the_armed_input_and_rearm_replaces_it() {
     let rig = rig();
     let status = rig.takes.arm(&rig.prefs(), None, None).unwrap();
-    assert_eq!(status.device, Some(mic()));
+    assert_eq!(status.device, Some(FakePlatform::mic()));
     assert_eq!(status.channel, 0);
     let first = rig.next_handle();
     let status = rig
         .takes
         .arm(&rig.prefs(), Some("fake:usb".into()), Some(2))
         .unwrap();
-    assert_eq!(status.device, Some(usb()));
+    assert_eq!(status.device, Some(FakePlatform::usb()));
     assert_eq!(status.channel, 2);
     let second = rig.next_handle();
     assert!(!first.is_open());
@@ -406,14 +293,14 @@ fn disarm_closes_the_stream_and_emits_idle() {
 #[test]
 fn a_saved_exclusive_input_keeps_its_identity_and_armed_channel_count() {
     let rig = rig();
-    let mut busy = usb();
+    let mut busy = FakePlatform::usb();
     busy.channels = 0;
     busy.sample_rate = 0;
-    *rig.platform.devices.lock().unwrap() = vec![mic(), busy];
+    *rig.platform.devices.lock().unwrap() = vec![FakePlatform::mic(), busy];
     write_prefs(
         &rig.prefs(),
         &Prefs {
-            device_id: Some(usb().id),
+            device_id: Some(FakePlatform::usb().id),
             channel: 2,
         },
     )
@@ -422,18 +309,18 @@ fn a_saved_exclusive_input_keeps_its_identity_and_armed_channel_count() {
     // Enumeration could not open the USB endpoint. The stream-open error is authoritative.
     *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
     let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
-    assert_eq!(error, TakeError::PermissionRefused(Permission::Denied));
+    assert_eq!(error, TakeError::PermissionDenied);
     let st = rig.takes.arm(&rig.prefs(), None, None).unwrap();
-    assert_eq!(st.device, Some(usb()));
+    assert_eq!(st.device, Some(FakePlatform::usb()));
     assert_eq!(st.channel, 2);
     rig.next_handle();
 
     // With the exclusive stream open the picker still exposes the active channels.
     let list = rig.takes.devices(&rig.prefs()).unwrap();
-    assert!(list.devices.contains(&usb()));
+    assert!(list.devices.contains(&FakePlatform::usb()));
     let st = rig
         .takes
-        .arm(&rig.prefs(), Some(usb().id), Some(3))
+        .arm(&rig.prefs(), Some(FakePlatform::usb().id), Some(3))
         .unwrap();
     assert_eq!(st.channel, 3);
 }
@@ -491,7 +378,10 @@ fn a_prefs_write_failure_does_not_fail_the_arm() {
 fn devices_and_idle_status_use_the_saved_choice() {
     let rig = rig();
     let result = rig.takes.devices(&rig.prefs()).unwrap();
-    assert_eq!(result.devices, vec![mic(), usb()]);
+    assert_eq!(
+        result.devices,
+        vec![FakePlatform::mic(), FakePlatform::usb()]
+    );
     assert_eq!(
         result.selected,
         Some(Selection {

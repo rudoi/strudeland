@@ -40,7 +40,7 @@ The lock is held across arm (the recorder's arm), start (up to the start timeout
 Levels and the permission request run outside it, the request behind a `requesting` flag. The
 event forwarder thread holds a `Weak<Takes>`, and shutdown joins it outside the lock. The app
 passes its own version in `TakesConfig`, so the sidecar's `app.version` is the app's, not this
-crate's. The quirks the app keeps are tracked in the project's task list.
+crate's.
 
 ## File format
 

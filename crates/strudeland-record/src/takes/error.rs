@@ -5,10 +5,8 @@ use std::sync::Arc;
 
 use strudeland_project::ProjectError;
 
-use super::Permission;
 use crate::RecordError;
 
-const DENIED: &str = "microphone access denied";
 #[cfg(target_os = "macos")]
 const RESTRICTED: &str = "microphone access is restricted on this mac";
 #[cfg(not(target_os = "macos"))]
@@ -29,9 +27,11 @@ pub enum TakeError {
     /// The writer received no samples within the start timeout.
     #[error("no audio arrived from the input")]
     NoAudio,
-    /// The permission that refused access (`NotDetermined` after a request reads as denied).
-    #[error("{}", refused_text(.0))]
-    PermissionRefused(Permission),
+    /// Access was denied (a `NotDetermined` after a request reads as denied).
+    #[error("microphone access denied")]
+    PermissionDenied,
+    #[error("{}", RESTRICTED)]
+    PermissionRestricted,
     #[error("channel {channel} is out of range for {channels} channels")]
     ChannelOutOfRange { channel: u16, channels: u16 },
     /// The take stopped at the recorder's length cap.
@@ -47,13 +47,6 @@ pub enum TakeError {
     /// A memo file error, in its own text.
     #[error("{0}")]
     Memo(Arc<ProjectError>),
-}
-
-fn refused_text(permission: &Permission) -> &'static str {
-    match permission {
-        Permission::Restricted => RESTRICTED,
-        Permission::NotDetermined | Permission::Denied | Permission::Authorized => DENIED,
-    }
 }
 
 /// Equal when the variant and the text are: `RecordError` and `ProjectError` hold an
@@ -72,7 +65,7 @@ impl From<RecordError> for TakeError {
             RecordError::AlreadyRecording => TakeError::Busy,
             RecordError::NotArmed => TakeError::NotArmed,
             RecordError::StartTimeout => TakeError::NoAudio,
-            RecordError::PermissionDenied => TakeError::PermissionRefused(Permission::Denied),
+            RecordError::PermissionDenied => TakeError::PermissionDenied,
             other => TakeError::Record(Arc::new(other)),
         }
     }
@@ -97,18 +90,8 @@ mod tests {
             (TakeError::NotArmed, "the recorder is not armed"),
             (TakeError::NoTake, "no take in progress"),
             (TakeError::NoAudio, "no audio arrived from the input"),
-            (
-                TakeError::PermissionRefused(Permission::Denied),
-                "microphone access denied",
-            ),
-            (
-                TakeError::PermissionRefused(Permission::NotDetermined),
-                "microphone access denied",
-            ),
-            (
-                TakeError::PermissionRefused(Permission::Restricted),
-                restricted,
-            ),
+            (TakeError::PermissionDenied, "microphone access denied"),
+            (TakeError::PermissionRestricted, restricted),
             (
                 TakeError::ChannelOutOfRange {
                     channel: 4,
@@ -147,7 +130,7 @@ mod tests {
         );
         assert_eq!(
             TakeError::from(RecordError::PermissionDenied),
-            TakeError::PermissionRefused(Permission::Denied)
+            TakeError::PermissionDenied
         );
         assert_eq!(
             TakeError::from(RecordError::NoDevice),

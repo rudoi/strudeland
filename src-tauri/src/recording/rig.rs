@@ -1,39 +1,29 @@
-//! The recorder test rig: [`Takes`] over `strudeland_record::testing`'s fakes, the open
-//! project state, and the helpers the unit tests and the transcript share.
+//! The recorder test rig: `strudeland_record::testing`'s [`TakesRig`] over the open project
+//! state, with the wire conversions the unit tests and the transcript share.
 
 use super::*;
-use std::sync::Mutex;
-use std::sync::mpsc;
-use std::time::Duration;
+use std::ops::Deref;
 
 use serde_json::json;
-use strudeland_project::Sidecar;
-use strudeland_record::testing::{CollectingSink, FakeHandle, FakePlatform, Limits, fake_maker};
+pub(super) use strudeland_record::testing::{
+    FakeHandle, FakePlatform, Limits, RATE, T0, TakesRig, WAIT, sidecar_of,
+};
 use tempfile::TempDir;
 
-pub(super) const RATE: u32 = 1_000;
-pub(super) const WAIT: Duration = Duration::from_secs(5);
-/// The host time of the take's first frame in these tests.
-pub(super) const T0: u64 = 1_000_000_000;
-
-pub(super) fn mic() -> DeviceInfo {
-    FakePlatform::mic()
-}
-
-pub(super) fn usb() -> DeviceInfo {
-    FakePlatform::usb()
-}
-
+/// [`TakesRig`] over the project `alpha`, opened in `projects` at `root`.
 pub(super) struct Rig {
     pub(super) tmp: TempDir,
     pub(super) projects: ProjectState,
-    pub(super) takes: Arc<Takes>,
-    pub(super) platform: Arc<FakePlatform>,
-    pub(super) sink: Arc<CollectingSink>,
-    pub(super) handles: Mutex<mpsc::Receiver<FakeHandle>>,
-    /// The recorder's next arm fails with this.
-    pub(super) arm_failure: Arc<Mutex<Option<RecordError>>>,
+    pub(super) core: TakesRig,
     pub(super) root: String,
+}
+
+impl Deref for Rig {
+    type Target = TakesRig;
+
+    fn deref(&self) -> &TakesRig {
+        &self.core
+    }
 }
 
 pub(super) fn rig_with(limits: Limits) -> Rig {
@@ -41,24 +31,12 @@ pub(super) fn rig_with(limits: Limits) -> Rig {
     let projects = ProjectState::default();
     let root =
         projects.open_unwatched(Project::create(&tmp.path().join("alpha"), "alpha").unwrap());
-    let platform = Arc::new(FakePlatform::new());
-    let sink = Arc::new(CollectingSink::default());
-    let arm_failure: Arc<Mutex<Option<RecordError>>> = Arc::default();
-    let (maker, handles) = fake_maker(limits, Arc::clone(&arm_failure));
-    let takes = Takes::new(
-        Box::new(Arc::clone(&platform)),
-        Arc::clone(&sink) as Arc<dyn Sink>,
-        maker,
-        takes_config(),
-    );
+    let project = projects.current_for(&root).unwrap();
+    let core = TakesRig::new(tmp.path(), project, limits, takes_config());
     Rig {
         tmp,
         projects,
-        takes,
-        platform,
-        sink,
-        handles: Mutex::new(handles),
-        arm_failure,
+        core,
         root,
     }
 }
@@ -96,18 +74,6 @@ pub(super) fn stop_fields(bar1_host_ns: Option<&str>) -> StopFields {
 }
 
 impl Rig {
-    pub(super) fn prefs(&self) -> PathBuf {
-        self.tmp.path().join("data").join(PREFS_FILE)
-    }
-
-    pub(super) fn project(&self) -> Arc<Project> {
-        project_for(&self.projects, &self.root).unwrap()
-    }
-
-    pub(super) fn recordings_dir(&self) -> PathBuf {
-        self.project().root().join("recordings")
-    }
-
     /// The state events so far, as the app emits them.
     pub(super) fn states(&self) -> Vec<StateEvent> {
         self.sink
@@ -115,26 +81,6 @@ impl Rig {
             .into_iter()
             .map(StateEvent::from)
             .collect()
-    }
-
-    /// The names in `recordings/` but the template's `.gitkeep`, sorted.
-    pub(super) fn files(&self) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(self.recordings_dir())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|name| name != ".gitkeep")
-            .collect();
-        names.sort();
-        names
-    }
-
-    pub(super) fn next_handle(&self) -> FakeHandle {
-        self.handles.lock().unwrap().recv_timeout(WAIT).unwrap()
-    }
-
-    pub(super) fn arm(&self) -> FakeHandle {
-        self.takes.arm(&self.prefs(), None, None).unwrap();
-        self.next_handle()
     }
 
     /// Starts a take and delivers its first block (10 frames at `T0`) once it runs.
@@ -153,50 +99,18 @@ impl Rig {
         song_stem: Option<&str>,
         fields: StartFields,
     ) -> Result<StartResult, CommandError> {
-        std::thread::scope(|s| {
-            let started = s.spawn(|| {
-                self.takes
-                    .start(
-                        || self.projects.current_for(&self.root),
-                        song_stem,
-                        fields.into(),
-                    )
-                    .map(|stem| StartResult { stem })
-            });
-            while !started.is_finished() {
-                if handle.is_recording() {
-                    assert!(handle.push(&[0.25; 10], T0));
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            started.join().unwrap()
-        })
-    }
-
-    /// Delivers frames `from..to` (host time at the nominal rate) and waits for the writer.
-    pub(super) fn push(&self, handle: &FakeHandle, from: u64, to: u64) {
-        let block = vec![0.5f32; (to - from) as usize];
-        assert!(handle.push(&block, T0 + from * 1_000_000));
-        assert!(handle.wait_drained(WAIT));
-    }
-
-    /// Arms, starts a take as `main-01` and records 1000 frames.
-    pub(super) fn take(&self) -> FakeHandle {
-        let handle = self.arm();
-        assert_eq!(self.start(&handle, Some("main")).unwrap().stem, "main-01");
-        self.push(&handle, 10, 1_000);
-        handle
+        self.start_in(
+            handle,
+            || self.projects.current_for(&self.root),
+            song_stem,
+            fields.into(),
+        )
+        .map(|stem| StartResult { stem })
     }
 }
 
-pub(super) fn sidecar_of(rig: &Rig, stem: &str) -> Sidecar {
-    rig.project().read_sidecar(stem).unwrap().unwrap()
-}
-
-/// A competing sidecar prevents no-clobber publication on every supported filesystem.
+/// [`strudeland_record::testing::block_publication`] for this rig, as the transcript's steps
+/// take it.
 pub(super) fn block_publication(rig: &Rig) -> PathBuf {
-    let path = rig.recordings_dir().join("main-01.json");
-    std::fs::write(&path, b"existing sidecar").unwrap();
-    path
+    strudeland_record::testing::block_publication(rig)
 }

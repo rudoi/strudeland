@@ -51,12 +51,6 @@ fn record_error(e: &RecordError) -> CommandError {
     }
 }
 
-impl From<RecordError> for CommandError {
-    fn from(e: RecordError) -> Self {
-        CommandError::from(TakeError::from(e))
-    }
-}
-
 /// The one table of take errors on the wire; each message is the error's `Display`.
 impl From<TakeError> for CommandError {
     fn from(e: TakeError) -> Self {
@@ -68,7 +62,7 @@ impl From<TakeError> for CommandError {
             | TakeError::NoAudio
             | TakeError::ChannelOutOfRange { .. }
             | TakeError::WriteFailed(_) => CommandError::other(e.to_string()),
-            TakeError::PermissionRefused(_) => {
+            TakeError::PermissionDenied | TakeError::PermissionRestricted => {
                 CommandError::new(K::PermissionDenied, e.to_string())
             }
             TakeError::LimitReached => CommandError::new(K::LimitReached, e.to_string()),
@@ -250,48 +244,21 @@ pub struct StateEvent {
     pub error: Option<CommandError>,
 }
 
-impl StateEvent {
-    fn new(state: RecState) -> StateEvent {
-        StateEvent {
-            state,
-            stem: None,
-            error: None,
-        }
-    }
-
-    fn stem(mut self, stem: impl Into<String>) -> StateEvent {
-        self.stem = Some(stem.into());
-        self
-    }
-
-    fn error(mut self, error: CommandError) -> StateEvent {
-        self.error = Some(error);
-        self
-    }
-}
-
 impl From<TakeEvent> for StateEvent {
     fn from(e: TakeEvent) -> Self {
-        let mut event = StateEvent::new(e.state);
-        if let Some(stem) = e.stem {
-            event = event.stem(stem);
+        StateEvent {
+            state: e.state,
+            stem: e.stem,
+            error: e.error.map(Into::into),
         }
-        if let Some(error) = e.error {
-            event = event.error(error.into());
-        }
-        event
     }
 }
 
 // --- the memo library ---
 
-/// The open project if it is the one at `root`.
-fn project_for(projects: &ProjectState, root: &str) -> Result<Arc<Project>, CommandError> {
-    projects.current_for(root)
-}
-
 pub fn list(projects: &ProjectState, root: &str) -> Result<Vec<RecordingEntry>, CommandError> {
-    project_for(projects, root)?
+    projects
+        .current_for(root)?
         .recordings()
         .map_err(CommandError::for_memos)
 }
@@ -302,19 +269,22 @@ pub fn rename(
     stem: &str,
     new_stem: &str,
 ) -> Result<String, CommandError> {
-    project_for(projects, root)?
+    projects
+        .current_for(root)?
         .rename_recording(stem, new_stem)
         .map_err(CommandError::for_memos)
 }
 
 pub fn delete(projects: &ProjectState, root: &str, stem: &str) -> Result<(), CommandError> {
-    project_for(projects, root)?
+    projects
+        .current_for(root)?
         .delete_recording(stem)
         .map_err(CommandError::for_memos)
 }
 
 pub fn read(projects: &ProjectState, root: &str, stem: &str) -> Result<Vec<u8>, CommandError> {
-    project_for(projects, root)?
+    projects
+        .current_for(root)?
         .read_recording_bytes(stem)
         .map_err(CommandError::for_memos)
 }
@@ -621,21 +591,6 @@ mod tests {
     // --- errors and wire shapes ---
 
     #[test]
-    fn project_for_is_typed_for_a_stale_root_and_no_project() {
-        use CommandErrorKind as K;
-        let rig = rig();
-        let stale = format!("{}-old", rig.root);
-        assert_eq!(
-            project_for(&rig.projects, &stale).unwrap_err(),
-            CommandError::new(K::ProjectChanged, "the project changed")
-        );
-        assert_eq!(
-            project_for(&ProjectState::default(), &rig.root).unwrap_err(),
-            CommandError::new(K::NoProject, "no project is open")
-        );
-    }
-
-    #[test]
     fn project_errors_for_memos() {
         use CommandErrorKind as K;
         let cases = [
@@ -722,7 +677,7 @@ mod tests {
         for (error, kind, message) in records {
             let label = format!("{error:?}");
             assert_eq!(
-                CommandError::from(error),
+                CommandError::from(TakeError::from(error)),
                 CommandError::new(kind, message),
                 "{label}"
             );
@@ -746,17 +701,12 @@ mod tests {
                 "no audio arrived from the input",
             ),
             (
-                TakeError::PermissionRefused(Permission::Denied),
+                TakeError::PermissionDenied,
                 K::PermissionDenied,
                 "microphone access denied",
             ),
             (
-                TakeError::PermissionRefused(Permission::NotDetermined),
-                K::PermissionDenied,
-                "microphone access denied",
-            ),
-            (
-                TakeError::PermissionRefused(Permission::Restricted),
+                TakeError::PermissionRestricted,
                 K::PermissionDenied,
                 restricted,
             ),
@@ -818,7 +768,7 @@ mod tests {
         let status = RecordingStatus {
             state: RecState::Armed,
             permission: Permission::NotDetermined,
-            device: Some(InputDevice::from(&usb())),
+            device: Some(InputDevice::from(&FakePlatform::usb())),
             channel: 3,
             stem: None,
             elapsed_seconds: None,
@@ -830,19 +780,23 @@ mod tests {
         let from_domain = RecordingStatus::from(TakeStatus {
             state: RecState::Armed,
             permission: Permission::NotDetermined,
-            device: Some(usb()),
+            device: Some(FakePlatform::usb()),
             channel: 3,
             stem: None,
             elapsed_seconds: None,
         });
         assert_eq!(from_domain, status);
-        assert_eq!(
-            serde_json::to_string(&StateEvent::new(RecState::Idle)).unwrap(),
-            r#"{"state":"idle"}"#
-        );
-        let full = StateEvent::new(RecState::Armed)
-            .stem("a-01")
-            .error(TakeError::LimitReached.into());
+        let idle = StateEvent {
+            state: RecState::Idle,
+            stem: None,
+            error: None,
+        };
+        assert_eq!(serde_json::to_string(&idle).unwrap(), r#"{"state":"idle"}"#);
+        let full = StateEvent {
+            state: RecState::Armed,
+            stem: Some("a-01".into()),
+            error: Some(TakeError::LimitReached.into()),
+        };
         assert_eq!(
             serde_json::to_string(&full).unwrap(),
             r#"{"state":"armed","stem":"a-01","error":{"kind":"limitReached","message":"recording stopped at the length limit"}}"#
