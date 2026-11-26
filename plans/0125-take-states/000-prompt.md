@@ -9,7 +9,9 @@
   table, "Unchanged", "Quirks kept as they are" and the threading rules before you edit
   anything.
 - **Background reading:** `AGENTS.md`, the voice memo rules and layout bullet;
-  `crates/strudeland-record/README.md`; `GLOSSARY.md`, **Take**.
+  `crates/strudeland-record/README.md`; `GLOSSARY.md`, **Take**. `GLOSSARY.md` gets no edit:
+  `Takes` is the name of the type that owns the lifecycle, not a second term beside **Take**
+  (one recording), and its doc comment says so.
 
 ## Stages
 
@@ -26,6 +28,12 @@ The stages run in order, and each one is one commit that is green with every gat
 
 The stages are sequential: 002 needs 001's transcript as its guard, and 003 moves 002's code.
 
+**CI gate between 001 and 002.** The local gates run on macOS only. After the 001 commit, push
+the branch and open a draft PR against `main` (`gh pr create --draft`): `native.yml` and
+`macos.yml` run only on `pull_request` and on pushes to `main`, never on a plain branch push.
+Stage 002 starts only once both workflows are green on the 001 head (Windows x64, Ubuntu 24.04,
+macOS). Later stages push to the same PR. Never force-push; a fix is a new commit.
+
 ## Rules for every stage
 
 - **Zero visible change.** The following all stay byte-identical:
@@ -37,10 +45,14 @@ The stages are sequential: 002 needs 001's transcript as its guard, and 003 move
   - threading behaviour.
 
   If a stage seems to need a different output, stop and report it.
-- **The transcript's expected JSON is frozen after stage 001.** It is the block between
-  `// --- expected: begin ---` and `// --- expected: end ---` in
-  `src-tauri/src/recording/transcript.rs`. Only the driver code around it may change. Never edit
-  the block to absorb a difference.
+- **The transcript is frozen after stage 001.** Two regions of
+  `src-tauri/src/recording/transcript.rs` may not change:
+  - the expected JSON, between `// --- expected: begin ---` and `// --- expected: end ---`;
+  - `normalize`, the restricted-text literals, the flow functions and the test function,
+    between `// --- frozen: begin ---` and `// --- frozen: end ---`.
+
+  Only the call adapters above the frozen region may change, and only in stage 003. Stage 002
+  does not edit `transcript.rs` at all. Never edit either region to absorb a difference.
 - **Keep every quirk** that reverify lists (#155), even where the new shape makes a fix
   tempting.
 - **Keep every threading rule:**
@@ -64,8 +76,10 @@ The stages are sequential: 002 needs 001's transcript as its guard, and 003 move
   - When the stage is done, run each gate once, log it, and read the log rather than re-running
     it. `S` is your session's scratchpad directory, and `N` is the stage number (`001`, `002`,
     `003`).
-  - `T0` is the stage-001 commit, which added the transcript:
-    `T0=$(git log --diff-filter=A --format=%H -- src-tauri/src/recording/transcript.rs)`.
+  - `T0` is the last stage-001 commit, the one CI went green on: the last commit that touched
+    the transcript. Stage 002 never edits it, and stage 003 runs the gate before committing, so
+    this still resolves to stage 001's head in both:
+    `T0=$(git log -1 --format=%H -- src-tauri/src/recording/transcript.rs)`.
 
     ```sh
     cargo fmt --all
@@ -74,17 +88,21 @@ The stages are sequential: 002 needs 001's transcript as its guard, and 003 move
     cargo clippy --locked --workspace --all-targets -- -D warnings > "$S/0125-$N-clippy.log" 2>&1; echo "exit $?" >> "$S/0125-$N-clippy.log"
     cargo fmt --all --check > "$S/0125-$N-fmt.log" 2>&1; echo "exit $?" >> "$S/0125-$N-fmt.log"
     bun test > "$S/0125-$N-bun.log" 2>&1; echo "exit $?" >> "$S/0125-$N-bun.log"
-    # From stage 002 on: the frozen block.
+    # From stage 002 on: the two frozen regions.
     expected() { sed -n '/\/\/ --- expected: begin ---/,/\/\/ --- expected: end ---/p'; }
+    frozen() { sed -n '/\/\/ --- frozen: begin ---/,/\/\/ --- frozen: end ---/p'; }
     diff <(git show "$T0:src-tauri/src/recording/transcript.rs" | expected) \
          <(expected < src-tauri/src/recording/transcript.rs) > "$S/0125-$N-transcript.log" 2>&1; echo "exit $?" >> "$S/0125-$N-transcript.log"
+    diff <(git show "$T0:src-tauri/src/recording/transcript.rs" | frozen) \
+         <(frozen < src-tauri/src/recording/transcript.rs) > "$S/0125-$N-frozen.log" 2>&1; echo "exit $?" >> "$S/0125-$N-frozen.log"
     git diff --stat d38b30e -- src/ crates/strudeland-project crates/strudeland-cli crates/strudeland-live \
       crates/strudeland-record/src/{recorder,writer,source,pipeline,device,anchors,clock,levels,error}.rs \
       > "$S/0125-$N-untouched.log"; echo "exit $?" >> "$S/0125-$N-untouched.log"
     ```
 
   - Every log ends `exit 0`. The transcript log also has no diff lines, and
-    `$(git show "$T0:…" | expected | wc -l)` is over 100, so an empty extraction cannot pass.
+    `$(git show "$T0:…" | expected | wc -l)` is over 100, and the same count for `frozen` is
+    over 50, so an empty extraction cannot pass. The frozen log has no diff lines either.
     `untouched.log` lists no files. `bun test` covers the IPC bindings staleness test.
   - `cargo test --workspace` needs `cmake`, a C compiler and the V8 download the host brings. The
     first build takes minutes.

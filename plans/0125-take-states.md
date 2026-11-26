@@ -113,11 +113,12 @@ crates/strudeland-record/src/takes/mod.rs      Takes, the ports, TakeState, Inne
 crates/strudeland-record/src/takes/error.rs    TakeError
 crates/strudeland-record/src/takes/sidecar.rs  TakeMeta, build_sidecar, OnInvalid, write_sidecar_or_fallback, publish, publish_fallback, complete_ended, bar1_frame
 crates/strudeland-record/src/takes/prefs.rs    Prefs, parse_prefs, read_prefs, write_prefs, resolve_selection, saved_channel
+crates/strudeland-record/src/takes/testing.rs  FakePlatform, CollectingSink, fake_maker (pub(crate) module)
 crates/strudeland-record/src/takes/tests.rs    the lifecycle tests (unit module: private access, as today)
 ```
 
-`lib.rs` adds `pub mod takes;`. `testing` adds `FakePlatform`, `CollectingSink` and
-`fake_maker`.
+`lib.rs` adds `pub mod takes;`. Its `testing` module re-exports `FakePlatform`,
+`CollectingSink` and `fake_maker` from `takes::testing`, the one public path to them.
 
 ### The state
 
@@ -210,8 +211,10 @@ where they never touch the flag.
   3. `resolve()`.
   4. `default_recording_stem`, then `recording_partial_path`, then the timestamp.
   5. `recorder.start(&path)`. On error the state is untouched, an ended take included.
-  6. `leave(Recording { .. })`, which publishes an unpublished ended take, then the `recording + stem`
-     event.
+  6. Move the `ArmedInput` out: from `Armed`, by replacing the whole state; from
+     `Ended { armed: Some }`, by `armed.take()` on the inner `Option` only, so the state is
+     still `Ended` when `leave` sees it. Then `leave(Recording { .. })`, which publishes an
+     unpublished ended take, then the `recording + stem` event.
 - **`stop(fields)`**:
   - From `Recording`: with no recorder, not armed, and the take is dropped as today (unreachable).
     Then `recorder.stop()`. On error the take is dropped, the state becomes `Armed`, there is no
@@ -308,8 +311,9 @@ impl Takes {
 
 ### `TakeError`
 
-`#[derive(Debug, Clone, thiserror::Error)]`. Each variant's `Display` is exactly the message
-of the `CommandError` it maps to today, so the log lines that print a message stay identical.
+`#[derive(Debug, Clone, thiserror::Error)]`, with a manual `PartialEq` (see Equality below).
+Each variant's `Display` is exactly the message of the `CommandError` it maps to today, so the
+log lines that print a message stay identical.
 
 | variant | Display | `CommandError` kind |
 |---|---|---|
@@ -317,6 +321,7 @@ of the `CommandError` it maps to today, so the log lines that print a message st
 | `PermissionPending` | `a microphone access request is pending` | `busy` |
 | `NotArmed` | `the recorder is not armed` | `other` |
 | `NoTake` | `no take in progress` | `other` |
+| `NoAudio` | `no audio arrived from the input` | `other` |
 | `PermissionRefused(Permission)` | `microphone access denied` (denied, not determined), or the restricted text (`…on this mac` / `…by the system`, cfg'd) | `permissionDenied` |
 | `ChannelOutOfRange { channel, channels }` | `channel {channel} is out of range for {channels} channels` | `other` |
 | `LimitReached` | `recording stopped at the length limit` | `limitReached` |
@@ -327,12 +332,24 @@ of the `CommandError` it maps to today, so the log lines that print a message st
 - **Why two variants are `Arc`s.** `RecordError` and `ProjectError` are not `Clone`, but a failed
   stop sends the same error in the event and in the result, as `e.clone()` does today
   (`:1004`).
+- **`From<RecordError> for TakeError`** (in `takes/error.rs`) maps the four `RecordError`s whose
+  wire text the app overrides today (`recording.rs:62`, `:70-72`) to domain variants, with the
+  same kinds and texts: `AlreadyRecording` to `Busy`, `NotArmed` to `NotArmed`, `StartTimeout`
+  to `NoAudio`, `PermissionDenied` to `PermissionRefused(Permission::Denied)`. Every other
+  variant becomes `Record(Arc::new(e))`. `arm` still matches `RecordError::PermissionDenied`
+  before converting, to set `Idle { stream_denied: true }`, and the log lines that print a
+  `RecordError` (`:973`, `:1055`) print it before conversion.
 - **The two tables in `recording.rs`.** `fn record_error(&RecordError) -> CommandError` holds
-  today's `From<RecordError>` table, including the macOS `DeviceBusy` split.
-  `impl From<RecordError> for CommandError` calls it. The four overridden texts (`AlreadyRecording`,
-  `NotArmed`, `StartTimeout`, `PermissionDenied`) come from the matching `TakeError` variant's
-  `Display`, so each text is written once. `impl From<TakeError> for CommandError` is the one
-  table above.
+  today's `From<RecordError>` table without the four overrides: `NoDevice`, the macOS
+  `DeviceBusy` split, `DeviceLost`, and `other(e.to_string())` for the rest.
+  `impl From<RecordError> for CommandError` is `CommandError::from(TakeError::from(e))`.
+  `impl From<TakeError> for CommandError` is the one table above, with `Record` going to
+  `record_error`. So every text is written once, and every `TakeError`'s `Display` equals the
+  message of the `CommandError` it maps to.
+- **Equality.** `RecordError` and `ProjectError` hold an `io::Error`, so `TakeError` cannot
+  derive `PartialEq`. A manual `impl PartialEq for TakeError` compares the variant
+  (`std::mem::discriminant`) and the `Display` text, and `TakeEvent` derives `PartialEq` on top
+  of it. The moved tests assert with `assert_eq!` on both.
 - **The only `command_error.rs` edit.** `for_memos` gains a by-reference form,
   `pub fn for_memo_error(e: &ProjectError) -> Self`, and `for_memos(e)` calls it. Output is
   unchanged, and the existing `project_errors_for_memos` test covers it.
@@ -350,8 +367,11 @@ of the `CommandError` it maps to today, so the log lines that print a message st
   `From` conversions both ways as needed;
 - `record_error` and the two `From` tables;
 - `mod permission` and `SystemPlatform`;
-- `AppSink`, whose `state` emits `StateEvent::from(event)` and whose `level` emits a
-  `LevelEvent`;
+- `AppSink`, whose `state` emits `StateEvent::from(event)` and whose `level` emits
+  `LevelEvent::from(level)` (a new `impl From<Level> for LevelEvent`, pinned in
+  `status_and_event_wire_shapes`). `From<TakeEvent> for StateEvent` builds through
+  `StateEvent::new`, `.stem` and `.error` (`:227-245`), so they stay used in the non-test build;
+  if they end up unused they are deleted or made `#[cfg(test)]`, never left as dead code;
 - `takes_config`, `system_state`, `RecorderState(pub Arc<Takes>)` and `blocking`;
 - the 11 commands; `recording_start` passes `|| projects.current_for(&root)`;
 - `project_for`, the four library commands, `repair_in_background` and `host_now_ns`.
@@ -361,24 +381,34 @@ of the `CommandError` it maps to today, so the log lines that print a message st
 ## Tests
 
 - **Stage 001: the transcript** (`src-tauri/src/recording/transcript.rs`). It runs one fresh rig
-  per flow over every row of the reverify event table, plus the failed-publish retry and the
-  ended-take settles: arm, start, disarm, reload and quit. Each step records:
+  per flow over every row of the reverify event table, plus the failed-publish retry, the
+  ended-take settles (arm, start, disarm, reload and quit) and the races the state must keep: an
+  ending after a stop, an ending for another path, a start or a fault after an ending, and a
+  start straight after a cap. Each step records:
   - `serde_json::to_value` of the command result (`{"ok": …}` or `{"err": {kind, message}}`);
   - every `StateEvent` emitted since the previous step;
   - the `recordings/` listing;
   - for stops, the entry and the key sidecar fields.
 
   The expected value is one inline JSON constant between marker comments. Volatile values are
-  normalized, and nothing else is. From stage 002 on, that constant may not change: a gate diffs
-  it against the stage-001 commit.
+  normalized, and nothing else is: the project roots and the temp dir (canonical and raw, then
+  `\` to `/` in the matched strings, so macOS's `/private/var` and Windows' `\\?\` forms read
+  the same), times, the app version and the restricted text (two `cfg`'d literals in the
+  transcript). A step that triggers async work (a fault, a cap push, the release of a gated
+  permission request) snapshots its events only after its own wait. `normalize` and the flows
+  sit in a second frozen region; only the call adapters around them may change. From stage 002
+  on, neither region may change: a gate diffs both against the last stage-001 commit, which CI
+  has run green on Windows, Linux and macOS before stage 002 starts.
 - **Stage 002** rewrites only the tests that read `Inner`'s fields, and adds `leave` and
   `saved_channel` tests.
-- **Stage 003** moves the lifecycle tests to `crates/strudeland-record/src/takes/tests.rs` as
-  transition tables over `FakeSource`, `FakePlatform` and `CollectingSink`, with
-  `app_version: "test"`, and deletes them from the app. The app keeps about 16 tests: the wire
-  shapes, the error table, the bundle and capability checks, the library commands, the
-  background repair, the transcript, and one stop test that pins `app.version` to the app's
-  version. The full mapping is in [003](0125-take-states/003-takes-module.md).
+- **Stage 003** moves the lifecycle tests to `crates/strudeland-record/src/takes/`, each as its
+  own `#[test]` function under its old name over `FakeSource`, `FakePlatform` and
+  `CollectingSink`, with `app_version: "test"`. Only the call syntax and the error assertions
+  change. They are deleted from the app. `takes::` then runs exactly 54 tests. The app keeps 16
+  (15 off macOS): the wire shapes, the error table, the bundle and capability checks, the
+  library commands, the background repair, the transcript, and one stop test that pins
+  `app.version` to the app's version. The full mapping is in
+  [003](0125-take-states/003-takes-module.md).
 
 ## What must not change
 
@@ -426,12 +456,19 @@ of the `CommandError` it maps to today, so the log lines that print a message st
   private state: the joined forwarder, the arm id, and the recorder not yet being built. Keeping
   that access avoids widening the public API for tests.
 - **The write-error flow is injected.** `FakeSource` cannot make the writer fail, so the
-  transcript and its record twin inject `Event::TakeEnded` with `Ended::WriteError` for the
-  running take's path. That pins the event and the publish. The real recorder's take runs on
-  until quit, so that flow's frame counts are normalized.
+  transcript injects `Event::TakeEnded` with `Ended::WriteError` for the running take's path.
+  That pins the event and the publish. The real recorder's take runs on, so the flow ends at
+  quit with no start after the injection, and its frame counts are normalized. It is the flow
+  most likely to differ on Windows (the take's file is published while the writer still has it
+  open); if only its `files` listing differs there, that flow's listing is normalized too.
+- **Quirk 1 is kept by code review.** A `recorder.stop()` error in `stop` cannot be reached with
+  `FakeSource`: `Recorder::stop` fails only with no running take and no stored result, which the
+  lock and the `take_if` path match rule out for a `Recording` state. The moved code keeps the
+  branch line for line, and no test claims to cover it.
 - **The restricted text and the `DeviceBusy` kind are platform-dependent.** The transcript
-  normalizes the restricted text to `<restricted>` and leaves `DeviceBusy` out. The error-table
-  test pins both per platform, with `cfg`.
+  normalizes the restricted text to `<restricted>`, matching two `cfg`'d literals of its own
+  rather than `recording.rs`'s `RESTRICTED`, and leaves `DeviceBusy` out. The error-table test
+  pins both per platform, with `cfg`.
 
 ## Dependencies
 
@@ -441,19 +478,23 @@ of the `CommandError` it maps to today, so the log lines that print a message st
   - `serde_json = { version = "1.0.154", features = ["float_roundtrip"] }`.
 
   All three are already in `Cargo.lock` at those versions. Only the record package's dependency
-  list changes, and the lock change is committed (CI runs `--locked`).
+  list changes, and the lock change is committed (CI runs `--locked`). `float_roundtrip` changes
+  nothing: `strudeland-project` already enables it on the graph's one `serde_json`.
 - `strudeland-live` now pulls `strudeland-project` in through record. It uses none of it.
 
 ## Risks
 
-- **A flaky transcript.** Async events (the cap, a device loss) are waited for explicitly, and
-  every other step is synchronous. The forwarder's ignored events (`TakeEnded(User)`,
-  `Disarmed`, `Armed`) emit nothing. Running it 20 times in stage 001 is part of the gate.
+- **A flaky transcript.** Each async trigger (the cap, a fault, the release of a gated request)
+  is one step with its own wait, and only then are its events read; no other step triggers
+  async work. The forwarder's ignored events (`TakeEnded(User)`, `Disarmed`, `Armed`) emit
+  nothing. Running all of `recording::` 20 times, in parallel, is part of stage 001's gate.
 - **Code behind `cfg`, which the macOS gates cannot see.** This covers the restricted text in
   `takes/error.rs`, the `DeviceBusy` split in `recording.rs`, the permission module for each OS
-  and the removed `dead_code` allowances. Each stage reasons them through, tries a Windows-target
-  clippy of `strudeland-record` where the target is installed, and leaves the last word to the
-  PR's Windows and Linux CI.
+  and the removed `dead_code` allowances, and, from stage 001, the transcript's paths on Windows.
+  Each stage reasons them through and tries a Windows-target clippy of `strudeland-record`
+  where the target is installed. Stage 001 is pushed to a draft PR, and stage 002 starts only
+  once `native.yml` (Windows, Linux) and `macos.yml` are green on it; the later stages push to
+  the same PR.
 - **A silent `app.version` change.** The app's stop test pins `env!("CARGO_PKG_VERSION")` of
   `strudeland-app` through `takes_config()`. The transcript normalizes the app's version to a
   token, so any other value (0.1.0, `test`) shows up as a diff.

@@ -19,8 +19,8 @@ the transcript and the existing tests use the same ones.
 ## Prerequisites
 
 - On `llm/andrew/strudeland/0125-take-states` at `d38b30e`, with only `plans/` untracked.
-- `cargo test -p strudeland-app --lib recording::` passes (63 tests) before you start. Log it as
-  `$S/0125-001-before.log`.
+- `cargo test -p strudeland-app --lib recording::` passes (63 tests on macOS) before you
+  start. Log it as `$S/0125-001-before.log`.
 
 ## Files
 
@@ -54,9 +54,23 @@ Make each item, and every field the tests read, `pub(super)`. That makes them vi
 only it uses. `start_fields_json` and `stale_partial` stay in `tests`.
 
 No assertion changes, and no test is renamed. `cargo test -p strudeland-app --lib recording::`
-still runs 63 tests, all passing.
+still runs 63 tests on macOS, all passing.
 
 ### 2. The driver (`transcript.rs`)
+
+The file has three parts, in this order:
+
+1. **The adapters**: `Script`, its step recorders and one method per verb or trigger. These are
+   the only lines later stages may change, because they call the functions under test.
+2. **The frozen region**, between `// --- frozen: begin ---` and `// --- frozen: end ---`:
+   `normalize`, the restricted-text literals, the flow functions and the test function. The
+   flows call only `Script` methods and `Rig` helpers (`rig.platform`'s fields,
+   `block_publication`, `rig.project()`), never `rig.core` or a `recording.rs` function, so a
+   later stage changes the adapters and `rig.rs`, never a flow.
+3. **The expected block**, between `// --- expected: begin ---` and `// --- expected: end ---`.
+
+From stage 002 on, the frozen region and the expected block are both diffed against the last
+stage-001 commit (000-prompt's `T0` gate).
 
 ```rust
 use super::rig::*;
@@ -77,9 +91,32 @@ struct Script { rig: Rig, steps: Vec<Value>, seen: usize }
   previous step (`self.seen` indexes `rig.sink.states()`). `files` is null when `recordings/`
   is not a directory (the `start-memo-error` flow). The driver reads the directory itself
   rather than calling `Rig::files`, which unwraps.
-- `act(&mut self, label, f: impl FnOnce(&Rig))` is a step with `"result": null`. It is for
-  faults, injections, reload, quit, pushes and waits.
+- `act(&mut self, label, f: impl FnOnce(&Rig))` is a step with `"result": null`, for actions on
+  the rig and its fakes that trigger nothing asynchronous: blocking or unblocking publication, a
+  permission or device change, a prefs read, a stale partial. The synchronous verbs with no
+  result (`reload`, `quit`, `inject_failed`, `inject_ended`) are adapters that record the same
+  `null`-result step.
+- **A step that triggers async work snapshots its events only after its own wait.** The
+  recorder's control thread sends `TakeEnded` and then `Failed` after a fault
+  (`recorder.rs:461-474`), the cap's `TakeEnded` comes from the writer, and a gated permission
+  request finishes on another thread. A trigger and its wait are therefore one step, and only
+  these helpers make such a step:
+  - `fault_and_wait(label, handle, kind, message)`: `handle.fault(kind, message)`, then
+    `rig.sink.wait` for the first event with an error after `self.seen`, then the snapshot;
+  - `push_and_wait_error(label, handle, from, to)`: the push (the cap), the same wait, then the
+    snapshot;
+  - `release_and_join(label, gate_tx, join_handle)`: release the gate, join the spawned `arm`,
+    then the snapshot, with the joined result as the step's result. The first arm's `armed`
+    event lands in this step.
+
+  No `act` performs a trigger, and no step sleeps. `wait` scans only events after `self.seen`,
+  so an earlier flow step's error cannot satisfy it.
 - `status(&mut self)` is `call("status", Ok(status(&rig.core, &rig.prefs())))`.
+- Each verb has one adapter method (`arm`, `disarm`, `start`, `stop`, `devices`, `status`,
+  `reload`, `quit`, `inject_failed`, `inject_ended`, `repair`, `sidecar`). Each one calls the
+  `recording.rs` function and passes the result to `call` with `.map_err(CommandError::from)`
+  where the error type is not already `CommandError`, so stage 003 changes the call and keeps
+  the step.
 - `entry(value)` summarizes a `RecordingEntry` or a `Sidecar` to its key fields, and is used in
   `call` for stops and in a `sidecar(stem)` step that reads `rig.project().read_sidecar(stem)`:
   - `stem`, `frames`, `sampleRate`, `duration`, `hasSidecar`, `sidecarError`, `size`;
@@ -87,23 +124,35 @@ struct Script { rig: Rig, steps: Vec<Value>, seen: usize }
     `recovered`;
   - `timing`: `bar1Frame`, `bar1HostNs`, `clockOffsetNs`, `outputStamps`, `anchors.len()` as
     `anchorCount`, and `anchors[0]` as `firstAnchor`.
-- `wait_error(&mut self, label)` is an `act` that calls `rig.sink.wait(|e| e.error.is_some())`
-  for the first event with an error after `self.seen`. Use it for every async event (a cap, a
-  fault). No other step waits, and no step sleeps.
-- `normalize(value, tmp)` runs over every recorded value and replaces only these:
-  - the temp dir's path string, wherever it appears inside a string: `<tmp>`;
+- `normalize(value, paths)` runs over every recorded value and replaces only these:
+  - **paths**, in this order, wherever they appear inside a string:
+    1. every project root the flow opened, as `root().to_string_lossy()`: `<root>` for alpha,
+       `<root:beta>` for beta. `Project::create` canonicalizes (`project.rs:403`), so on macOS
+       the root is `/private/var/folders/…` while `tmp.path()` is `/var/folders/…`, and on
+       Windows it is the verbatim `\\?\C:\…` form;
+    2. the canonical temp dir (`tmp.path().canonicalize()`): `<tmp>`;
+    3. the raw temp dir (`tmp.path()`): `<tmp>`;
+    4. then, only in a string where one of these matched, every `\` becomes `/`, so a
+       Windows path suffix reads as on Unix;
   - a non-null `elapsedSeconds`: `"<elapsed>"`;
   - `modifiedMs`: `"<mtime>"`;
   - `createdAt`: `"<created>"`;
   - `app.version` equal to `env!("CARGO_PKG_VERSION")`: `"<app version>"`. Any other value is
     kept, so a wrong version shows as a diff;
-  - the platform's restricted text (the `RESTRICTED` const): `"<restricted>"`;
+  - the restricted text: `"<restricted>"`. The transcript writes the two texts itself as
+    `cfg`'d literals (`"microphone access is restricted on this mac"` under
+    `target_os = "macos"`, `"microphone access is restricted by the system"` otherwise), not
+    through `recording.rs`'s `RESTRICTED`. A production text that drifts then shows as a diff,
+    and stage 003 can delete the const without touching the frozen region;
   - in the `write-error` flow only, the entry's `frames`, `duration` and `size`: `"<live>"`
-    (see Decisions).
-- `injected Failed` steps call `failed(&rig.core, arm_id, error)` directly, and the injected
-  `TakeEnded` calls `ended_by_itself(&rig.core, result)`. Both are private functions of
-  `recording.rs`, reachable as `super::`. Arm ids are the recorder's, sequential from 1 per
-  rig, so a flow knows them by counting its stream opens. A no-op re-arm keeps its id.
+    (see Decisions). If Windows CI shows a different `files` listing in this flow only, that
+    flow's `files` are normalized too (a sorted set of the names that exist on every OS); a
+    difference in any event or result there is a STOP.
+- `inject_failed` calls `failed(&rig.core, arm_id, error)` directly, and `inject_ended` calls
+  `ended_by_itself(&rig.core, result)`. Both are private functions of `recording.rs`, reachable
+  as `super::`, and both run synchronously on the test thread, so they are plain steps. Arm ids
+  are the recorder's, sequential from 1 per rig, so a flow knows them by counting its stream
+  opens. A no-op re-arm keeps its id.
 
 ### 3. The flows
 
@@ -118,7 +167,7 @@ rig (limits, no prompt) builds it first.
 | `arm-denied` | permission `denied`; `arm()` |
 | `arm-restricted` | permission `restricted`; `arm()` |
 | `arm-refused-while-armed` | `arm()`; set permission `denied`; `arm()`; `status` (stays `armed`, #155) |
-| `arm-while-request-pending` | `notDetermined` with the gate; spawn `arm()`; wait for `requests == 1`; `arm()` (busy); release; join the first `arm` as a step |
+| `arm-while-request-pending` | `notDetermined` with the gate; spawn `arm()`; wait for `requests == 1` (records nothing); `arm()` (busy, no event); `release_and_join` (the first arm's result and its `armed` event) |
 | `no-prompt-stream-decides` | `has_prompt` false, `notDetermined`; `status`; `arm_failure = PermissionDenied`; `arm()`; `status` (`denied`); `arm()`; `status` |
 | `arm-no-device` | devices cleared; `arm()`; `arm("fake:gone")` |
 | `arm-absent-device` | `arm("fake:gone")` |
@@ -148,21 +197,26 @@ rig (limits, no prompt) builds it first.
 | `settle-by-disarm` | take; block; `stop()`; remove; `disarm()`; `sidecar("main-01")` |
 | `settle-by-reload` | take; block; `stop()`; remove; reload; `sidecar("main-01")`; `status` |
 | `settle-by-quit` | take; block; `stop()`; remove; quit; `sidecar("main-01")` |
-| `cap` | limits `max_frames: 100`; `arm()`; start `main`; push 200 frames at `T0 + 10ms`; `wait_error`; `sidecar("main-01")`; `status`; `stop(fields bar1 "1050000000")`; `stop()` |
-| `cap-then-invalid-fields` | as `cap` to the wait; `stop(fields with meter "four")` (keeps the fallback); `sidecar("main-01")` |
-| `write-error` | take; inject `TakeEnded` with `ended: WriteError("disk full")`, `path` the take's partial, `frames 1000`, the take's rate and channel, no anchors, 0 xruns; `status`; `stop()`; quit |
-| `device-lost-take` | take; fault `DeviceLost "unplugged"`; `wait_error`; `sidecar("main-01")`; `status`; `stop(fields bar1 "1250000000")`; `stop()`; `arm()` |
-| `device-lost-take-blocked` | take; block; fault; `wait_error`; `stop()` (fails, `idle + stem + error`); remove; `stop()`; `stop()` |
-| `device-lost-armed` | `arm()`; fault `DeviceLost`; `wait_error`; `status` |
-| `backend-fault-take` | take; fault `Other "x"`; `wait_error`; `stop()` |
-| `backend-fault-armed` | `arm()`; fault `Other "x"`; `wait_error` |
-| `failed-after-disarm` | `arm()`; `disarm()`; inject `Failed { arm_id: 1, DeviceLost("late") }` (extra `idle + error`, #155) |
-| `stale-failed` | `arm()`; `arm("fake:usb")` (id 2); inject `Failed { 1 }`; `status`; inject `Failed { 2 }`; `status` |
-| `arm-after-loss` | take; fault; `wait_error`; `arm()`; `stop()` |
+| `cap` | limits `max_frames: 100`; `arm()`; start `main`; `push_and_wait_error` 200 frames at `T0 + 10ms`; `sidecar("main-01")`; `status`; `stop(fields bar1 "1050000000")`; `stop()` |
+| `cap-then-invalid-fields` | as `cap` to the push; `stop(fields with meter "four")` (keeps the fallback); `sidecar("main-01")` |
+| `cap-then-loss` | as `cap` to the push; `fault_and_wait` `DeviceLost "unplugged"` (`[idle + deviceLost]`, no stem: the take already ended, so no `TakeEnded` sets `pending_loss_stem`); `status`; `stop()` (`[idle + stem]`) |
+| `cap-then-start` | as `cap` to the push; start `main` without a stop (`main-02`; the published cap take is settled without a write); `sidecar("main-01")`; `stop()`; `sidecar("main-02")` |
+| `write-error` | take; `inject_ended` with `ended: WriteError("disk full")`, `path` the take's partial, `frames 1000`, the take's rate and channel, no anchors, 0 xruns; `status`; `stop()`; quit. Quit is the last step: the real recorder's take is still running, so nothing starts after the injection but the quit that ends it |
+| `ended-after-stop` | take; `stop()`; `inject_ended` with `ended: Cap` for the stopped take's path (the cap-versus-stop race: `take_if` finds no take, no event, files unchanged); `status` |
+| `ended-wrong-path` | take; `inject_ended` with `ended: Cap` for another path in `recordings/` (no event, the take runs on); `status` (`recording`); `stop()` (`[armed + stem]`) |
+| `device-lost-take` | take; `fault_and_wait` `DeviceLost "unplugged"`; `sidecar("main-01")`; `status`; `stop(fields bar1 "1250000000")`; `stop()`; `arm()` |
+| `device-lost-take-blocked` | take; block; `fault_and_wait`; `stop()` (fails, `idle + stem + error`); remove; `stop()`; `stop()` |
+| `device-lost-armed` | `arm()`; `fault_and_wait` `DeviceLost`; `status` |
+| `backend-fault-take` | take; `fault_and_wait` `Other "x"`; `stop()` |
+| `backend-fault-armed` | `arm()`; `fault_and_wait` `Other "x"` |
+| `failed-after-disarm` | `arm()`; `disarm()`; `inject_failed { arm_id: 1, DeviceLost("late") }` (extra `idle + error`, #155) |
+| `stale-failed` | `arm()`; `arm("fake:usb")` (id 2); `inject_failed { 1 }`; `status`; `inject_failed { 2 }`; `status` |
+| `arm-after-loss` | take; `fault_and_wait`; `arm()`; `stop()` |
+| `start-after-loss` | take; `fault_and_wait` `DeviceLost`; `start()` (`other "the recorder is not armed"`, no event; the state stays `Ended { armed: None }`); `status` (`idle`); `stop()` (`[idle + stem]`) |
 | `reload-idle` | reload; `arm()`; reload; `status` |
 | `reload-take` | take; reload; `status`; `stop()`; `sidecar("main-01")`; `arm()` |
 | `quit-take` | take; quit; `sidecar("main-01")`; quit |
-| `repair` | take; stale partial `memo-09`; `repair_on_open` (`skipped`); fault; `wait_error`; repair (`skipped`); `stop()`; repair (`repaired`, `discarded: [".memo-09.wav.partial"]`) |
+| `repair` | take; stale partial `memo-09`; `repair_on_open` (`skipped`); `fault_and_wait`; repair (`skipped`); `stop()`; repair (`repaired`, `discarded: [".memo-09.wav.partial"]`) |
 
 `repair_on_open` steps record `"skipped"`, `{"repaired": <RepairReport>}` or
 `{"failed": message}`. A take is `Rig::take`: `arm()`, start `main` and push frames 10 to 1000.
@@ -170,9 +224,17 @@ Log each of its three parts as its own step, so each start's event is pinned.
 
 ### 4. Capture and review
 
-1. Write the driver and flows with `const EXPECTED: &str = r#"{}"#;` between the markers:
+1. Write the adapters, then the frozen region, then `const EXPECTED: &str = r#"{}"#;`
+   between the markers:
 
    ```rust
+   // --- frozen: begin ---
+   fn normalize(…) { … }
+   fn flows(…) { … }        // and every flow function
+   #[test]
+   fn transcript_of_every_take_flow() { … }
+   // --- frozen: end ---
+
    // --- expected: begin ---
    const EXPECTED: &str = r#"…"#;
    // --- expected: end ---
@@ -195,23 +257,38 @@ Log each of its three parts as its own step, so each start's event is pinned.
 4. Paste the pretty JSON into `EXPECTED`. The test asserts
    `assert_eq!(actual, serde_json::from_str::<Value>(EXPECTED).unwrap())`, comparing values,
    not text.
-5. Run the transcript 20 times to show it is stable:
-   `for i in $(seq 20); do cargo test -p strudeland-app --lib recording::transcript -q || echo "FAIL $i"; done > "$S/0125-001-repeat.log" 2>&1`.
-   The log must have no `FAIL`. A flaky flow means a step is missing a `wait_error` for an async
-   event. Fix the driver, never by sleeping. If it cannot be made deterministic, STOP and
-   report.
+5. Run the whole `recording::` module 20 times, in parallel as cargo runs it by default, so
+   the transcript is shown stable beside the other tests' threads:
+   `for i in $(seq 20); do cargo test -p strudeland-app --lib recording:: -q || echo "FAIL $i"; done > "$S/0125-001-repeat.log" 2>&1`.
+   The log must have no `FAIL`. A flaky flow means an async trigger is recorded outside its
+   wait helper (`fault_and_wait`, `push_and_wait_error`, `release_and_join`). Fix the driver,
+   never by sleeping. If it cannot be made deterministic, STOP and report.
+6. Commit (the message below), push the branch and open a **draft** PR against `main`
+   (`gh pr create --draft`). `native.yml` (Windows x64, Ubuntu 24.04) and `macos.yml` run only
+   on `pull_request` and on pushes to `main`, so a branch push alone runs neither. Wait until
+   both workflows are green on the 001 commit before stage 002 starts. That is the first run
+   of the transcript on Windows and Linux: the paths, the restricted literal and the
+   `write-error` flow's files. A red run on another OS is fixed in the adapters or `normalize`
+   in a new commit on top (never a force-push), and only for a normalisation gap; an event or
+   result that differs by OS is a STOP. A fix commit on top is still part of stage 001. 000-prompt's `T0` is
+   the last commit that touched `transcript.rs`, so it is the green 001 head, and the frozen
+   region and the expected block are final from then on.
 
 ## Validation
 
-- `cargo test -p strudeland-app --lib recording::` runs 64 tests: the 63 existing ones,
-  unchanged, plus `transcript_of_every_take_flow`.
+- `cargo test -p strudeland-app --lib recording::` runs 64 tests on macOS: the 63 existing
+  ones, unchanged, plus `transcript_of_every_take_flow` (63 and 62 elsewhere, since
+  `the_avfoundation_status_reads_without_prompting` is `cfg(target_os = "macos")`). The macOS
+  count is the one logged.
 - The repeat log has no `FAIL`.
-- The common gates in [000-prompt.md](000-prompt.md), all `exit 0`. The transcript-diff gate
-  starts with stage 002.
+- `native.yml` and `macos.yml` are green on the draft PR's head, the 001 commit or a 001 fix on
+  top of it.
+- The common gates in [000-prompt.md](000-prompt.md), all `exit 0`. The transcript-diff and
+  frozen gates start with stage 002.
 - `git diff --stat d38b30e` shows only `src-tauri/src/recording.rs`,
   `src-tauri/src/recording/rig.rs` and `src-tauri/src/recording/transcript.rs` (plus `plans/`).
-- **Code behind `cfg`.** `RESTRICTED` is `cfg`'d by OS; the normalizer reads the const, so the
-  expected JSON is the same on every OS. `DeviceBusy`'s kind differs by OS, so no flow uses it.
+- **Code behind `cfg`.** The restricted text is `cfg`'d by OS as two literals inside the frozen
+  region, so the expected JSON is the same on every OS and does not depend on `RESTRICTED`. `DeviceBusy`'s kind differs by OS, so no flow uses it.
   The moved `the_avfoundation_status_reads_without_prompting` test stays in `tests` with its
   `#[cfg(target_os = "macos")]`. No item moved to `rig.rs` is `cfg`'d.
 
@@ -219,6 +296,7 @@ Log each of its three parts as its own step, so each start's event is pinned.
 
 - A recorded flow disagrees with reverify's table or an existing test's assertion.
 - A flow cannot be made deterministic without a sleep.
+- Windows or Linux CI shows an event or result that differs from macOS.
 - Any production line of `recording.rs` would change. Only `mod` declarations and the test
   module's imports may.
 

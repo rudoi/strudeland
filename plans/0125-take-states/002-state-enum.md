@@ -21,8 +21,8 @@ The transcript's expected JSON does not change.
 - `src-tauri/src/recording.rs`: the implementation, plus the four tests that read `Inner`'s
   fields, rewritten.
 - `src-tauri/src/recording/rig.rs`: one test helper, `armed_id(core) -> Option<u64>`.
-- `src-tauri/src/recording/transcript.rs`: no change to the expected block. The driver needs no
-  change either, since every function it calls keeps its signature.
+- `src-tauri/src/recording/transcript.rs`: not edited at all. Every function its adapters call
+  keeps its signature, and 000-prompt's `T0` relies on this stage not touching the file.
 
 ## Implementation
 
@@ -64,14 +64,20 @@ The transcript's expected JSON does not change.
      - busy if recording;
      - `let (Some(armed), Some(recorder)) = (inner.state.armed(), &inner.recorder) else { not
        armed }`;
-     - then `project_for`, the stem, the path, the timestamp and `recorder.start(&path)?`;
-     - clone `armed.info`. The `Recording` state needs the `ArmedInput` itself, so take it out
-       by `std::mem::replace` after `recorder.start` succeeded;
+     - then `project_for`, the stem, the path, the timestamp and `recorder.start(&path)?`,
+       reading `armed.info` by reference;
+     - only after `recorder.start` succeeded, move the `ArmedInput` out, by the state it is in:
+       - `Armed(a)`: replace the whole state (`std::mem::replace(&mut inner.state,
+         Idle { stream_denied: false })`) and take `a` out of the old value. Nothing is ended,
+         so `leave` has nothing to publish;
+       - `Ended { armed: Some(_), .. }`: only `armed.take()` on the inner `Option`, in place.
+         The state stays `Ended { armed: None, ended }`, so `leave` still sees the ended take
+         and publishes it if unpublished, exactly where `drop_ended` did;
+
+       (or one helper `leave_with(inner, |old| -> (next, armed))` doing both; either way the
+       old state reaches `leave` intact when it is `Ended`);
      - then `leave(inner, Recording { armed, take })`;
      - emit.
-
-     The `ArmedInput` moves out of `Armed` or `Ended { armed: Some }`, and `leave` publishes
-     an unpublished ended take exactly where `drop_ended` did.
    - `stop`:
      - From `Recording`, take it out. With no recorder, put `Armed(armed)` back and return not
        armed, so the take is dropped as today. On a `recorder.stop()` error, set `Armed(armed)`,
@@ -141,13 +147,15 @@ Replace; don't layer. Every test keeps its name and assertions except where note
     - equal to `channels` gives 0;
     - above gives 0.
 - `selection_resolution` is unchanged and still covers the clamp through `resolve_selection`.
-- Count: 64 + 4 = 68 tests in `recording::`.
+- Count: 64 + 4 = 68 tests in `recording::` on macOS (67 elsewhere). The macOS count is the
+  one logged.
 
 ## Validation
 
 - The common gates in [000-prompt.md](000-prompt.md), all `exit 0`, **including the
-  transcript-diff gate** (no diff lines).
-- `grep -n "drop_ended\|lost_stem\|inner.armed\|inner.take\b\|inner.ended\|stream_denied =" src-tauri/src/recording.rs`
+  transcript-diff and frozen gates** (no diff lines).
+- Pushed to the draft PR, `native.yml` and `macos.yml` are green on the 002 commit.
+- `grep -nE "drop_ended|lost_stem|inner\.(armed|take|ended)([^_a-z]|$)|stream_denied =" src-tauri/src/recording.rs`
   finds only `stream_denied` inside `TakeState` patterns or constructors, and
   `pending_loss_stem`.
 - `grep -c "device.channels == 0 || prefs.channel < device.channels" src-tauri/src/recording.rs`
@@ -158,7 +166,7 @@ Replace; don't layer. Every test keeps its name and assertions except where note
 
 ## STOP conditions
 
-- The transcript-diff log shows any line.
+- The transcript-diff or frozen log shows any line.
 - A transition would need an extra event, a different order or a new wait to keep a test green.
 - A reachable state cannot be represented. The one known unreachable case is a matching
   `Failed` while `Recording`; report any other.

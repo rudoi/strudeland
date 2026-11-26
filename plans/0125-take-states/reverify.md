@@ -2,7 +2,7 @@
 
 The issue stands. Only the line numbers moved, because #119 shrank the file.
 
-`src-tauri/src/recording.rs` is 3056 lines: implementation 1-1370, tests 1371-3056. It has 63 tests, and `cargo test -p strudeland-app --lib recording::` passes them all.
+`src-tauri/src/recording.rs` is 3056 lines: implementation 1-1370, tests 1371-3056. It has 63 tests (62 off macOS: `the_avfoundation_status_reads_without_prompting` is `cfg(target_os = "macos")`), and `cargo test -p strudeland-app --lib recording::` passes them all.
 
 ## The state is a set of fields
 
