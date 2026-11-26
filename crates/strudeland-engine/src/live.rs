@@ -16,7 +16,7 @@ use crate::bus::BusGraph;
 use crate::controls::signature_of_with_bus;
 use crate::job::{OrbitSpec, ValueMap};
 use crate::orbit::OrbitBank;
-use crate::render::{Core, IrSettler, IrTarget, ScheduleArgs, SyncSettler};
+use crate::render_core::{Core, IrSettler, IrTarget, ScheduleArgs, SyncSettler};
 use crate::reverb::{Convolver, IrCache, IrKey, IrPlan, Reverb, normalization_scale};
 use crate::{QUANTUM, SAMPLE_RATE_F64 as SR};
 
@@ -787,15 +787,15 @@ mod tests {
         e.schedule(hap(0.0, 0.02, 1, 0.5));
         render(&mut e, 1);
         assert!(e.ir.is_none(), "the link is dropped");
-        let slot = e.core.slots.iter().find(|s| s.value == 1).unwrap();
+        let slot = e.core.slots().iter().find(|s| s.value() == 1).unwrap();
         let stage = slot
-            .voice
+            .voice()
             .stages()
             .iter()
             .position(|s| matches!(s, crate::chain::Stage::LocalReverb(_)))
             .unwrap();
         let local = IrTarget::Local {
-            seq: slot.seq,
+            seq: slot.seq(),
             stage,
         };
         assert_eq!(e.core.reverb(local).unwrap().applied(), 1);
@@ -830,13 +830,13 @@ mod tests {
         e.schedule(hap(0.0, 0.5, 0, 0.5));
         render(&mut e, 1);
         let applied = |e: &LiveEngine| {
-            let stage = e.core.slots[0]
-                .voice
+            let stage = e.core.slots()[0]
+                .voice()
                 .stages()
                 .iter()
                 .position(|s| matches!(s, crate::chain::Stage::LocalReverb(_)))
                 .unwrap();
-            let seq = e.core.slots[0].seq;
+            let seq = e.core.slots()[0].seq();
             e.core
                 .reverb(IrTarget::Local { seq, stage })
                 .unwrap()

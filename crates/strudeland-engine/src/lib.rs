@@ -27,6 +27,7 @@ pub(crate) mod param;
 pub(crate) mod periodic;
 pub(crate) mod pulse;
 pub(crate) mod render;
+pub(crate) mod render_core;
 pub(crate) mod reverb;
 pub(crate) mod shaper;
 mod stems;

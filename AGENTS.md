@@ -211,9 +211,11 @@ the V8 download the host brings.
   superdough and Blink at the Chromium tag Playwright drives. `job` (schema 2 and validation),
   `controls` (the allowlist, audited in `controls.md`) and `signatures` (the binary's unsupported
   detection, called by `scripts/render/rust-engine.ts`), `js` (superdough's seeding and `String(number)`),
-  `jsmath` (V8's `Math.*` bit for bit: CORE-MATH and V8 ports, the host `pow`/`tanh`), `render`
-  (the pause loop and voice driver), `voice` (one hap's graph), `chain` (the voice's stereo stage
-  chain, FX entries, the node table), `param`, `adsr`, `periodic`, `osc`, `fft`, `biquad`,
+  `jsmath` (V8's `Math.*` bit for bit: CORE-MATH and V8 ports, the host `pow`/`tanh`),
+  `render_core` (the render core both drivers share: voices, buses, orbits, caches, the IR
+  settler seam), `render` (the offline driver: the pause loop and frame conversions), `voice` (one
+  hap's graph), `chain` (the voice's stereo stage chain, FX entries, the node table), `param`,
+  `adsr`, `periodic`, `osc`, `fft`, `biquad`,
   `panner`, `noise`, `worklet` (how Chromium runs an AudioWorklet processor), `supersaw`, `pulse`,
   `shaper` (coarse, crush, shape, distort), `transient`, `ladder`, `djf`, `lfo`, `envelope`,
   `compressor`, `vowel`, `modulate` (`lfo`/`env`/`bmod` modulators), `bus`, `orbit` (buses,

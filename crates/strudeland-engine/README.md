@@ -491,7 +491,7 @@ refused sound. A unit test checks the coverage of that inventory.
 ## Live mode
 
 `strudeland_engine::live::LiveEngine` is the streaming driver on the render core the offline
-`Engine` uses (`render::Core`): stereo at 44100 Hz, one 128-frame quantum per `render_quantum`
+`Engine` uses (`render_core::Core`): stereo at 44100 Hz, one 128-frame quantum per `render_quantum`
 call, written interleaved `L R` into the caller's 256-sample buffer. `strudeland-live`'s engine
 thread owns it (it is `!Send`).
 
@@ -520,7 +520,10 @@ thread owns it (it is `!Send`).
   `build_ir`, and `poll_ir` (the first step of `render_quantum`) lands each `IrBuilt` at the next
   quantum boundary; a reverb's newest request wins whatever order results arrive in. Until then
   the previous IR plays, so the **first use of a reverb is silent** for the build time (a default
-  room takes milliseconds). A worker that is gone falls back to a synchronous build.
+  room takes milliseconds). A worker that is gone falls back to a synchronous build. Both drivers
+  settle through the core's one walk (`Core::settle_reverbs`): offline and synchronous live
+  through the synchronous settler (`Convolver::new`), the worker through its own settler
+  (`build_ir`, `Convolver::new_live`).
 - **Long live reverbs.** The worker prepares the existing zero-latency stages for the first
   8192 taps. Later 4096-tap partitions share each input transform and accumulate in the frequency
   domain over 32 render quanta. Each attached convolver has independent input and overlap history.
