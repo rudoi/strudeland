@@ -1,7 +1,7 @@
 # 0124 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0124-one-planner`.
-- **Plan:** [the proposal](../0124-one-planner.md). It is the contract. It covers:
+- **Plan:** [the proposal](proposal.md). It is the contract. It covers:
   - the frame fields;
   - the single-chunk request and the pass code;
   - the callers;
@@ -26,19 +26,19 @@
 The stages run in order. Each one is one commit, and each is green with every gate below before
 the next starts.
 
-1. [001-frames.md](001-frames.md):
+1. [001-frames.md](proposal.md):
    - the A/B baseline, recorded **before any edit**;
    - every frame count emitted by the planner, and required in TS and Rust;
    - the recomputes deleted;
    - `batch-window.ts` reading frames from `--info`;
    - per-chunk frames in `joiner.json`.
-2. [002-one-planner.md](002-one-planner.md):
+2. [002-one-planner.md](proposal.md):
    - `RenderPlanRequest.chunk` and the single-chunk pass;
    - `planJob`, `BATCH_REUSE_SCHEDULE`, `Host::plan_job*`, `PlannedJob`, `RenderRequest` and
      `strudeland-host plan` deleted;
    - the page, `HostPlanner`, bench, `perf_budget` and `host:parity` moved onto
      `planRender`.
-3. [003-batch-adapter.md](003-batch-adapter.md):
+3. [003-batch-adapter.md](proposal.md):
    - `Renderer.renderWindow?`;
    - `PipelineRenderer`;
    - `assembledOf` using it;
@@ -95,7 +95,7 @@ the next starts.
 `S` is the scratchpad,
 `/private/tmp/claude-501/-Volumes-rudenet-code-strudeland-worktrees-poptart/2d85ebc3-84cd-4f6d-90b0-657c13b5df8a/scratchpad`.
 That path belongs to the session that wrote this plan. A later session sets `S` to its own
-scratchpad and restores `$S/0124-baseline/` as [001-frames.md](001-frames.md) step 1 says.
+scratchpad and restores `$S/0124-baseline/` as [001-frames.md](proposal.md) step 1 says.
 `N` is the stage number (`001`, `002` or `003`). `L` logs a command with its start time and
 exit code:
 

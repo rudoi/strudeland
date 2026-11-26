@@ -25,7 +25,7 @@ and every frame count the joiner needs comes from the planner.
 
 ## Background
 
-The evidence is in [reverify.md](0124-one-planner/reverify.md), with file and line at
+The evidence is in [reverify.md](reverify.md), with file and line at
 `a8151213`. In short:
 
 - **The gates check `planJob` chunks; production renders `planRender` chunks.**
