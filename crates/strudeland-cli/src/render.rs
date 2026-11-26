@@ -65,11 +65,13 @@ pub fn prepare(args: &RenderArgs) -> Result<Prepared, RenderError> {
     .map_err(cli_error)
 }
 
-/// The CLI's wording of an export error: the pipeline's, except a role mismatch, which the CLI
-/// words as an unexpected intro file.
+/// The CLI's wording of an export error: the pipeline's, except an extra intro file, which the
+/// CLI words as an unexpected intro file.
 pub fn cli_error(e: export::Error) -> RenderError {
     match e {
-        export::Error::RolesMismatch => RenderError::Render("unexpected intro file".into()),
+        export::Error::RolesMismatch { extra_intro: true } => {
+            RenderError::Render("unexpected intro file".into())
+        }
         other => other.into(),
     }
 }
@@ -402,6 +404,23 @@ pub fn human_summary(summary: &Summary, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_error_words_role_mismatches() {
+        let text = |e| cli_error(e).to_string();
+        assert!(
+            text(export::Error::RolesMismatch { extra_intro: true })
+                .ends_with("unexpected intro file")
+        );
+        assert!(
+            text(export::Error::RolesMismatch { extra_intro: false })
+                .ends_with("the rendered files do not match the destinations")
+        );
+        assert!(
+            text(export::Error::PreviewMismatch)
+                .ends_with("the approved preview does not match the destinations")
+        );
+    }
     use crate::cli::Cli;
     use crate::run::{Env, Transport, run_with};
     use clap::Parser;

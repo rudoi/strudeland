@@ -248,7 +248,10 @@ fn create_new_needs_approval_before_rendering() {
             Default::default(),
             &|_| {},
         );
-        assert!(matches!(failed(result), Error::RolesMismatch), "{other:?}");
+        assert!(
+            matches!(failed(result), Error::PreviewMismatch),
+            "{other:?}"
+        );
     }
     assert!(fake.seen.is_empty());
     assert_eq!(fs::read(&path).unwrap(), b"old");
@@ -624,7 +627,10 @@ fn a_role_mismatch_publishes_nothing() {
             }
         },
     );
-    assert!(matches!(failed(result), Error::RolesMismatch));
+    assert!(matches!(
+        failed(result),
+        Error::RolesMismatch { extra_intro: false }
+    ));
     assert!(fake.published.is_empty());
     assert_eq!(events.into_inner(), 0);
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);

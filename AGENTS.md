@@ -255,7 +255,7 @@ the V8 download the host brings.
   table, preview, the replace policies, ordered publish and the partial write, behind the
   `Pipeline` seam; `testing::FakePipeline` is its fake),
   `stems` (directory and buffer limits, pre-master float WAV sets and manifest), `output`
-  (default paths, atomic write), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness
+  (the suffixes, `OutputTarget` and the atomic write; `export/` resolves destinations), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness
   binary (`render`, `bench`); its README has the formats, defaults and licences, and
   `tests/vectors/` is written by `render:vectors`. `crates/strudeland-cli/src/render.rs` is
   `strudeland render` (flag rules, the export adapter, progress, summary, exit codes). `scripts/render/batch-render.ts`

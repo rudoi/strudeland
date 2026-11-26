@@ -64,6 +64,9 @@ enum Targets {
 /// Resolves the destination without touching a mix target (the CLI): the roles are resolved in
 /// reverse table order, primary first, and stored in table order. A stem set's availability is
 /// left to the render.
+///
+/// This assumes `check_length_for_preset` already passed (each adapter calls it at its own
+/// point); a loop preset with a non-clip length is the caller's error.
 pub fn prepare(request: Request, destination: Destination) -> Result<Prepared, Error> {
     resolve(request, destination, false).map(|(prepared, _)| prepared)
 }
@@ -71,6 +74,9 @@ pub fn prepare(request: Request, destination: Destination) -> Result<Prepared, E
 /// Resolves the destination and previews it (the app): each mix role in table order is
 /// resolved, then checked for an existing file, before the next; a stem set's directory must be
 /// available.
+///
+/// Like [`prepare`], this assumes `check_length_for_preset` already passed (each adapter calls
+/// it at its own point); a loop preset with a non-clip length is the caller's error.
 pub fn prepare_previewed(
     request: Request,
     destination: Destination,
@@ -284,14 +290,14 @@ fn modes(
     let snapshot = match preview {
         None => return Err(Error::PreviewRequired),
         Some(Preview::Mix(snapshot)) => snapshot,
-        Some(Preview::Stems { .. }) => return Err(Error::RolesMismatch),
+        Some(Preview::Stems { .. }) => return Err(Error::PreviewMismatch),
     };
     if !snapshot
         .iter()
         .map(|file| (file.role, &file.path))
         .eq(files.iter().map(|target| (target.role, &target.path)))
     {
-        return Err(Error::RolesMismatch);
+        return Err(Error::PreviewMismatch);
     }
     if !approved && snapshot.iter().any(|file| file.exists) {
         return Err(Error::ReplacementNotApproved);
@@ -340,7 +346,9 @@ fn run_mix(
         .map(|file| file.role)
         .eq(files.iter().map(|target| target.role))
     {
-        return Err(Error::RolesMismatch.into());
+        let extra_intro = rendered.iter().any(|f| f.role == ExportRole::Intro)
+            && !files.iter().any(|t| t.role == ExportRole::Intro);
+        return Err(Error::RolesMismatch { extra_intro }.into());
     }
     progress(Event::Publishing);
     let mut published: Vec<Published> = Vec::with_capacity(files.len());

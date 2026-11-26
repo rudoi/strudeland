@@ -42,7 +42,7 @@ pub trait Pipeline {
     }
 }
 
-/// The real pipeline: [`crate::render`], [`crate::render_export`] and [`crate::stems::render_stems`].
+/// The real pipeline: [`crate::render`], [`crate::render_export`] and [`Pipeline::render_stems`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RealPipeline;
 

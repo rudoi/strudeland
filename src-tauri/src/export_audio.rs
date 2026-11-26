@@ -139,7 +139,10 @@ fn export_message(error: &export::Error) -> String {
         }
         export::Error::FolderUnreadable { source, .. } => source.to_string(),
         export::Error::InvalidSongName => "invalid song filename".into(),
-        export::Error::RolesMismatch => "the rendered files do not match the preview".into(),
+        export::Error::RolesMismatch { .. } => "the rendered files do not match the preview".into(),
+        export::Error::PreviewMismatch => {
+            "the output files changed; review the new preview before exporting".into()
+        }
         export::Error::ReplacementNotApproved => "replacement requires confirmation".into(),
         export::Error::PreviewRequired => "the export has no preview".into(),
     }
@@ -785,8 +788,12 @@ mod tests {
             ),
             (export::Error::InvalidSongName, "invalid song filename"),
             (
-                export::Error::RolesMismatch,
+                export::Error::RolesMismatch { extra_intro: false },
                 "the rendered files do not match the preview",
+            ),
+            (
+                export::Error::PreviewMismatch,
+                "the output files changed; review the new preview before exporting",
             ),
             (
                 export::Error::ReplacementNotApproved,
@@ -806,7 +813,7 @@ mod tests {
                 absolute: "/abs/renders/main-intro.wav".into(),
             }],
             failed: Some("renders/main-loop.wav".into()),
-            source: export::Error::RolesMismatch,
+            source: export::Error::RolesMismatch { extra_intro: true },
         });
         assert_eq!(e.message, "the rendered files do not match the preview");
         assert_eq!(e.written, [PathBuf::from("renders/main-intro.wav")]);

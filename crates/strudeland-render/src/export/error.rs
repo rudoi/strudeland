@@ -21,8 +21,12 @@ pub enum Error {
     FolderUnreadable { path: PathBuf, source: io::Error },
     /// The song's file name has no UTF-8 stem.
     InvalidSongName,
-    /// The rendered files, or the preview, do not match the destinations' roles and paths.
-    RolesMismatch,
+    /// The rendered files do not match the destinations' roles. `extra_intro` is true when the
+    /// render produced an intro file the destinations have no place for.
+    RolesMismatch { extra_intro: bool },
+    /// The approved preview does not match the resolved destinations, or is a stem preview for
+    /// a mix.
+    PreviewMismatch,
     /// The preview said a file exists and the replacement was not approved.
     ReplacementNotApproved,
     /// `ReplacePolicy::CreateNew` needs the preview the user approved.
@@ -69,8 +73,11 @@ impl From<Error> for RenderError {
             },
             Error::FolderUnreadable { path, source } => RenderError::Io { path, source },
             Error::InvalidSongName => RenderError::Render("invalid song filename".into()),
-            Error::RolesMismatch => {
+            Error::RolesMismatch { .. } => {
                 RenderError::Render("the rendered files do not match the destinations".into())
+            }
+            Error::PreviewMismatch => {
+                RenderError::Render("the approved preview does not match the destinations".into())
             }
             Error::ReplacementNotApproved => {
                 RenderError::Render("replacement requires confirmation".into())
@@ -126,8 +133,12 @@ mod tests {
                 "render failed: invalid song filename",
             ),
             (
-                Error::RolesMismatch,
+                Error::RolesMismatch { extra_intro: false },
                 "render failed: the rendered files do not match the destinations",
+            ),
+            (
+                Error::PreviewMismatch,
+                "render failed: the approved preview does not match the destinations",
             ),
             (
                 Error::ReplacementNotApproved,
