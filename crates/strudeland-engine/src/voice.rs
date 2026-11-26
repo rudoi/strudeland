@@ -32,9 +32,9 @@ use crate::adsr::{Curve, get_adsr_values, get_param_adsr};
 use crate::biquad::{Biquad, FilterKind};
 use crate::bus::BusBank;
 use crate::chain::{
-    DEFAULT_SOUND, EntryTimes, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef, ParamSlot,
-    SourceEnd, SourceKind, Stage, StageId, StageInputs, StageKind, Teardown, VoiceBus, build_entry,
-    delay_applies, input_connected, push_stage, set_worklet_value,
+    DEFAULT_SOUND, EntryTimes, FmStep, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef,
+    ParamSlot, SourceEnd, SourceKind, Stage, StageId, StageInputs, StageKind, StageSpec, Teardown,
+    VoiceBus, build_stage, delay_applies, input_connected, set_worklet_value,
 };
 use crate::coerce::{js_max, js_min, js_to_string};
 use crate::job::{ErrorKind, Value};
@@ -771,57 +771,57 @@ struct BuildContext<'a> {
     now: u64,
 }
 
-/// `applyFM(carrier.frequency, value, begin)` (helpers.mjs:429-512): walks the matrix in its
-/// order, creating each modulator on first use (source side, then target side) and checking
-/// each side's `gainNode(amt)` and `gainNode(modfreq)` as superdough builds them (the target
-/// side's pair carries no signal); a connection to a noise modulator (no `frequency` param) is
-/// skipped (`NodeTable::plan` registers the `fm_<i>` and `fm_<i>_gain` entries of this walk).
+/// `applyFM(carrier.frequency, value, begin)` (helpers.mjs:429-512): walks the steps
+/// `NodeTable::plan` recorded, in the matrix order. It builds each modulator at its planned
+/// first use and checks each side's `gainNode(amt)` and `gainNode(modfreq)` as superdough
+/// builds them (the target side's pair carries no signal, but its checks still throw). It skips
+/// a connection the plan marks as not connecting (a noise target, no `frequency` param).
 /// `None` when no entry is active.
 fn apply_fm(
     params: &VoiceParams,
+    steps: &[FmStep],
     carrier_freq: f32,
     begin: f64,
     ctx: &mut BuildContext,
 ) -> Result<Option<Fm>, VoiceError> {
-    if params.fm.entries.is_empty() {
+    if steps.is_empty() {
         return Ok(None);
     }
     let mut fm = Fm {
         modulators: Vec::new(),
         connections: Vec::new(),
     };
-    // Modulator number -> (position, modfreq).
-    let mut created: [Option<(usize, f64)>; 9] = [None; 9];
-    for e in &params.fm.entries {
-        let mut sides = [None, None];
-        for (k, idx) in [e.source, e.target].into_iter().enumerate() {
-            if idx == 0 {
-                continue;
-            }
-            if created[idx].is_none() {
-                let (m, modfreq) = build_modulator(idx, &params.fm.mods, carrier_freq, begin, ctx)?;
-                created[idx] = Some((fm.modulators.len(), modfreq));
+    // Per modulator position, its modfreq.
+    let mut modfreqs: Vec<f64> = Vec::new();
+    debug_assert_eq!(steps.len(), params.fm.entries.len());
+    for (e, step) in params.fm.entries.iter().zip(steps) {
+        let mut values = [None, None];
+        for (k, side) in step.sides.iter().enumerate() {
+            let Some(side) = side else { continue };
+            if side.first_use {
+                let (m, modfreq) =
+                    build_modulator(side.idx, &params.fm.mods, carrier_freq, begin, ctx)?;
                 fm.modulators.push(m);
+                modfreqs.push(modfreq);
+                debug_assert_eq!(side.pos, fm.modulators.len() - 1);
             }
-            let (pos, modfreq) = created[idx].expect("created above");
             let amount = idl_float(e.amount, "gain")?;
-            let freq = idl_float(modfreq, "gain")?;
-            fm.modulators[pos].freq = freq;
-            sides[k] = Some((pos, amount, freq));
+            let freq = idl_float(modfreqs[side.pos], "gain")?;
+            fm.modulators[side.pos].freq = freq;
+            values[k] = Some((amount, freq));
         }
-        let (source, amount, freq) = sides[0].expect("the source is a modulator");
-        let target = match sides[1] {
+        let source = step.sides[0].expect("the source is a modulator");
+        let (amount, freq) = values[0].expect("the source side is checked");
+        if !step.connects {
+            // superdough logs "failed to connect FM ..." and goes on.
+            continue;
+        }
+        let target = match step.sides[1] {
             None => FmTarget::Carrier,
-            Some((pos, ..)) => {
-                if matches!(fm.modulators[pos].source(), ModSource::Noise(_)) {
-                    // superdough logs "failed to connect FM ..." and goes on.
-                    continue;
-                }
-                FmTarget::Modulator(pos)
-            }
+            Some(side) => FmTarget::Modulator(side.pos),
         };
         fm.connections.push(FmConnection {
-            source,
+            source: source.pos,
             target,
             amount: GainNode::constant(amount),
             freq: GainNode::constant(freq),
@@ -901,11 +901,11 @@ pub struct Voice {
     #[cfg(test)]
     start_frame: u64,
     stop_frame: u64,
-    /// The chain in order: `Gain(0.3)`, `envGain` (`gainNode(1)`, then `getParamADSR` on its
-    /// gain), the stages of each FX entry ([`build_entry`]: the gain stage, the filters, the
-    /// vowel, the shapers, the tremolo, the compressor, the panner, the phaser, and a chain
-    /// entry's local delay and reverb), the chain entries first and the main entry last, the
-    /// `FXrelease` gain, then `post` (`new GainNode(ac, { gain: postgain })`).
+    /// The built stages, one per planned `StageSpec`, in plan order: `Gain(0.3)`, `envGain`
+    /// (`gainNode(1)`, then `getParamADSR` on its gain), the stages of each FX entry (the gain
+    /// stage, the filters, the vowel, the shapers, the tremolo, the compressor, the panner, the
+    /// phaser, and a chain entry's local delay and reverb), the chain entries first and the main
+    /// entry last, the `FXrelease` gain, then `post` (`new GainNode(ac, { gain: postgain })`).
     stages: Vec<Stage>,
     /// The delay and reverb sends from `post`.
     sends: Sends,
@@ -1092,6 +1092,7 @@ fn canonical(s: &str) -> &str {
 fn build_oscillator(
     s: &str,
     params: &VoiceParams,
+    fm: &[FmStep],
     t: f64,
     ctx: &mut BuildContext,
 ) -> Result<OscSource, VoiceError> {
@@ -1122,7 +1123,7 @@ fn build_oscillator(
         pitch_envelope(&mut carrier.detune, params, t, t + params.duration, now)?;
     }
     // `fm()` reads `frequencyparam.value`: the carrier's float intrinsic value.
-    let fm = apply_fm(params, carrier.frequency.value(), t, ctx)?;
+    let fm = apply_fm(params, fm, carrier.frequency.value(), t, ctx)?;
     let noise_mix = match params.noise {
         Some(noise) => {
             let pink = noise_source(NoiseKind::Pink, DEFAULT_DENSITY, t, ctx)?;
@@ -1284,6 +1285,7 @@ impl WorkletSource {
 fn build_worklet_synth(
     s: &str,
     params: &VoiceParams,
+    fm: &[FmStep],
     t: f64,
     release: f64,
     ctx: &mut BuildContext,
@@ -1343,7 +1345,7 @@ fn build_worklet_synth(
     let vibrato =
         build_vibrato(params, t, ctx.tables, now)?.map(|v| (v.osc, GainNode::new(v.depth)));
     // `fm()` reads `frequencyparam.value`: the param's float intrinsic value.
-    let fm = apply_fm(params, carrier_freq, t, ctx)?;
+    let fm = apply_fm(params, fm, carrier_freq, t, ctx)?;
     Ok((
         WorkletSource {
             synth,
@@ -1465,6 +1467,7 @@ impl Voice {
         let send_bus = params.bus.as_deref().map(bus_index).transpose()?;
         let not_found = || hap_error(format!("sound {s} not found"));
         let kind = SourceKind::of(&s).ok_or_else(not_found)?;
+        let node_table = NodeTable::plan(params, kind);
         let is_bus = kind == SourceKind::Bus;
         let adsr = get_adsr_values(
             [params.attack, params.decay, params.sustain, params.release],
@@ -1494,6 +1497,7 @@ impl Voice {
             SourceKind::Osc => Source::Osc(Box::new(build_oscillator(
                 canonical(&s),
                 params,
+                node_table.fm_steps(),
                 t,
                 &mut ctx,
             )?)),
@@ -1505,7 +1509,8 @@ impl Voice {
                 Source::Noise(noise_source(noise, density, t, &mut ctx)?)
             }
             SourceKind::Supersaw | SourceKind::Pulse => {
-                let (w, peak) = build_worklet_synth(&s, params, t, adsr[3], &mut ctx)?;
+                let (w, peak) =
+                    build_worklet_synth(&s, params, node_table.fm_steps(), t, adsr[3], &mut ctx)?;
                 worklet_peak = Some(peak);
                 Source::Worklet(Box::new(w))
             }
@@ -1519,15 +1524,30 @@ impl Voice {
         // to `envGain`, whose envelope peaks at their own level.
         // The bus sound connects straight to its `envGain` (`gainNode(0)`, linear ADSR to 1).
         let mut stages = Vec::new();
-        if worklet_peak.is_none() && !is_bus {
-            stages.push(Stage::Gain(GainNode::constant(SYNTH_GAIN)));
+        let head = node_table
+            .specs()
+            .iter()
+            .position(|s| *s == StageSpec::EnvGain)
+            .expect("planned")
+            + 1;
+        for spec in &node_table.specs()[..head] {
+            match spec {
+                StageSpec::SynthGain => stages.push(Stage::Gain(GainNode::constant(SYNTH_GAIN))),
+                StageSpec::EnvGain => {
+                    let envelope = if is_bus {
+                        bus_envelope(adsr, t, hold_end, now)?
+                    } else {
+                        amp_envelope(adsr, t, hold_end, worklet_peak.unwrap_or(1.0), now)?
+                    };
+                    stages.push(Stage::Gain(GainNode::new(envelope)));
+                }
+                _ => unreachable!("the plan starts with the head"),
+            }
+            debug_assert_eq!(
+                StageKind::of(stages.last().expect("just built")),
+                spec.kind()
+            );
         }
-        let envelope = if is_bus {
-            bus_envelope(adsr, t, hold_end, now)?
-        } else {
-            amp_envelope(adsr, t, hold_end, worklet_peak.unwrap_or(1.0), now)?
-        };
-        stages.push(Stage::Gain(GainNode::new(envelope)));
         // The pulse's `pw_lfo` after `envGain`'s envelope (synth.mjs:346-350); the node table
         // holds `[undefined]` without one.
         if let Source::Worklet(w) = &mut source
@@ -1571,32 +1591,14 @@ impl Voice {
             phase_sec: start.phase_sec,
             cps: start.cps,
         };
+        // The entries' stages, then the `FXrelease` gain and `post`, one per planned spec (so a
+        // stage's id is its index).
         let mut param_lfos = Vec::new();
-        for (key, entry) in params.entries() {
-            build_entry(
-                key,
-                entry,
-                params.ftype_24db,
-                times,
-                &mut stages,
-                &mut param_lfos,
-            )?;
+        for &spec in &node_table.specs()[head..] {
+            let stage = build_stage(spec, StageId(stages.len()), params, &times, &mut param_lfos)?;
+            debug_assert_eq!(StageKind::of(&stage), spec.kind());
+            stages.push(stage);
         }
-        // The release gain when `FXrelease > release` (superdough.mjs:941-946, after the FX loop,
-        // main entry only): `gainNode(1)`, `setValueAtTime(1, end + release)`, then a linear ramp
-        // to 0 at `endWithRelease`.
-        if let Some(fx_release) = params.fx_release
-            && fx_release > params.release_raw
-        {
-            let mut g = GainNode::new(Param::gain(1.0));
-            g.gain.set_value(1.0, now)?;
-            g.gain
-                .set_value_at_time(1.0, hold_end + params.release_raw, now)?;
-            g.gain.linear_ramp_to(0.0, times.end_with_release, now)?;
-            push_stage(&mut stages, Stage::Release(g));
-        }
-        let postgain = idl_float(params.postgain, "gain")?;
-        push_stage(&mut stages, Stage::Gain(GainNode::constant(postgain)));
         let mut sends = Sends::default();
         // The sends, then `orbitBus.getDjf(djf, t)` when `djf != null` (superdough.mjs:986-989),
         // then `dry`: a throw from any of them after a send was connected is a late error.
@@ -1623,16 +1625,6 @@ impl Voice {
             .iter()
             .fold(source_channels, |n, s| s.channels_out(n));
         let teardown = Teardown::new(source_end, stages.len());
-        // The node table is the plan of exactly these nodes.
-        let node_table = NodeTable::plan(params, kind);
-        debug_assert!(
-            node_table
-                .stages()
-                .iter()
-                .copied()
-                .eq(stages.iter().map(StageKind::of)),
-            "the plan names the built stages"
-        );
         #[cfg(test)]
         let start_frame = crate::render::frame_for_buffer_start(t);
         let mut voice = Voice {
@@ -2261,23 +2253,17 @@ pub fn sound_name(s: Option<&Value>) -> String {
 #[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
+    use crate::chain::tests::{parsed as params, planned};
     use crate::chain::{FxKey, NodeList};
     use crate::job::OrbitSpec;
-    use crate::job::ValueMap;
     use crate::lfo;
     use crate::noise::NoiseCache;
     use crate::param::RampKind;
-    use crate::params::parse_voice_params;
     use crate::periodic::{WaveKind, WaveTables};
     use crate::render::frame_for_buffer_start;
     use serde_json::json;
 
     use crate::SAMPLE_RATE_F64 as SR;
-
-    fn params(v: serde_json::Value, dur: f64) -> VoiceParams {
-        let map: ValueMap = serde_json::from_value(v).unwrap();
-        parse_voice_params(&map, dur, 0.5).unwrap()
-    }
 
     fn start(t: f64, dur: f64) -> StartInfo {
         StartInfo {
@@ -3043,13 +3029,34 @@ mod tests {
         v.filters().iter().map(|f| f.kind()).collect()
     }
 
+    /// The kinds of the planned filter copies of `v`, in order.
+    fn planned_kinds(v: serde_json::Value) -> Vec<FilterKind> {
+        planned(v, 0.1)
+            .specs()
+            .iter()
+            .filter_map(|s| match s {
+                StageSpec::Filter { kind, .. } => Some(*kind),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn filters_follow_superdough_order_and_24db_doubles_them() {
         use FilterKind::*;
         let all = json!({ "s": "saw", "bandf": 500, "hcutoff": 200, "cutoff": 3000 });
+        assert_eq!(planned_kinds(all.clone()), [Lowpass, Highpass, Bandpass]);
+        // The build turns each planned kind into its biquad, once per copy of a doubled one.
+        assert_eq!(kinds(&voice(all.clone(), 0.1)), planned_kinds(all.clone()));
+        let mut all_24db = all.clone();
+        all_24db["ftype"] = json!("24db");
         assert_eq!(
-            kinds(&voice(all.clone(), 0.1)),
-            [Lowpass, Highpass, Bandpass]
+            kinds(&voice(all_24db.clone(), 0.1)),
+            [Lowpass, Lowpass, Highpass, Highpass, Bandpass, Bandpass]
+        );
+        assert_eq!(
+            kinds(&voice(all_24db.clone(), 0.1)),
+            planned_kinds(all_24db)
         );
         for (ftype, doubled) in [
             (json!("24db"), true),
@@ -3072,21 +3079,48 @@ mod tests {
             } else {
                 vec![Lowpass, Highpass, Bandpass]
             };
-            assert_eq!(kinds(&voice(v, 0.1)), want, "ftype {ftype}");
+            assert_eq!(planned_kinds(v), want, "ftype {ftype}");
         }
         // Only the filters whose frequency control is defined (a null one counts).
-        assert!(voice(json!({ "s": "saw" }), 0.1).filters().is_empty());
+        assert!(planned_kinds(json!({ "s": "saw" })).is_empty());
         assert_eq!(
-            kinds(&voice(json!({ "s": "saw", "hcutoff": null }), 0.1)),
+            planned_kinds(json!({ "s": "saw", "hcutoff": null })),
             [Highpass]
         );
         assert_eq!(
-            kinds(&voice(
-                json!({ "s": "saw", "bandf": 300, "ftype": "24db" }),
-                0.1
-            )),
+            planned_kinds(json!({ "s": "saw", "bandf": 300, "ftype": "24db" })),
             [Bandpass, Bandpass]
         );
+    }
+
+    #[test]
+    fn voice_build_throws_in_plan_order() {
+        // Each value arms two sites whose texts differ: the text names the first thrower.
+        for (v, text) in [
+            // A chain entry before the main entry.
+            (
+                json!({ "s": "sine", "FX": [{ "pan": "x" }], "cutoff": 100, "resonance": "x" }),
+                "pan is not a finite",
+            ),
+            // The entries before Release.
+            (
+                json!({ "s": "sine", "FX": [{ "pan": "x" }], "FXrelease": { "$num": "Infinity" } }),
+                "pan is not a finite",
+            ),
+            // Release before Post.
+            (
+                json!({ "s": "sine", "FXrelease": { "$num": "Infinity" }, "postgain": "x" }),
+                "linearRampToValueAtTime",
+            ),
+            // `pw_lfo` before the entries.
+            (
+                json!({ "s": "pulse", "pwsweep": "x", "velocity": "x" }),
+                "'value' on 'AudioParam'",
+            ),
+        ] {
+            let e = try_voice(v.clone(), 0.1).unwrap_err();
+            assert!(e.detail.contains(text), "{v}: {}", e.detail);
+        }
     }
 
     #[test]
@@ -3865,6 +3899,10 @@ mod tests {
         let v = pulse(json!({ "s": "pulse" })).unwrap();
         assert!(lfo_of(&v).is_none());
         assert_eq!(
+            planned(json!({ "s": "pulse" }), 0.25).get(FxKey::Main, "pw_lfo"),
+            Some(&NodeList::Array(vec![None]))
+        );
+        assert_eq!(
             v.node_table().get(FxKey::Main, "pw_lfo"),
             Some(&NodeList::Array(vec![None]))
         );
@@ -3890,6 +3928,10 @@ mod tests {
         };
         assert_eq!(p(lfo::END), w.end, "the pulse's end");
         assert_eq!(
+            planned(json!({ "s": "pulse", "pwrate": 2 }), 0.25).get(FxKey::Main, "pw_lfo"),
+            Some(&NodeList::Array(vec![Some(Node::PulseLfo)]))
+        );
+        assert_eq!(
             v.node_table().get(FxKey::Main, "pw_lfo"),
             Some(&NodeList::Array(vec![Some(Node::PulseLfo)]))
         );
@@ -3912,8 +3954,10 @@ mod tests {
         assert!(e.detail.contains("TypeError"), "{}", e.detail);
         // Other sounds ignore both and register no `pw_lfo`.
         for s in ["supersaw", "sine"] {
-            let v = try_voice(json!({ "s": s, "pwrate": 2, "pwsweep": "x" }), 0.25).unwrap();
-            assert_eq!(v.node_table().get(FxKey::Main, "pw_lfo"), None, "{s}");
+            let v = json!({ "s": s, "pwrate": 2, "pwsweep": "x" });
+            let built = try_voice(v.clone(), 0.25).unwrap_or_else(|e| panic!("{s}: {e:?}"));
+            assert_eq!(built.node_table().get(FxKey::Main, "pw_lfo"), None, "{s}");
+            assert_eq!(planned(v, 0.25).get(FxKey::Main, "pw_lfo"), None, "{s}");
         }
         // The modulation sounds: with the LFO the pulse differs from the plain one only after
         // the LFO's first active quantum.
@@ -4447,9 +4491,21 @@ mod tests {
 
     #[test]
     fn worklet_synths_connect_straight_to_their_envelope_in_stereo() {
-        let v = voice(json!({ "s": "supersaw", "note": 45 }), 0.2);
         // envGain first (no Gain(0.3)), then the gain stage and post.
-        assert_eq!(v.stages().len(), 3);
+        let worklet_specs = [
+            StageSpec::EnvGain,
+            StageSpec::EntryGain(FxKey::Main),
+            StageSpec::Post,
+        ];
+        for s in ["supersaw", "pulse"] {
+            let t = planned(json!({ "s": s, "note": 45 }), 0.2);
+            assert_eq!(t.specs(), worklet_specs, "{s}");
+            // The built voice walks that plan, one stage per spec.
+            let v = voice(json!({ "s": s, "note": 45 }), 0.2);
+            assert_eq!(v.node_table().specs(), worklet_specs, "{s}");
+            assert_eq!(v.stages().len(), worklet_specs.len(), "{s}");
+        }
+        let v = voice(json!({ "s": "supersaw", "note": 45 }), 0.2);
         let Stage::Gain(env) = &v.stages()[0] else {
             panic!("envGain first")
         };
@@ -4625,11 +4681,10 @@ mod tests {
 
     #[test]
     fn worklet_synth_node_table_entries() {
-        let v = voice(
+        let t = planned(
             json!({ "s": "supersaw", "vib": 5, "fmi": 2, "fmi13": 1 }),
             0.1,
         );
-        let t = v.node_table();
         assert_eq!(
             t.get(FxKey::Main, "source"),
             Some(&NodeList::Array(vec![Some(Node::Source)]))
@@ -4652,10 +4707,10 @@ mod tests {
             Some(&NodeList::Array(vec![Some(Node::FmOsc(1))]))
         );
         assert!(t.get(FxKey::Main, "fm_1_gain").is_some());
-        let p = voice(json!({ "s": "pulse" }), 0.1);
-        assert!(p.node_table().get(FxKey::Main, "vib").is_none());
-        assert!(p.node_table().get(FxKey::Main, "fm_1").is_none());
-        assert!(p.node_table().get(FxKey::Main, "source").is_some());
+        let p = planned(json!({ "s": "pulse" }), 0.1);
+        assert!(p.get(FxKey::Main, "vib").is_none());
+        assert!(p.get(FxKey::Main, "fm_1").is_none());
+        assert!(p.get(FxKey::Main, "source").is_some());
     }
 
     #[test]

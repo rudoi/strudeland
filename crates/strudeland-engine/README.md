@@ -194,9 +194,13 @@ bus, built per FX entry in superdough's order (superdough.mjs:612-1004): the `tr
 the gain stage, the lowpass, highpass and bandpass filters (biquads, two each for 24 dB, or the
 `ladder` worklet for `ftype('ladder')`) with their filter LFOs, the vowel, the `coarse`, `crush`,
 `shape` and `distort` worklets, the tremolo, the compressor, the panner, the phaser; after the last
-entry the `FXrelease` gain, `post` (`postgain`) and `dry`. `NodeTable` is superdough's `nodes`
-tracker, which the modulators resolve their targets on. The compressor and the panner output two
-channels; a stereo source (`supersaw`, `pulse`, the `bus` sound) keeps the voice stereo.
+entry the `FXrelease` gain, `post` (`postgain`) and `dry`. `NodeTable::plan` decides the stages
+once: the table holds the stage specs `Voice::build` walks in superdough's throw order (the
+synth `Gain(0.3)` and `envGain` built inline by `Voice::build`, the entries' stages, the
+`FXrelease` gain and `post` by `build_stage`) and superdough's `nodes` tracker (its keys a `NodeName`, looked up by
+text as superdough does), which the modulators resolve their targets on. The compressor and the
+panner output two channels; a stereo source (`supersaw`, `pulse`, the `bus` sound) keeps the voice
+stereo.
 
 - **Worklets.** `worklet.rs` is how Chromium runs an `AudioWorkletProcessor` offline: one
   full-range param per descriptor unless it spells `minValue`/`maxValue`, the params rendered

@@ -2,6 +2,7 @@
 //! with the defaults that sit outside a node, and superdough's mutation of a hap value
 //! (`prepare_value`).
 
+use crate::biquad::FilterKind;
 use crate::chain::{DEFAULT_SOUND, FxKey};
 use crate::coerce::*;
 use crate::compressor::CompressorParams;
@@ -184,6 +185,14 @@ impl VoiceParams {
             .map(|(n, e)| (FxKey::Index(n), e))
             .chain(std::iter::once((FxKey::Main, &self.main)))
     }
+
+    /// The FX entry `key` (`Main` is the hap's own), `None` past the chain.
+    pub fn entry(&self, key: FxKey) -> Option<&EntryParams> {
+        match key {
+            FxKey::Main => Some(&self.main),
+            FxKey::Index(n) => self.fx.get(n),
+        }
+    }
 }
 
 /// What superdough reads per FX entry (superdough.mjs:612-938 and the modulator loop): the
@@ -262,6 +271,18 @@ pub struct EntryParams {
     pub tremolo: Option<TremoloParams>,
     /// The entry's `lfo`, `env` and `bmod` values as given (the modulator loop reads them).
     pub modulators: ValueMap,
+}
+
+impl EntryParams {
+    /// The filter slots in superdough's order (lowpass, highpass, bandpass), each with its filter
+    /// when it is present.
+    pub fn filters(&self) -> [(FilterKind, Option<&FilterParams>); 3] {
+        [
+            (FilterKind::Lowpass, self.lowpass.as_ref()),
+            (FilterKind::Highpass, self.highpass.as_ref()),
+            (FilterKind::Bandpass, self.bandpass.as_ref()),
+        ]
+    }
 }
 
 /// One hap's tremolo, as superdough's FX loop reads it.
@@ -956,6 +977,19 @@ mod tests {
             params(json!({ "FX": [{ "FX": [{ "gain": 2 }] }] })).fx[0].gain,
             None
         );
+    }
+
+    #[test]
+    fn entry_finds_each_planned_entry() {
+        let p = params(json!({
+            "s": "sine", "gain": 0.3,
+            "FX": [{ "cutoff": 500 }, { "gain": 1 }]
+        }));
+        assert_eq!(p.entries().count(), 3);
+        for (k, e) in p.entries() {
+            assert!(std::ptr::eq(p.entry(k).unwrap(), e), "{k:?}");
+        }
+        assert!(p.entry(FxKey::Index(2)).is_none());
     }
 
     #[test]

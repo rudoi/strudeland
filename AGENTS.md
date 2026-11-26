@@ -225,7 +225,8 @@ the V8 download the host brings.
   `jsmath` (V8's `Math.*` bit for bit: CORE-MATH and V8 ports, the host `pow`/`tanh`),
   `render_core` (the render core both drivers share: voices, buses, orbits, caches, the IR
   settler seam), `render` (the offline driver: the pause loop and frame conversions), `voice` (one
-  hap's graph), `chain` (the voice's stereo stage chain, FX entries, the node table), `param`,
+  hap's graph), `chain` (the voice's stereo stage chain, FX entries, the node
+  table keyed by `NodeName` and the stage plan `Voice::build` walks), `param`,
   `adsr`, `periodic`, `osc`, `fft`, `biquad`,
   `panner`, `noise`, `worklet` (how Chromium runs an AudioWorklet processor), `supersaw`, `pulse`,
   `shaper` (coarse, crush, shape, distort), `transient`, `ladder`, `djf`, `lfo`, `envelope`,
