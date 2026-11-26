@@ -20,7 +20,7 @@ text is unchanged.
 
 ## Background
 
-The [re-verification](0120-ctl-method-shapes/reverify.md) has the evidence, with file and line
+The [re-verification](reverify.md) has the evidence, with file and line
 at `3a189da`. In short:
 
 - **The typed table has one caller.** `Rpc` (`methods.rs:90-94`) and its 16 marker impls are

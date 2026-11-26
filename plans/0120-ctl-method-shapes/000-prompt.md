@@ -1,7 +1,7 @@
 # 0120 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0120-ctl-method-shapes`.
-- **Plan:** [the proposal](../0120-ctl-method-shapes.md). It is the contract: the example schema,
+- **Plan:** [the proposal](proposal.md). It is the contract: the example schema,
   the interfaces (`decode_result`, `codes::ALL`, the limits, `wire_fixtures`, the CLI's
   `call::<M>`), the rules each reader checks, and the decisions.
 - **Evidence:** [reverify.md](reverify.md), with file and line at `3a189da`. Its "Why Rust will
@@ -13,15 +13,15 @@
 
 The stages run in order. Each one is one commit, green with every gate below.
 
-1. [001-ctl-wire.md](001-ctl-wire.md): the ctl constants, `decode_result`, the `Rpc` bounds, the
+1. [001-ctl-wire.md](proposal.md): the ctl constants, `decode_result`, the `Rpc` bounds, the
    18 wire examples, `tests/wire.rs`, the `wire-fixtures` feature, and the pruned `methods.rs`
    tests.
-2. [002-ts-readers.md](002-ts-readers.md): `tests/helpers/wire-examples.ts`, the protocol and
+2. [002-ts-readers.md](proposal.md): `tests/helpers/wire-examples.ts`, the protocol and
    handler tests reading the examples, the deleted regex scrapes, and the `codes` macro.
-3. [003-cli-typed.md](003-cli-typed.md): the CLI's typed `call::<M>` and `report::<M>` at all 16
+3. [003-cli-typed.md](proposal.md): the CLI's typed `call::<M>` and `report::<M>` at all 16
    call sites, `EVENTS_LIMIT_MAX` in `cli.rs`, the help and `SKILL.md` limits test, and the CLI tests
    reading the examples.
-4. [004-app-readers.md](004-app-readers.md): `control.rs`'s refusal tests reading the examples,
+4. [004-app-readers.md](proposal.md): `control.rs`'s refusal tests reading the examples,
    and the AGENTS.md and GLOSSARY.md updates.
 
 ## Rules for every stage
