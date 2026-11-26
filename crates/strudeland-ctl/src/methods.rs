@@ -1,6 +1,7 @@
 //! Every method of the control protocol, with its typed params and result.
 //!
-//! The webview validates params (`screenshot`'s are checked by the app). These types are what a
+//! The webview validates params (`screenshot`'s are checked by the app, which also checks that
+//! `project.open`'s `path` is a native absolute path before forwarding). These types are what a
 //! request the webview accepts decodes into and what a result parses into; the wire examples
 //! in `tests/wire/` are the cross-check every side reads. Field names on the wire are
 //! camelCase; absent optional request fields are omitted, while nullable result fields are

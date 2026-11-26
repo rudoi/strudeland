@@ -7,6 +7,11 @@
 //! have serializes back equal) and `invalidApp` (refusals of a webview-answered method that the
 //! app answers before forwarding; `control.rs` tests them). A method the app answers itself
 //! (`answeredBy: "app"`) keeps all its refusals in `invalid`.
+//!
+//! Paths in the examples (`project.open`'s `/p` and `/empty`, `screenshot`'s `/tmp/a.png`) are
+//! Unix-style: on Windows the app refuses them as not absolute before the webview sees them, so
+//! no Rust test feeds an example path to a native absolute-path check. App-side tests that need
+//! one that passes use a platform-absolute path (`std::env::temp_dir()`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -60,6 +65,7 @@ fn one_file_per_method_plus_errors_and_limits() {
     let have: BTreeSet<String> = fs::read_dir(dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|f| f.ends_with(".json"))
         .collect();
     assert_eq!(have, want);
     for m in Method::ALL {

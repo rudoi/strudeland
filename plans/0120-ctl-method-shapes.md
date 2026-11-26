@@ -206,6 +206,11 @@ These rules hold for every file:
   optional (the reverify lists these). The values aim at the handler test's harness, the
   project `/p` with songs `a`, `b` and `m`, so a webview check runs past song resolution. For
   example, `song.rename`'s example is `{ "song": "b", "name": "intro" }`.
+- **Paths** in the examples are Unix-style (`project.open`'s `/p` and `/empty`, `screenshot`'s
+  `/tmp/a.png`). On Windows the app refuses them as not absolute before the webview sees them,
+  so "both sides accept" holds on Unix. No Rust test feeds an example path to a native
+  absolute-path check; app-side tests that need one that passes use a platform-absolute path
+  (`std::env::temp_dir()`).
 - **`results`** is a list of named replies:
   - Rust decodes each one into `M::Result`, and it serializes back equal.
   - The values are the ones the CLI's tests print (`songs/main.js`, "Main Theme"), because those

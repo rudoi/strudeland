@@ -93,7 +93,8 @@ const FREE_PATHS = new Set(['events[].value']);
  * The key paths at which `actual` and `example` differ in shape: their key sets differ, or one is
  * an object, an array or a scalar and the other is not. A key where either side is `null` is not
  * compared further, and an array's elements are compared with the example's first element when
- * both arrays are non-empty.
+ * both arrays are non-empty. A key whose value is `undefined` is absent, as `JSON.stringify` drops
+ * it from the reply.
  */
 function wireShapeDiff(actual: unknown, example: unknown, path = ''): string[] {
   if (actual === null || example === null || FREE_PATHS.has(path)) return [];
@@ -110,15 +111,17 @@ function wireShapeDiff(actual: unknown, example: unknown, path = ''): string[] {
   const a = actual as Record<string, unknown>;
   const e = example as Record<string, unknown>;
   const at = (k: string) => (path ? `${path}.${k}` : k);
+  const keys = (o: Record<string, unknown>) => Object.keys(o).filter((k) => o[k] !== undefined);
+  const has = (o: Record<string, unknown>, k: string) => o[k] !== undefined;
   const diffs = [
-    ...Object.keys(a)
-      .filter((k) => !(k in e))
+    ...keys(a)
+      .filter((k) => !has(e, k))
       .map((k) => `${at(k)}: not in the example`),
-    ...Object.keys(e)
-      .filter((k) => !(k in a))
+    ...keys(e)
+      .filter((k) => !has(a, k))
       .map((k) => `${at(k)}: missing`),
   ];
-  for (const k of Object.keys(a)) {
+  for (const k of keys(a)) {
     if (k in e) diffs.push(...wireShapeDiff(a[k], e[k], at(k)));
   }
   return diffs;
@@ -136,6 +139,11 @@ describe('expectWireShape', () => {
 
   test('an extra key fails', () => {
     expect(wireShapeDiff({ a: 1, b: 1 }, { a: 1 })).toEqual(['b: not in the example']);
+  });
+
+  test('a key whose value is undefined is absent', () => {
+    expect(wireShapeDiff({ a: 1, b: undefined }, { a: 1 })).toEqual([]);
+    expect(wireShapeDiff({ a: undefined }, { a: 1 })).toEqual(['a: missing']);
   });
 
   test('a null side is not compared further', () => {
@@ -1901,9 +1909,51 @@ describe('wire examples', () => {
           } catch (e) {
             if (!(e instanceof ControlError)) throw e;
             expect(e.code).not.toBe(ErrorCode.INVALID_PARAMS);
+          } finally {
+            h.view.destroy();
           }
         });
       }
+    }
+  });
+
+  describe('one example succeeds', () => {
+    const states = {
+      'a project': () => setup(),
+      evaluated: () => evaluated(),
+    };
+    /**
+     * Methods none of whose examples returns a result in this harness, and why; each is checked
+     * to still fail, so a fix that makes one succeed removes it from here.
+     */
+    const NEVER_SUCCEEDS: Partial<Record<MethodName, string>> = {
+      // Its `expect` ("x") is not the text of the selection 8..18 in the harness song, so it is
+      // refused with SONG_CHANGED; `instrument.apply`'s own tests cover the accepted path.
+      'instrument.apply': 'the example expect does not match the harness song',
+    };
+    for (const ex of webview) {
+      test(ex.method, async () => {
+        const method = ex.method as Parameters<ControlHandler>[0];
+        const failures: string[] = [];
+        for (const entry of ex.params) {
+          for (const [label, make] of Object.entries(states)) {
+            const h = await make();
+            try {
+              await h.handle(method, entry.value);
+            } catch (e) {
+              if (!(e instanceof ControlError)) throw e;
+              failures.push(`${entry.name} with ${label}: ${e.message}`);
+              continue;
+            } finally {
+              h.view.destroy();
+            }
+            expect(NEVER_SUCCEEDS[ex.method]).toBeUndefined();
+            return;
+          }
+        }
+        if (NEVER_SUCCEEDS[ex.method]) return;
+        expect({ method: ex.method, failures }).toEqual({ method: ex.method, failures: [] });
+      });
     }
   });
 
@@ -1931,6 +1981,7 @@ describe('wire examples', () => {
             expect(h.doc()).toBe(doc);
             expect(h.rt.stops()).toBe(stops);
             expect(h.rt.queries()).toEqual(queries);
+            h.view.destroy();
           }
         });
       }

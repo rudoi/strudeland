@@ -105,3 +105,10 @@ describe('METHOD_NAMES', () => {
     expect(new Set(METHOD_NAMES).size).toBe(METHOD_NAMES.length);
   });
 });
+
+describe('wireResult', () => {
+  test('reads olderResults as well as results', () => {
+    expect(wireResult('state', 'minimal')).toBeObject();
+    expect(() => wireResult('state', 'nope')).toThrow("state has no wire result 'nope'");
+  });
+});

@@ -149,5 +149,7 @@ _Avoid_: IPC types (the payload types stay hand-written), protocol (the control 
 One committed JSON example of a control method (`crates/strudeland-ctl/tests/wire/`): params
 both sides accept, named results, and the state-independent refusals with their exact code
 and message. Rust, the webview handler, the CLI and the app test against the same examples.
+Paths in examples are Unix-style, so on Windows the app refuses them first; app-side Rust tests
+use platform-absolute paths (`std::env::temp_dir()`).
 _Avoid_: fixture (any test input), golden (the render harness's), schema (nothing is
 generated from them)

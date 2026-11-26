@@ -54,9 +54,13 @@ function wireExample(method: MethodName): WireExample {
   return hit;
 }
 
-/** A named result's value; throws naming the method and name when it is missing. */
+/**
+ * A named result's value, from `results` or `olderResults` (as Rust's `wire_fixtures::result`);
+ * throws naming the method and name when it is missing.
+ */
 export function wireResult(method: MethodName, name: string): any {
-  const hit = wireExample(method).results.find((r) => r.name === name);
+  const ex = wireExample(method);
+  const hit = [...ex.results, ...(ex.olderResults ?? [])].find((r) => r.name === name);
   if (!hit) throw new Error(`${method} has no wire result '${name}'`);
   return hit.value;
 }
