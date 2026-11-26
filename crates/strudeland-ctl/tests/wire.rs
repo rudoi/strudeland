@@ -1,0 +1,228 @@
+//! The golden wire examples (`tests/wire/`) against the typed method table: every params and
+//! result example round-trips through its method's types, the refusals are well formed, and
+//! `errors.json` and `limits.json` equal the crate's constants.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::PathBuf;
+
+use serde_json::{Value, json};
+use strudeland_ctl::*;
+
+fn dir() -> PathBuf {
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/wire"))
+}
+
+fn read(file: &str) -> Value {
+    let path = dir().join(file);
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{file}: {e}"))
+}
+
+/// JSON equality with numbers compared as `f64`, so the app's `120` equals Rust's `120.0`.
+fn same(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
+        }
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(v, w)| same(v, w))
+        }
+        _ => a == b,
+    }
+}
+
+#[test]
+fn same_compares_numbers_by_value() {
+    assert!(same(&json!(120), &json!(120.0)));
+    assert!(!same(&json!(1), &json!(2)));
+    assert!(!same(&json!({}), &json!({"a": 1})));
+    assert!(!same(&json!([1]), &json!([1, 1])));
+    assert!(same(&json!({"a": [1, null]}), &json!({"a": [1.0, null]})));
+    assert!(!same(&json!("1"), &json!(1)));
+}
+
+#[test]
+fn one_file_per_method_plus_errors_and_limits() {
+    let mut want: BTreeSet<String> = Method::ALL
+        .iter()
+        .map(|m| format!("{}.json", m.as_str()))
+        .collect();
+    want.insert("errors.json".into());
+    want.insert("limits.json".into());
+    let have: BTreeSet<String> = fs::read_dir(dir())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(have, want);
+    for m in Method::ALL {
+        let ex = read(&format!("{}.json", m.as_str()));
+        assert_eq!(ex["method"], m.as_str());
+        let by = if matches!(m, Method::Ping | Method::Screenshot) {
+            "app"
+        } else {
+            "webview"
+        };
+        assert_eq!(ex["answeredBy"], by, "{m}");
+    }
+}
+
+#[test]
+fn every_example_round_trips() {
+    for m in Method::ALL {
+        let ex = read(&format!("{}.json", m.as_str()));
+        check(m, &ex);
+    }
+}
+
+/// Every method's examples through its own marker; no `_` arm, so a new method must be added.
+fn check(m: Method, ex: &Value) {
+    match m {
+        Method::Ping => check_rpc::<Ping>(m, ex),
+        Method::State => check_rpc::<StateCall>(m, ex),
+        Method::CodeGet => check_rpc::<CodeGet>(m, ex),
+        Method::CodeSet => check_rpc::<CodeSet>(m, ex),
+        Method::Eval => check_rpc::<EvalCall>(m, ex),
+        Method::Play => check_rpc::<Play>(m, ex),
+        Method::Stop => check_rpc::<Stop>(m, ex),
+        Method::Events => check_rpc::<EventsCall>(m, ex),
+        Method::Screenshot => check_rpc::<ScreenshotCall>(m, ex),
+        Method::SongNew => check_rpc::<SongNewCall>(m, ex),
+        Method::SongSwitch => check_rpc::<SongSwitchCall>(m, ex),
+        Method::SongRename => check_rpc::<SongRenameCall>(m, ex),
+        Method::SongDelete => check_rpc::<SongDeleteCall>(m, ex),
+        Method::Save => check_rpc::<SaveCall>(m, ex),
+        Method::ProjectOpen => check_rpc::<ProjectOpenCall>(m, ex),
+        Method::InstrumentApply => check_rpc::<InstrumentApply>(m, ex),
+    }
+}
+
+/// The entries of `list`, with their names checked unique.
+fn entries<'a>(m: Method, ex: &'a Value, list: &str) -> &'a [Value] {
+    let entries = ex[list]
+        .as_array()
+        .unwrap_or_else(|| panic!("{m}: no {list} list"));
+    let mut names = BTreeSet::new();
+    for e in entries {
+        let name = e["name"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{m}: a {list} entry has no name"));
+        assert!(names.insert(name), "{m}: {list} name '{name}' is repeated");
+    }
+    entries
+}
+
+fn check_rpc<M: Rpc>(m: Method, ex: &Value) {
+    assert_eq!(M::METHOD, m);
+    for p in entries(m, ex, "params") {
+        let name = p["name"].as_str().unwrap_or_default();
+        let value = &p["value"];
+        let typed: M::Params = serde_json::from_value(value.clone())
+            .unwrap_or_else(|e| panic!("{m} params '{name}': {e}"));
+        let back = serde_json::to_value(&typed).unwrap();
+        assert!(
+            same(value, &back),
+            "{m} params '{name}': {value} came back as {back}"
+        );
+    }
+    let results = entries(m, ex, "results");
+    assert!(!results.is_empty(), "{m}: no results");
+    for r in results {
+        let name = r["name"].as_str().unwrap_or_default();
+        let value = &r["value"];
+        let typed: M::Result = serde_json::from_value(value.clone())
+            .unwrap_or_else(|e| panic!("{m} result '{name}': {e}"));
+        let back = serde_json::to_value(&typed).unwrap();
+        if r["older"] == true {
+            // An older app's reply: every key it has comes back equal.
+            let (Value::Object(old), Value::Object(new)) = (value, &back) else {
+                panic!("{m} result '{name}': an older reply is an object");
+            };
+            for (k, v) in old {
+                assert!(
+                    new.get(k).is_some_and(|w| same(v, w)),
+                    "{m} result '{name}': '{k}' came back as {:?}",
+                    new.get(k)
+                );
+            }
+        } else {
+            assert!(
+                same(value, &back),
+                "{m} result '{name}': {value} came back as {back}"
+            );
+        }
+    }
+    for i in entries(m, ex, "invalid") {
+        let name = i["name"].as_str().unwrap_or_default();
+        assert_eq!(i["code"], codes::INVALID_PARAMS, "{m} invalid '{name}'");
+        let message = i["message"].as_str().unwrap_or_default();
+        assert!(
+            message.starts_with("invalid params: "),
+            "{m} invalid '{name}': {message}"
+        );
+        assert!(!i["params"].is_null(), "{m} invalid '{name}': null params");
+        if let Some(by) = i.get("answeredBy") {
+            assert!(*by == "app" || *by == "webview", "{m} invalid '{name}'");
+        }
+    }
+}
+
+#[test]
+fn errors_json_is_every_code() {
+    let file: BTreeMap<String, i64> = serde_json::from_value(read("errors.json")).unwrap();
+    let all: BTreeMap<String, i64> = codes::ALL
+        .iter()
+        .map(|&(name, code)| (name.to_string(), code))
+        .collect();
+    assert_eq!(all.len(), codes::ALL.len(), "a repeated name in codes::ALL");
+    let values: BTreeSet<i64> = codes::ALL.iter().map(|&(_, code)| code).collect();
+    assert_eq!(
+        values.len(),
+        codes::ALL.len(),
+        "a repeated value in codes::ALL"
+    );
+    assert_eq!(file, all);
+}
+
+#[test]
+fn limits_json_is_the_events_limits() {
+    assert_eq!(
+        read("limits.json"),
+        json!({
+            "eventsLimitDefault": EVENTS_LIMIT_DEFAULT,
+            "eventsLimitMax": EVENTS_LIMIT_MAX,
+        })
+    );
+}
+
+/// `state`'s `full` sets every optional field, so a reader of it sees each one's shape.
+#[test]
+fn full_state_sets_every_optional_field() {
+    let ex = read("state.json");
+    let full = entries(Method::State, &ex, "results")
+        .iter()
+        .find(|r| r["name"] == "full")
+        .expect("state has a full result");
+    let s: AppState = serde_json::from_value(full["value"].clone()).unwrap();
+    assert!(s.project.is_some());
+    assert!(s.active.is_some());
+    assert!(s.playing.is_some());
+    assert!(s.eval_error.is_some());
+    assert!(s.meta_error.is_some());
+    assert!(s.seed.is_some());
+    assert!(s.output_error.is_some());
+    assert!(s.live.is_some());
+    assert!(s.vim);
+    assert_eq!(s.engine, EngineId::Rust);
+    let playhead = s.playhead.expect("playhead");
+    assert!(playhead.song_bar.is_some());
+    assert!(playhead.section.is_some());
+    assert!(s.transport.loop_section.is_some());
+    assert!(s.transport.loop_through.is_some());
+    assert!(s.transport.armed_section.is_some());
+    assert!(s.songs.iter().any(|song| song.conflict.is_some()));
+    let levels = s.levels.expect("levels");
+    assert!(levels.peak_db.iter().any(Option::is_none));
+    assert!(levels.peak_db.iter().any(Option::is_some));
+}

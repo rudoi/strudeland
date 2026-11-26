@@ -1,0 +1,46 @@
+{
+  "method": "code.get",
+  "answeredBy": "webview",
+  "params": [
+    { "name": "active", "value": {} },
+    { "name": "stem", "value": { "song": "a" } },
+    { "name": "path", "value": { "song": "songs/b.js" } }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "song": "songs/main.js",
+        "title": "Main Theme",
+        "code": "$: s(\"bd\")\n",
+        "dirty": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "non-object",
+      "params": [],
+      "code": -32602,
+      "message": "invalid params: expected an object"
+    },
+    {
+      "name": "unknown key",
+      "params": { "song": "a", "foo": 1 },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'foo'"
+    },
+    {
+      "name": "empty song",
+      "params": { "song": "" },
+      "code": -32602,
+      "message": "invalid params: 'song' must be a non-empty string"
+    },
+    {
+      "name": "numeric song",
+      "params": { "song": 3 },
+      "code": -32602,
+      "message": "invalid params: 'song' must be a non-empty string"
+    }
+  ]
+}

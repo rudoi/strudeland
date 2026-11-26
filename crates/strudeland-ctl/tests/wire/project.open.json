@@ -1,0 +1,66 @@
+{
+  "method": "project.open",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "path",
+      "value": {
+        "path": "/empty"
+      }
+    },
+    {
+      "name": "discard",
+      "value": {
+        "path": "/empty",
+        "discard": true
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "project": {
+          "name": "demo",
+          "root": "/p"
+        },
+        "alreadyOpen": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing path",
+      "params": {},
+      "code": -32602,
+      "message": "invalid params: 'path' must be a string"
+    },
+    {
+      "name": "non-boolean discard",
+      "params": {
+        "path": "/p",
+        "discard": 1
+      },
+      "code": -32602,
+      "message": "invalid params: 'discard' must be a boolean"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "path": "/p",
+        "x": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'x'"
+    },
+    {
+      "name": "relative path",
+      "params": {
+        "path": "relative"
+      },
+      "code": -32602,
+      "message": "invalid params: 'path' must be an absolute path",
+      "answeredBy": "app"
+    }
+  ]
+}

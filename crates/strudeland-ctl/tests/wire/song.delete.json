@@ -1,0 +1,39 @@
+{
+  "method": "song.delete",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "active",
+      "value": {}
+    },
+    {
+      "name": "discard",
+      "value": {
+        "song": "b",
+        "discard": true
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "song": {
+          "path": "songs/a.js",
+          "title": "a"
+        },
+        "stopped": true
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown key",
+      "params": {
+        "x": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'x'"
+    }
+  ]
+}

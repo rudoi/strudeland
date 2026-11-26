@@ -1,0 +1,78 @@
+{
+  "method": "instrument.apply",
+  "answeredBy": "webview",
+  "params": [
+    {
+      "name": "example",
+      "value": {
+        "root": "/p",
+        "song": "songs/a.js",
+        "id": "lead",
+        "from": 8,
+        "to": 18,
+        "expect": "x"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "example",
+      "value": {
+        "song": "songs/main.js",
+        "from": 8,
+        "to": 48
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing root",
+      "params": {
+        "id": "lead",
+        "from": 0,
+        "to": 1,
+        "expect": ""
+      },
+      "code": -32602,
+      "message": "invalid params: 'root' must be a string"
+    },
+    {
+      "name": "empty range",
+      "params": {
+        "root": "/p",
+        "id": "lead",
+        "from": 5,
+        "to": 5,
+        "expect": ""
+      },
+      "code": -32602,
+      "message": "invalid params: 'from' and 'to' must be an increasing range of UTF-16 offsets"
+    },
+    {
+      "name": "negative from",
+      "params": {
+        "root": "/p",
+        "id": "lead",
+        "from": -1,
+        "to": 5,
+        "expect": ""
+      },
+      "code": -32602,
+      "message": "invalid params: 'from' and 'to' must be an increasing range of UTF-16 offsets"
+    },
+    {
+      "name": "unknown key",
+      "params": {
+        "root": "/p",
+        "song": "songs/a.js",
+        "id": "lead",
+        "from": 8,
+        "to": 18,
+        "expect": "x",
+        "x": 1
+      },
+      "code": -32602,
+      "message": "invalid params: unknown parameter 'x'"
+    }
+  ]
+}

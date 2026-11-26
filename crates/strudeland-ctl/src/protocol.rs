@@ -46,6 +46,27 @@ pub mod codes {
     pub const OPEN_FAILED: i64 = -32013;
     /// `project.open` while the app waits on an open dialog or loads a project the user chose.
     pub const BUSY: i64 = -32014;
+
+    /// Every code by its Rust name, in declaration order.
+    pub const ALL: &[(&str, i64)] = &[
+        ("PARSE_ERROR", PARSE_ERROR),
+        ("INVALID_REQUEST", INVALID_REQUEST),
+        ("METHOD_NOT_FOUND", METHOD_NOT_FOUND),
+        ("INVALID_PARAMS", INVALID_PARAMS),
+        ("INTERNAL_ERROR", INTERNAL_ERROR),
+        ("TIMEOUT", TIMEOUT),
+        ("NOT_READY", NOT_READY),
+        ("NO_PROJECT", NO_PROJECT),
+        ("NO_SUCH_SONG", NO_SUCH_SONG),
+        ("SONG_UNLOADABLE", SONG_UNLOADABLE),
+        ("NOTHING_EVALUATED", NOTHING_EVALUATED),
+        ("SCREENSHOT_FAILED", SCREENSHOT_FAILED),
+        ("SONG_CHANGED", SONG_CHANGED),
+        ("UNSAVED", UNSAVED),
+        ("SONG_EXISTS", SONG_EXISTS),
+        ("OPEN_FAILED", OPEN_FAILED),
+        ("BUSY", BUSY),
+    ];
 }
 
 /// A request line. Members are JSON-RPC's own, so there is no `rename_all`.
@@ -181,23 +202,6 @@ mod tests {
         for (e, code, message) in cases {
             assert_eq!((e.code, e.message.as_str()), (code, message));
         }
-    }
-
-    #[test]
-    fn codes_match_the_error_table() {
-        assert_eq!(codes::PARSE_ERROR, -32700);
-        assert_eq!(codes::INVALID_REQUEST, -32600);
-        assert_eq!(codes::METHOD_NOT_FOUND, -32601);
-        assert_eq!(codes::INVALID_PARAMS, -32602);
-        assert_eq!(codes::INTERNAL_ERROR, -32603);
-        assert_eq!(codes::TIMEOUT, -32002);
-        assert_eq!(codes::NOT_READY, -32003);
-        assert_eq!(codes::NO_PROJECT, -32004);
-        assert_eq!(codes::NO_SUCH_SONG, -32005);
-        assert_eq!(codes::SONG_UNLOADABLE, -32006);
-        assert_eq!(codes::NOTHING_EVALUATED, -32007);
-        assert_eq!(codes::SCREENSHOT_FAILED, -32008);
-        assert_eq!(codes::SONG_CHANGED, -32010);
     }
 
     #[test]

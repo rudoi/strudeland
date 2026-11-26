@@ -1,0 +1,7 @@
+{
+  "method": "ping",
+  "answeredBy": "app",
+  "params": [{ "name": "empty", "value": {} }],
+  "results": [{ "name": "attached", "value": { "version": "0.1.0", "attached": true } }],
+  "invalid": []
+}

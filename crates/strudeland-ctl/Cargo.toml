@@ -7,6 +7,11 @@ edition = "2024"
 rust-version = "1.94"
 license = "AGPL-3.0-or-later"
 
+[features]
+# Exposes the golden wire examples (`tests/wire/`) as `wire_fixtures`; only ever turned on by
+# other crates' dev-dependencies.
+wire-fixtures = []
+
 [dependencies]
 thiserror = "2.0.21"
 serde = { version = "1.0.229", features = ["derive"] }
