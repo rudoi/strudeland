@@ -1,6 +1,7 @@
 //! The streaming engine against the offline one: a refs fixture job's haps replayed through
 //! `LiveEngine` (IRs built synchronously), each pause's haps scheduled when the render head
-//! reaches that pause's frame, give the offline render bit for bit.
+//! reaches that pause's frame, give the offline render bit for bit. The fx-chain jobs include
+//! local (FX entry) reverbs, settled with the voices that carry them.
 
 mod common;
 
@@ -114,6 +115,21 @@ fn channel_has_sound(c: &[f32]) -> bool {
 #[test]
 fn fx_room() {
     check("fixture-fx-room--mix-0.job.json");
+}
+
+#[test]
+fn fx_chain_room() {
+    check("fx-chain-room.job.json");
+}
+
+#[test]
+fn fx_chain_mix_0() {
+    check("fixture-fx-chain--mix-0.job.json");
+}
+
+#[test]
+fn fx_chain_mix_1() {
+    check("fixture-fx-chain--mix-1.job.json");
 }
 
 #[test]
