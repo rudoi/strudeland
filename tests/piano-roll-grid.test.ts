@@ -16,6 +16,7 @@ import type { RollNote } from '../src/lib/piano-roll/types';
 import {
   sectionMoveConflict,
   resolveRollMove,
+  rollClockChangesCps,
   rollMoveTime,
   spansUseSameCps,
 } from '../src/lib/piano-roll/move';
@@ -74,6 +75,17 @@ describe('musical move intervals', () => {
       start: '2/3',
       end: '900002/3',
     });
+  });
+
+  test('distinguishes signature changes from CPS changes', () => {
+    const sameCps = buildStructure({
+      meter: '4/4',
+      meterChanges: [{ bar: 2, meter: '8/8' }],
+      sections: [{ name: 'verse', bars: 2 }],
+    });
+    expect(rollClockChangesCps(sameCps)).toBe(false);
+    expect(rollClockChangesCps(structure)).toBe(true);
+    expect(rollMoveTime(sameCps, 2, 0).runAt(1).meter).toEqual({ num: 8, den: 8 });
   });
 
   test('checks every affected phase in a section and every shared section', () => {

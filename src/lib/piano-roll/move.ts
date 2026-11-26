@@ -13,6 +13,11 @@ export interface RollMoveTime {
   runAt(bar: number): { from: number; to: number; meter: Meter };
 }
 
+export function rollClockChangesCps(structure: SongStructure): boolean {
+  const reference = beatsPerBar(structure.meter);
+  return structure.meterChanges?.some(({ meter }) => beatsPerBar(meter) !== reference) ?? false;
+}
+
 export function rollMoveTime(
   structure: SongStructure | null,
   end: number,

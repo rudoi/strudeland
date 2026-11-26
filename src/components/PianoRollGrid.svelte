@@ -19,7 +19,11 @@
     type GridBar,
     type PitchRange,
   } from '../lib/piano-roll/grid';
-  import { projectNoteEdit, sameRollPosition } from '../lib/piano-roll/feedback';
+  import {
+    projectNoteEdit,
+    sameRollPosition,
+    sharesMoveIdentity,
+  } from '../lib/piano-roll/feedback';
   import { resolveRollMove, type RollMoveTime } from '../lib/piano-roll/move';
   import type { RollBar, RollEdit, RollNote } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
@@ -75,6 +79,7 @@
   interface Gesture {
     pointer: number;
     note: RollNote;
+    moveFragments: ReadonlyMap<string, RollNote>;
     key: string;
     range: PitchRange;
     x: number;
@@ -182,6 +187,9 @@
     gesture = {
       pointer: event.pointerId,
       note,
+      moveFragments: new Map(
+        notes.filter((part) => sharesMoveIdentity(part, note)).map((part) => [part.id, part]),
+      ),
       key: gestureKey,
       range: pitchRange,
       x: event.clientX,
@@ -310,8 +318,8 @@
   function noteHelp(note: RollNote): string {
     if (editable && note.timeEditable) {
       return note.pitchEditable
-        ? 'Drag to move or retune. Left or Right moves without changing musical duration.'
-        : 'Drag or press Left or Right to move without changing musical duration.';
+        ? 'Drag to move or retune. Shift+Left or Right resizes. Delete removes.'
+        : 'Drag to move in time. Shift+Left or Right resizes. Delete removes.';
     }
     if (editable && note.pitchEditable) return 'Drag up or down to change pitch.';
     if (canShowSource(note)) return 'Press Shift+Enter to find this note’s source in the editor.';
@@ -363,7 +371,7 @@
             const point = shiftRollEdge(note.end, anchor, snapped);
             if (cycleNumber(point) > cycleNumber(note.start))
               edit = { kind: 'resize', id: note.id, end: point };
-          } else if (!resize && snappedCycle < windowEnd) {
+          } else if (!resize && snappedCycle >= windowStart && snappedCycle < windowEnd) {
             edit = resolveRollMove(note, anchor, snapped, moveTime);
           }
         }
@@ -484,16 +492,15 @@
     return { left: timePercent(start), width: timePercent(end) - timePercent(start) };
   }
 
-  const ghost = $derived.by(() => {
-    const note = gesture?.note;
-    const edit = gesture?.edit;
-    if (!note || !edit) return;
-    const projected = projectNoteEdit(note, edit);
-    if (!projected) return;
-    return {
-      pitch: projected.pitch,
-      ...markerPosition(projected),
-    };
+  const ghosts = $derived.by(() => {
+    if (!gesture?.edit) return [];
+    const { edit, moveFragments, note } = gesture;
+    const parts = edit.kind === 'move' ? moveFragments.values() : [note];
+    return Array.from(parts).flatMap((part) => {
+      const projected = projectNoteEdit(part, edit, { from: windowStart, to: windowEnd });
+      if (!projected) return [];
+      return [{ id: part.id, pitch: projected.pitch, ...markerPosition(projected) }];
+    });
   });
 
   const cursorPosition = $derived.by(() => {
@@ -676,7 +683,10 @@
               class:linked={selected === note.id ||
                 (origin !== undefined && origin === selectedSource)}
               class:source-match={note.sourceMatch}
-              class:pending={gesture?.axis !== undefined && gesture?.note.id === note.id}
+              class:pending={gesture?.axis !== undefined &&
+                (gesture.edit?.kind === 'move'
+                  ? gesture.moveFragments.has(note.id)
+                  : gesture.note.id === note.id)}
               style:left={mark.left + '%'}
               style:width={mark.width + '%'}
               style:top={laneY(note.pitch) + 2 + track * height + 'px'}
@@ -704,7 +714,7 @@
               {/if}
             </button>
           {/each}
-          {#if ghost}
+          {#each ghosts as ghost (ghost.id)}
             <div
               class="ghost"
               style:left={ghost.left + '%'}
@@ -717,7 +727,7 @@
             >
               {pitchLabel(ghost.pitch)}
             </div>
-          {/if}
+          {/each}
           {#if playheadVisible && playhead !== undefined}
             <div class="head" style:left={timePercent(playhead) + '%'} aria-hidden="true"></div>
           {/if}

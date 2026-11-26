@@ -103,9 +103,15 @@ export function sourceEditFeedback(
   );
 }
 
+interface RollWindow {
+  from: number;
+  to: number;
+}
+
 export function projectNoteEdit(
   note: RollNote,
   change: Exclude<RollEdit, { kind: 'insert' }>,
+  window?: RollWindow,
 ): RollNote | undefined {
   if (change.kind === 'delete') return;
   if (change.kind === 'pitch') return { ...note, pitch: change.pitch };
@@ -117,13 +123,41 @@ export function projectNoteEdit(
   const scale = Fraction(change.end).sub(start).div(Fraction(note.end).sub(note.start));
   const moveEdge = (edge: string) =>
     start.add(Fraction(edge).sub(note.start).mul(scale)).toFraction();
-  if (note.visibleStart !== undefined) moved.visibleStart = moveEdge(note.visibleStart);
-  if (note.visibleEnd !== undefined) moved.visibleEnd = moveEdge(note.visibleEnd);
+  // The inspection's cut at the window boundary carries no evidence of an actual mask edge.
+  if (note.visibleStart !== undefined) {
+    moved.visibleStart =
+      window && note.visibleStart === String(window.from) && Fraction(note.start).lt(window.from)
+        ? undefined
+        : moveEdge(note.visibleStart);
+  }
+  if (note.visibleEnd !== undefined) {
+    moved.visibleEnd =
+      window && note.visibleEnd === String(window.to) && Fraction(note.end).gt(window.to)
+        ? undefined
+        : moveEdge(note.visibleEnd);
+  }
   return moved;
 }
 
+export function sharesMoveIdentity(note: RollNote, selected: RollNote): boolean {
+  if (note === selected) return true;
+  const { event } = note;
+  return Boolean(
+    event &&
+    selected.event &&
+    event.entry === selected.event.entry &&
+    sameEventOrigin(event, selected.event) &&
+    sameRollPosition(note, selected),
+  );
+}
+
 /** Predict changes in displayed coordinates while source and host inspection catch up. */
-export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, direct: boolean) {
+export function projectRollEdit(
+  notes: readonly RollNote[],
+  change: RollEdit,
+  direct: boolean,
+  window?: RollWindow,
+) {
   const edited: RollNote[] = [];
   if (change.kind === 'insert') {
     const { start, end, pitch } = change;
@@ -138,15 +172,9 @@ export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, di
       selected?.origin &&
       note.origin?.from === selected.origin.from &&
       note.origin.to === selected.origin.to;
-    const sameOccurrence =
-      change.kind === 'move' &&
-      selected?.event &&
-      note.event &&
-      note.event.entry === selected.event.entry &&
-      sameEventOrigin(note.event, selected.event) &&
-      sameRollPosition(note, selected);
+    const sameOccurrence = change.kind === 'move' && selected && sharesMoveIdentity(note, selected);
     if (note !== selected && !sameToken && !sameOccurrence) return [note];
-    const next = projectNoteEdit(note, change);
+    const next = projectNoteEdit(note, change, window);
     if (!next) return [];
     edited.push(next);
     return [next];

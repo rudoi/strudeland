@@ -36,6 +36,23 @@ describe('piano roll feedback', () => {
     );
   });
 
+  test('reclips a moved carry at the viewport and keeps mask edges inside the page', () => {
+    const left = { ...note, start: '3', end: '5', visibleStart: '4', visibleEnd: '9/2' };
+    const right = { ...note, start: '7', end: '9', visibleStart: '15/2', visibleEnd: '8' };
+    expect(
+      projectRollEdit([left], { kind: 'move', id: left.id, start: '25/8', end: '41/8' }, false, {
+        from: 4,
+        to: 8,
+      }).edited[0],
+    ).toMatchObject({ start: '25/8', visibleStart: undefined, visibleEnd: '37/8' });
+    expect(
+      projectRollEdit([right], { kind: 'move', id: right.id, start: '55/8', end: '71/8' }, false, {
+        from: 4,
+        to: 8,
+      }).edited[0],
+    ).toMatchObject({ visibleStart: '59/8', visibleEnd: undefined, end: '71/8' });
+  });
+
   test('moves masked fragments together and refreshes their individual parts without moving a unison', () => {
     const event = {
       from: ['0', '1'] as [string, string],

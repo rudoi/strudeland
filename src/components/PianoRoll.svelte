@@ -21,6 +21,7 @@
   import { cycleNumber } from '../lib/piano-roll/grid';
   import {
     crossesRollBar,
+    rollClockChangesCps,
     sectionMoveConflict,
     rollMoveTime,
     spansUseSameCps,
@@ -382,7 +383,7 @@
     const origin = eventMoveSource(code, scope, note);
     const needsMeterProof =
       !direct &&
-      structure.meterChanges?.length &&
+      rollClockChangesCps(structure) &&
       (scope.kind === 'song' || !hasAuthoredMoveSource(code, scope.expression));
     const meterProblem = 'The source meter cannot be verified for this event move.';
     if (scope.kind === 'expression') {
@@ -441,7 +442,7 @@
       notice = 'This edit does not fit the source pattern.';
       return false;
     }
-    const preview = projectRollEdit(notes, change, Boolean(direct));
+    const preview = projectRollEdit(notes, change, Boolean(direct), { from, to });
     const previousPage = focusedPage;
     const previousGridRow = target.gridRow;
     const wasApproved = matchesLive || draftApproved;
