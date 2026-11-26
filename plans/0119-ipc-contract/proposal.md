@@ -19,7 +19,7 @@ socket's wire codes and messages, and the CLI's output.
 
 ## Background
 
-The [re-verification](0119-ipc-contract/reverify.md) has the evidence, with file and line.
+The [re-verification](reverify.md) has the evidence, with file and line.
 
 - **46 commands are invoked by string name from 9 TS files,** with camelCase keys typed by hand.
   Two use a spread. Nothing checks a name or a key against Rust.

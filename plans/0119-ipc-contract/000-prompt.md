@@ -1,7 +1,7 @@
 # 0119 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0119-ipc-contract`.
-- **Plan:** [../0119-ipc-contract.md](../0119-ipc-contract.md). It is the contract: the error
+- **Plan:** [proposal.md](proposal.md). It is the contract: the error
   type, the kind table, the generator's input and output, the behaviour table and the
   decisions.
 - **Evidence:** [reverify.md](reverify.md), with file and line at the plan commit.
