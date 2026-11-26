@@ -32,6 +32,7 @@ pub mod output;
 mod pipeline_audio;
 mod plan;
 mod render;
+mod splice;
 mod stems;
 mod summary;
 #[doc(hidden)]
