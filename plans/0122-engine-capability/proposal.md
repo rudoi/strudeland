@@ -27,7 +27,7 @@ A test pins every remaining hand list against the code that reads it.
 
 ## Background
 
-The [re-verification](0122-engine-capability/reverify.md) has the evidence, with file and line at
+The [re-verification](reverify.md) has the evidence, with file and line at
 `385724a`. In short:
 
 - **One file, four jobs.** These live together:
@@ -444,7 +444,7 @@ names the guard that proves it, and claims no more than that guard covers.
 ## The equality guard
 
 The tests are relative: they move when the code moves. The absolute guard is an A/B run against
-a binary built from `385724a` before any edit. [001-split.md](0122-engine-capability/001-split.md)
+a binary built from `385724a` before any edit. [001-split.md](proposal.md)
 step 1 gives the script, `$S/0122-baseline/eq.sh`, with `$S` the scratchpad.
 
 - **`baseline`** builds the release `strudeland-engine` binary. It refuses unless

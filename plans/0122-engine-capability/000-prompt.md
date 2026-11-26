@@ -1,7 +1,7 @@
 # 0122 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0122-engine-capability`.
-- **Plan:** [the proposal](../0122-engine-capability.md). It is the contract. It covers:
+- **Plan:** [the proposal](proposal.md). It is the contract. It covers:
   - the three modules and what goes in each;
   - the public API table;
   - the derivations;
@@ -20,12 +20,12 @@
 
 The stages run in order. Each one is one commit, green with every gate below.
 
-1. [001-split.md](001-split.md) has two parts:
+1. [001-split.md](proposal.md) has two parts:
    - the equality guard, set up **before any edit**;
    - `controls.rs` split into `capability.rs`, `params.rs` and `coerce.rs`, with every import on
      the real path and the stale doc paths fixed (AGENTS.md's nonexistent `signatures` module
      among them). Not one line of logic changes.
-2. [002-derive.md](002-derive.md):
+2. [002-derive.md](proposal.md):
    - `SourceKind::NAMES`, `DEFAULT_SOUND`, `allowed_sounds()` and `modulatable_targets()`;
    - `ALLOWED_SOUNDS`, `MODULATOR_TARGETS` and `OSC_SOUNDS` deleted;
    - the two-way chain-read test, the target pin and the sound render test;
@@ -68,7 +68,7 @@ The stages run in order. Each one is one commit, green with every gate below.
       `/private/tmp/claude-501/-Volumes-rudenet-code-strudeland-worktrees-poptart/2d85ebc3-84cd-4f6d-90b0-657c13b5df8a/scratchpad`.
       That path belongs to the session that wrote this plan. A later session has its own
       scratchpad: set `S` to it and restore `$S/0122-baseline/` as
-      [001-split.md](001-split.md) step 1 describes.
+      [001-split.md](proposal.md) step 1 describes.
     - `N` is the stage number.
 
     ```sh
