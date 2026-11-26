@@ -16,6 +16,7 @@ import {
   type AuthoredGrid,
 } from './authored-grid';
 import type { RollDefinition, RollEdit, RollPatch, RollTarget, RollUse, SourceSpan } from './types';
+import { readEventSpec } from './event-source';
 
 type Scope = {
   parent?: Scope;
@@ -93,6 +94,7 @@ function readScript(source: string) {
   const scope: Scope = { bindings: new Map() };
   const definitions = new Map<AnyNode, Binding>();
   let staticSafe = true;
+  let placementSafe = true;
 
   function walk(visit: Visit) {
     const { node } = visit;
@@ -143,10 +145,29 @@ function readScript(source: string) {
         staticSafe = false;
         break;
       case 'CallExpression': {
+        if (
+          node.callee.type === 'MemberExpression' &&
+          node.callee.property.type === 'Identifier' &&
+          ['defineProperty', 'defineProperties', 'assign', 'setPrototypeOf'].includes(
+            node.callee.property.name,
+          ) &&
+          node.arguments[0] &&
+          ((node.arguments[0].type === 'Identifier' &&
+            ['globalThis', 'strudelScope', 'Pattern'].includes(node.arguments[0].name)) ||
+            (node.arguments[0].type === 'MemberExpression' &&
+              node.arguments[0].property.type === 'Identifier' &&
+              node.arguments[0].property.name === 'prototype'))
+        )
+          placementSafe = false;
         if (node.callee.type !== 'Identifier') break;
         if (node.callee.name === 'eval') staticSafe = false;
         if (node.callee.name === 'register' || node.callee.name === 'registerControl') {
           const registered = node.arguments[0];
+          if (
+            registered?.type !== 'Literal' ||
+            (typeof registered.value === 'string' && placementNames.has(registered.value))
+          )
+            placementSafe = false;
           if (
             registered?.type !== 'Literal' ||
             typeof registered.value !== 'string' ||
@@ -169,6 +190,11 @@ function readScript(source: string) {
               ? identifier.value
               : null;
         if (name === 'note' || name === 'm' || name === 's' || name === 'sound') staticSafe = false;
+        if (
+          (typeof name === 'string' && placementNames.has(name)) ||
+          (target.type === 'MemberExpression' && target.computed && identifier.type !== 'Literal')
+        )
+          placementSafe = false;
         break;
       }
     }
@@ -188,6 +214,7 @@ function readScript(source: string) {
     visits,
     definitions,
     staticSafe,
+    placementSafe,
     miniDisabled: miniDisabledRanges(comments, source.length),
   };
 }
@@ -835,6 +862,176 @@ export function targetsDefinition({ expression, definition }: RollTarget): boole
   );
 }
 
+export type MovePlacements =
+  { kind: 'base' } | { kind: 'sections'; names: readonly string[] } | { kind: 'unproved' };
+
+const placementMethods = new Set([...neutralControls, 's', 'sound', 'transpose']);
+const placementNames = new Set([...placementMethods, 'song', 'stack', '_pianoEdits']);
+
+function locateMoveTarget(code: string, span: SourceSpan) {
+  const selected = locateTarget(code, span);
+  if (
+    selected &&
+    exact(selected.node, span) &&
+    selected.script.staticSafe &&
+    selected.script.placementSafe
+  )
+    return selected;
+}
+
+/** Static authored inputs and their saved literal edits reproduce the same values at any CPS. */
+export function hasAuthoredMoveSource(code: string, span: SourceSpan): boolean {
+  const selected = locateMoveTarget(code, span);
+  if (!selected) return false;
+  const { script } = selected;
+  const grids = gridsFor(code, script);
+  let node = selected.node;
+  for (;;) {
+    if (node.type === 'Identifier') {
+      const init = lookup(script.visits.get(node)!, node.name)?.initializer;
+      if (!init || init.end > node.start) return false;
+      node = init;
+      continue;
+    }
+    const grid = grids.some((item) => exact(node, item.expression));
+    for (let chain = method(node); chain?.name === '_pianoEdits'; chain = method(node)) {
+      if (node.type !== 'CallExpression' || node.arguments.length !== 1) return false;
+      try {
+        readEventSpec(node.arguments[0]);
+      } catch {
+        return false;
+      }
+      node = chain.receiver;
+    }
+    if (grid) return true;
+    if (node.type === 'Identifier') continue;
+    const input = authoredInput(node, script, code);
+    return !!(input && readPhrase(input));
+  }
+}
+
+function constantControl(call: AnyNode, script: Script, code: string): boolean {
+  if (call.type !== 'CallExpression') return false;
+  const chain = method(call);
+  if (!chain || !placementMethods.has(chain.name) || call.arguments.length !== 1) return false;
+  const argument = ungroup(call.arguments[0]);
+  if (chain.name === 's' || chain.name === 'sound') return !!soundName(argument, script, code);
+  const number =
+    argument.type === 'UnaryExpression' && argument.operator === '-' ? argument.argument : argument;
+  return number.type === 'Literal' && typeof number.value === 'number';
+}
+
+/** The written section clock is meaningful only along a completely phase-preserving route. */
+export function resolveMovePlacements(code: string, span: SourceSpan): MovePlacements {
+  const selected = locateMoveTarget(code, span);
+  const unproved = { kind: 'unproved' } as const;
+  if (!selected) return unproved;
+  const { script, node } = selected;
+  const visits = [...script.visits.values()];
+  const usesGlobal = (visit: Visit, name: string) => {
+    const n = visit.node;
+    if (
+      n.type === 'MemberExpression' &&
+      n.object.type === 'Identifier' &&
+      ['globalThis', 'strudelScope'].includes(n.object.name)
+    )
+      return n.computed
+        ? n.property.type === 'Literal' && n.property.value === name
+        : n.property.type === 'Identifier' && n.property.name === name;
+    return (
+      n.type === 'Identifier' &&
+      n.name === name &&
+      isReference(visit, script) &&
+      unshadowed(n, script)
+    );
+  };
+  const hasArrangement = visits.some((visit) => usesGlobal(visit, 'song'));
+  const transformsOutput = visits.some(
+    (visit) => usesGlobal(visit, 'all') || usesGlobal(visit, 'each'),
+  );
+  const names = new Set<string>();
+  const references = usageIndex(script).references;
+  const followed = new Map<Binding, Set<string | undefined>>();
+  const pending: { use: Visit; section?: string }[] = [{ use: script.visits.get(node)! }];
+  while (pending.length) {
+    let { use, section } = pending.pop()!;
+    for (;;) {
+      const parent = use.parent;
+      if (!parent) return unproved;
+      const container = parent.node;
+      if (container.type === 'ParenthesizedExpression') {
+        use = parent;
+        continue;
+      }
+      if (
+        container.type === 'CallExpression' &&
+        use.key === 'arguments' &&
+        callName(container, script) === 'stack'
+      ) {
+        use = parent;
+        continue;
+      }
+      if (
+        container.type === 'MemberExpression' &&
+        use.key === 'object' &&
+        parent.key === 'callee' &&
+        parent.parent &&
+        constantControl(parent.parent.node, script, code)
+      ) {
+        use = parent.parent;
+        continue;
+      }
+      if (container.type === 'VariableDeclarator' && use.key === 'init') {
+        const binding = script.definitions.get(ungroup(use.node));
+        if (!binding || parent.parent?.parent?.node.type !== 'Program') return unproved;
+        const phases = followed.get(binding) ?? new Set<string | undefined>();
+        if (!phases.has(section)) {
+          phases.add(section);
+          followed.set(binding, phases);
+          for (const ref of references.get(binding) ?? []) {
+            if (ref.node.start < container.end) return unproved;
+            pending.push({ use: ref, section });
+          }
+        }
+        break;
+      }
+      if (container.type === 'Property' && use.key === 'value' && section === undefined) {
+        const name = sectionAtProperty(parent, script);
+        const object = parent.parent;
+        const song = object?.parent;
+        if (
+          name === undefined ||
+          object?.node.type !== 'ObjectExpression' ||
+          song?.node.type !== 'CallExpression' ||
+          song.node.arguments[0]?.type !== 'Identifier' ||
+          song.node.arguments[0].name !== 'meta'
+        )
+          return unproved;
+        // A spread, computed name or duplicate can replace the inspected part.
+        const keys = object.node.properties.map((property: AnyNode) =>
+          sectionAtProperty(script.visits.get(property)!, script),
+        );
+        if (keys.includes(undefined) || new Set(keys).size !== keys.length) return unproved;
+        section = name;
+        use = song;
+        continue;
+      }
+      if (container.type === 'ExpressionStatement') {
+        const label = parent.parent?.node.type === 'LabeledStatement' ? parent.parent : undefined;
+        const isOutput = label
+          ? label.parent?.node.type === 'Program'
+          : script.ast.body.at(-1) === container;
+        if (!isOutput || transformsOutput || (section === undefined && hasArrangement))
+          return unproved;
+        if (section !== undefined) names.add(section);
+        break;
+      }
+      return unproved;
+    }
+  }
+  return names.size ? { kind: 'sections', names: [...names].sort() } : { kind: 'base' };
+}
+
 export function planRollEdit(
   source: string,
   target: SourceSpan,
@@ -847,9 +1044,12 @@ export function planRollEdit(
     if (grid) return grid.hasEventEdits ? null : planGridEdit(source, grid, edit);
     const phrase = phraseAt(node, script, source);
     if (!phrase) return null;
-    const patch = planPhraseEdit(source, phrase, edit);
-    if (!patch) return null;
-    const nextSource = source.slice(0, patch.from) + patch.insert + source.slice(patch.to);
+    const patches = planPhraseEdit(source, phrase, edit);
+    if (!patches) return null;
+    const nextSource = patches.reduceRight(
+      (code, patch) => code.slice(0, patch.from) + patch.insert + code.slice(patch.to),
+      source,
+    );
     const next = readScript(nextSource);
     const input = [...script.visits.keys()].find((candidate) =>
       exact(candidate, phrase.input.span),
@@ -858,14 +1058,14 @@ export function planRollEdit(
     const nextNode = [...next.visits.keys()].find((candidate) =>
       exact(candidate, {
         from: phrase.input.span.from,
-        to: phrase.input.span.to + patch.insert.length - (patch.to - patch.from),
+        to: phrase.input.span.to + (nextSource.length - source.length),
       }),
     );
     if (nextNode?.type !== input.type) return null;
     const replacement = parse('undefined', scriptOptions).body[0];
     return scriptShape(script.ast, { target: input, expression: replacement }) ===
       scriptShape(next.ast, { target: nextNode, expression: replacement })
-      ? [patch]
+      ? patches
       : null;
   } catch {
     return null;

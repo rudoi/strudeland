@@ -829,12 +829,14 @@ test('inspect and plan saved Expression and final-output edits on real generated
       kind: 'move',
       id: observed[0].id,
       start: '3/2',
+      end: '7/4',
     }),
   );
   const arranged = JSON.parse((await inspection(host(), edited, { to: 2 })).value).notes;
   expect(arranged.find((h: any) => h.start === '0' && h.pitch === 62)).toBeUndefined();
   const moved = arranged.find((h: any) => h.start === '3/2' && h.pitch === 62);
   expect(moved.event.entry).toBe('roll1');
+  expect(moved.end).toBe('7/4');
   const bass = arranged.find((h: any) => h.start === '0' && h.pitch === 43);
   const final = apply(
     edited,

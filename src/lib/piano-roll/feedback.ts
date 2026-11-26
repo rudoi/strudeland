@@ -1,5 +1,6 @@
 import { Fraction } from '@strudel/core';
 import type { PianoRollCommit } from '../project/session';
+import { sameEventOrigin } from './event-source';
 import { resolveRollTarget } from './source';
 import type { RollEdit, RollNote } from './types';
 
@@ -51,10 +52,14 @@ function matchRollNotes(
         (note.event?.entry && candidate.event?.entry !== note.event.entry)
       )
         continue;
+      const samePart =
+        (candidate.visibleStart ?? candidate.start) === (note.visibleStart ?? note.start) &&
+        (candidate.visibleEnd ?? candidate.end) === (note.visibleEnd ?? note.end);
       const score =
-        4 * Number(Boolean(candidate.event?.entry) === edited.has(note.id)) +
-        2 * Number(candidate.event?.voice === note.event?.voice) +
-        Number(candidate.event?.index === note.event?.index);
+        8 * Number(Boolean(candidate.event?.entry) === edited.has(note.id)) +
+        4 * Number(candidate.event?.voice === note.event?.voice) +
+        2 * Number(candidate.event?.index === note.event?.index) +
+        Number(samePart);
       if (score > bestScore) {
         best = candidate;
         bestScore = score;
@@ -98,8 +103,61 @@ export function sourceEditFeedback(
   );
 }
 
+interface RollWindow {
+  from: number;
+  to: number;
+}
+
+export function projectNoteEdit(
+  note: RollNote,
+  change: Exclude<RollEdit, { kind: 'insert' }>,
+  window?: RollWindow,
+): RollNote | undefined {
+  if (change.kind === 'delete') return;
+  if (change.kind === 'pitch') return { ...note, pitch: change.pitch };
+  if (change.kind === 'resize') return { ...note, end: change.end, visibleEnd: undefined };
+
+  const moved = { ...note, start: change.start, end: change.end };
+  if (note.visibleStart === undefined && note.visibleEnd === undefined) return moved;
+  const start = Fraction(change.start);
+  const scale = Fraction(change.end).sub(start).div(Fraction(note.end).sub(note.start));
+  const moveEdge = (edge: string) =>
+    start.add(Fraction(edge).sub(note.start).mul(scale)).toFraction();
+  // The inspection's cut at the window boundary carries no evidence of an actual mask edge.
+  if (note.visibleStart !== undefined) {
+    moved.visibleStart =
+      window && note.visibleStart === String(window.from) && Fraction(note.start).lt(window.from)
+        ? undefined
+        : moveEdge(note.visibleStart);
+  }
+  if (note.visibleEnd !== undefined) {
+    moved.visibleEnd =
+      window && note.visibleEnd === String(window.to) && Fraction(note.end).gt(window.to)
+        ? undefined
+        : moveEdge(note.visibleEnd);
+  }
+  return moved;
+}
+
+export function sharesMoveIdentity(note: RollNote, selected: RollNote): boolean {
+  if (note === selected) return true;
+  const { event } = note;
+  return Boolean(
+    event &&
+    selected.event &&
+    event.entry === selected.event.entry &&
+    sameEventOrigin(event, selected.event) &&
+    sameRollPosition(note, selected),
+  );
+}
+
 /** Predict changes in displayed coordinates while source and host inspection catch up. */
-export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, direct: boolean) {
+export function projectRollEdit(
+  notes: readonly RollNote[],
+  change: RollEdit,
+  direct: boolean,
+  window?: RollWindow,
+) {
   const edited: RollNote[] = [];
   if (change.kind === 'insert') {
     const { start, end, pitch } = change;
@@ -108,24 +166,16 @@ export function projectRollEdit(notes: readonly RollNote[], change: RollEdit, di
   }
   const selected = notes.find((note) => note.id === change.id);
   const projected = notes.flatMap((note) => {
-    const linked =
+    const sameToken =
       direct &&
       change.kind === 'pitch' &&
       selected?.origin &&
       note.origin?.from === selected.origin.from &&
       note.origin.to === selected.origin.to;
-    if (note !== selected && !linked) return [note];
-    if (change.kind === 'delete') return [];
-    let next: RollNote;
-    if (change.kind === 'pitch') {
-      next = { ...note, pitch: change.pitch };
-    } else if (change.kind === 'move') {
-      const length = Fraction(note.end).sub(Fraction(note.start));
-      const end = Fraction(change.start).add(length).toFraction();
-      next = { ...note, start: change.start, end, visibleStart: undefined, visibleEnd: undefined };
-    } else {
-      next = { ...note, end: change.end, visibleEnd: undefined };
-    }
+    const sameOccurrence = change.kind === 'move' && selected && sharesMoveIdentity(note, selected);
+    if (note !== selected && !sameToken && !sameOccurrence) return [note];
+    const next = projectNoteEdit(note, change, window);
+    if (!next) return [];
     edited.push(next);
     return [next];
   });

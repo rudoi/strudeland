@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { planRollEdit, resolveRollTarget, targetsDefinition } from '../src/lib/piano-roll/source';
+import {
+  hasAuthoredMoveSource,
+  planRollEdit,
+  resolveMovePlacements,
+  resolveRollTarget,
+  targetsDefinition,
+} from '../src/lib/piano-roll/source';
 import type { RollEdit, RollPhrase, SourceSpan } from '../src/lib/piano-roll/types';
 
 function span(source: string, selection: string, from = source.indexOf(selection)): SourceSpan {
@@ -312,12 +318,141 @@ describe('piano roll source projection', () => {
   });
 });
 
+describe('piano roll written move placements', () => {
+  const phrase = 'note("<[c4 ~] [~ d4]>")';
+  const trace = (code: string, target = phrase) => resolveMovePlacements(code, span(code, target));
+
+  test('follows every immutable alias to a terminal section, including the arrangement output', () => {
+    const code = [
+      `const theme = ${phrase}.s("saw");`,
+      'const bass = (theme);',
+      'const songPattern = song(meta, { verse: stack(theme, bass.gain(0.3)), hook: bass.transpose(-12) });',
+      '$: songPattern',
+    ].join('\n');
+    expect(trace(code)).toEqual({ kind: 'sections', names: ['hook', 'verse'] });
+    expect(trace(code, 'bass.transpose(-12)')).toEqual({ kind: 'sections', names: ['hook'] });
+    expect(trace(`song(meta, { verse: ${phrase} })`)).toEqual({
+      kind: 'sections',
+      names: ['verse'],
+    });
+  });
+
+  test('an alias initializer has its own downstream uses, including timing-changing consumers', () => {
+    const code = `const theme = ${phrase}; const both=theme; song(meta,{ a: both, b: both.early(1) })`;
+    const initializer = code.indexOf('both=theme') + 5;
+    expect(resolveMovePlacements(code, span(code, 'theme', initializer))).toEqual({
+      kind: 'unproved',
+    });
+    expect(resolveMovePlacements(code, span(code, 'both', code.indexOf('a: both') + 3))).toEqual({
+      kind: 'sections',
+      names: ['a'],
+    });
+  });
+
+  test('rejects unknown phase, escaped aliases, foreign section metadata and outer arrangement transforms', () => {
+    for (const output of [
+      'song(meta,{ a: theme, b: theme.fast(2) })',
+      'song(meta,{ a: slowcat(silence, theme) })',
+      'song(meta,{ a: theme.gain("<0 1>") })',
+      'song(meta,{ a: theme }).rev()',
+      'const tune = song(meta,{ a: theme }); cat(silence, tune)',
+      'unknown(theme); song(meta,{ a: theme })',
+      'song(otherMeta,{ a: theme })',
+      'song(meta,{ a: theme, ...extraParts })',
+      'song(meta,{ a: theme, a: silence })',
+      'const song = fake; song(meta,{ a: theme })',
+      'lead: song(meta,{ a: theme }); all(x => x.fast(2))',
+      'const stack = custom; song(meta,{ a: stack(theme) })',
+      'register("stack", custom); song(meta,{ a: stack(theme) })',
+    ])
+      expect(trace(`const theme = ${phrase}; ${output}`)).toEqual({ kind: 'unproved' });
+  });
+
+  test('distinguishes an unused definition and a standalone output from an unplaced arranged layer', () => {
+    expect(trace(phrase)).toEqual({ kind: 'base' });
+    expect(trace(`const theme = ${phrase}; const unused=theme; song(meta,{ a: silence })`)).toEqual(
+      { kind: 'base' },
+    );
+    expect(trace(`stack(${phrase}, song(meta, { a: silence }))`)).toEqual({ kind: 'unproved' });
+    expect(trace(`function lane(){ return ${phrase} }; lane()`)).toEqual({ kind: 'unproved' });
+  });
+
+  test('only authored sources with static saved entries are independent of query CPS', () => {
+    const entry = "{id:'roll1',from:['0','1/2'],pitch:60,to:'1',until:'3/2',period:2}";
+    for (const receiver of [phrase, "noteGrid(['c4 ~', '~ d4'])"]) {
+      const code = `const theme = (${receiver})._pianoEdits({entries:[${entry}]}); const alias=theme; alias`;
+      expect(hasAuthoredMoveSource(code, span(code, 'alias', code.lastIndexOf('alias')))).toBe(
+        true,
+      );
+    }
+    for (const expression of [
+      `(${phrase})._pianoEdits(spec)`,
+      `(${phrase})._pianoEdits({entries:[{}]})`,
+      `${phrase}.early(1)`,
+      'new Pattern(callback)',
+    ]) {
+      expect(hasAuthoredMoveSource(expression, span(expression, expression))).toBe(false);
+    }
+  });
+});
+
 describe('piano roll exact phrase edits', () => {
+  test('moves both ways between weighted bars in one plan and preserves sibling bytes', () => {
+    const expression = 'note("<[c4 e4 ~@2] [~@5 g4 ~] [f4  ~]>")';
+    const next = 'note("<[c4 ~@3] [~@3 e4@2 g4 ~] [f4  ~]>")';
+    const script = (phrase: string) =>
+      `// 🎵\nconst theme = ${phrase}.gain(0.5);\nsong(meta, { verse: theme })`;
+    for (const [before, after, start, end] of [
+      [expression, next, '10/7', '12/7'],
+      [next, expression, '1/4', '1/2'],
+    ]) {
+      const source = script(before);
+      const { target, phrase } = editable(source, before);
+      const change = {
+        kind: 'move',
+        id: phrase.notes.find((n) => n.pitch === 64)!.id,
+        start,
+        end,
+      } as const;
+      const patches = planRollEdit(source, target.expression, change);
+      expect(patches).toHaveLength(2);
+      expect(patches?.filter((p) => p.reveal)).toHaveLength(1);
+      expect(patches?.find((p) => p.reveal)?.insert).toContain('e4');
+      const changed = edit(source, change, target.expression);
+      expect(changed).toBe(script(after));
+      const projected = editable(changed, after).phrase;
+      expect(projected.bars).toBe(3);
+      expect(events(projected)).toEqual([
+        [60, '0', '1/4'],
+        [64, start, end],
+        [67, '12/7', '13/7'],
+        [65, '2', '5/2'],
+      ]);
+    }
+  });
+
+  test('accepts a destination ending at the phrase boundary and declines overlaps and cross-bar sustains', () => {
+    const source = 'note("<c4 [e4 ~]>")';
+    const target = span(source, source);
+    const id = editable(source).phrase.notes[0].id;
+    const ending = edit(source, { kind: 'move', id, start: '3/2', end: '2' });
+    expect(events(editable(ending).phrase)).toEqual([
+      [64, '1', '3/2'],
+      [60, '3/2', '2'],
+    ]);
+    for (const [start, end] of [
+      ['5/4', '7/4'],
+      ['3/4', '5/4'],
+      ['3/2', '5/2'],
+    ]) {
+      expect(planRollEdit(source, target, { kind: 'move', id, start, end })).toBeNull();
+    }
+  });
   test('moves and resizes notes while other intervals stay fixed', () => {
     const source = 'note("c4 ~ e4 ~")';
     const { phrase } = editable(source);
     const id = phrase.notes[1].id;
-    const moved = edit(source, { kind: 'move', id, start: '3/4' });
+    const moved = edit(source, { kind: 'move', id, start: '3/4', end: '1' });
     const resized = edit(source, { kind: 'resize', id, end: '7/8' });
     expect(moved).toBe('note("c4 ~@2 e4")');
     expect(events(editable(moved).phrase)).toEqual([
@@ -329,7 +464,7 @@ describe('piano roll exact phrase edits', () => {
       [64, '1/2', '7/8'],
     ]);
     expect(
-      planRollEdit(source, span(source, source), { kind: 'move', id, start: '1/8' }),
+      planRollEdit(source, span(source, source), { kind: 'move', id, start: '1/8', end: '3/8' }),
     ).toBeNull();
     expect(
       planRollEdit(source, span(source, source), { kind: 'resize', id, end: '9/8' }),
@@ -367,7 +502,7 @@ describe('piano roll exact phrase edits', () => {
   test('touches only the edited bar and keeps its enclosing whitespace', () => {
     const source = 'note(`<\n  [  c4 ~ e4 ~  ]\n  [~@5 g4 ~]\n>`)';
     const { phrase } = editable(source);
-    const result = edit(source, { kind: 'move', id: phrase.notes[1].id, start: '3/4' });
+    const result = edit(source, { kind: 'move', id: phrase.notes[1].id, start: '3/4', end: '1' });
     expect(result).toBe('note(`<\n  [  c4 ~@2 e4  ]\n  [~@5 g4 ~]\n>`)');
     expect(events(editable(result).phrase)).toEqual([
       [60, '0', '1/4'],
