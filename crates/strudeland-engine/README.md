@@ -520,7 +520,7 @@ thread owns it (it is `!Send`).
   `build_ir`, and `poll_ir` (the first step of `render_quantum`) lands each `IrBuilt` at the next
   quantum boundary; a reverb's newest request wins whatever order results arrive in. Until then
   the previous IR plays, so the **first use of a reverb is silent** for the build time (a default
-  room takes milliseconds). A worker that is gone falls back to a synchronous build. Both drivers
+  room takes milliseconds). A worker that is gone falls back to building in place: for the rest of the settle in which the send failed with `build_ir` (`Convolver::new_live`), and from the next quantum through the synchronous settler (`Convolver::new`). Both drivers
   settle through the core's one walk (`Core::settle_reverbs`): offline and synchronous live
   through the synchronous settler (`Convolver::new`), the worker through its own settler
   (`build_ir`, `Convolver::new_live`).
