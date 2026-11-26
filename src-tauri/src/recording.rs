@@ -1,12 +1,12 @@
 //! Recording: the Tauri commands, state and events over `strudeland-record` (the capture) and
 //! `strudeland-project` (the memo files in `recordings/`).
 //!
-//! The logic lives in plain functions over [`Core`] (the recorder, the armed input, the take in
-//! progress) and the [`ProjectState`], so it is tested without an `AppHandle`: the microphone
-//! permission and the device list come through [`Platform`], the events go out through [`Sink`],
-//! and tests build the recorder over `strudeland-record`'s fake source. The `#[tauri::command]`
-//! wrappers only resolve paths and move the work onto a blocking thread; the state mutex is only
-//! held there, never across an `.await`.
+//! The logic lives in plain functions over [`Core`] (the recorder and its [`TakeState`]: idle,
+//! armed, recording or ended) and the [`ProjectState`], so it is tested without an `AppHandle`:
+//! the microphone permission and the device list come through [`Platform`], the events go out
+//! through [`Sink`], and tests build the recorder over `strudeland-record`'s fake source. The
+//! `#[tauri::command]` wrappers only resolve paths and move the work onto a blocking thread; the
+//! state mutex is only held there, never across an `.await`.
 //!
 //! A take is finalized into the project captured at start, even if another project was opened
 //! meanwhile. Rust picks every name; the webview never writes files and passes no paths.
@@ -301,16 +301,66 @@ struct ArmedInput {
     info: ArmedInfo,
 }
 
-#[derive(Default)]
+/// Where the recorder's take is. One value, so the combinations nothing reaches (a take
+/// without an armed input, a take beside an ended one) cannot be built.
+enum TakeState {
+    /// No stream. `stream_denied`: the last arm's stream open was refused (desktops without an
+    /// in-app prompt report `denied` from it). It is meaningful only here: every way out of idle
+    /// is a successful arm, which clears it.
+    Idle { stream_denied: bool },
+    /// A stream is open on this input, and no take runs.
+    Armed(ArmedInput),
+    /// A take runs on the armed input.
+    Recording { armed: ArmedInput, take: Take },
+    /// A take Rust finalized by itself (cap, write error, device loss), or a stop whose publish
+    /// failed; kept for the webview's stop. `armed` is `None` once the stream is gone (a device
+    /// loss, a `Failed`).
+    Ended {
+        armed: Option<ArmedInput>,
+        ended: EndedTake,
+    },
+}
+
+impl TakeState {
+    /// The armed input, in every state that has one.
+    fn armed(&self) -> Option<&ArmedInput> {
+        match self {
+            TakeState::Armed(armed)
+            | TakeState::Recording { armed, .. }
+            | TakeState::Ended {
+                armed: Some(armed), ..
+            } => Some(armed),
+            TakeState::Idle { .. } | TakeState::Ended { armed: None, .. } => None,
+        }
+    }
+
+    fn is_recording(&self) -> bool {
+        matches!(self, TakeState::Recording { .. })
+    }
+}
+
 struct Inner {
     recorder: Option<Recorder>,
-    stream_denied: bool,
     forwarder: Option<JoinHandle<()>>,
-    armed: Option<ArmedInput>,
-    take: Option<Take>,
-    ended: Option<EndedTake>,
-    /// The stem of a take a device loss just ended, for the `Failed` event that follows.
-    lost_stem: Option<String>,
+    state: TakeState,
+    /// The bridge between a `TakeEnded(DeviceLost)` and the `Failed` the recorder sends right
+    /// after it: the stem the `Failed`'s idle event carries. Set only by `ended_by_itself` on
+    /// `DeviceLost`, taken by every `Failed` (before the stale-id check). It can outlive the
+    /// `Ended` state when a stop or disarm runs in between, so it is not part of it.
+    pending_loss_stem: Option<String>,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        Inner {
+            recorder: None,
+            forwarder: None,
+            state: TakeState::Idle {
+                stream_denied: false,
+            },
+            pending_loss_stem: None,
+        }
+    }
 }
 
 /// The recorder and everything it is doing. One per app (one window).
@@ -366,13 +416,29 @@ fn ensure_recorder<'a>(core: &Arc<Core>, inner: &'a mut Inner) -> &'a Recorder {
         .expect("the recorder was just created")
 }
 
-/// Forgets the ended take, first publishing it with the fallback sidecar if that has not
-/// happened yet. A failure is logged; the partial stays for the repair at the next open.
-fn drop_ended(inner: &mut Inner) {
-    if let Some(ended) = inner.ended.take()
+/// Moves to `next`. Leaving an ended take that is not published yet publishes it with the
+/// fallback sidecar once `next` is in place; a failure is logged, and the partial stays for the
+/// repair at the next open.
+fn leave(inner: &mut Inner, next: TakeState) {
+    let old = std::mem::replace(&mut inner.state, next);
+    if let TakeState::Ended { ended, .. } = old
         && !ended.published
     {
         publish_fallback(&ended.meta, &ended.result);
+    }
+}
+
+/// Leaves an ended take for its armed input (or idle), publishing it if needed. Any other
+/// state is left alone.
+fn settle_ended(inner: &mut Inner) {
+    if let TakeState::Ended { armed, .. } = &mut inner.state {
+        let next = match armed.take() {
+            Some(armed) => TakeState::Armed(armed),
+            None => TakeState::Idle {
+                stream_denied: false,
+            },
+        };
+        leave(inner, next);
     }
 }
 
@@ -400,17 +466,27 @@ fn forward(core: Weak<Core>, events: Receiver<Event>) {
 /// sidecar and keep it for the webview's stop. A take a command already took is ignored.
 fn ended_by_itself(core: &Core, result: TakeResult) {
     let mut inner = core.lock();
-    let Some(take) = inner.take.take_if(|t| t.path == result.path) else {
-        return;
+    let idle = TakeState::Idle {
+        stream_denied: false,
+    };
+    let (armed, take) = match std::mem::replace(&mut inner.state, idle) {
+        TakeState::Recording { armed, take } if take.path == result.path => (armed, take),
+        other => {
+            inner.state = other;
+            return;
+        }
     };
     let published = publish_fallback(&take.meta, &result);
     let stem = take.meta.stem.clone();
     let reason = result.ended.clone();
-    inner.ended = Some(EndedTake {
-        meta: take.meta,
-        result,
-        published,
-    });
+    inner.state = TakeState::Ended {
+        armed: Some(armed),
+        ended: EndedTake {
+            meta: take.meta,
+            result,
+            published,
+        },
+    };
     match reason {
         Ended::Cap => core.emit(
             StateEvent::new(RecState::Armed)
@@ -418,7 +494,7 @@ fn ended_by_itself(core: &Core, result: TakeResult) {
                 .error(CommandError::new(CommandErrorKind::LimitReached, LIMIT)),
         ),
         // The `Failed` event that follows reports it.
-        Ended::DeviceLost(_) => inner.lost_stem = Some(stem),
+        Ended::DeviceLost(_) => inner.pending_loss_stem = Some(stem),
         Ended::WriteError(message) => core.emit(StateEvent::new(RecState::Armed).stem(stem).error(
             CommandError::other(format!("the take could not be written: {message}")),
         )),
@@ -430,11 +506,23 @@ fn ended_by_itself(core: &Core, result: TakeResult) {
 /// queued while the webview armed again, is ignored (the recorder already replaced it).
 fn failed(core: &Core, arm_id: u64, error: RecordError) {
     let mut inner = core.lock();
-    let stem = inner.lost_stem.take();
-    if inner.armed.as_ref().is_some_and(|a| a.arm_id != arm_id) {
+    let stem = inner.pending_loss_stem.take();
+    if inner.state.armed().is_some_and(|a| a.arm_id != arm_id) {
         return;
     }
-    inner.armed = None;
+    match &mut inner.state {
+        TakeState::Armed(_) => {
+            inner.state = TakeState::Idle {
+                stream_denied: false,
+            }
+        }
+        TakeState::Ended { armed, .. } => *armed = None,
+        TakeState::Idle { .. } => {}
+        // Unreachable with a matching id: the recorder sends `TakeEnded` before `Failed`, and
+        // `start` sets the take under the lock this waits for. The take is kept and the event
+        // is the same: the closest form of dropping the armed input beside a take.
+        TakeState::Recording { .. } => {}
+    }
     let mut event = StateEvent::new(RecState::Idle).error(error.into());
     event.stem = stem;
     core.emit(event);
@@ -511,12 +599,17 @@ pub fn resolve_selection<'a>(
     let device = saved
         .or_else(|| devices.iter().find(|d| d.is_default))
         .or_else(|| devices.first())?;
-    let channel = if device.channels == 0 || prefs.channel < device.channels {
+    Some((device, saved_channel(device, prefs)))
+}
+
+/// The saved channel when `device` has it (or reports no channels: an exclusive endpoint whose
+/// config query was refused), else 0.
+fn saved_channel(device: &DeviceInfo, prefs: &Prefs) -> u16 {
+    if device.channels == 0 || prefs.channel < device.channels {
         prefs.channel
     } else {
         0
-    };
-    Some((device, channel))
+    }
 }
 
 // --- bar 1 ---
@@ -701,11 +794,17 @@ fn project_for(projects: &ProjectState, root: &str) -> Result<Arc<Project>, Comm
 pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
     let permission = core.platform.permission();
     let inner = core.lock();
+    let armed = inner.state.armed();
     let permission =
         if permission == Permission::NotDetermined && !core.platform.has_permission_prompt() {
-            if inner.armed.is_some() {
+            if armed.is_some() {
                 Permission::Authorized
-            } else if inner.stream_denied {
+            } else if matches!(
+                inner.state,
+                TakeState::Idle {
+                    stream_denied: true
+                }
+            ) {
                 Permission::Denied
             } else {
                 permission
@@ -713,16 +812,16 @@ pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
         } else {
             permission
         };
-    let (state, stem, elapsed_seconds) = match &inner.take {
-        Some(take) => (
+    let (state, stem, elapsed_seconds) = match &inner.state {
+        TakeState::Recording { take, .. } => (
             RecState::Recording,
             Some(take.meta.stem.clone()),
             Some(take.started.elapsed().as_secs_f64()),
         ),
-        None if inner.armed.is_some() => (RecState::Armed, None, None),
-        None => (RecState::Idle, None, None),
+        _ if armed.is_some() => (RecState::Armed, None, None),
+        _ => (RecState::Idle, None, None),
     };
-    let (device, channel) = match &inner.armed {
+    let (device, channel) = match armed {
         Some(armed) => (Some(armed.device.clone()), armed.info.channel),
         None => (None, read_prefs(prefs_path).channel),
     };
@@ -739,7 +838,7 @@ pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
 /// An exclusive input can refuse a second config query while our own stream is open.
 fn input_devices(core: &Core) -> Result<Vec<DeviceInfo>, CommandError> {
     let mut list = core.platform.devices()?;
-    if let Some(armed) = &core.lock().armed
+    if let Some(armed) = core.lock().state.armed()
         && let Some(device) = list
             .iter_mut()
             .find(|d| d.id == armed.info.device_id && d.channels == 0)
@@ -809,7 +908,7 @@ pub fn arm(
     if core.requesting.load(Ordering::Acquire) {
         return Err(CommandError::busy(PERMISSION_PENDING));
     }
-    if core.lock().take.is_some() {
+    if core.lock().state.is_recording() {
         return Err(CommandError::busy(BUSY));
     }
     ensure_permission(core)?;
@@ -822,12 +921,7 @@ pub fn arm(
                 .iter()
                 .find(|d| d.id == id)
                 .ok_or_else(|| CommandError::from(RecordError::NoDevice))?;
-            let channel =
-                channel.unwrap_or(if device.channels == 0 || prefs.channel < device.channels {
-                    prefs.channel
-                } else {
-                    0
-                });
+            let channel = channel.unwrap_or(saved_channel(device, &prefs));
             (device, channel)
         }
         None => {
@@ -844,10 +938,10 @@ pub fn arm(
     }
     {
         let mut inner = core.lock();
-        if inner.take.is_some() {
+        if inner.state.is_recording() {
             return Err(CommandError::busy(BUSY));
         }
-        drop_ended(&mut inner);
+        settle_ended(&mut inner);
         let recorder = ensure_recorder(core, &mut inner);
         let result = recorder.arm_with_id(ArmConfig {
             device_id: Some(device.id.clone()),
@@ -855,19 +949,21 @@ pub fn arm(
         });
         let (arm_id, info) = match result {
             Ok(opened) => opened,
+            // `settle_ended` ran, so nothing is left to publish: plain assignments.
             Err(RecordError::PermissionDenied) => {
-                inner.armed = None;
-                inner.stream_denied = true;
+                inner.state = TakeState::Idle {
+                    stream_denied: true,
+                };
                 return Err(RecordError::PermissionDenied.into());
             }
             Err(error) => {
-                inner.armed = None;
-                inner.stream_denied = false;
+                inner.state = TakeState::Idle {
+                    stream_denied: false,
+                };
                 return Err(error.into());
             }
         };
-        inner.stream_denied = false;
-        inner.armed = Some(ArmedInput {
+        inner.state = TakeState::Armed(ArmedInput {
             arm_id,
             device: InputDevice {
                 channels: info.channels,
@@ -898,14 +994,19 @@ fn armed_status(core: &Core, prefs_path: &Path) -> RecordingStatus {
 pub fn disarm(core: &Core, prefs_path: &Path) -> Result<RecordingStatus, CommandError> {
     {
         let mut inner = core.lock();
-        if inner.take.is_some() {
+        if inner.state.is_recording() {
             return Err(CommandError::busy(BUSY));
         }
-        drop_ended(&mut inner);
+        settle_ended(&mut inner);
         if let Some(recorder) = &inner.recorder {
             recorder.disarm();
         }
-        inner.armed = None;
+        inner.state = match inner.state {
+            TakeState::Idle { stream_denied } => TakeState::Idle { stream_denied },
+            _ => TakeState::Idle {
+                stream_denied: false,
+            },
+        };
     }
     core.emit(StateEvent::new(RecState::Idle));
     Ok(status(core, prefs_path))
@@ -921,10 +1022,10 @@ pub fn start(
     fields: StartFields,
 ) -> Result<StartResult, CommandError> {
     let mut inner = core.lock();
-    if inner.take.is_some() {
+    if inner.state.is_recording() {
         return Err(CommandError::busy(BUSY));
     }
-    let (Some(armed), Some(recorder)) = (&inner.armed, &inner.recorder) else {
+    let (Some(armed), Some(recorder)) = (inner.state.armed(), &inner.recorder) else {
         return Err(CommandError::other(NOT_ARMED));
     };
     let project = project_for(projects, root)?;
@@ -940,18 +1041,38 @@ pub fn start(
         .unwrap_or(0);
     recorder.start(&path)?;
     let input = armed.info.clone();
-    drop_ended(&mut inner);
-    inner.take = Some(Take {
-        meta: TakeMeta {
-            project,
-            stem: stem.clone(),
-            start: fields,
-            input,
-            created_at: format_rfc3339_utc(created_at),
+    // Move the armed input out. An ended take stays in the state, so `leave` publishes it if it
+    // is not published yet.
+    let armed = match &mut inner.state {
+        TakeState::Ended { armed, .. } => armed.take(),
+        _ => match std::mem::replace(
+            &mut inner.state,
+            TakeState::Idle {
+                stream_denied: false,
+            },
+        ) {
+            TakeState::Armed(armed) => Some(armed),
+            _ => None,
         },
-        path,
-        started: Instant::now(),
-    });
+    }
+    .expect("the state had an armed input");
+    leave(
+        &mut inner,
+        TakeState::Recording {
+            armed,
+            take: Take {
+                meta: TakeMeta {
+                    project,
+                    stem: stem.clone(),
+                    start: fields,
+                    input,
+                    created_at: format_rfc3339_utc(created_at),
+                },
+                path,
+                started: Instant::now(),
+            },
+        },
+    );
     core.emit(StateEvent::new(RecState::Recording).stem(stem.clone()));
     Ok(StartResult { stem })
 }
@@ -965,31 +1086,50 @@ pub fn start(
 /// the fallback sidecar.
 pub fn stop(core: &Core, fields: Option<StopFields>) -> Result<RecordingEntry, CommandError> {
     let mut inner = core.lock();
-    if let Some(take) = inner.take.take() {
+    let idle = || TakeState::Idle {
+        stream_denied: false,
+    };
+    if inner.state.is_recording() {
+        let TakeState::Recording { armed, take } = std::mem::replace(&mut inner.state, idle())
+        else {
+            unreachable!("the state is recording");
+        };
         let Some(recorder) = &inner.recorder else {
+            inner.state = TakeState::Armed(armed);
             return Err(CommandError::other(NOT_ARMED));
         };
-        let result = recorder.stop().map_err(|e| {
-            eprintln!("recording: stopping {} failed: {e}", take.meta.stem);
-            CommandError::from(e)
-        })?;
-        if matches!(result.ended, Ended::DeviceLost(_)) {
-            inner.armed = None;
-        }
-        inner.ended = Some(EndedTake {
-            meta: take.meta,
-            result,
-            published: false,
-        });
+        let result = match recorder.stop() {
+            Ok(result) => result,
+            Err(e) => {
+                // The take is dropped; its partial is left to the next open's repair.
+                inner.state = TakeState::Armed(armed);
+                eprintln!("recording: stopping {} failed: {e}", take.meta.stem);
+                return Err(CommandError::from(e));
+            }
+        };
+        inner.state = TakeState::Ended {
+            armed: (!matches!(result.ended, Ended::DeviceLost(_))).then_some(armed),
+            ended: EndedTake {
+                meta: take.meta,
+                result,
+                published: false,
+            },
+        };
     }
-    let Some(mut ended) = inner.ended.take() else {
-        return Err(CommandError::other(NO_TAKE));
+    // The ended take is moved out, so a successful publish leaves the state without it.
+    let (armed, mut ended) = match std::mem::replace(&mut inner.state, idle()) {
+        TakeState::Ended { armed, ended } => (armed, ended),
+        other => {
+            inner.state = other;
+            return Err(CommandError::other(NO_TAKE));
+        }
     };
-    let state = if inner.armed.is_some() {
+    let state = if armed.is_some() {
         RecState::Armed
     } else {
         RecState::Idle
     };
+    inner.state = armed.map(TakeState::Armed).unwrap_or_else(idle);
     let stem = ended.meta.stem.clone();
     match complete_ended(&mut ended, fields.as_ref()) {
         Ok(entry) => {
@@ -999,7 +1139,11 @@ pub fn stop(core: &Core, fields: Option<StopFields>) -> Result<RecordingEntry, C
         Err(e) => {
             if !ended.published {
                 eprintln!("recording: publishing {stem} failed: {}", e.message);
-                inner.ended = Some(ended);
+                let armed = match std::mem::replace(&mut inner.state, idle()) {
+                    TakeState::Armed(armed) => Some(armed),
+                    _ => None,
+                };
+                inner.state = TakeState::Ended { armed, ended };
             }
             core.emit(StateEvent::new(state).stem(stem).error(e.clone()));
             Err(e)
@@ -1041,10 +1185,18 @@ pub fn read(projects: &ProjectState, root: &str, stem: &str) -> Result<Vec<u8>, 
 /// Stops a running take and publishes it with the fallback sidecar, and publishes an ended
 /// take not published yet (logging failures).
 fn finalize_running(inner: &mut Inner) {
-    drop_ended(inner);
-    let Some(take) = inner.take.take() else {
+    settle_ended(inner);
+    if !inner.state.is_recording() {
         return;
+    }
+    let idle = TakeState::Idle {
+        stream_denied: false,
     };
+    let TakeState::Recording { armed, take } = std::mem::replace(&mut inner.state, idle) else {
+        unreachable!("the state is recording");
+    };
+    // The caller clears the armed input next.
+    inner.state = TakeState::Armed(armed);
     let Some(recorder) = &inner.recorder else {
         return;
     };
@@ -1060,14 +1212,16 @@ fn finalize_running(inner: &mut Inner) {
 /// recorder is disarmed, without events (the new page asks `recording_status`). Idle is a no-op.
 pub fn on_reload(core: &Core) {
     let mut inner = core.lock();
-    if inner.take.is_none() && inner.armed.is_none() && inner.ended.is_none() {
+    if matches!(inner.state, TakeState::Idle { .. }) {
         return;
     }
     finalize_running(&mut inner);
     if let Some(recorder) = &inner.recorder {
         recorder.disarm();
     }
-    inner.armed = None;
+    inner.state = TakeState::Idle {
+        stream_denied: false,
+    };
 }
 
 /// The app quits: finalizes a take in progress with the fallback sidecar, then shuts the
@@ -1076,7 +1230,11 @@ pub fn shutdown(core: &Core) {
     let (recorder, forwarder) = {
         let mut inner = core.lock();
         finalize_running(&mut inner);
-        inner.armed = None;
+        if !matches!(inner.state, TakeState::Idle { .. }) {
+            inner.state = TakeState::Idle {
+                stream_denied: false,
+            };
+        }
         (inner.recorder.take(), inner.forwarder.take())
     };
     // Outside the lock: the forwarder may be waiting for it.
@@ -1106,9 +1264,12 @@ pub fn repair_on_open(core: &Core, project: &Project) -> RepairOutcome {
     {
         let inner = core.lock();
         let here = |p: &Project| p.root() == project.root();
-        if inner.take.as_ref().is_some_and(|t| here(&t.meta.project))
-            || inner.ended.as_ref().is_some_and(|e| here(&e.meta.project))
-        {
+        let held = match &inner.state {
+            TakeState::Recording { take, .. } => here(&take.meta.project),
+            TakeState::Ended { ended, .. } => here(&ended.meta.project),
+            TakeState::Idle { .. } | TakeState::Armed(_) => false,
+        };
+        if held {
             return RepairOutcome::Skipped;
         }
     }
@@ -2097,6 +2258,68 @@ mod tests {
     }
 
     #[test]
+    fn leaving_an_unpublished_ended_take_publishes_it() {
+        let rig = rig();
+        rig.take();
+        let conflict = block_publication(&rig);
+        assert!(stop(&rig.core, None).is_err());
+        let mut inner = rig.core.lock();
+        assert!(matches!(inner.state, TakeState::Ended { .. }));
+        std::fs::remove_file(conflict).unwrap();
+        leave(
+            &mut inner,
+            TakeState::Idle {
+                stream_denied: false,
+            },
+        );
+        assert!(matches!(
+            inner.state,
+            TakeState::Idle {
+                stream_denied: false
+            }
+        ));
+        drop(inner);
+        assert_eq!(rig.files(), vec!["main-01.json", "main-01.wav"]);
+        assert_eq!(sidecar_of(&rig, "main-01").timing.bar1_host_ns, None);
+    }
+
+    #[test]
+    fn leaving_a_published_ended_take_writes_nothing() {
+        let rig = rig_with(Limits {
+            max_frames: Some(100),
+            start_timeout: Duration::from_secs(2),
+        });
+        let handle = rig.arm();
+        rig.start(&handle, Some("main")).unwrap();
+        assert!(handle.push(&[0.5; 200], T0 + 10_000_000));
+        rig.sink.wait(|e| e.error.is_some());
+        let sidecar = rig.recordings_dir().join("main-01.json");
+        std::fs::write(&sidecar, b"marker").unwrap();
+        let mut inner = rig.core.lock();
+        assert!(matches!(inner.state, TakeState::Ended { .. }));
+        settle_ended(&mut inner);
+        assert!(matches!(inner.state, TakeState::Armed(_)));
+        drop(inner);
+        assert_eq!(std::fs::read(&sidecar).unwrap(), b"marker");
+    }
+
+    #[test]
+    fn leaving_a_state_that_is_not_ended_publishes_nothing() {
+        let rig = rig();
+        rig.arm();
+        let mut inner = rig.core.lock();
+        assert!(matches!(inner.state, TakeState::Armed(_)));
+        leave(
+            &mut inner,
+            TakeState::Idle {
+                stream_denied: false,
+            },
+        );
+        drop(inner);
+        assert!(rig.files().is_empty());
+    }
+
+    #[test]
     fn an_invalid_start_tempo_still_saves_the_memo() {
         let rig = rig();
         let handle = rig.arm();
@@ -2213,7 +2436,7 @@ mod tests {
     fn a_stale_failed_after_a_rearm_is_ignored() {
         let rig = rig();
         rig.arm();
-        let current = rig.core.lock().armed.as_ref().unwrap().arm_id;
+        let current = armed_id(&rig.core).unwrap();
         let events = rig.sink.states().len();
         // The `Failed` of an earlier stream, processed after this arm.
         failed(
@@ -2378,7 +2601,7 @@ mod tests {
         };
         assert_eq!(report.discarded, vec![".memo-01.wav.partial".to_string()]);
         assert!(!old.exists());
-        assert!(rig.core.lock().take.is_some(), "the take runs on");
+        assert!(rig.core.lock().state.is_recording(), "the take runs on");
     }
 
     #[test]
@@ -2588,6 +2811,21 @@ mod tests {
             Some(("x", 1))
         );
         assert_eq!(resolve_selection(&[], &Prefs::default()), None);
+    }
+
+    #[test]
+    fn saved_channel_cases() {
+        let saved = |channel| Prefs {
+            device_id: None,
+            channel,
+        };
+        // An exclusive endpoint reports no channels: any saved channel is kept.
+        let exclusive = device("x", "x", 0, false);
+        assert_eq!(saved_channel(&exclusive, &saved(7)), 7);
+        let usb = usb();
+        assert_eq!(saved_channel(&usb, &saved(3)), 3);
+        assert_eq!(saved_channel(&usb, &saved(4)), 0);
+        assert_eq!(saved_channel(&usb, &saved(9)), 0);
     }
 
     #[test]

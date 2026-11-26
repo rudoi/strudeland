@@ -302,3 +302,8 @@ pub(super) fn block_publication(rig: &Rig) -> PathBuf {
     std::fs::write(&path, b"existing sidecar").unwrap();
     path
 }
+
+/// The arm id of the state's armed input, if it has one.
+pub(super) fn armed_id(core: &Core) -> Option<u64> {
+    core.lock().state.armed().map(|a| a.arm_id)
+}
