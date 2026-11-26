@@ -22,8 +22,8 @@ no test touches hardware or asks for permission.
 
 - **Idle**: no stream. Left by a successful arm. `stream_denied` records that the last arm's
   stream open was refused (desktops without an in-app prompt learn access from it).
-- **Armed**: a stream, no take. Left by start (recording), disarm, reload and quit (idle), and a
-  stream failure (idle).
+- **Armed**: a stream, no take. Left by start (recording), disarm, reload and quit (idle), a
+  stream failure (idle), and a re-arm the recorder refuses (idle, with no event).
 - **Recording**: a take runs. Left by stop, by an ending the recorder reached itself (cap, write
   error, device loss: ended), and by reload and quit (the take is published, then idle).
 - **Ended**: a take the recorder finalized, or a stop whose publish failed, kept for the

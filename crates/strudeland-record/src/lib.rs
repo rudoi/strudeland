@@ -34,7 +34,8 @@ pub use source::{
 pub use writer::max_frames;
 
 /// The fake source, test limits, the take lifecycle's fakes and the rig over them, for this
-/// crate's tests and the app's.
+/// crate's tests and the app's. It is compiled into normal builds, as `FakeSource` always was,
+/// because the app's tests use it across the crate boundary; nothing outside tests calls it.
 #[doc(hidden)]
 pub mod testing {
     pub use crate::recorder::Limits;
