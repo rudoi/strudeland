@@ -8,7 +8,7 @@
  */
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 export const REPO_ROOT = resolve(import.meta.dir, '../..');
 export const BINDINGS = 'src/lib/ipc/bindings.ts';
@@ -71,8 +71,10 @@ const INJECTED = [
 ];
 const NUMBER = /^(?:u8|u16|u32|u64|i8|i16|i32|i64|usize|f32|f64)$/;
 const EVENT_LINE = /^(?:pub(?:\(crate\))? )?const [A-Z_]+_EVENT: &str\b/;
+const INDENTED_EVENT = /^\s+(?:pub(?:\([a-z]+\))? )?const [A-Z_]+_EVENT: &str\b/;
 const EVENT = /^(?:pub(?:\(crate\))? )?const [A-Z_]+_EVENT: &str = "([a-z]+:\/\/[^"\\]+)";$/;
 const KIND_ENUM = /^pub enum ([A-Z][A-Za-z0-9]*Kind) \{$/;
+const INDENTED_KIND = /^\s+(?:pub(?:\([a-z]+\))? )?enum ([A-Z][A-Za-z0-9]*Kind)\b/;
 const CAMEL_SERDE = '#[serde(rename_all = "camelCase")]';
 
 function isComment(line: string): boolean {
@@ -169,18 +171,19 @@ function valueType(rust: string): { type: string; optional: boolean } {
 }
 
 function errorType(ret: string, file: string, line: number): CommandErrorType {
-  if (/\bResult\s*</.test(ret) && !ret.startsWith('Result<')) {
-    throw new IpcParseError(file, line, `cannot read the return type \`${ret}\`: use Result<T, E>`);
-  }
+  const unreadable = () =>
+    new IpcParseError(file, line, `cannot read the return type \`${ret}\`: use Result<T, E>`);
+  if (/\bResult\s*</.test(ret) && !ret.startsWith('Result<')) throw unreadable();
   const result = /^Result<(.*)>$/.exec(ret);
-  if (!result) return null;
+  if (!result) {
+    if (ret.startsWith('Result<')) throw unreadable();
+    return null;
+  }
   // rustfmt may break a long Result over lines, with a trailing comma.
   const parts = splitTopLevel(result[1]!).filter(
     (p, i, all) => i < all.length - 1 || p.part.trim() !== '',
   );
-  if (parts.length !== 2) {
-    throw new IpcParseError(file, line, `cannot read the return type \`${ret}\`: use Result<T, E>`);
-  }
+  if (parts.length !== 2) throw unreadable();
   const e = parts[1]!.part.trim();
   if (e === 'CommandError') return 'command';
   if (e === 'ExportError') return 'export';
@@ -270,7 +273,12 @@ export function parseCommands(
     }
     const brace = source.indexOf('{', k);
     if (brace < 0) throw new IpcParseError(file, j + 1, `\`${name}\` has no body`);
-    const tail = source.slice(k, brace).trim().replace(/\s+/g, ' ');
+    // A trailing `where` clause bounds the generics; it is not part of the return type.
+    const tail = source
+      .slice(k, brace)
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/(?:^| )where\b.*$/, '');
     let error: CommandErrorType = null;
     if (tail.startsWith('->')) {
       error = errorType(tail.slice(2).trim(), file, lineAt(source, k));
@@ -293,10 +301,17 @@ export function parseCommand(source: string, file: string, name: string): Parsed
   return { args: found.args, error: found.error };
 }
 
-/** The column-0 `*_EVENT: &str` consts in `source`. */
+/** The column-0 `*_EVENT: &str` consts in `source`; an indented one (in a `mod`) is refused. */
 export function parseEvents(source: string, file: string): EventConst[] {
   const events: EventConst[] = [];
   source.split('\n').forEach((line, i) => {
+    if (INDENTED_EVENT.test(line)) {
+      throw new IpcParseError(
+        file,
+        i + 1,
+        'an indented `const <NAME>_EVENT: &str` (in a mod): declare events at column 0',
+      );
+    }
     if (!EVENT_LINE.test(line)) return;
     const m = EVENT.exec(line);
     if (!m)
@@ -310,11 +325,20 @@ export function parseEvents(source: string, file: string): EventConst[] {
   return events;
 }
 
-/** The column-0 `pub enum <Name>Kind {` under `#[serde(rename_all = "camelCase")]`. */
+/** The column-0 `pub enum <Name>Kind {` under `#[serde(rename_all = "camelCase")]`; an
+ *  indented `enum <Name>Kind` (in a `mod`) is refused. */
 export function parseKinds(source: string, file: string): KindEnum[] {
   const lines = source.split('\n');
   const kinds: KindEnum[] = [];
   for (let i = 0; i < lines.length; i++) {
+    const indented = INDENTED_KIND.exec(lines[i]!);
+    if (indented) {
+      throw new IpcParseError(
+        file,
+        i + 1,
+        `an indented \`enum ${indented[1]}\` (in a mod): declare kind enums at column 0`,
+      );
+    }
     const m = KIND_ENUM.exec(lines[i]!);
     if (!m) continue;
     let camel = false;
@@ -395,24 +419,39 @@ export function render(model: BindingsModel): string {
   return `${out.join('\n')}\n`;
 }
 
+/** Every `.rs` file under `dir`, as paths relative to it with `/` separators, sorted. */
+function rustFiles(dir: string): string[] {
+  return (readdirSync(dir, { recursive: true }) as string[])
+    .map((f) => f.split(sep).join('/'))
+    .filter((f) => f.endsWith('.rs'))
+    .sort();
+}
+
+/** `project.rs` → `project`, `export/mod.rs` → `export`, `export/job.rs` → `export::job`. */
+function modulePath(file: string): string {
+  return file
+    .slice(0, -3)
+    .replace(/(?:^|\/)mod$/, '')
+    .split('/')
+    .join('::');
+}
+
 /** Reads `src-tauri/src` under `root` into the bindings model. */
 export function readModel(root: string): BindingsModel {
   const libFile = `${SRC}/lib.rs`;
   const libRs = readFileSync(join(root, libFile), 'utf8');
   const handler = parseHandler(libRs, libFile);
-  const files = readdirSync(join(root, SRC))
-    .filter((f) => f.endsWith('.rs'))
-    .sort();
   const sources = new Map(
-    files.map((f) => [f.slice(0, -3), readFileSync(join(root, SRC, f), 'utf8')]),
+    rustFiles(join(root, SRC)).map((f) => [f, readFileSync(join(root, SRC, f), 'utf8')]),
   );
 
   const registered = new Map(handler.map((h) => [`${h.module}::${h.name}`, h]));
   const parsed = new Map<string, ParsedCommand>();
   const events: { value: string; file: string; line: number }[] = [];
   const kinds: (KindEnum & { file: string })[] = [];
-  for (const [module, source] of sources) {
-    const file = `${SRC}/${module}.rs`;
+  for (const [path, source] of sources) {
+    const file = `${SRC}/${path}`;
+    const module = modulePath(path);
     for (const c of parseCommands(source, file)) {
       const id = `${module}::${c.name}`;
       if (!registered.has(id)) {

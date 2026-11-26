@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   BINDINGS,
   generate,
@@ -56,6 +56,7 @@ function tree(entries: string[], modules: Record<string, string>): string {
       .join('')}        ])\n}\n`,
   );
   for (const [name, source] of Object.entries(modules)) {
+    mkdirSync(dirname(join(root, `src-tauri/src/${name}.rs`)), { recursive: true });
     writeFileSync(join(root, `src-tauri/src/${name}.rs`), source);
   }
   return root;
@@ -207,21 +208,24 @@ pub async fn go(
     expect(error(' -> Result<HashMap<String, Vec<u8>>, CommandError>')).toBe('command');
     expect(error('\n-> Result<\n    Option<PathBuf>,\n    ExportError,\n>')).toBe('export');
   });
+
+  test('a trailing where clause is not part of the return type', () => {
+    const error = (ret: string) =>
+      parseCommand(`#[tauri::command]\npub fn go(app: AppHandle<R>)${ret} {}\n`, F, 'go').error;
+    expect(error(' -> Result<(), CommandError> where R: Runtime')).toBe('command');
+    expect(error('\n-> Result<(), ExportError>\nwhere\n    R: Runtime,\n')).toBe('export');
+    expect(error(' -> ControlInfo where R: Runtime')).toBeNull();
+    expect(error(' where R: Runtime')).toBeNull();
+  });
 });
 
 describe('parseEvents', () => {
-  test('column-0 &str consts only', () => {
+  test('column-0 &str consts only; an indented non-&str one is not an event', () => {
     const src = `const REQUEST_EVENT: &str = "app://quit-requested";
 pub const LEVEL_EVENT: &str = "recording://level";
 pub(crate) const MENU_EVENT: &str = "project://menu";
 const OTHER: &str = "x://y";
     const CORE_EVENT: u32 = 1;
-    const INNER_EVENT: &str = "inner://event";
-
-#[cfg(test)]
-mod tests {
-    const TEST_EVENT: &str = "test://event";
-}
 `;
     expect(parseEvents(src, F)).toEqual([
       { value: 'app://quit-requested', line: 1 },
@@ -239,6 +243,40 @@ mod tests {
       const text = generate(root);
       expect(text).toContain(
         "export const EVENTS = {\n  appQuitRequested: 'app://quit-requested',\n  controlRequest: 'control://request',\n} as const;",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('submodule directories', () => {
+  test('commands, events and kinds in nested files are read', () => {
+    const root = tree(['sub::go'], {
+      'sub/mod':
+        '#[tauri::command]\npub fn go(device_id: String) {}\nconst SUB_EVENT: &str = "sub://event";\n',
+      'sub/deep/inner':
+        'pub const DEEP_EVENT: &str = "deep://event";\n#[serde(rename_all = "camelCase")]\npub enum DeepKind {\n    Gone,\n}\n',
+    });
+    try {
+      const text = generate(root);
+      expect(text).toContain("  go: ['deviceId'],");
+      expect(text).toContain(
+        "export const EVENTS = {\n  deepEvent: 'deep://event',\n  subEvent: 'sub://event',\n} as const;",
+      );
+      expect(text).toContain(
+        '/** `DeepKind` (src-tauri/src/sub/deep/inner.rs), in declaration order. */',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a command in a nested non-mod file is not registered as a top-level module', () => {
+    const root = tree([], { 'sub/inner': '#[tauri::command]\npub fn go() {}\n' });
+    try {
+      expect(refusal(() => generate(root))).toBe(
+        'src-tauri/src/sub/inner.rs:1: `go` is a #[tauri::command] not registered in generate_handler!',
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -331,6 +369,53 @@ describe('refusals', () => {
     const src = '\n#[tauri::command]\npub fn go() -> Result<(), Box<dyn Error>> {}\n';
     expect(refusal(() => parseCommand(src, F, 'go'))).toStartWith(
       `${F}:3: unsupported error type \`Box<dyn Error>\``,
+    );
+  });
+
+  test('a Result return that does not parse', () => {
+    const src = "#[tauri::command]\npub fn go() -> Result<(), CommandError> + 'static {}\n";
+    expect(refusal(() => parseCommand(src, F, 'go'))).toBe(
+      `${F}:2: cannot read the return type \`Result<(), CommandError> + 'static\`: use Result<T, E>`,
+    );
+  });
+
+  test('a String error behind a where clause says return CommandError', () => {
+    const src =
+      '#[tauri::command]\npub fn go(app: AppHandle<R>) -> Result<(), String>\nwhere\n    R: Runtime,\n{}\n';
+    expect(refusal(() => parseCommand(src, F, 'go'))).toBe(
+      `${F}:2: a command error must not be a String: return CommandError`,
+    );
+  });
+
+  test('an indented event const', () => {
+    const src = `const A_EVENT: &str = "a://b";
+
+#[cfg(test)]
+mod tests {
+    pub const TEST_EVENT: &str = "test://event";
+}
+`;
+    expect(refusal(() => parseEvents(src, F))).toBe(
+      `${F}:5: an indented \`const <NAME>_EVENT: &str\` (in a mod): declare events at column 0`,
+    );
+  });
+
+  test('an indented kind enum', () => {
+    const src = `mod inner {
+    #[serde(rename_all = "camelCase")]
+    pub enum InnerKind {
+        Stale,
+    }
+}
+`;
+    expect(refusal(() => parseKinds(src, F))).toBe(
+      `${F}:3: an indented \`enum InnerKind\` (in a mod): declare kind enums at column 0`,
+    );
+  });
+
+  test('an indented event const in a submodule file', () => {
+    expect(refused([], { 'sub/inner': 'mod m {\n    const X_EVENT: &str = "x://y";\n}\n' })).toBe(
+      'src-tauri/src/sub/inner.rs:2: an indented `const <NAME>_EVENT: &str` (in a mod): declare events at column 0',
     );
   });
 
