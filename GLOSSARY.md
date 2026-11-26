@@ -94,3 +94,31 @@ _Avoid_: part, kind
 One directory holding a pre-master reference mix, a float WAV per group and a `stems.json`
 manifest, rendered together and never replaced.
 _Avoid_: stems folder, stem export (the action)
+
+**Finishing**
+
+Turning a render's PCM into finished files: leveling each file cut, encoding it, and for a lossy
+format decoding it again and correcting an overshoot, at most twice. Every render, plain,
+one-shot or loop preset, ends in the same finishing loop.
+_Avoid_: mastering (the user's own step), post-processing
+
+**Leveling strategy**
+
+How finishing sets a render's level. *Limited* (plain renders and one-shots): a static gain to
+the loudness target, then the true-peak limiter; an overshoot lowers the limiter's ceiling.
+*Repeat-safe static* (loop presets): one static gain shared by every file, capped for the
+handoff and the wrap, with no limiter; an overshoot lowers the shared gain.
+_Avoid_: mode (a render's audio mode), profile (a render-harness gate set)
+
+**File cut**
+
+The PCM of one file a render will finish, with its role, the bars it covers and its loop range
+in input frames. A plain render or a one-shot is one cut; a loop splice yields one or two.
+_Avoid_: part (a section's pattern), chunk (one planned engine job), segment (the transport's)
+
+**Loop splice**
+
+The continuous opening-and-repeat PCM a loop preset is cut from: the repeat's decay folded into
+one loop body, the opening's last 10 ms blended into it, and the true peak measured across the
+handoff and the wrap.
+_Avoid_: arrangement (the written order of patterns), loop layout (layout is the transport's)

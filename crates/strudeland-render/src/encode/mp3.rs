@@ -35,27 +35,43 @@ fn vbr_quality(q: u8) -> Result<Quality, RenderError> {
     })
 }
 
-/// Encodes a stereo buffer (two equal-length channels, full scale +-1.0) at `sample_rate`.
+/// How LAME finalizes the stream.
+///
+/// - `NoGap` is LAME's `FlushNoGap`: the pending PCM is flushed without the final padding frame,
+///   as for a track followed by another in a gapless sequence. Plain renders use it.
+/// - `Gap` is LAME's `FlushGap`: the pending PCM is padded out to a whole frame, so the LAME tag's
+///   encoder delay and padding describe exactly the samples a gapless decoder trims. One-shots
+///   and loop files use it.
+///
+/// A loop is only tagged on a stream a gapless decoder can trim, so `NoGap` with a loop range is
+/// an error; no caller asks for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mp3Flush {
+    NoGap,
+    Gap,
+}
+
+/// Encodes a stereo buffer (two equal-length channels, full scale +-1.0) at `sample_rate`,
+/// finalized with `flush`, with an optional loop in decoded frames (exclusive end) written as
+/// ID3 `LOOPSTART`/`LOOPLENGTH`. The LAME tag describes the encoder delay and final padding for
+/// gapless playback.
 pub fn encode_mp3(
     channels: &[Vec<f32>],
     sample_rate: u32,
     mode: Mp3Mode,
     quality: u8,
-) -> Result<Vec<u8>, RenderError> {
-    encode_mp3_file::<FlushNoGap>(channels, sample_rate, mode, quality, None)
-}
-
-/// Encodes a standalone MP3 with an optional loop in decoded frames (exclusive end).
-/// The LAME tag describes the encoder delay and final padding for gapless playback.
-pub fn encode_mp3_with_loop(
-    channels: &[Vec<f32>],
-    sample_rate: u32,
-    mode: Mp3Mode,
-    quality: u8,
+    flush: Mp3Flush,
     loop_range: Option<Range<u64>>,
 ) -> Result<Vec<u8>, RenderError> {
-    // Finalize the pending PCM even for an export without loop metadata.
-    encode_mp3_file::<FlushGap>(channels, sample_rate, mode, quality, loop_range)
+    match flush {
+        Mp3Flush::NoGap if loop_range.is_some() => Err(err("loop metadata needs the gap flush")),
+        Mp3Flush::NoGap => {
+            encode_mp3_file::<FlushNoGap>(channels, sample_rate, mode, quality, loop_range)
+        }
+        Mp3Flush::Gap => {
+            encode_mp3_file::<FlushGap>(channels, sample_rate, mode, quality, loop_range)
+        }
+    }
 }
 
 fn encode_mp3_file<F: EncoderFlush>(

@@ -247,10 +247,14 @@ the V8 download the host brings.
   builds the `AssembledWindow` for `--planner batch`), `chunks.ts` `renderChunkPlans`. `crates/strudeland-host/` also has
   `plan_render` (the `plan-render` subcommand), the planning timeout (a watchdog thread,
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
-  library: `plan` (host to jobs, refusal of unsupported material), `render` (the worker pool),
-  `join` (sample-exact joiner), `level/` (`loudness.rs`, `true_peak.rs`, `limiter.rs`), `encode/`
-  (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `loop_export`
-  (one-time loop openings, isolated repeats with post-roll folding, and shared static gain),
+  library: `plan` (host to jobs, refusal of unsupported material; the only V8 caller) and
+  `render_planned` (in `pipeline_audio`: a plan to joined audio through an injected chunk renderer),
+  `render` (the worker pool), `join` (sample-exact joiner), `finish` (the one finishing loop: the
+  `Leveling` switch between Limited and RepeatSafeStatic, through the `Codec` seam), `splice` (the
+  loop splice and its file cuts), `level/` (`loudness.rs`, `true_peak.rs`, `limiter.rs`), `encode/`
+  (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, `EncodeRequest` with the explicit MP3 flush),
+  `loop_export` (the presets' public types and `finish_export`: one-time loop openings, isolated
+  repeats with post-roll folding, and shared static gain),
   `export/` (the export module both the CLI and the app run: request, destinations, the role
   table, preview, the replace policies, ordered publish and the partial write, behind the
   `Pipeline` seam; `testing::FakePipeline` is its fake),
@@ -395,11 +399,16 @@ the V8 download the host brings.
   does not mention it; a test checks). `render:vectors --write` after an edit of `loudness.ts` or
   `chunks.ts` (`bun test` byte-compares the committed vectors). True peak is the BS.1770-4 Annex 2
   48-tap filter, checked against EBU Tech 3341 (+0.2/-0.4 dB). A lossy file is decoded again and
-  its true peak corrected by lowering the limiter ceiling (at most twice, then a warning); never
-  loosen that to absorb a defect. Every encoder's licence file in `crates/strudeland-render/` is
+  its true peak corrected, at most twice and then a warning: a limited render (plain or one-shot)
+  lowers its limiter ceiling, and a loop preset lowers the static gain its files share. Never
+  loosen either to absorb a defect. Every encoder's licence file in `crates/strudeland-render/` is
   checked by `tests/licence.rs`; LAME (LGPL) is statically linked into the AGPL binary, so keep
   the build instructions public. Renders are byte-reproducible (fixed dither and stream serials):
   a test that compares bytes breaks when an encoder crate is bumped.
+  `crates/strudeland-render/tests/golden/finish.json` pins finished bytes, summaries, warnings
+  and progress; it is written only by `STRUDELAND_WRITE_FINISH_GOLDEN=1 cargo test -p
+  strudeland-render characterization` (on macOS aarch64, where it is judged) after an encoder
+  crate bump, and `.prettierignore` keeps prettier off it.
 - Voice memos: only `src/lib/recording/api.ts` calls Tauri for recording; the frontend reads WAV
   bytes only through `recording_read`. A take is finalized into the project captured at start.
   The new-project `.gitignore` covers `/recordings/*` and keeps `recordings/.gitkeep` addable.
