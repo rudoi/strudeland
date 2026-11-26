@@ -1079,6 +1079,7 @@ mod tests {
                 },
             },
         );
+        assert_eq!(fake.grouping, Some(StemGrouping::Instrument));
         assert_eq!(fake.stem_targets, vec![directory.clone()]);
         assert!(!directory.exists());
     }

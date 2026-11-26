@@ -25,6 +25,8 @@ pub struct FakePipeline {
     pub seen: Vec<(String, RenderOptions)>,
     /// The preset `render_export` was called with.
     pub preset: Option<ExportPreset>,
+    /// The grouping `render_stems` was called with.
+    pub grouping: Option<StemGrouping>,
     /// The directory of every `render_stems` call.
     pub stem_targets: Vec<PathBuf>,
     /// The paths of successful publishes.
@@ -78,11 +80,12 @@ impl Pipeline for FakePipeline {
         &mut self,
         code: &str,
         opts: &RenderOptions,
-        _grouping: StemGrouping,
+        grouping: StemGrouping,
         target: &StemTarget,
         progress: &dyn Fn(Progress),
     ) -> Result<StemExport, RenderError> {
         self.seen.push((code.to_owned(), opts.clone()));
+        self.grouping = Some(grouping);
         self.stem_targets.push(target.path().to_owned());
         self.emit(progress);
         missing(self.stems.take())
