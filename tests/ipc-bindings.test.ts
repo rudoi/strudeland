@@ -1,6 +1,6 @@
 /**
  * Staleness of the committed IPC bindings (`src/lib/ipc/bindings.ts`, written only by
- * `bun run ipc:build`), and the generator's parsing rules and refusals.
+ * `bun run ipc:build`), the generator's parsing rules and refusals, and the adapters' kind lists.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -26,7 +26,10 @@ import {
   parseKinds,
   REPO_ROOT,
 } from '../scripts/ipc/build';
+import { PLAYBACK_ERROR_KINDS } from '../src/lib/audio/playback-api';
 import { COMMAND_ERROR_KINDS, COMMANDS, EVENTS } from '../src/lib/ipc/bindings';
+import { PROJECT_ERROR_KINDS } from '../src/lib/project/api';
+import { RECORDING_ERROR_KINDS } from '../src/lib/recording/types';
 
 const REGENERATE = 'run `bun run ipc:build`';
 const F = 'src-tauri/src/x.rs';
@@ -81,6 +84,33 @@ describe('ipc bindings', () => {
     expect(COMMAND_ERROR_KINDS[0]).toBe('projectChanged');
     expect(COMMAND_ERROR_KINDS.at(-1)).toBe('other');
     expect(COMMAND_ERROR_KINDS).toHaveLength(15);
+  });
+
+  test('each domain kind list is a subset of the command error kinds', () => {
+    expect([...PROJECT_ERROR_KINDS]).toEqual([
+      'exists',
+      'notFound',
+      'invalidName',
+      'projectChanged',
+      'other',
+    ]);
+    expect([...RECORDING_ERROR_KINDS]).toEqual([
+      'permissionDenied',
+      'noDevice',
+      'deviceLost',
+      'busy',
+      'invalidName',
+      'exists',
+      'notFound',
+      'projectChanged',
+      'limitReached',
+      'other',
+    ]);
+    expect([...PLAYBACK_ERROR_KINDS]).toEqual(['stale', 'output', 'badBatch', 'engine']);
+    const known: readonly string[] = COMMAND_ERROR_KINDS;
+    for (const list of [PROJECT_ERROR_KINDS, RECORDING_ERROR_KINDS, PLAYBACK_ERROR_KINDS]) {
+      expect(list.filter((k) => !known.includes(k))).toEqual([]);
+    }
   });
 });
 

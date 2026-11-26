@@ -14,8 +14,8 @@ import { sameStructure, type SongStructure } from '../strudel/structure';
 import { readSongHeader, type MetaError } from './song-header';
 import { createSongPlayback, fileStem, titleFrom, type SongPlayback } from './song-playback';
 import { setMetaValue, type MetaPath } from './meta-write';
+import { CommandError } from '../ipc/command-error';
 import {
-  PROJECT_CHANGED,
   ProjectError,
   type ProjectApi,
   type ProjectChange,
@@ -473,6 +473,10 @@ function sameState(a: SessionState, b: SessionState): boolean {
   );
 }
 
+/** A rejection for a stale `root`: the project was switched while the command ran. */
+const isProjectChanged = (e: unknown): boolean =>
+  e instanceof CommandError && e.kind === 'projectChanged';
+
 export function createSession(deps: SessionDeps): Session {
   const { api, runtime, createState, isTauri } = deps;
 
@@ -725,7 +729,7 @@ export function createSession(deps: SessionDeps): Session {
     try {
       await api.saveSong(project.root, path, text);
     } catch (e) {
-      if (gen !== generation && errorMessage(e) === PROJECT_CHANGED) return null;
+      if (gen !== generation && isProjectChanged(e)) return null;
       error = errorMessage(e);
       emit();
       return null;
@@ -1160,9 +1164,6 @@ export function createSession(deps: SessionDeps): Session {
       done.resolve();
     }
   }
-
-  const isProjectChanged = (e: unknown): boolean =>
-    e instanceof ProjectError && e.kind === 'projectChanged';
 
   /** Inside `serial()`. */
   async function renameTask(path: string, stem: string): Promise<RenameOutcome> {

@@ -1,7 +1,8 @@
 import { Channel } from '@tauri-apps/api/core';
 import { errorMessage } from '../errors';
 import { CommandError, narrowKind, toCommandError } from '../ipc/command-error';
-import { invokeCommand } from '../ipc/invoke';
+import type { CommandErrorKind, CommandName } from '../ipc/bindings';
+import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import { hostNowNs as recordingHostNowNs } from '../recording/api';
 import type { EngineValue } from '../render/engine-job';
 import type { LevelFrame } from '../levels/levels';
@@ -50,7 +51,12 @@ export interface PlaybackBatch {
   cps: number;
 }
 
-const PLAYBACK_ERROR_KINDS = ['stale', 'output', 'badBatch', 'engine'] as const;
+export const PLAYBACK_ERROR_KINDS = [
+  'stale',
+  'output',
+  'badBatch',
+  'engine',
+] as const satisfies readonly CommandErrorKind[];
 
 export type PlaybackErrorKind = (typeof PLAYBACK_ERROR_KINDS)[number];
 
@@ -86,9 +92,9 @@ export function toPlaybackError(e: unknown): PlaybackError {
   });
 }
 
-async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+async function call<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown> {
   try {
-    return await invokeCommand(cmd, args);
+    return await invokeCommand(name, ...args);
   } catch (e) {
     throw toPlaybackError(e);
   }

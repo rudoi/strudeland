@@ -1,5 +1,6 @@
 import { Channel } from '@tauri-apps/api/core';
-import { invokeCommand } from '../ipc/invoke';
+import type { CommandName } from '../ipc/bindings';
+import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import { toExportError } from './error';
 
 export { ExportError } from './error';
@@ -57,9 +58,9 @@ export interface ExportApi {
 }
 
 /** An export command's result; a rejection becomes an `ExportError`. */
-async function exportInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+async function exportInvoke<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown> {
   try {
-    return await invokeCommand(cmd, args);
+    return await invokeCommand(name, ...args);
   } catch (e) {
     throw toExportError(e);
   }

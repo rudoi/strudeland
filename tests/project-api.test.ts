@@ -53,9 +53,17 @@ mock.module('@tauri-apps/api/core', () => ({
     return invokeImpl(cmd, args);
   },
 }));
+const listened: string[] = [];
+mock.module('@tauri-apps/api/event', () => ({
+  listen: async (event: string) => {
+    listened.push(event);
+    return () => {};
+  },
+}));
 
-const { createTauriProjectApi, ProjectError, PROJECT_CHANGED, toProjectError } =
+const { createTauriProjectApi, ProjectError, toProjectError } =
   await import('../src/lib/project/api');
+const { EVENTS } = await import('../src/lib/ipc/bindings');
 const { CommandError } = await import('../src/lib/ipc/command-error');
 type CommandError = InstanceType<typeof CommandError>;
 
@@ -76,7 +84,7 @@ describe('ProjectError', () => {
   });
 
   test('the stale-project message keeps projectChanged', () => {
-    const e = toProjectError({ kind: 'projectChanged', message: PROJECT_CHANGED });
+    const e = toProjectError({ kind: 'projectChanged', message: 'the project changed' });
     expect(e.kind).toBe('projectChanged');
     expect(e.message).toBe('the project changed');
   });
@@ -153,7 +161,7 @@ describe('createTauriProjectApi song commands', () => {
       expect(e).toBeInstanceOf(CommandError);
       expect(e).not.toBeInstanceOf(ProjectError);
       expect((e as CommandError).kind).toBe('projectChanged');
-      expect((e as CommandError).message).toBe(PROJECT_CHANGED);
+      expect((e as CommandError).message).toBe('the project changed');
       expect(errorMessage(e)).toBe('the project changed');
     }
   });
@@ -171,4 +179,12 @@ describe('createTauriProjectApi song commands', () => {
     };
     expect(errorMessage(await api.open('/d').catch((err: unknown) => err))).toBe('a string');
   });
+});
+
+test('onChange listens on the generated project-changed event', async () => {
+  listened.length = 0;
+  const unlisten = await createTauriProjectApi().onChange(() => {});
+  unlisten();
+  expect(listened).toEqual([EVENTS.projectChanged]);
+  expect(EVENTS.projectChanged).toBe('project://changed');
 });

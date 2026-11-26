@@ -1,5 +1,5 @@
+import { CommandError } from '../../src/lib/ipc/command-error';
 import {
-  PROJECT_CHANGED,
   ProjectError,
   type ProjectApi,
   type ProjectChange,
@@ -42,8 +42,9 @@ const checkStem = (stem: string) => {
 };
 
 /**
- * An in-memory ProjectApi over `projects` (root to name and files). Errors are thrown as strings, like
- * Tauri's invoke, except the create, rename and delete song commands, which throw `ProjectError`. Every call is logged in `fake.calls`.
+ * An in-memory ProjectApi over `projects` (root to name and files). Errors are thrown as
+ * `CommandError`s, like the real adapter's `invokeCommand`, except the create, rename and delete
+ * song commands, which throw `ProjectError`. Every call is logged in `fake.calls`.
  */
 export function fakeProjectApi(
   projects: Record<string, { name: string; files: Record<string, string> }>,
@@ -130,16 +131,16 @@ export function fakeProjectApi(
   };
   /** Like the Rust commands: `root` must be the open project. */
   const check = (root: string) => {
-    if (root !== fake.current) throw PROJECT_CHANGED;
+    if (root !== fake.current) throw new CommandError('the project changed', 'projectChanged');
   };
   /** `check` for the song commands, which reject with a `ProjectError`. */
   const songCheck = (root: string) => {
-    if (root !== fake.current) throw new ProjectError(PROJECT_CHANGED, 'projectChanged');
+    if (root !== fake.current) throw new ProjectError('the project changed', 'projectChanged');
   };
   const api: ProjectApi = {
     async create(dir, name) {
       calls.push(`create:${dir}:${name}`);
-      if (fake.failOpen.has(dir)) throw `${dir} already contains files`;
+      if (fake.failOpen.has(dir)) throw new CommandError(`${dir} already contains files`, 'other');
       disk.set(dir, {
         name,
         files: new Map([['songs/main.js', `const meta = { title: 'main' };\n`]]),
@@ -150,7 +151,7 @@ export function fakeProjectApi(
     async open(dir) {
       calls.push(`open:${dir}`);
       if (fake.failOpen.has(dir) || !disk.has(dir)) {
-        throw `${dir} is not a strudeland project (no project.json)`;
+        throw new CommandError(`${dir} is not a strudeland project (no project.json)`, 'other');
       }
       fake.current = dir;
       return fake.projectInfo(dir);
@@ -158,13 +159,14 @@ export function fakeProjectApi(
     async info(root) {
       calls.push('info');
       check(root);
-      if (fake.failInfo) throw 'project.json: expected value at line 1 column 1';
+      if (fake.failInfo)
+        throw new CommandError('project.json: expected value at line 1 column 1', 'other');
       return fake.projectInfo(fake.current!);
     },
     async instruments(root, pin) {
       check(root);
       const pins = fake.instrumentSnapshots.get(root);
-      if (typeof pins === 'string') throw pins;
+      if (typeof pins === 'string') throw new CommandError(pins, 'other');
       if (pin && (!pins || !Object.hasOwn(pins, pin.id) || pin.id !== pin.fingerprint)) {
         throw new Error('The project pin changed. Refresh the browser.');
       }
@@ -188,14 +190,14 @@ export function fakeProjectApi(
     },
     async last() {
       calls.push('last');
-      if (fake.lastFails) throw 'recents are broken';
+      if (fake.lastFails) throw new CommandError('recents are broken', 'other');
       if (!fake.last) return null;
       fake.current = fake.last;
       return fake.projectInfo(fake.last);
     },
     async recents() {
       calls.push('recents');
-      if (fake.recentsFail) throw 'recents unreadable';
+      if (fake.recentsFail) throw new CommandError('recents unreadable', 'other');
       return fake.recents;
     },
     async listSongs(root) {
@@ -207,15 +209,15 @@ export function fakeProjectApi(
       calls.push(`read:${path}`);
       if (fake.holdReads) await fake.holdReads;
       check(root);
-      if (fake.failRead.has(path)) throw `${path}: permission denied`;
+      if (fake.failRead.has(path)) throw new CommandError(`${path}: permission denied`, 'other');
       const text = fake.files().get(path);
-      if (text === undefined) throw `song ${path} not found`;
+      if (text === undefined) throw new CommandError(`song ${path} not found`, 'notFound');
       return text;
     },
     async saveSong(root, path, contents) {
       calls.push(`save:${path}`);
       check(root);
-      if (fake.failSave.has(path)) throw `${path}: disk full`;
+      if (fake.failSave.has(path)) throw new CommandError(`${path}: disk full`, 'other');
       fake.files().set(path, contents);
       if (fake.holdSaves) await fake.holdSaves;
     },
@@ -252,12 +254,13 @@ export function fakeProjectApi(
       calls.push(`rootOf:${dir}`);
       if (fake.holdRootOf) await fake.holdRootOf;
       const root = fake.rootOf[dir] ?? dir;
-      if (!disk.has(root)) throw `${dir} is not a strudeland project (no project.json)`;
+      if (!disk.has(root))
+        throw new CommandError(`${dir} is not a strudeland project (no project.json)`, 'other');
       return root;
     },
     async onChange(handler) {
       calls.push('onChange');
-      if (fake.failOnChange) throw 'watch failed';
+      if (fake.failOnChange) throw new CommandError('watch failed', 'other');
       handlers.add(handler);
       allHandlers.push(handler);
       return () => void handlers.delete(handler);
@@ -265,7 +268,7 @@ export function fakeProjectApi(
     async pickFolder(title) {
       calls.push(`pickFolder:${title}`);
       if (fake.holdPicks) await fake.holdPicks;
-      if (fake.failPick) throw 'dialog unavailable';
+      if (fake.failPick) throw new CommandError('dialog unavailable', 'other');
       return fake.picks.shift() ?? null;
     },
     async confirmUnsaved(count) {

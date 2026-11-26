@@ -1,28 +1,9 @@
 import { errorMessage } from '../errors';
+import { COMMAND_ERROR_KINDS, type CommandErrorKind } from './bindings';
 
 // The command error every fallible Tauri command rejects with (`src-tauri/src/command_error.rs`).
 // No Tauri import, so pure modules (`recording/types.ts`, `export/error.ts`) can use it. Kept out
 // of `errors.ts`, which the headless host bundles.
-
-/** The Rust `CommandErrorKind`, in declaration order. */
-export const COMMAND_ERROR_KINDS = [
-  'projectChanged',
-  'noProject',
-  'notFound',
-  'exists',
-  'invalidName',
-  'busy',
-  'permissionDenied',
-  'noDevice',
-  'deviceLost',
-  'limitReached',
-  'stale',
-  'output',
-  'badBatch',
-  'engine',
-  'other',
-] as const;
-export type CommandErrorKind = (typeof COMMAND_ERROR_KINDS)[number];
 
 /** A command's rejection: the message the user sees and its kind. Each adapter narrows `K`. */
 export class CommandError<K extends string = CommandErrorKind> extends Error {

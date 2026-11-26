@@ -2,7 +2,8 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { message, open } from '@tauri-apps/plugin-dialog';
 import { CommandError, narrowKind, toCommandError } from '../ipc/command-error';
-import { invokeCommand } from '../ipc/invoke';
+import { EVENTS, type CommandErrorKind, type CommandName } from '../ipc/bindings';
+import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import type { InstrumentSnapshot } from '../strudel/instruments';
 
 // The OS seam of the project feature. Everything that talks to Tauri (invoke, events, dialogs,
@@ -57,13 +58,14 @@ export interface ProjectChange {
   recordings: boolean;
   instruments: boolean;
 }
-const PROJECT_ERROR_KINDS = [
+/** The song kinds. Every other kind (`noProject`, `busy`, …) narrows to `other`. */
+export const PROJECT_ERROR_KINDS = [
   'exists',
   'notFound',
   'invalidName',
   'projectChanged',
   'other',
-] as const;
+] as const satisfies readonly CommandErrorKind[];
 export type ProjectErrorKind = (typeof PROJECT_ERROR_KINDS)[number];
 
 /** The structured rejection of the song commands that create, rename and delete. */
@@ -77,14 +79,9 @@ export class ProjectError extends CommandError<ProjectErrorKind> {
 export type UnsavedChoice = 'save' | 'discard' | 'cancel';
 
 /**
- * The exact rejection of the root-taking commands when `root` is not the open project (it was
- * switched meanwhile). A caller with a stale project drops it silently.
- */
-export const PROJECT_CHANGED = 'the project changed';
-
-/**
  * The song and info commands take `root`, the `ProjectInfo.root` of the project the caller
- * believes is open, and reject with `PROJECT_CHANGED` when it is not.
+ * believes is open, and reject with a `CommandError` of kind `projectChanged` when it is not (it
+ * was switched meanwhile). A caller with a stale project drops it silently.
  */
 export interface ProjectApi extends InstrumentBrowserApi {
   create(dir: string, name: string): Promise<ProjectInfo>;
@@ -128,8 +125,6 @@ export interface ProjectApi extends InstrumentBrowserApi {
   ): Promise<() => void>;
 }
 
-export const PROJECT_CHANGED_EVENT = 'project://changed';
-export const PROJECT_MENU_EVENT = 'project://menu';
 export type ProjectAction = 'newProject' | 'openProject';
 export type ProjectMenuAction = ProjectAction | 'exportAudio' | 'settings';
 
@@ -144,7 +139,7 @@ export function isProjectMenuAction(payload: unknown): payload is ProjectMenuAct
 
 export function onProjectMenu(handler: (action: ProjectMenuAction) => void): Promise<() => void> {
   return listen<unknown>(
-    PROJECT_MENU_EVENT,
+    EVENTS.projectMenu,
     ({ payload }) => {
       if (isProjectMenuAction(payload)) handler(payload);
     },
@@ -186,9 +181,9 @@ export function toProjectError(e: unknown): ProjectError {
   });
 }
 
-async function songInvoke(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+async function songInvoke<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown> {
   try {
-    return await invokeCommand(cmd, args);
+    return await invokeCommand(name, ...args);
   } catch (e) {
     throw toProjectError(e);
   }
@@ -239,7 +234,7 @@ export function createTauriProjectApi(): ProjectApi {
     deleteSong: (root, path) => songInvoke('song_delete', { root, path }) as Promise<void>,
     projectRootOf: (dir) => invokeCommand('project_root_of', { dir }) as Promise<string>,
     onChange: (handler) =>
-      listen<ProjectChange>(PROJECT_CHANGED_EVENT, (event) => handler(event.payload)),
+      listen<ProjectChange>(EVENTS.projectChanged, (event) => handler(event.payload)),
     pickFolder: async (title) => pickedFolder(await open({ directory: true, title })),
     confirmUnsaved: async (count) =>
       unsavedChoice(

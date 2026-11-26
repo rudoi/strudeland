@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { narrowKind, toCommandError } from '../ipc/command-error';
-import { invokeCommand } from '../ipc/invoke';
+import { EVENTS, type CommandName } from '../ipc/bindings';
+import { invokeCommand, type ArgsOf } from '../ipc/invoke';
 import { hostNsOrNull } from '../host-ns';
 import {
   RECORDING_ERROR_KINDS,
@@ -17,9 +18,6 @@ import {
 // The OS seam of recording: the only module that calls Tauri for it. The controller and the memo
 // list only see `RecordingApi`, so they run under `bun test` with the fake in
 // `tests/helpers/fake-recording-api.ts`.
-
-export const LEVEL_EVENT = 'recording://level';
-export const STATE_EVENT = 'recording://state';
 
 export interface RecordingApi {
   status(): Promise<RecordingStatus>;
@@ -71,9 +69,10 @@ export function parseHostNs(v: unknown): bigint {
   return ns;
 }
 
-async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+async function call<N extends CommandName>(name: N, ...args: ArgsOf<N>): Promise<unknown> {
+  const [a] = args;
   try {
-    return await invokeCommand(cmd, args && defined(args));
+    return await invokeCommand(name, ...((a === undefined ? [] : [defined(a)]) as ArgsOf<N>));
   } catch (e) {
     throw toRecordingError(e);
   }
@@ -106,9 +105,9 @@ export function createTauriRecordingApi(): RecordingApi {
     read: async (root, stem) =>
       new Uint8Array((await call('recording_read', { root, stem })) as ArrayBuffer),
     hostNowNs,
-    onLevel: (cb) => listen<LevelEvent>(LEVEL_EVENT, (event) => cb(event.payload)),
+    onLevel: (cb) => listen<LevelEvent>(EVENTS.recordingLevel, (event) => cb(event.payload)),
     onState: (cb) =>
-      listen<StateEvent>(STATE_EVENT, ({ payload }) => {
+      listen<StateEvent>(EVENTS.recordingState, ({ payload }) => {
         const { error } = payload;
         cb(
           error

@@ -1,12 +1,8 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { errorMessage } from '../src/lib/errors';
 import { ExportError, toExportError } from '../src/lib/export/error';
-import {
-  COMMAND_ERROR_KINDS,
-  CommandError,
-  narrowKind,
-  toCommandError,
-} from '../src/lib/ipc/command-error';
+import { COMMAND_ERROR_KINDS } from '../src/lib/ipc/bindings';
+import { CommandError, narrowKind, toCommandError } from '../src/lib/ipc/command-error';
 import { mockTauriCore } from './helpers/tauri-core-mock';
 
 const core = mockTauriCore();
@@ -135,7 +131,11 @@ describe('invokeCommand', () => {
 
   test('a { kind, message } rejection is an Error with that message', async () => {
     core.reject({ kind: 'projectChanged', message: 'the project changed' });
-    const e = await invokeCommand('song_save').catch((err: unknown) => err);
+    const e = await invokeCommand('song_save', {
+      root: '/r',
+      path: 'songs/a.js',
+      contents: '',
+    }).catch((err: unknown) => err);
     expect(e).toBeInstanceOf(Error);
     expect(e).toBeInstanceOf(CommandError);
     expect(e).toMatchObject({ kind: 'projectChanged', message: 'the project changed' });
@@ -144,7 +144,9 @@ describe('invokeCommand', () => {
 
   test('a string rejection is other', async () => {
     core.reject('no application menu');
-    const e = await invokeCommand('export_audio_set_available').catch((err: unknown) => err);
+    const e = await invokeCommand('export_audio_set_available', { available: true }).catch(
+      (err: unknown) => err,
+    );
     expect(e).toMatchObject({ kind: 'other', message: 'no application menu' });
   });
 });

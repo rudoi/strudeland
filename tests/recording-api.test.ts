@@ -20,8 +20,9 @@ mock.module('@tauri-apps/api/event', () => ({
   },
 }));
 
-const { createTauriRecordingApi, LEVEL_EVENT, parseHostNs, STATE_EVENT, toRecordingError } =
+const { createTauriRecordingApi, parseHostNs, toRecordingError } =
   await import('../src/lib/recording/api');
+const { EVENTS } = await import('../src/lib/ipc/bindings');
 
 /** Run `fn` against a fresh call log; `impl` answers each invoke. */
 async function invoked(
@@ -270,9 +271,9 @@ describe('createTauriRecordingApi', () => {
     const states: unknown[] = [];
     const offLevel = await api.onLevel((e) => levels.push(e));
     const offState = await api.onState((e) => states.push(e));
-    expect(listeners.map((l) => l.event)).toEqual([LEVEL_EVENT, STATE_EVENT]);
-    expect(LEVEL_EVENT).toBe('recording://level');
-    expect(STATE_EVENT).toBe('recording://state');
+    expect(listeners.map((l) => l.event)).toEqual([EVENTS.recordingLevel, EVENTS.recordingState]);
+    expect(EVENTS.recordingLevel).toBe('recording://level');
+    expect(EVENTS.recordingState).toBe('recording://state');
     listeners[0]!.handler({ payload: { peak: 0.5, rms: 0.1 } });
     listeners[1]!.handler({ payload: { state: 'armed' } });
     listeners[1]!.handler({
