@@ -6,6 +6,7 @@
 
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { SongStructure } from '../strudel/structure';
+import type { AssembledWindow } from './chunks';
 import type { UnsupportedSignature } from './engine-job';
 import type { EngineName } from './engines';
 import type { RenderPlanRequest } from './job-plan';
@@ -108,6 +109,11 @@ export interface Renderer {
    *  `fromBar`, `lookbackSec`, `mode` and `mutation` are ignored. */
   schedule(req: RenderRequest): Promise<ScheduleResult>;
   render(req: RenderRequest): Promise<RenderResult>;
+  /** Renders `[base.fromBar, base.toBar)` of `base.code` as one window through the renderer's
+   *  own production path. When present, the harness takes the fixture's main window from it
+   *  instead of joining chunk renders. `events` is the harness schedule, attached as
+   *  `assembleWindow` attaches it. */
+  renderWindow?(base: RenderRequest, events: RenderEvent[]): Promise<AssembledWindow>;
   dispose(): Promise<void>;
 }
 

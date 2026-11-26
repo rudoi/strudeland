@@ -38,7 +38,7 @@ passes and stems share this snapshot. Standalone sources use an empty snapshot.
 
 `strudeland render` (in `strudeland-cli`) is this library behind a command. The
 `strudeland-render` binary (`render`, `bench`) is the harness's: `render:check --planner batch`
-runs it and it is not a `strudeland` subcommand.
+renders each fixture's main window through it, and it is not a `strudeland` subcommand.
 
 ## Defaults
 

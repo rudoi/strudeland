@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -7,11 +7,22 @@ import {
   batchRenderArgs,
   BatchRenderer,
   findRenderBinary,
+  PipelineRenderer,
   type BatchTarget,
+  type PipelineInner,
 } from '../scripts/render/batch-render';
 import type { EngineProcessRunner, ProcessResult } from '../scripts/render/rust-engine';
 import { HarnessError, RenderFailedError } from '../scripts/render/transfer';
-import { windowFrames, type RenderRequest } from '../src/lib/render/contract';
+import type { AssembledWindow } from '../src/lib/render/chunks';
+import {
+  windowFrames,
+  type RenderRequest,
+  type RenderResult,
+  type ScheduleResult,
+} from '../src/lib/render/contract';
+import { layoutSegments, renderTiming } from '../src/lib/render/timing';
+import { buildStructure } from '../src/lib/strudel/structure';
+import { sha256 } from '../scripts/sha256';
 import { encodeWav } from '../src/lib/render/wav';
 import { ev } from './helpers/render-events';
 
@@ -240,6 +251,140 @@ describe('BatchRenderer.window', () => {
     ).toEqual(['batch: other: x']);
     expect(await failure(renderer(res(), files(INFO, FRAMES - 2)).r.window(TARGET))).toEqual([
       `batch: the WAV has ${FRAMES - 2}/${FRAMES - 2} frames, the window ${FRAMES}`,
+    ]);
+  });
+});
+
+describe('PipelineRenderer', () => {
+  const SCHED: ScheduleResult = {
+    events: EVENTS,
+    cps: 0.5,
+    structure: buildStructure({
+      sections: [{ name: 'a', bars: 8 }],
+      meterChanges: [{ bar: 3, meter: '3/4' }],
+    }),
+    errors: [],
+  };
+  const RESULT = { frames: 7 } as unknown as RenderResult;
+
+  /** A fake host-planned renderer that records its calls. */
+  const fakeInner = () => {
+    const calls: string[] = [];
+    const inner: PipelineInner = {
+      rustVersion: 'strudeland-engine 1 (abc)',
+      async schedule(req) {
+        calls.push(`schedule ${req.fromBar}-${req.toBar}`);
+        return SCHED;
+      },
+      async render(req) {
+        calls.push(`render ${req.fromBar}-${req.toBar}`);
+        return RESULT;
+      },
+      async version() {
+        calls.push('version');
+        return 'strudeland-host 1 (abc)';
+      },
+      async dispose() {
+        calls.push('dispose');
+      },
+    };
+    return { inner, calls };
+  };
+
+  const pipeline = (batch: BatchRenderer) =>
+    new PipelineRenderer({ inner: fakeInner().inner, batch, outDir: OUT, renderVersion: 'r 1' });
+
+  const HASH = sha256(BASE.code);
+  const SONG = join(OUT, 'batch', `${HASH}.js`);
+  const stem = (layout: string) => join(OUT, 'batch', `${HASH.slice(0, 8)}-2-6-${layout}`);
+
+  test('schedule, render, version and dispose delegate to the inner renderer', async () => {
+    const { inner, calls } = fakeInner();
+    const p = new PipelineRenderer({
+      inner,
+      batch: renderer(res()).r,
+      outDir: OUT,
+      renderVersion: 'r 1',
+    });
+    expect(p.engine).toBe('rust');
+    expect(p.rustVersion).toBe('strudeland-engine 1 (abc)');
+    expect(p.renderVersion).toBe('r 1');
+    expect(await p.schedule(BASE)).toBe(SCHED);
+    expect(await p.render(BASE)).toBe(RESULT);
+    expect(await p.version()).toBe('strudeland-host 1 (abc)');
+    await p.dispose();
+    expect(calls).toEqual(['schedule 2-6', 'render 2-6', 'version', 'dispose']);
+  });
+
+  test('writes the song by hash and names the outputs by song, window and layout', async () => {
+    // The info file answers with the layout its path names, so both layouts pass the checks.
+    const read = (p: string): Uint8Array =>
+      files({
+        ...INFO,
+        window: { ...INFO.window, layout: p.includes('-linear') ? 'linear' : 'clip' },
+      })(p);
+    const { runner, calls } = fakeRunner(() => res());
+    // A constant-meter schedule, so the window is cut by `cps` alone.
+    const flat = new PipelineRenderer({
+      inner: {
+        ...fakeInner().inner,
+        schedule: async () => ({ ...SCHED, structure: buildStructure({}) }),
+      },
+      batch: new BatchRenderer({ bin: '/bin/sr', outDir: OUT, runner, readFile: read }),
+      outDir: OUT,
+      renderVersion: 'r 1',
+    });
+    await flat.renderWindow(BASE, EVENTS);
+    await flat.renderWindow({ ...BASE, layout: 'linear' }, EVENTS);
+    expect(readFileSync(SONG, 'utf8')).toBe(BASE.code);
+    expect(calls.map((c) => c.args)).toEqual(
+      (['clip', 'linear'] as const).map((layout) =>
+        batchRenderArgs(
+          SONG,
+          { ...BASE, layout },
+          `${stem(layout)}.wav`,
+          `${stem(layout)}.info.json`,
+        ),
+      ),
+    );
+  });
+
+  test("the timing passed on is the fixture's, derived from the schedule", async () => {
+    const targets: BatchTarget[] = [];
+    class Spy extends BatchRenderer {
+      override async window(t: BatchTarget): Promise<AssembledWindow> {
+        targets.push(t);
+        return {} as AssembledWindow;
+      }
+    }
+    await pipeline(new Spy({ bin: '/bin/sr', outDir: OUT })).renderWindow(BASE, EVENTS);
+    const t = targets[0]!;
+    expect(t.cps).toBe(SCHED.cps);
+    expect(t.events).toBe(EVENTS);
+    expect(t.base).toBe(BASE);
+    const want = renderTiming(SCHED.structure, layoutSegments('clip', SCHED.structure), 0.5)!;
+    expect(t.timing).toBeDefined();
+    for (const bar of [0, 2, 3, 4, 6, 8]) {
+      expect(t.timing!.secondsAt(bar)).toBe(want.secondsAt(bar));
+    }
+    // The 3/4 bars are shorter than the 4/4 ones.
+    expect(t.timing!.secondsAt(4) - t.timing!.secondsAt(3)).toBeLessThan(
+      t.timing!.secondsAt(1) - t.timing!.secondsAt(0),
+    );
+  });
+
+  test('a failed cross-check is the fixture error', async () => {
+    const p = new PipelineRenderer({
+      inner: {
+        ...fakeInner().inner,
+        schedule: async () => ({ ...SCHED, structure: buildStructure({}) }),
+      },
+      batch: renderer(res(), files({ ...INFO, cps: 0.25 })).r,
+      outDir: OUT,
+      renderVersion: 'r 1',
+    });
+    expect(await failure(p.renderWindow(BASE, EVENTS))).toEqual([
+      "batch: cps 0.25 differs from the planner's 0.5",
     ]);
   });
 });
