@@ -33,8 +33,8 @@ use crate::biquad::{Biquad, FilterKind};
 use crate::bus::BusBank;
 use crate::chain::{
     DEFAULT_SOUND, EntryTimes, FmStep, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef,
-    ParamSlot, SourceEnd, SourceKind, Stage, StageId, StageInputs, StageSpec, Teardown, VoiceBus,
-    build_stage, delay_applies, input_connected, set_worklet_value,
+    ParamSlot, SourceEnd, SourceKind, Stage, StageId, StageInputs, StageKind, StageSpec, Teardown,
+    VoiceBus, build_stage, delay_applies, input_connected, set_worklet_value,
 };
 use crate::coerce::{js_max, js_min, js_to_string};
 use crate::job::{ErrorKind, Value};
@@ -793,6 +793,7 @@ fn apply_fm(
     };
     // Per modulator position, its modfreq.
     let mut modfreqs: Vec<f64> = Vec::new();
+    debug_assert_eq!(steps.len(), params.fm.entries.len());
     for (e, step) in params.fm.entries.iter().zip(steps) {
         let mut values = [None, None];
         for (k, side) in step.sides.iter().enumerate() {
@@ -1542,6 +1543,10 @@ impl Voice {
                 }
                 _ => unreachable!("the plan starts with the head"),
             }
+            debug_assert_eq!(
+                StageKind::of(stages.last().expect("just built")),
+                spec.kind()
+            );
         }
         // The pulse's `pw_lfo` after `envGain`'s envelope (synth.mjs:346-350); the node table
         // holds `[undefined]` without one.
@@ -1591,6 +1596,7 @@ impl Voice {
         let mut param_lfos = Vec::new();
         for &spec in &node_table.specs()[head..] {
             let stage = build_stage(spec, StageId(stages.len()), params, &times, &mut param_lfos)?;
+            debug_assert_eq!(StageKind::of(&stage), spec.kind());
             stages.push(stage);
         }
         let mut sends = Sends::default();
@@ -3896,6 +3902,10 @@ mod tests {
             planned(json!({ "s": "pulse" }), 0.25).get(FxKey::Main, "pw_lfo"),
             Some(&NodeList::Array(vec![None]))
         );
+        assert_eq!(
+            v.node_table().get(FxKey::Main, "pw_lfo"),
+            Some(&NodeList::Array(vec![None]))
+        );
         // pwsweep 0 with a rate: none either.
         let v = pulse(json!({ "s": "pulse", "pwrate": 3, "pwsweep": 0 })).unwrap();
         assert!(lfo_of(&v).is_none());
@@ -3921,6 +3931,10 @@ mod tests {
             planned(json!({ "s": "pulse", "pwrate": 2 }), 0.25).get(FxKey::Main, "pw_lfo"),
             Some(&NodeList::Array(vec![Some(Node::PulseLfo)]))
         );
+        assert_eq!(
+            v.node_table().get(FxKey::Main, "pw_lfo"),
+            Some(&NodeList::Array(vec![Some(Node::PulseLfo)]))
+        );
         // pwsweep alone: rate 1; null controls take the defaults.
         let v = pulse(json!({ "s": "pulse", "pwsweep": 0.5 })).unwrap();
         let l = lfo_of(&v).unwrap();
@@ -3941,7 +3955,8 @@ mod tests {
         // Other sounds ignore both and register no `pw_lfo`.
         for s in ["supersaw", "sine"] {
             let v = json!({ "s": s, "pwrate": 2, "pwsweep": "x" });
-            assert!(try_voice(v.clone(), 0.25).is_ok(), "{s}");
+            let built = try_voice(v.clone(), 0.25).unwrap_or_else(|e| panic!("{s}: {e:?}"));
+            assert_eq!(built.node_table().get(FxKey::Main, "pw_lfo"), None, "{s}");
             assert_eq!(planned(v, 0.25).get(FxKey::Main, "pw_lfo"), None, "{s}");
         }
         // The modulation sounds: with the LFO the pulse differs from the plain one only after
@@ -4485,6 +4500,10 @@ mod tests {
         for s in ["supersaw", "pulse"] {
             let t = planned(json!({ "s": s, "note": 45 }), 0.2);
             assert_eq!(t.specs(), worklet_specs, "{s}");
+            // The built voice walks that plan, one stage per spec.
+            let v = voice(json!({ "s": s, "note": 45 }), 0.2);
+            assert_eq!(v.node_table().specs(), worklet_specs, "{s}");
+            assert_eq!(v.stages().len(), worklet_specs.len(), "{s}");
         }
         let v = voice(json!({ "s": "supersaw", "note": 45 }), 0.2);
         let Stage::Gain(env) = &v.stages()[0] else {

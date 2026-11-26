@@ -195,8 +195,9 @@ the gain stage, the lowpass, highpass and bandpass filters (biquads, two each fo
 `ladder` worklet for `ftype('ladder')`) with their filter LFOs, the vowel, the `coarse`, `crush`,
 `shape` and `distort` worklets, the tremolo, the compressor, the panner, the phaser; after the last
 entry the `FXrelease` gain, `post` (`postgain`) and `dry`. `NodeTable::plan` decides the stages
-once: the table holds the stage specs `Voice::build` walks (each built by `build_stage`, in
-superdough's throw order) and superdough's `nodes` tracker (its keys a `NodeName`, looked up by
+once: the table holds the stage specs `Voice::build` walks in superdough's throw order (the
+synth `Gain(0.3)` and `envGain` built inline by `Voice::build`, the entries' stages, the
+`FXrelease` gain and `post` by `build_stage`) and superdough's `nodes` tracker (its keys a `NodeName`, looked up by
 text as superdough does), which the modulators resolve their targets on. The compressor and the
 panner output two channels; a stereo source (`supersaw`, `pulse`, the `bus` sound) keeps the voice
 stereo.

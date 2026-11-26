@@ -648,9 +648,8 @@ pub enum StageKind {
     LocalReverb,
 }
 
-#[cfg(test)]
 impl StageKind {
-    /// The kind of a built stage.
+    /// The kind of a built stage (what `Voice::build` checks each built stage against).
     pub fn of(stage: &Stage) -> StageKind {
         match stage {
             Stage::Gain(_) => StageKind::Gain,
@@ -784,9 +783,10 @@ pub enum NodeName {
     Vib,
     /// `vib_gain`: the vibrato depth.
     VibGain,
-    /// `fm_<n>`, n in 1..=8: the FM modulator.
+    /// `fm_<n>`, n in 1..=8: the FM modulator. `as_str` indexes by `n`, so build it with
+    /// [`NodeName::fm`], which checks the range.
     Fm(u8),
-    /// `fm_<n>_gain`, n in 1..=8: the FM amount.
+    /// `fm_<n>_gain`, n in 1..=8: the FM amount. Build it with [`NodeName::fm_gain`].
     FmGain(u8),
     Transient,
     Gain,
@@ -861,6 +861,25 @@ impl NodeName {
             NodeName::Djf => "djf",
             NodeName::Mod(s) => s,
         }
+    }
+
+    /// The FM modulator index `idx` (1..=8) as superdough numbers it.
+    fn fm_index(idx: usize) -> u8 {
+        debug_assert!(
+            (1..=8).contains(&idx),
+            "FM modulator index {idx} outside 1..=8"
+        );
+        u8::try_from(idx).expect("an FM modulator index fits a u8")
+    }
+
+    /// `fm_<idx>`, idx in 1..=8: FM modulator `idx`.
+    pub fn fm(idx: usize) -> NodeName {
+        NodeName::Fm(NodeName::fm_index(idx))
+    }
+
+    /// `fm_<idx>_gain`, idx in 1..=8: FM modulator `idx`'s amount.
+    pub fn fm_gain(idx: usize) -> NodeName {
+        NodeName::FmGain(NodeName::fm_index(idx))
     }
 
     /// A filter slot's stage name and its LFO's: `(lpf, lpf_lfo)` and so on.
@@ -979,12 +998,13 @@ impl NodeTable {
         self.set(key, name, NodeList::Array(vec![Some(node)]));
     }
 
-    /// The table of the main entry of `params` planned alone as the entry `key` (no source, its
-    /// stages from 0), as tests see it.
+    /// The table of the entry `key` of `params` planned alone (no source, its stages from 0), as
+    /// tests see it.
     #[cfg(test)]
     pub fn entry_plan(key: FxKey, params: &VoiceParams) -> NodeTable {
         let mut t = NodeTable::empty(SourceKind::Osc);
-        plan_entry(key, &params.main, params.ftype_24db, &mut t);
+        let entry = params.entry(key).expect("an entry of params");
+        plan_entry(key, entry, params.ftype_24db, &mut t);
         t
     }
 
@@ -1093,7 +1113,7 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
                     let pos = t.fm_noise.len();
                     t.fm_noise.push(is_noise(idx));
                     created[idx] = Some(pos);
-                    t.one(FxKey::Main, NodeName::Fm(idx as u8), Node::FmOsc(pos));
+                    t.one(FxKey::Main, NodeName::fm(idx), Node::FmOsc(pos));
                     (pos, true)
                 }
             };
@@ -1109,7 +1129,7 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
                     value: e.amount as f32,
                 }
             };
-            t.one(FxKey::Main, NodeName::FmGain(idx as u8), node);
+            t.one(FxKey::Main, NodeName::fm_gain(idx), node);
         }
         t.fm_steps.push(FmStep { sides, connects });
         if connects {
@@ -2118,9 +2138,9 @@ pub(crate) mod tests {
             assert!(listed(name));
             assert_eq!(name.as_str(), text, "{name:?}");
         }
-        for n in 1..=8u8 {
-            assert_eq!(NodeName::Fm(n).as_str(), format!("fm_{n}"));
-            assert_eq!(NodeName::FmGain(n).as_str(), format!("fm_{n}_gain"));
+        for n in 1..=8usize {
+            assert_eq!(NodeName::fm(n).as_str(), format!("fm_{n}"));
+            assert_eq!(NodeName::fm_gain(n).as_str(), format!("fm_{n}_gain"));
         }
         assert_eq!(NodeName::Mod("lfo_x".into()).as_str(), "lfo_x");
         assert_eq!(
@@ -3012,7 +3032,15 @@ pub(crate) mod tests {
         params: &VoiceParams,
         times: EntryTimes,
     ) -> (Vec<Stage>, NodeTable, Vec<ParamLfo>, Result<(), VoiceError>) {
-        let table = NodeTable::entry_plan(FxKey::Main, params);
+        walk_table(NodeTable::entry_plan(FxKey::Main, params), params, times)
+    }
+
+    /// Walks the specs of `table` through `build_stage`, as [`walk_entry`] does.
+    fn walk_table(
+        table: NodeTable,
+        params: &VoiceParams,
+        times: EntryTimes,
+    ) -> (Vec<Stage>, NodeTable, Vec<ParamLfo>, Result<(), VoiceError>) {
         let (mut stages, mut lfos) = (Vec::new(), Vec::new());
         let mut result = Ok(());
         for &spec in table.specs() {
@@ -3106,11 +3134,17 @@ pub(crate) mod tests {
 
     #[test]
     fn entry_plan_registers_under_its_key() {
-        let params = parsed(json!({ "pan": 0.5 }), 0.1);
-        let table = NodeTable::entry_plan(FxKey::Index(1), &params);
-        let (stages, _, _, r) = walk_entry(&params, TIMES);
+        // Entry 1 pans, the main entry does not: a walk of the main entry's specs would build
+        // only its gain stage.
+        let params = parsed(json!({ "FX": [{}, { "pan": 0.5 }] }), 0.1);
+        let i = FxKey::Index(1);
+        let (stages, table, _, r) = walk_table(NodeTable::entry_plan(i, &params), &params, TIMES);
         r.unwrap();
-        assert_eq!(stages.len(), 2);
+        assert_eq!(table.specs(), [StageSpec::EntryGain(i), StageSpec::Pan(i)]);
+        assert_eq!(
+            stages.iter().map(StageKind::of).collect::<Vec<_>>(),
+            [StageKind::Gain, StageKind::Panner]
+        );
         assert_eq!(table.get(FxKey::Main, "pan"), None);
         assert_eq!(
             table.get(FxKey::Index(1), "pan"),
@@ -4065,8 +4099,13 @@ pub(crate) mod tests {
             val.as_object_mut()
                 .unwrap()
                 .extend(extra.as_object().unwrap().clone());
+            let t = planned(val.clone(), 0.1);
+            assert!(!t.specs().contains(&S::Release), "{val}");
+            // The built voice walks that plan: no release gain among its stages.
+            let v = voice(val.clone());
+            assert_eq!(v.node_table().specs(), t.specs(), "{val}");
             assert!(
-                !planned(val.clone(), 0.1).specs().contains(&S::Release),
+                !v.stages().iter().any(|s| matches!(s, Stage::Release(_))),
                 "{val}"
             );
         }
@@ -4375,9 +4414,13 @@ pub(crate) mod tests {
         ] {
             let mut e = base.clone();
             e[k] = bad.clone();
-            let t = plan(e);
+            let t = plan(e.clone());
             assert!(!t.specs().contains(&S::LocalDelay(X0)), "{k} = {bad}");
             assert!(t.get(X0, "delay").is_none(), "{k}");
+            // The built voice walks that plan: no local delay among its stages.
+            let v = with(e);
+            assert_eq!(v.node_table().specs(), t.specs(), "{k} = {bad}");
+            assert!(local_delay(&v).is_none(), "{k} = {bad}");
         }
         // The default delay time is delaysync 3/16 cycles over cps; the default feedback 0.5.
         let v = with(json!({ "delay": 0.5 }));
