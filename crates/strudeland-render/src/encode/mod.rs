@@ -6,37 +6,46 @@ pub mod opus;
 pub mod verify;
 pub mod wav;
 
+use std::ops::Range;
 use std::time::Instant;
 
 use crate::level::{LoudnessSummary, prepare};
-use crate::{EncoderOptions, Format, Loudness, OutputOptions, Progress, RenderError};
+use crate::{EncoderOptions, Format, LoopPoints, Loudness, OutputOptions, Progress, RenderError};
 
-/// Encodes `channels` at `sample_rate` once with `encoder`. No leveling, no verification.
-pub fn encode_once(
-    channels: &[Vec<f32>],
-    sample_rate: u32,
-    encoder: &EncoderOptions,
-) -> Result<Vec<u8>, RenderError> {
-    if let EncoderOptions::Mp3 { mode, vbr_quality } = *encoder {
-        return mp3::encode_mp3(channels, sample_rate, mode, vbr_quality);
-    }
-    encode_once_with_loop(channels, sample_rate, encoder, None)
+pub use mp3::Mp3Flush;
+
+/// One encode of a buffer: no leveling, no verification.
+pub struct EncodeRequest<'a> {
+    /// The channels, full scale +-1.0.
+    pub channels: &'a [Vec<f32>],
+    /// The input sample rate.
+    pub sample_rate: u32,
+    /// The format and its settings.
+    pub encoder: &'a EncoderOptions,
+    /// MP3 only: how the stream is finalized.
+    pub mp3_flush: Mp3Flush,
+    /// The loop in decoded frames (exclusive end): input-rate frames, 48 kHz for Opus.
+    pub loop_range: Option<Range<u64>>,
 }
 
-/// Encodes an independent export file, with loop metadata where requested.
-pub(crate) fn encode_once_with_loop(
-    channels: &[Vec<f32>],
-    sample_rate: u32,
-    encoder: &EncoderOptions,
-    range: Option<std::ops::Range<u64>>,
-) -> Result<Vec<u8>, RenderError> {
-    match *encoder {
+/// Encodes `request.channels` once with `request.encoder`, with loop metadata where requested.
+/// No leveling, no verification.
+pub fn encode_once(request: &EncodeRequest<'_>) -> Result<Vec<u8>, RenderError> {
+    let channels = request.channels;
+    let sample_rate = request.sample_rate;
+    let range = request.loop_range.clone();
+    match *request.encoder {
         EncoderOptions::Wav { bit_depth } => {
             wav::encode_wav_with_loop(channels, sample_rate, bit_depth, range)
         }
-        EncoderOptions::Mp3 { mode, vbr_quality } => {
-            mp3::encode_mp3_with_loop(channels, sample_rate, mode, vbr_quality, range)
-        }
+        EncoderOptions::Mp3 { mode, vbr_quality } => mp3::encode_mp3(
+            channels,
+            sample_rate,
+            mode,
+            vbr_quality,
+            request.mp3_flush,
+            range,
+        ),
         EncoderOptions::Ogg { quality } => {
             ogg::encode_ogg_with_loop(channels, sample_rate, quality, range)
         }
@@ -44,6 +53,30 @@ pub(crate) fn encode_once_with_loop(
             opus::encode_opus_with_loop(channels, sample_rate, kbps, range)
         }
     }
+}
+
+/// The decoded loop range and its reported points for a loop of `range` input frames: the
+/// identity, or each end resampled for Opus (which always decodes at 48 kHz).
+pub(crate) fn loop_points(
+    format: Format,
+    range: &Range<usize>,
+    sample_rate: u32,
+) -> (Range<u64>, LoopPoints) {
+    let (range, rate) = if format == Format::Opus {
+        (
+            opus::resampled_len(range.start, sample_rate)
+                ..opus::resampled_len(range.end, sample_rate),
+            opus::OPUS_RATE,
+        )
+    } else {
+        (range.clone(), sample_rate)
+    };
+    let points = LoopPoints {
+        start_frame: range.start as u64,
+        length_frames: range.len() as u64,
+        sample_rate: rate,
+    };
+    (range.start as u64..range.end as u64, points)
 }
 
 /// Encode passes at most: the first encode and two corrections.
@@ -65,34 +98,18 @@ pub struct Encoded {
 }
 
 /// The encoder and the verification decoder, behind a seam so tests can force an overshoot.
-trait Codec {
-    fn encode(
-        &self,
-        channels: &[Vec<f32>],
-        sample_rate: u32,
-        encoder: &EncoderOptions,
-    ) -> Result<Vec<u8>, RenderError>;
+pub(crate) trait Codec {
+    fn encode(&self, request: &EncodeRequest<'_>) -> Result<Vec<u8>, RenderError>;
     /// The decoded file's true peak in dBTP.
     fn decoded_true_peak_db(&self, format: Format, bytes: &[u8]) -> Result<f64, RenderError>;
 }
 
 /// The real encoders and decoders.
-enum Real {
-    Legacy,
-    Standalone,
-}
+pub(crate) struct Real;
 
 impl Codec for Real {
-    fn encode(
-        &self,
-        channels: &[Vec<f32>],
-        sample_rate: u32,
-        encoder: &EncoderOptions,
-    ) -> Result<Vec<u8>, RenderError> {
-        match self {
-            Self::Legacy => encode_once(channels, sample_rate, encoder),
-            Self::Standalone => encode_once_with_loop(channels, sample_rate, encoder, None),
-        }
+    fn encode(&self, request: &EncodeRequest<'_>) -> Result<Vec<u8>, RenderError> {
+        encode_once(request)
     }
 
     fn decoded_true_peak_db(&self, format: Format, bytes: &[u8]) -> Result<f64, RenderError> {
@@ -116,7 +133,15 @@ pub fn encode(
     progress: &dyn Fn(Progress),
     warnings: &mut Vec<String>,
 ) -> Result<Encoded, RenderError> {
-    encode_with(&Real::Legacy, input, sample_rate, out, progress, warnings)
+    encode_with(
+        &Real,
+        Mp3Flush::NoGap,
+        input,
+        sample_rate,
+        out,
+        progress,
+        warnings,
+    )
 }
 
 pub(crate) fn encode_standalone(
@@ -127,7 +152,8 @@ pub(crate) fn encode_standalone(
     warnings: &mut Vec<String>,
 ) -> Result<Encoded, RenderError> {
     encode_with(
-        &Real::Standalone,
+        &Real,
+        Mp3Flush::Gap,
         input,
         sample_rate,
         out,
@@ -138,6 +164,7 @@ pub(crate) fn encode_standalone(
 
 fn encode_with(
     codec: &dyn Codec,
+    mp3_flush: Mp3Flush,
     input: &[Vec<f32>],
     sample_rate: u32,
     out: &OutputOptions,
@@ -161,7 +188,13 @@ fn encode_with(
         level_ms += ms_since(started);
 
         let started = Instant::now();
-        let bytes = codec.encode(&leveled.channels, sample_rate, &out.encoder)?;
+        let bytes = codec.encode(&EncodeRequest {
+            channels: &leveled.channels,
+            sample_rate,
+            encoder: &out.encoder,
+            mp3_flush,
+            loop_range: None,
+        })?;
         progress(Progress::Encoded { pass });
         let mut loudness = leveled.summary;
         loudness.encodes = pass;
@@ -236,13 +269,9 @@ mod tests {
     }
 
     impl Codec for Stub {
-        fn encode(
-            &self,
-            channels: &[Vec<f32>],
-            _sample_rate: u32,
-            _encoder: &EncoderOptions,
-        ) -> Result<Vec<u8>, RenderError> {
-            Ok(channels
+        fn encode(&self, request: &EncodeRequest<'_>) -> Result<Vec<u8>, RenderError> {
+            Ok(request
+                .channels
                 .iter()
                 .flatten()
                 .flat_map(|x| x.to_le_bytes())
@@ -304,6 +333,7 @@ mod tests {
         let mut warnings = vec!["render: earlier".to_string()];
         let e = encode_with(
             stub,
+            Mp3Flush::NoGap,
             input,
             44_100,
             out,
@@ -314,8 +344,49 @@ mod tests {
         (e, events.into_inner(), warnings)
     }
 
+    /// A plain request at 44.1 kHz.
+    fn request<'a>(channels: &'a [Vec<f32>], encoder: &'a EncoderOptions) -> EncodeRequest<'a> {
+        EncodeRequest {
+            channels,
+            sample_rate: 44_100,
+            encoder,
+            mp3_flush: Mp3Flush::NoGap,
+            loop_range: None,
+        }
+    }
+
     fn passes(n: u32) -> Vec<Progress> {
         (1..=n).map(|pass| Progress::Encoded { pass }).collect()
+    }
+
+    #[test]
+    fn loop_points_resample_each_end_for_opus() {
+        assert_eq!(
+            loop_points(Format::Opus, &(147..294), 44_100),
+            (
+                160..320,
+                LoopPoints {
+                    start_frame: 160,
+                    length_frames: 160,
+                    sample_rate: 48_000,
+                }
+            )
+        );
+        assert_eq!(loop_points(Format::Opus, &(0..1), 44_100).0, 0..2);
+        for format in [Format::Wav, Format::Ogg, Format::Mp3] {
+            assert_eq!(
+                loop_points(format, &(147..294), 44_100),
+                (
+                    147..294,
+                    LoopPoints {
+                        start_frame: 147,
+                        length_frames: 147,
+                        sample_rate: 44_100,
+                    }
+                ),
+                "{format:?}"
+            );
+        }
     }
 
     #[test]
@@ -341,7 +412,7 @@ mod tests {
         let enc = EncoderOptions::Ogg { quality: 6 };
         let dp1 = true_peak_db(&probe.decode(
             Format::Ogg,
-            &probe.encode(&leveled.channels, 44_100, &enc).unwrap(),
+            &probe.encode(&request(&leveled.channels, &enc)).unwrap(),
         ));
         let stub = Stub::new(&[0.5, 0.0]);
         let (e, events, warnings) = run(&stub, &input, &ogg_out(LOUD));
@@ -422,7 +493,7 @@ mod tests {
         // The bytes are the input, untouched.
         assert_eq!(
             e.bytes,
-            stub.encode(&input, 44_100, &EncoderOptions::Ogg { quality: 6 })
+            stub.encode(&request(&input, &EncoderOptions::Ogg { quality: 6 }))
                 .unwrap()
         );
         let tp = e.loudness.input_true_peak_db;

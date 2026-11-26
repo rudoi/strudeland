@@ -5,7 +5,9 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::encode::{CORRECTION_MARGIN_DB, MAX_ENCODES, encode_once_with_loop, opus, verify};
+use crate::encode::{
+    CORRECTION_MARGIN_DB, EncodeRequest, MAX_ENCODES, Mp3Flush, encode_once, loop_points, verify,
+};
 use crate::export::roles;
 use crate::level::true_peak::TAPS_PER_PHASE;
 use crate::level::{LoudnessSummary, Measure, check_input, measure, true_peak_db};
@@ -374,27 +376,18 @@ fn finish_loop(
             level_ms += ms_since(started);
 
             let started = Instant::now();
-            let (range, loop_points) = match &part.loop_range {
-                Some(range) => {
-                    let (range, rate) = if format == Format::Opus {
-                        (
-                            opus::resampled_len(range.start, sample_rate)
-                                ..opus::resampled_len(range.end, sample_rate),
-                            opus::OPUS_RATE,
-                        )
-                    } else {
-                        (range.clone(), sample_rate)
-                    };
-                    let points = LoopPoints {
-                        start_frame: range.start as u64,
-                        length_frames: range.len() as u64,
-                        sample_rate: rate,
-                    };
-                    (Some(range.start as u64..range.end as u64), Some(points))
-                }
-                None => (None, None),
-            };
-            let bytes = encode_once_with_loop(channels, sample_rate, &options.encoder, range)?;
+            let (range, loop_points) = part
+                .loop_range
+                .as_ref()
+                .map(|r| loop_points(format, r, sample_rate))
+                .unzip();
+            let bytes = encode_once(&EncodeRequest {
+                channels,
+                sample_rate,
+                encoder: &options.encoder,
+                mp3_flush: Mp3Flush::Gap,
+                loop_range: range,
+            })?;
             let decoded_peak = if format == Format::Wav {
                 None
             } else {
