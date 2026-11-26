@@ -24,11 +24,11 @@ change.
 - Read `scripts/render/check.ts`:
   - the module doc;
   - `CheckDeps` (`:122-147`);
-  - `assembledOf` (`:292-300`);
-  - `prepareFixture` (`:493-555`);
+  - `assembledOf` (`:292-301`);
+  - `prepareFixture` (`:493-551`);
   - the fixture flow (`:600-625`);
-  - `createRenderer` and `createBatchWindow` (`:962-1043`);
-  - `main` (`:1085-1125`).
+  - `createRenderer` (`:967-1017`) and `createBatchWindow` (`:1022-1046`);
+  - `main` (`:1048-1139`).
 - Read `scripts/render/batch-render.ts` and `src/lib/render/batch-window.ts`, as stage 001 left
   them.
 
@@ -76,7 +76,10 @@ export class PipelineRenderer implements Renderer {
    That is the derivation at `check.ts:518`, so it equals `fx.timing`.
 3. `const songPath = join(this.o.outDir, 'batch', `${sha256(base.code)}.js`)`, then
    `writeSongFile(songPath, base.code)`. `writeSongFile` comes from `host-planner.ts`.
-4. `return this.o.batch.window({ name: `${sha256(base.code).slice(0, 8)}-${base.fromBar}-${base.toBar}`, songPath, base, cps: sched.cps, events, timing })`.
+4. `return this.o.batch.window({ name: `${sha256(base.code).slice(0, 8)}-${base.fromBar}-${base.toBar}-${base.layout}`, songPath, base, cps: sched.cps, events, timing })`.
+   The name is the stem of the WAV and `--info` files (`batch-render.ts:123-124`). The layout
+   is in it because one song can be rendered in both layouts at the same bars (`song-linear`
+   and `song-clip` are one song file), and the two must not overwrite each other.
 
 `BatchRenderer`, `BatchTarget`, `batchRenderArgs`, the outcomes and the cross-checks do not
 change. Update the module doc: `PipelineRenderer` is how `render:check` uses `BatchRenderer`.
@@ -117,7 +120,7 @@ change. Update the module doc: `PipelineRenderer` is how `render:check` uses `Ba
 | File | Change |
 |---|---|
 | `tests/render-check-flow.test.ts`, `describe('runCheck --planner batch')` (`:1059`) | Delete `batchOf`. Each case passes a fake renderer: the existing `FakeRenderer` plus a `renderWindow` that records `(base, events)` and returns the window `batchOf` returned. The assertions stay, with "the batch hook" reworded as "`renderWindow`": it is called once per fixture with `fx.base` and the schedule events, the main-window gates and features read its window, mutations still join chunk renders, and a `renderWindow` failure is the fixture's error. Add one case: a renderer without `renderWindow` joins chunks (the superdough and host paths). |
-| A new `PipelineRenderer` block in `tests/render-batch-render.test.ts` | It uses a fake `inner` (a `schedule` returning a known `ScheduleResult` with a mixed-meter structure, plus spies) and a fake runner. It asserts that the song file is written at `<outDir>/batch/<sha>.js` with the song's text; that the argument list is `batchRenderArgs(songPath, base, …)`; that the `timing` passed on equals `renderTiming(…)` of the schedule's structure (compare `secondsAt` at a few bars); that `schedule`, `render`, `version` and `dispose` delegate; and that a cross-check failure is a `RenderFailedError`. |
+| A new `PipelineRenderer` block in `tests/render-batch-render.test.ts` | It uses a fake `inner` (a `schedule` returning a known `ScheduleResult` with a mixed-meter structure, plus spies) and a fake runner. It asserts that the song file is written at `<outDir>/batch/<sha>.js` with the song's text; that the output name is `<sha8>-<from>-<to>-<layout>`, so the same song in the two layouts writes two files; that the argument list is `batchRenderArgs(songPath, base, …)`; that the `timing` passed on equals `renderTiming(…)` of the schedule's structure (compare `secondsAt` at a few bars); that `schedule`, `render`, `version` and `dispose` delegate; and that a cross-check failure is a `RenderFailedError`. |
 | `tests/render-batch-window.test.ts` | Unchanged. |
 
 ## Step 5: docs

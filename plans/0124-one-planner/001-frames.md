@@ -22,9 +22,10 @@ No audio, job text, golden, threshold, CLI flag or `SKILL.md` changes. The `--in
 
 ## Prerequisites
 
-- The tree is at `a8151213` with nothing edited under `src`, `crates`, `scripts`, `tests` or
-  `vendor` (`git status`). The untracked `plans/0124-one-planner/` and `plans/0124-one-planner.md`
-  are fine.
+- The tree is at `a8151213` with nothing edited or added under the paths the script guards
+  (`GUARDED`): `src`, `crates`, `scripts`, `tests`, `vendor`, `Cargo.toml`, `Cargo.lock`,
+  `package.json`, `bun.lock`, `strudel-pins.json`, `vite.render.config.ts` and
+  `render/index.html` (`git status`). Changes under `plans/` are fine.
 - Chromium is installed for Playwright (`bunx playwright install chromium`), and cmake and a C
   compiler are present.
 - Read [the proposal](../0124-one-planner.md) "Stage 001" and "The A/B guard", and
@@ -41,7 +42,7 @@ below. If the draft is missing (a new session), write the appendix's text to
 1. Check that the tree is unedited:
 
    ```sh
-   git -C /Volumes/rudenet/code/strudeland-worktrees/poptart diff --quiet a8151213 -- src crates scripts tests vendor && echo unedited
+   git -C /Volumes/rudenet/code/strudeland-worktrees/poptart diff --quiet a8151213 -- src crates scripts tests vendor Cargo.toml Cargo.lock package.json bun.lock strudel-pins.json vite.render.config.ts render/index.html && echo unedited
    ```
 
    It must print `unedited`. The script checks again and refuses otherwise.
@@ -51,9 +52,17 @@ below. If the draft is missing (a new session), write the appendix's text to
    mkdir -p "$S/0124-baseline" && cp "$S/0124-draft/ab.sh" "$S/0124-baseline/ab.sh" && chmod +x "$S/0124-baseline/ab.sh"
    ```
 
-3. `L baseline "$S/0124-baseline/ab.sh" baseline`. This takes about 10-20 minutes (an
+3. `L baseline "$S/0124-baseline/ab.sh" baseline`. This takes about 15-25 minutes (an
    estimate): a release build, then every case recorded twice. It must end
-   `baseline: 77 cases; copied to …/.cache/strudeland-0124`, and list the non-zero exits.
+   `baseline: 96 cases; copied to …/.cache/strudeland-0124`, and list the non-zero exits.
+   - The 96 are the 34 corpus windows, 19 cases each for `song-linear.js` and the scratch song
+     `frac-737`, 21 for `mixed-meter-loop.js`, and the 3 stem sets.
+   - `frac-737` is written by the script to `$S/0124-baseline/songs/frac-737.js`, never under
+     `tests/`. It is 137 bpm in 7/8, so a bar is 67598.54 frames and every bar edge after 0
+     rounds. It has an intro, a loop section and a tail, and goes through every preset,
+     `--loops` and `--section` case.
+   - Every `strudeland render` case also records its stdout, without the wall-clock `time:`
+     line, so the CLI's printed summary is guarded too.
    - `win-samples` and `win-noise-seed` are expected to exit 1: the engine refuses that
      material.
    - Record any other non-zero exit in the stage report. Such a case stays in the guard: its
@@ -61,8 +70,20 @@ below. If the draft is missing (a new session), write the appendix's text to
      buffer budget.
    - If the script says the two recordings differ, a case is not reproducible. **Stop** and
      report it before any edit.
-4. `L reports-baseline "$S/0124-baseline/ab.sh" reports-baseline`. This takes about 30-60
-   minutes (an estimate) for the four `render:check` modes. It prints each mode's exit.
+4. `L reports-baseline "$S/0124-baseline/ab.sh" reports-baseline`. This takes about 60-120
+   minutes (an estimate): the four `render:check` modes, run twice. It prints each mode's exit.
+   - Every run writes into the one folder `$S/0124-baseline/reports/run/`, then is normalized
+     and moved, so no output path in a report differs between runs. The normalization drops
+     `startedAt`, `engineVersion`, `chromium`, `playwright` and each fixture's `seconds` (wall
+     clock, `scripts/render/check.ts:582`).
+   - The two runs must be equal. For a Rust mode a difference is a **stop**: report it before
+     any edit.
+   - If the superdough mode (`sd`) differs between the two runs, but only in measurements and
+     not in its exit code or any verdict, the script records the varying fields in
+     `reports/base/sd/varies.txt` and prints them. From then on `reports-check` compares `sd`
+     on its exit code and its fixture statuses, gate, parity and mutation verdicts only. This
+     is a property of our A/B guard, not a repo threshold. Record the varying fields in the
+     stage report. The Rust modes stay exact.
    - An `exit 2` is a harness error: Chromium is missing, or the render build failed. Fix the
      environment and re-run this step. The tree is still unedited, so a re-run is still a
      baseline.
@@ -268,16 +289,33 @@ below. If the draft is missing (a new session), write the appendix's text to
 1. Run `bun run format` and `cargo fmt --all`.
 2. Run the full gate in [000-prompt.md](000-prompt.md), steps 1-13 (step 11 as a spot check).
    For this stage:
-   - **Step 2** must report differences in provenance only. Read its diff summary: only
-     `plannerSha256` changes, because `plan.ts`, `job-plan.ts` and `schedule.ts` are
-     `PLANNER_FILES`.
-   - **Step 4** (`ab.sh refs`) must print `provenance-only: K file(s)`, with K = every ref job
-     and ref file of every case.
+   - **Step 2** must report differences in provenance only. Read its diff summary:
+     - `plannerSha256` changes, because `plan.ts`, `job-plan.ts` and `schedule.ts` are
+       `PLANNER_FILES`;
+     - so do the job files' hashes in `index.json`, because each job file carries its
+       provenance;
+     - and so do the two measured-floor cases (`FLOOR_CASES`,
+       `scripts/engine/refs-lib.ts:719`: `vowel-formants` and `mod-lfo-note`). Their job
+       bytes change, so `settleFloorCase` (`:777`) re-renders their WAVs and `floorDb` on
+       `--write`, and those differ run to run.
+
+     No job text beyond `plannerSha256` may differ.
+   - **Step 4** (`ab.sh refs`) must end `provenance-only: K file(s) … floor WAVs re-rendered:
+     … engine:refs (check) exit 0`, with K = every ref job and ref file of every case plus
+     `index.json`. It checks:
+     - every changed JSON ref equals `HEAD`'s with `plannerSha256` removed;
+     - `index.json` equals `HEAD`'s with `plannerSha256`, `files[*].sha256` and the floor
+       cases' `floorDb` removed, so every `bytes` is unchanged, and each listed hash is the
+       sha256 of the file on disk (the precedent is the "Regeneration" list in
+       [0116's proposal](../0116-render-request-cleanup/proposal.md), line 139);
+     - no WAV changed except the floor cases';
+     - `bun run engine:refs` (check mode) exits 0 after the write, which enforces
+       `FLOOR_MAX_DB`. That adds about 3 minutes.
    - **Step 5** (`ab.sh vectors`) must print `joiner.json: only contentFrames and frames
-     added`.
+     added`, and `bun run engine:vectors` (check mode) must exit 0.
    - **Step 10**: `host:parity` and `--batch` compare job text, which does not change.
      `--mixed-meter` compares whole plans, which already carried the frames, so it is equal.
-   - **Step 12** must end `equal: 77 cases, … files; info files gained contentFrames on M
+   - **Step 12** must end `equal: 96 cases, … files; info files gained contentFrames on M
      chunk(s)`. M is the constant-meter chunk count across the `strudeland-render` cases, and
      is greater than 0.
    - **Step 13** must end `equal`. This is the check on the `assembleWindow` `bufferStartSec`
@@ -297,7 +335,9 @@ Stop and report to the user, changing nothing to absorb it, on any of these:
 - any audio hash, exit code or failure stderr difference in `ab.sh check`;
 - an `--info` difference other than an added `contentFrames`;
 - any `reports-check` difference;
-- a ref that differs beyond `plannerSha256`;
+- a ref that differs beyond what `ab.sh refs` allows (`plannerSha256`, `index.json`'s file
+  hashes, the floor cases' WAVs and `floorDb`), or `engine:refs` failing its check after the
+  write;
 - a `joiner.json` frame count or hash that changes;
 - a need to edit a threshold, golden, ref, vector or `SKILL.md`;
 - a change to `windowStartFrame`, `frames`, `c0`, `bufferStartSec` or `lookbackSecUsed` in any
@@ -334,18 +374,25 @@ the baseline is recorded.
 #   ab.sh baseline          build strudeland-render and strudeland from an unedited tree, record
 #                           every case twice (base/, base2/) and require the two to be equal
 #   ab.sh check             build both from the working tree, record into cur/, compare with base/
-#   ab.sh reports-baseline  run the four render:check modes on an unedited tree into reports/base/
+#   ab.sh reports-baseline  run the four render:check modes twice on an unedited tree
+#                           (reports/base/, reports/base2/) and require the two to be equal; a
+#                           superdough run that varies is recorded and compared on verdicts only
 #   ab.sh reports-check     run them on the working tree into reports/cur/ and compare
-#   ab.sh refs              after `engine:refs --write`: every changed ref differs from HEAD only
-#                           in provenance.plannerSha256, and no WAV changed
+#   ab.sh refs              after `engine:refs --write`: every changed JSON ref differs from HEAD
+#                           only in provenance.plannerSha256 (index.json: also the file hashes,
+#                           which must match the files, and the floor cases' floorDb), no WAV
+#                           but the floor cases' changed, and `engine:refs` (check) exits 0
 #   ab.sh vectors           after `render:vectors --write`: joiner.json differs from HEAD only by
 #                           the added per-chunk contentFrames and frames
 #
-# `check` compares audio exactly: every output file's sha256, every exit code, and the stderr
-# of every failed case. An `--info` file may differ from the baseline in one way only: a chunk
-# that had no `contentFrames` may gain one. `reports-check` compares each normalized report.json
-# (run-dependent keys removed), each exit code, and for the Rust modes the sorted sha256 list of
-# every kept engine job text and WAV (`--keep-wav`).
+# `check` compares audio exactly: every output file's sha256, every exit code, the stderr of
+# every failed case and `strudeland render`'s stdout (its `time:` line removed). An `--info` file
+# may differ from the baseline in one way only: a chunk that had no `contentFrames` may gain one.
+# `reports-check` compares each normalized report.json (run-dependent keys removed), each exit
+# code, and for the Rust modes the sorted sha256 list of every kept engine job text and WAV
+# (`--keep-wav`). The superdough mode is compared exactly too, unless reports-baseline found it
+# not reproducible: then on its exit code and its fixture, gate, parity and mutation verdicts
+# alone. That is a property of this A/B guard, not a repo threshold; the Rust modes stay exact.
 set -eu
 
 B=$(cd "$(dirname "$0")" && pwd)
@@ -354,6 +401,14 @@ BASE_SRC=a8151213
 CACHE="$HOME/.cache/strudeland-0124"
 CORPUS="$REPO/tests/render/corpus"
 MIXED="$REPO/tests/render/mixed-meter-loop.js"
+# A scratch song, never committed: a bar that is not a whole number of frames.
+SONGS="$B/songs"
+FRAC="$SONGS/frac-737.js"
+# The micro cases whose Chromium reference varies run to run (scripts/engine/refs-lib.ts
+# FLOOR_CASES): `engine:refs --write` re-renders their WAVs and floorDb whenever a job changes.
+FLOOR_CASES='vowel-formants mod-lfo-note'
+# The tree the baselines are recorded from: no edit and no new file under these paths.
+GUARDED='src crates scripts tests vendor Cargo.toml Cargo.lock package.json bun.lock strudel-pins.json vite.render.config.ts render/index.html'
 # Every case renders here, on both sides, so a path written into an output (stems.json) is the
 # same in the baseline and the check.
 W="$B/work"
@@ -368,14 +423,42 @@ sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 stamp() { date '+%Y-%m-%dT%H:%M:%S'; }
 
-# The tree must be a8151213 for src, crates, scripts, tests and vendor: no edit, no new file.
+# The tree must be a8151213 for every GUARDED path: no edit, no new file.
 require_unedited() {
-	if ! git -C "$REPO" diff --quiet "$BASE_SRC" -- src crates scripts tests vendor; then
-		die "src/crates/scripts/tests/vendor differ from $BASE_SRC; refusing to record a baseline"
+	# shellcheck disable=SC2086 # GUARDED is a list of paths
+	if ! git -C "$REPO" diff --quiet "$BASE_SRC" -- $GUARDED; then
+		die "$GUARDED: differ from $BASE_SRC; refusing to record a baseline"
 	fi
-	if [ -n "$(git -C "$REPO" status --porcelain --untracked-files=all -- src crates scripts tests vendor)" ]; then
-		die "untracked or uncommitted files under src/crates/scripts/tests/vendor; refusing to record a baseline"
+	# shellcheck disable=SC2086
+	if [ -n "$(git -C "$REPO" status --porcelain --untracked-files=all -- $GUARDED)" ]; then
+		die "untracked or uncommitted files under $GUARDED; refusing to record a baseline"
 	fi
+}
+
+# The scratch song: 137 bpm in 7/8 is 3.5 quarters a bar, 67598.54 frames at 44.1 kHz, so every
+# bar edge after 0 rounds. An intro, a loop section and a tail, as song-linear.js.
+write_songs() {
+	mkdir -p "$SONGS"
+	cat >"$FRAC" <<'EOF'
+// 0124 A/B scratch song: a bar of 67598.54 frames at 44.1 kHz.
+const meta = {
+  title: 'frac-737',
+  bpm: 137,
+  meter: '7/8',
+  sections: [
+    { name: 'intro', bars: 2 },
+    { name: 'body', bars: 3, loop: true },
+    { name: 'tail', bars: 2 },
+  ],
+  loops: 2,
+};
+
+$: song(meta, {
+  intro: note("c3 e3 g3 b3 c4 e4 g4").s('triangle'),
+  body: note("<c2 g1 a1>*7").s('sawtooth').lpf(700).room(0.3),
+  tail: note("c3").s('supersaw').release(2),
+})
+EOF
 }
 
 target_dir() {
@@ -400,10 +483,11 @@ cases() {
 	jq -r --arg c "$CORPUS" '.fixtures[] |
 		"win-\(.name)\trender\t\($c)/\(.file)\t--from \(.windowBars[0]) --to \(.windowBars[1]) --layout \(.layout)"' \
 		"$REPO/tests/render/corpus.json"
-	# The two sectioned songs: clip, loop counts, sections, lengths, every preset raw and leveled,
-	# a one-shot section, and a plain leveled clip.
+	# The three sectioned songs: clip, loop counts, sections, lengths, every preset raw and
+	# leveled, a one-shot section, a plain leveled clip and an orbit stem set.
 	for song in "song-linear|$CORPUS/song-linear.js|intro body tail|body" \
-		"mixed-meter|$MIXED|opening F1 F2 E ending|E"; do
+		"mixed-meter|$MIXED|opening F1 F2 E ending|E" \
+		"frac-737|$FRAC|intro body tail|body"; do
 		n=${song%%|*}
 		rest=${song#*|}
 		p=${rest%%|*}
@@ -442,6 +526,7 @@ record() {
 	rm -rf "$out"
 	mkdir -p "$out/info"
 	: >"$out/audio.tsv"
+	write_songs
 	cases >"$B/cases.tsv"
 	while IFS="$TAB" read -r name tool song flags; do
 		rm -rf "$W"
@@ -459,7 +544,7 @@ record() {
 			*) dest="$W/out.wav" ;;
 			esac
 			# shellcheck disable=SC2086
-			"$cli" render "$song" $flags --jobs 4 --out "$dest" </dev/null >/dev/null 2>"$B/stderr"
+			"$cli" render "$song" $flags --jobs 4 --out "$dest" </dev/null >"$B/stdout" 2>"$B/stderr"
 			;;
 		*) die "unknown tool $tool" ;;
 		esac
@@ -468,6 +553,11 @@ record() {
 		printf '%s\texit\t%s\n' "$name" "$code" >>"$out/audio.tsv"
 		if [ "$code" != 0 ]; then
 			printf '%s\tstderr\t%s\n' "$name" "$(sha "$B/stderr")" >>"$out/audio.tsv"
+		fi
+		if [ "$tool" = cli ]; then
+			# The CLI's summary, without its wall-clock `time:` line.
+			sed '/^  time: /d' "$B/stdout" >"$B/stdout.norm"
+			printf '%s\tstdout\t%s\n' "$name" "$(sha "$B/stdout.norm")" >>"$out/audio.tsv"
 		fi
 		(cd "$W" && find . -type f | LC_ALL=C sort) | while IFS= read -r f; do
 			f=${f#./}
@@ -478,7 +568,7 @@ record() {
 			fi
 		done
 	done <"$B/cases.tsv"
-	rm -rf "$W" "$B/stderr"
+	rm -rf "$W" "$B/stderr" "$B/stdout" "$B/stdout.norm"
 }
 
 # compare_info BASE CUR: 0 when CUR equals BASE after removing, per chunk, a contentFrames that
@@ -518,7 +608,7 @@ compare() {
 	done
 	if [ "$bad" = 0 ]; then
 		cases=$(cut -f1 "$2/audio.tsv" | LC_ALL=C sort -u | wc -l | tr -d ' ')
-		files=$(awk -F'\t' '$2 != "exit" && $2 != "stderr"' "$2/audio.tsv" | wc -l | tr -d ' ')
+		files=$(awk -F'\t' '$2 != "exit" && $2 != "stderr" && $2 != "stdout"' "$2/audio.tsv" | wc -l | tr -d ' ')
 		added=0
 		for f in "$2"/info/*.json; do
 			k=$(jq '[.chunks[] | select(has("contentFrames"))] | length' "$f")
@@ -536,28 +626,54 @@ rust-page|--engine rust --keep-wav
 rust-host|--engine rust --planner host --keep-wav
 rust-batch|--engine rust --planner batch --keep-wav'
 
+# The verdicts of a report: what a superdough run that is not reproducible is compared on.
+VERDICTS='{
+	fixtures: [.fixtures[] | {name, status, gates: [.gates[] | {gate, verdict}], parity: (.parity.verdict // null)}],
+	mutations: [.mutations[] | {name, fixture, gate, status}],
+	harnessError: (.harnessError != null)
+}'
+
 # reports SIDE: every mode into reports/SIDE/<mode>/ (normalized report, exit code, file hashes).
+# Every run writes into the same reports/run/, so no output path differs between sides.
 reports() {
+	run="$B/reports/run"
 	echo "$MODES" | while IFS='|' read -r mode flags; do
 		dir="$B/reports/$1/$mode"
-		rm -rf "$dir"
+		rm -rf "$dir" "$run"
 		mkdir -p "$dir"
 		echo "$(stamp) render:check $mode"
 		set +e
 		# shellcheck disable=SC2086
-		(cd "$REPO" && bun run render:check $flags --out "$dir/run") </dev/null >"$dir/log" 2>&1
+		(cd "$REPO" && bun run render:check $flags --out "$run") </dev/null >"$dir/log" 2>&1
 		echo "exit $?" >"$dir/exit"
 		set -e
 		echo "$(stamp) render:check $mode: $(cat "$dir/exit")"
-		jq -S 'del(.startedAt, .engineVersion, .chromium, .playwright)' "$dir/run/report.json" \
-			>"$dir/report.json"
+		# Run-dependent: the start time, the tool versions and each fixture's wall-clock seconds.
+		jq -S 'del(.startedAt, .engineVersion, .chromium, .playwright, .fixtures[].seconds)' \
+			"$run/report.json" >"$dir/report.json"
 		if [ -n "$flags" ]; then
 			# Names carry a per-run counter: compare the sorted content hashes, not the names.
-			find "$dir/run" \( -name '*.wav' -o -name '*.job.json' \) -type f -exec shasum -a 256 {} + |
+			find "$run" \( -name '*.wav' -o -name '*.job.json' \) -type f -exec shasum -a 256 {} + |
 				cut -d' ' -f1 | LC_ALL=C sort >"$dir/files.txt"
 		fi
-		rm -rf "$dir/run"
+		rm -rf "$run"
 	done
+}
+
+# varying_paths A B: the leaf paths whose values differ between two report.json files.
+varying_paths() {
+	jq -rn --slurpfile a "$1" --slurpfile b "$2" '
+		$a[0] as $A | $b[0] as $B
+		| [(($A | paths(scalars)), ($B | paths(scalars))) as $p
+			| select(($A | getpath($p)) != ($B | getpath($p)))
+			| $p | map(if type == "number" then "[]" else tostring end) | join(".")]
+		| unique | .[]'
+}
+
+# same_verdicts A_DIR B_DIR: 0 when the exit codes and the report verdicts are equal.
+same_verdicts() {
+	cmp -s "$1/exit" "$2/exit" &&
+		[ "$(jq -cS "$VERDICTS" "$1/report.json")" = "$(jq -cS "$VERDICTS" "$2/report.json")" ]
 }
 
 case "${1:-}" in
@@ -590,6 +706,24 @@ check)
 reports-baseline)
 	require_unedited
 	reports base
+	echo "$(stamp) reports base2 (determinism)"
+	reports base2
+	for m in "$B"/reports/base/*; do
+		mode=$(basename "$m")
+		if diff -r -x log "$m" "$B/reports/base2/$mode" >"$B/reports-base-diff.txt"; then
+			continue
+		fi
+		if [ "$mode" != sd ]; then
+			die "two $mode report runs differ (a Rust mode must be reproducible; $B/reports-base-diff.txt)"
+		fi
+		if ! same_verdicts "$m" "$B/reports/base2/sd"; then
+			die "two superdough report runs differ in an exit code or a verdict ($B/reports-base-diff.txt)"
+		fi
+		# Kept with the baseline: reports-check compares sd on verdicts only from here on.
+		varying_paths "$m/report.json" "$B/reports/base2/sd/report.json" >"$m/varies.txt"
+		echo "sd is not reproducible: compared on verdicts only; varying fields in $m/varies.txt:"
+		head -20 "$m/varies.txt"
+	done
 	mkdir -p "$CACHE"
 	cp "$0" "$CACHE/ab.sh"
 	rm -rf "$CACHE/reports-base"
@@ -599,8 +733,26 @@ reports-baseline)
 reports-check)
 	[ -d "$B/reports/base" ] || die "no report baseline at $B/reports/base (see 001-frames.md step 1)"
 	reports cur
-	if diff -r -x log "$B/reports/base" "$B/reports/cur" >"$B/reports-diff.txt"; then
-		echo "equal: $(ls "$B/reports/cur" | tr '\n' ' ')(report, exit code, kept jobs and WAVs)"
+	bad=0
+	: >"$B/reports-diff.txt"
+	for m in "$B"/reports/base/*; do
+		mode=$(basename "$m")
+		if [ -f "$m/varies.txt" ]; then
+			if same_verdicts "$m" "$B/reports/cur/$mode"; then
+				echo "$mode: equal verdicts and exit code (not reproducible: compared on verdicts only)"
+			else
+				echo "$mode: DIFFERENT verdicts or exit code" | tee -a "$B/reports-diff.txt"
+				bad=1
+			fi
+		elif diff -r -x log "$m" "$B/reports/cur/$mode" >>"$B/reports-diff.txt"; then
+			echo "$mode: equal (report, exit code$([ "$mode" = sd ] || echo ', kept jobs and WAVs'))"
+		else
+			echo "$mode: DIFFERENT"
+			bad=1
+		fi
+	done
+	if [ "$bad" = 0 ]; then
+		echo "equal: $(ls "$B/reports/cur" | tr '\n' ' ')"
 	else
 		echo "DIFFERENT ($B/reports-diff.txt):"
 		head -60 "$B/reports-diff.txt"
@@ -611,16 +763,45 @@ refs)
 	cd "$REPO"
 	bad=0
 	n=0
-	untracked=$(git status --porcelain --untracked-files=all -- crates/strudeland-engine/tests/refs 'plans/*/evidence' | grep -v '^ M ' || true)
-	if [ -n "$untracked" ]; then
+	floor=''
+	refs=crates/strudeland-engine/tests/refs
+	evidence=':(glob)plans/*/evidence/**'
+	added=$(git status --porcelain --untracked-files=all -- "$refs" "$evidence" | grep -v '^ M ' || true)
+	if [ -n "$added" ]; then
 		echo "refs: files added or deleted:"
-		echo "$untracked"
+		echo "$added"
 		bad=1
 	fi
-	for f in $(git diff --name-only HEAD -- crates/strudeland-engine/tests/refs 'plans/*/evidence'); do
+	strip='walk(if type == "object" then del(.plannerSha256) else . end)'
+	# shellcheck disable=SC2086 # FLOOR_CASES is a list of names
+	floors=$(printf '%s\n' $FLOOR_CASES | jq -R . | jq -sc .)
+	for f in $(git diff --name-only HEAD -- "$refs" "$evidence"); do
 		case "$f" in
+		"$refs/index.json")
+			# Each job file's hash moves with its provenance, and the floor cases' floorDb with
+			# their re-render: drop those; every other key and every `bytes` must be HEAD's.
+			istrip="$strip | del(.files[].sha256)
+				| reduce \$floors[] as \$c (.; if .cases[\$c] then .cases[\$c] |= del(.floorDb) else . end)"
+			if git show "HEAD:$f" | jq -S --argjson floors "$floors" "$istrip" >"$B/refs-old.json" &&
+				jq -S --argjson floors "$floors" "$istrip" "$f" >"$B/refs-new.json" &&
+				cmp -s "$B/refs-old.json" "$B/refs-new.json"; then
+				n=$((n + 1))
+			else
+				echo "refs: $f differs beyond plannerSha256, the file hashes and the floor cases' floorDb"
+				bad=1
+			fi
+			# Each listed hash must be the file's on disk.
+			jq -r '.files | to_entries[] | "\(.key)\t\(.value.sha256)"' "$f" |
+				while IFS="$TAB" read -r name want; do
+					[ "$(sha "$refs/$name" 2>/dev/null)" = "$want" ] || echo "$name"
+				done >"$B/refs-hash.txt"
+			if [ -s "$B/refs-hash.txt" ]; then
+				echo "refs: index.json hashes that are not the file's:"
+				head -20 "$B/refs-hash.txt"
+				bad=1
+			fi
+			;;
 		*.json)
-			strip='walk(if type == "object" then del(.plannerSha256) else . end)'
 			if git show "HEAD:$f" | jq -S "$strip" >"$B/refs-old.json" &&
 				jq -S "$strip" "$f" >"$B/refs-new.json" &&
 				cmp -s "$B/refs-old.json" "$B/refs-new.json"; then
@@ -630,15 +811,39 @@ refs)
 				bad=1
 			fi
 			;;
+		*.wav)
+			c=$(basename "$f" .wav)
+			case " $FLOOR_CASES " in
+			*" $c "*) floor="$floor $c" ;;
+			*)
+				echo "refs: $f changed (only a floor case's WAV may be re-rendered)"
+				bad=1
+				;;
+			esac
+			;;
 		*)
-			echo "refs: $f changed (only JSON provenance may change)"
+			echo "refs: $f changed (only JSON provenance and the floor cases may change)"
 			bad=1
 			;;
 		esac
 	done
-	rm -f "$B/refs-old.json" "$B/refs-new.json"
+	rm -f "$B/refs-old.json" "$B/refs-new.json" "$B/refs-hash.txt"
 	if [ "$bad" = 0 ]; then
-		echo "provenance-only: $n file(s) differ from HEAD in plannerSha256 alone"
+		# The written refs are current, and the re-rendered floors are within FLOOR_MAX_DB.
+		echo "$(stamp) engine:refs (check)"
+		set +e
+		bun run engine:refs </dev/null >"$B/refs-check.log" 2>&1
+		code=$?
+		set -e
+		if [ "$code" != 0 ]; then
+			echo "refs: engine:refs (check) exited $code after --write ($B/refs-check.log)"
+			tail -20 "$B/refs-check.log"
+			bad=1
+		fi
+	fi
+	if [ "$bad" = 0 ]; then
+		echo "provenance-only: $n file(s) differ from HEAD in plannerSha256 (index.json: and its hashes)" \
+			"alone; floor WAVs re-rendered:${floor:- none}; engine:refs (check) exit 0"
 	fi
 	exit "$bad"
 	;;

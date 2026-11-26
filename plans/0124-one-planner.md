@@ -253,7 +253,8 @@ export interface RenderPlanRequest {
     `RenderOptions`, which has no chunk. So `strudeland render` and the app cannot send one,
     and no production refusal is needed.
   - The bundle checks the combination.
-- **`validateRenderRequest` refuses each of these** with `bad request: …`:
+- **`validateRenderRequest` refuses each of these six** with `bad request: …`:
+  - a `chunk` that is not an object;
   - `chunk` without `length.kind === 'window'`;
   - `chunk` with a `preset`;
   - `overlapBars` that is not an integer with `toBar + overlapBars <= MAX_RENDER_BARS`;
@@ -356,11 +357,17 @@ export interface RenderPlanRequest {
     the song is the file) and returns `{ job, text: chunks[0].json, info: pageJobInfo(plan) }`.
   - `job` stays lazily parsed.
   - `hostRequestJson`, `hostPlanArgs` and `parsePlanOutput` are deleted. `parsePlanRenderOutput`
-    also checks the single chunk's `info` when the request had `chunk`.
+    keeps its checks, and `pageJobInfo` refuses a plan without exactly one chunk with `info`.
+  - The `info` now passes through the Rust mirror, where today's `plan` printed the bundle's
+    text: `ChunkWindow` (no unknown key kept), `Structure`, `PlanError` (`bar: Option<i64>`)
+    and events as `serde_json::Value`. A seam chunk's `overlapFrames` survives only because
+    001 adds `ChunkWindow.overlap_frames`, which `overlapOf` needs. `host:parity` checks that
+    nothing is lost (below).
 - **`host:parity`.**
   - Non-batch: each request in the set goes through the page's `job` kind and through
     `HostPlanner.job`. Both are single-chunk `planRender` now. The job text is compared byte
-    for byte, as today.
+    for byte, as today, and the `info` deep-equal without `errors`, which is new. The seam
+    requests of the seven `seam`-gated fixtures cover `plan.overlapFrames`.
   - `--batch` does two things:
     1. it compares the page's `plannedRender` with the host's `plan-render` of the fixture
        window as whole plans, through `firstDifference`, with `errors` removed from both;
@@ -371,7 +378,9 @@ export interface RenderPlanRequest {
     README, "Known differences"). Part 2 is the corpus-scale evidence that the cut schedule
     equals a chunk's own query, the property `BATCH_REUSE_SCHEDULE`'s fallback existed to
     guard.
-  - `--mixed-meter` does not change.
+  - `--mixed-meter` keeps its whole-plan comparisons, and adds two single-chunk requests over
+    the mixed-meter song (one with overlap across the 3/8 bar), compared by job text and by
+    `info` without `errors`. No corpus fixture has `meterChanges`.
 
 #### Tests (replace, don't layer)
 
@@ -379,16 +388,17 @@ export interface RenderPlanRequest {
 |---|---|
 | `render-job-plan.test.ts` "every chunk's job equals planJob of its chunk request" (`:838-885`) | "a single-chunk request at chunk k's bars and lookback, overlap 0, equals planRender chunk k": the same five cases, comparing `json` and `plan` (the single chunk's `plan` equals chunk k's) |
 | "the per-chunk schedule fallback gives the same jobs" (`:887-899`) | deleted |
-| `describe('planJob success'…)`, `planJob query reuse`, `planJob failures` | the same tests on `planRender(rt, code, singleChunkRequest(req), …)`, reading `pageJobInfo`; the `expected(...)` helper still builds the want from `planEngineJob` directly, which makes them absolute |
-| — | `validateRenderRequest`: the six `chunk` refusals and an accepted chunk |
-| `host-entry.test.ts` `planJob: …` (`:85-187`) | the same behaviours through `strudelandHost.planRender` with a `chunk`; tests that duplicate an existing `planRender:` test are deleted, not ported |
+| `describe('planJob success'…)`, `planJob query reuse`, `planJob failures` | the same tests on `planRender(rt, code, singleChunkRequest(req), …)`, reading `pageJobInfo`; the `expected(...)` helper still builds the want from `planEngineJob` directly, which makes them absolute. In `planJob failures` (`:424-447`): the three cps cases become `windowPlan` tests (extending `render-offline.test.ts:282`); the lookback and empty-window rows become `validateRenderRequest` refusals with their `bad request: …` messages; the buffer bound is rewritten at `toBar: 100000` |
+| — | `validateRenderRequest`: the six `chunk` refusals, the moved rows, and an accepted chunk |
+| `host-entry.test.ts` `planJob: …` (`:85-187`) | the same behaviours through `strudelandHost.planRender` with a `chunk`; tests that duplicate an existing `planRender:` test are deleted, not ported; the window-less request (`:181`) becomes a bad `chunk`, kind `plan` with `bad request: …` |
 | `render-host-planner.test.ts` `hostRequestJson`, `hostPlanArgs`, `parsePlanOutput` | `singleChunkRequest` JSON, the `plan-render` argument list, and `parsePlanRenderOutput` to `PageJobInfo` (with the same exit, signal, truncation and malformed cases) |
 | `tests/render-page-job.test.ts` | adds `pageJobInfo`: one chunk, and the throw on zero, two, or no `info` |
 | `crates/strudeland-host/src/request.rs`: `RenderRequest` validation tests | `SingleChunk` serde: its shape, `auto` and a number, unknown fields refused; the range checks are the TS tests above |
 | `tests/host.rs` `plan_job` tests | onto `plan_render` with a chunk; those that duplicate `tests/plan_render.rs` are deleted (`a_request_does_not_see_the_previous_ones_globals`, `a_song_waiting_on_a_timer_is_unsettled`, `an_invalid_request_is_plan`, merged into the `plan_render.rs` one) |
 | `tests/plan_render.rs` `chunks_equal_plan_job_of_each_chunk_request` | `chunks_equal_the_single_chunk_plan_of_each_chunk_request` |
 | `tests/bin.rs` `plan_*` tests | ported to `plan-render` where it lacks the behaviour (a request file, `--out`, exit 1 with the kind, exit 2 with the usage, `timeoutSec`); plus `plan` is an unknown command |
-| `tests/never_panics.rs` odd requests | the same loop plus odd `chunk` values (negative, huge, fractional `overlapBars`; a negative or non-number `lookbackSec`; an unknown `mode`) |
+| `tests/never_panics.rs` odd requests | the same loop plus the odd `chunk` values a typed `SingleChunk` can hold (`overlap_bars: u32::MAX`; a NaN, infinite or negative `lookbackSec`); every other `plan_job` call there (`:69`, `:87`, `:195`, `:225`, `:234`, `:253`, `:261`) ported to `plan_render` with a chunk |
+| — | `tests/bin.rs`: the odd `chunk` values a typed request cannot hold, as raw `--request` JSON (a negative or fractional `overlapBars`, a non-number `lookbackSec`, an unknown `mode` or key): a serde `invalid request`, exit 2 |
 | `tests/bench.rs` "the hash and size are those of the plan output" | against `plan-render`'s `chunks[0].json` |
 | `tests/common/mod.rs` `request(to_bar)` | returns the single-chunk `RenderPlanRequest` |
 | `crates/strudeland-render/tests/joiner_identity.rs` | each per-chunk plan is `Host::plan_render` with a chunk (a fresh host each), compared with the batch's job text, then rendered and joined; the same bit-identity assertion |
@@ -417,7 +427,8 @@ export interface Renderer {
     2. it derives `timing = renderTiming(structure, layoutSegments(base.layout, structure),
        cps)`, the same derivation `check.ts:518` uses for `fx.timing`;
     3. it writes the song to `<outDir>/batch/<sha256>.js` with `writeSongFile`;
-    4. it runs `BatchRenderer.window` with `name: <sha8>-<from>-<to>`.
+    4. it runs `BatchRenderer.window` with `name: <sha8>-<from>-<to>-<layout>`. The layout is
+       in the name because `song-linear` and `song-clip` are one song in two layouts.
   - The cross-checks (window, cps, schedule, errors, tiling) are unchanged.
   - `BatchTarget` loses nothing; `PipelineRenderer` fills it.
 - **`check.ts`.**
@@ -445,23 +456,33 @@ export interface Renderer {
 No committed hash covers a corpus song through the whole pipeline, so stage 001 records an
 absolute baseline **before any edit**. The draft script is
 `$S/0124-draft/ab.sh`, where `$S` is the planning session's scratchpad. Stage 001 copies it to
-`$S/0124-baseline/ab.sh`. It refuses `baseline` and `reports-baseline` unless
-`git diff --quiet a8151213 -- src crates scripts tests vendor` holds and no untracked file is
-there.
+`$S/0124-baseline/ab.sh`. It refuses `baseline` and `reports-baseline` unless nothing is
+edited or added, against `a8151213`, under `src`, `crates`, `scripts`, `tests`, `vendor`,
+`Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock`, `strudel-pins.json`,
+`vite.render.config.ts` and `render/index.html`.
 
-- **`ab.sh baseline` / `check`** (77 cases). Release `strudeland-render` and `strudeland` built
+- **`ab.sh baseline` / `check`** (96 cases). Release `strudeland-render` and `strudeland` built
   from the tree render:
   - every corpus fixture's window (34), with `--loudness off --format wav --bit-depth 32f
     --info`;
-  - `song-linear.js` and `tests/render/mixed-meter-loop.js`:
+  - `song-linear.js`, `tests/render/mixed-meter-loop.js` and a scratch song, `frac-737`:
     - clip, `--loops 1` and `3`, every section, `--length 3` and `11`, through
       `strudeland-render`;
     - every preset, raw and leveled, a one-shot section, a leveled plain clip and an orbit stem
       set, through `strudeland render`;
   - the stems fixtures' orbit stem sets (`stems-5`, `stems-shared`, `late-feedback`).
 
+  `frac-737` is written by the script into `$S/0124-baseline/songs/`, never under `tests/`.
+  It is 137 bpm in 7/8: a bar is 67598.54 frames, so every bar edge after 0 rounds, and it
+  has an intro, a loop section and a tail. The corpus has fractional bars only as plain
+  windows (`odd-meter` is also 137 bpm 7/8). The two sectioned songs that go through the
+  presets, `--loops` and `--section` have whole-frame bars at 120 bpm, so without `frac-737`
+  `loopStartFrame` and `repeat.musicFrames` would be checked only where rounding does
+  nothing.
+
   It records every output file's sha256, every exit code, the stderr hash of each failed case
-  (`samples` and `noise-seed` are refused), and the `--info` JSON with its timings removed.
+  (`samples` and `noise-seed` are refused), the stdout of every `strudeland render` case
+  without its wall-clock `time:` line, and the `--info` JSON with its timings removed.
   `baseline` records twice and requires the two to be equal (determinism). It copies the
   script and `base/` to `~/.cache/strudeland-0124/`. `check` compares audio exactly. An
   `--info` file may differ in one way only: a chunk that lacked `contentFrames` gains it.
@@ -471,16 +492,32 @@ there.
   - `--engine rust --planner host`;
   - `--engine rust --planner batch`.
 
-  The three Rust modes run with `--keep-wav`. The script compares:
-  - each `report.json`, without `startedAt`, `engineVersion`, `chromium` and `playwright`;
+  The three Rust modes run with `--keep-wav`. Every run writes into one fixed folder, then is
+  normalized and moved, so no output path differs between runs. The script compares:
+  - each `report.json`, without `startedAt`, `engineVersion`, `chromium`, `playwright` and
+    each fixture's wall-clock `seconds` (`check.ts:582`);
   - each exit code;
   - for the Rust modes, the sorted sha256 list of every kept engine job text and WAV.
 
-  So the gate metrics, every planned job's text (page and host) and the harness's joined audio
-  are checked absolutely.
-- **`ab.sh refs`.** After `engine:refs --write`, every changed file under `tests/refs` and
-  `plans/*/evidence` must differ from `HEAD` only in `provenance.plannerSha256`. No WAV and no
-  file is added or deleted.
+  `reports-baseline` runs every mode twice and requires the two to be equal. A Rust mode that
+  differs is a stop. If superdough differs only in measurements, the varying fields are
+  recorded and `sd` is compared from then on by its exit code and its fixture, gate, parity
+  and mutation verdicts. That is a property of this A/B guard, not a repo threshold. So the
+  gate metrics (the Rust modes exactly), every planned job's text (page and host) and the
+  harness's joined audio are checked absolutely.
+- **Production job text** (`strudeland_render::plan`'s chunks) is compared as text by no gate.
+  It is guarded through the audio hashes of `check`, and from 002 by `host:parity --batch`.
+- **`ab.sh refs`.** After `engine:refs --write`, checked against `HEAD`:
+  - every changed JSON file under `tests/refs` and `plans/*/evidence` (the pathspec
+    `':(glob)plans/*/evidence/**'`) differs only in `provenance.plannerSha256`;
+  - `index.json` also in `files[*].sha256`, which moves with each job file's provenance, and
+    each listed hash must be its file's sha256 on disk, with every `bytes` unchanged (the
+    precedent is `plans/0116-render-request-cleanup/proposal.md:139`);
+  - the measured-floor cases (`FLOOR_CASES`, `scripts/engine/refs-lib.ts:719`:
+    `vowel-formants` and `mod-lfo-note`) may change their WAV and `floorDb`. Their job bytes
+    change, so `settleFloorCase` (`:777`) re-renders them, and the render varies run to run.
+    No other WAV changes, and no file is added or deleted;
+  - `bun run engine:refs` (check mode) then exits 0, which also enforces `FLOOR_MAX_DB`.
 - **`ab.sh vectors`.** After `render:vectors --write`, `joiner.json` differs from `HEAD` only
   by the added per-chunk `contentFrames` and `frames`.
 
@@ -512,9 +549,12 @@ equal. A difference is a **stop**:
 - **Event key order through serde** (stage 002). Keys may be re-sorted, but nothing reads
   events positionally. The kept-job hashes in `reports-check` would catch a mutation that
   depends on it (`applyMutation` serializes the mutated job).
-- **The determinism of the baseline.** `baseline` records twice. If a case is not
-  reproducible, the script refuses, and the case is investigated before stage 001 starts.
-- **Run time.** The four `render:check` modes run before stage 001 and after each stage. They
+- **The determinism of the baseline.** `baseline` and `reports-baseline` each record twice.
+  If a case or a Rust report is not reproducible, the script refuses, and it is investigated
+  before stage 001 starts. A superdough report that varies only in measurements is compared on
+  its verdicts from then on, as the A/B guard says.
+- **Run time.** The four `render:check` modes run twice before stage 001 and once after each
+  stage. They
   are the slowest gates; the stage files give estimates, and the logs record the real times.
 
 ## Open questions

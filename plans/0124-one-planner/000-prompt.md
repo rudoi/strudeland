@@ -49,14 +49,17 @@ the next starts.
 - **No output change.** These stay byte-identical to the baseline:
   - every engine job text;
   - every render through `strudeland-render` and `strudeland render`;
-  - every stem set, exit code and refusal text;
+  - every stem set, exit code and refusal text, and `strudeland render`'s printed summary
+    (without its `time:` line);
   - every `render:check` report (normalized) and every job and WAV it keeps.
 
   The `--info` files may gain `contentFrames` on chunks that lacked it, and nothing else.
 - **STOP, and report to the user, on any of these.** Do not work around them:
   - any audio hash difference in `ab.sh check`;
   - any `reports-check` difference;
-  - any ref that differs beyond `provenance.plannerSha256` in `ab.sh refs`;
+  - any ref that differs beyond what `ab.sh refs` allows: `provenance.plannerSha256`,
+    `index.json`'s file hashes (each must be its file's sha256), and the two measured-floor
+    cases' WAVs and `floorDb`; or `engine:refs` failing its check after the write;
   - a `joiner.json` frame count or hash change in `ab.sh vectors`;
   - a need to edit a threshold, a golden, a ref or vector by hand, `SKILL.md`, a CLI flag or
     the A/B script;
@@ -106,21 +109,28 @@ The baseline log records the real figures for the slow ones.
 | Step | Command | Time | Which stages |
 |---|---|---|---|
 | 1 | `L host-build bun run host:build` | <1 min (m) | all |
-| 2 | `L refs-check bun run engine:refs` (expect exit 1, "refs differ", provenance only) | ~3 min (m) | 001, 002 |
+| 2 | `L refs-check bun run engine:refs` (expect exit 1, "refs differ": `plannerSha256`, the job files' index hashes and the two floor cases, nothing else) | ~3 min (m) | 001, 002 |
 | 3 | `L refs-write bun run engine:refs --write` | ~3 min (m) | 001, 002 |
-| 4 | `L refs-ab "$S/0124-baseline/ab.sh" refs` (must exit 0, "provenance-only") | <10 s (e) | 001, 002 |
-| 5 | `L vectors-write bun run render:vectors --write`, then `L vectors-ab "$S/0124-baseline/ab.sh" vectors` | <10 s (e) | 001 |
+| 4 | `L refs-ab "$S/0124-baseline/ab.sh" refs` (must exit 0 and end `engine:refs (check) exit 0`; it runs the check mode itself) | ~3 min (e) | 001, 002 |
+| 5 | 001: `L vectors-write bun run render:vectors --write`, then `L vectors-ab "$S/0124-baseline/ab.sh" vectors`. 001 and 002: `L engine-vectors bun run engine:vectors` (check mode, must exit 0) | <1 min (e) | 001 (all of it), 002 (`engine:vectors`) |
 | 6 | `L bun-test bun test` | ~1 min (m) | all |
 | 7 | `L check bun run check` and `L lint bun run lint` | ~1 min each (e) | all |
 | 8 | `L cargo-test cargo test --workspace` | ~7 min warm (m); 20+ cold | all |
 | 9 | `L clippy cargo clippy --workspace --all-targets -- -D warnings` and `L fmt cargo fmt --all --check` | ~4 min (e) | all |
 | 10 | `L parity bun run host:parity`, `L parity-batch bun run host:parity --batch`, `L parity-mm bun run host:parity --mixed-meter` | ~3-5 min each (e); <1 min for `--mixed-meter` (m) | all |
 | 11 | `L perf cargo test --release -p strudeland-host --test perf_budget -- --ignored --nocapture` | ~2 min with the release build (e) | 002 (and 001 as a spot check) |
-| 12 | `L ab "$S/0124-baseline/ab.sh" check` (must end `equal: 77 cases`) | ~5-10 min with the release build (e) | all |
+| 12 | `L ab "$S/0124-baseline/ab.sh" check` (must end `equal: 96 cases`) | ~7-12 min with the release build (e) | all |
 | 13 | `L reports "$S/0124-baseline/ab.sh" reports-check` (must end `equal`) | ~30-60 min for the four modes (e) | all |
 
 - **Step 2** shows the diff summary before anything is written. Step 4 is the absolute check on
-  what step 3 wrote.
+  what step 3 wrote: the JSON refs differ only in `plannerSha256`, `index.json` also only in
+  the file hashes (which must match the files) and the floor cases' `floorDb`, no WAV but the
+  floor cases' changed, and `engine:refs` (check) passes after the write. The floor cases
+  (`vowel-formants`, `mod-lfo-note`) are re-rendered whenever their job bytes change, and
+  their Chromium renders differ run to run (`scripts/engine/refs-lib.ts:719`, `:777`).
+- **Production job text** (`strudeland_render::plan`'s chunks) is not compared as text by any
+  gate. It is guarded through the audio hashes of `ab.sh check`, and in 002 through
+  `host:parity --batch` against the page's single-chunk jobs.
 - **Step 3 and stage 003.** Stage 003 edits no `PLANNER_FILES`. Its `host:build` changes only
   `host.inputs.json`, because `contract.ts` and `chunks.ts` are host inputs. So steps 2-4 do
   not apply there. If `engine:refs` (step 2) shows any difference in 003, stop.
@@ -131,7 +141,8 @@ The baseline log records the real figures for the slow ones.
 - **The gates run on macOS.** `jsmath`'s exact tests are judged there.
 - **Each stage report lists:**
   - the exit line of every log;
-  - the `ab.sh check` and `reports-check` summaries;
+  - the `ab.sh check` and `reports-check` summaries, and whether `sd` is compared on verdicts
+    only (with the varying fields recorded at the baseline);
   - the `ab.sh refs` count;
   - the `perf_budget` median (002).
 

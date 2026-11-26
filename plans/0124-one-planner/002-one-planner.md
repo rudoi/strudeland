@@ -184,9 +184,12 @@ takes a type-only import from `./job-plan`.
      - `plan-render` with `chunk` plans one chunk;
      - `timeoutSec` bounds the planning (past it the host error is `timeout: …`, exit 1);
      - `plan` is no longer a command.
-7. **Every `RenderPlanRequest { … }` literal** in the workspace gains `chunk: None`. Find them
-   all with `git grep -n 'RenderPlanRequest {' -- crates`; there are 29 at `a8151213`. They
-   include `strudeland_render::plan`, which never sets one: `RenderOptions` has no chunk.
+7. **Every full `RenderPlanRequest { … }` literal** in the workspace gains `chunk: None`.
+   `git grep -n 'RenderPlanRequest {' -- crates` prints 29 lines at `a8151213`: the struct,
+   its `impl`, three helper signatures (`-> RenderPlanRequest {`) and 23 literals. Of the 23,
+   5 list every field and gain `chunk: None`; the other 18 end in `..helper(…)` and inherit
+   it. The 5 include `strudeland_render::plan` (`src/plan.rs:22`), which never sets one:
+   `RenderOptions` has no chunk. The compiler finds any that is missed.
 
 ## Step 5: the harness (TS scripts)
 
@@ -199,6 +202,17 @@ takes a type-only import from `./job-plan`.
        the message);
      - a lazily parsed `job`, with the same "not JSON" and "not an object" failures as today's
        `parsePlanOutput`.
+   - **The `info` now passes through the Rust mirror.** Today's `plan` printed the bundle's
+     info line verbatim. `plan-render` re-serializes the plan from the Rust types, so `info`
+     comes back through:
+     - `ChunkWindow` for `plan` (it keeps no unknown key);
+     - `Structure` for `structure`;
+     - `PlanError`, with `bar: Option<i64>`, for `errors`;
+     - `serde_json::Value` for `events`.
+
+     `overlapOf` (stage 001) reads `plan.overlapFrames` for every seam chunk, so this depends
+     on 001's `ChunkWindow.overlap_frames`. Without it, every host-planned seam chunk would
+     throw. Step 5.4 adds the check that the mirror loses nothing.
    - Delete `hostRequestJson`, `hostPlanArgs` and `parsePlanOutput`.
    - Rewrite the module doc's outcomes paragraph for `plan-render`.
    - `parsePlanRenderOutput` keeps its checks.
@@ -226,6 +240,19 @@ takes a type-only import from `./job-plan`.
      - If one shows up, **stop** and report it.
      - Adding the key to the mirror would change the `--info` files, which the A/B guard
        forbids. Leaving it out of the comparison is a decision for the user.
+   - **The single-chunk `info` through the mirror** (step 5.1):
+     - `plan()` returns the `info` beside the text. Non-batch `compare` also compares the two
+       sides' `info` without `errors`, with `firstDifference`, for every request. A
+       difference is `DIFF`, with the line `request <n> info: first difference at <path>`.
+       The corpus request set has the seam chunks of the seven `seam`-gated fixtures, so
+       `plan.overlapFrames` is covered.
+     - No corpus fixture has `meterChanges`. So `--mixed-meter` adds two single-chunk
+       requests over `tests/render/mixed-meter-loop.js`, both linear with lookback `'auto'`:
+       `[2, 6)` with `overlapBars: 1` (across the 3/8 bar), and `[0, 12)` with overlap 0. Each
+       is compared by job text, and by `info` without `errors`.
+     - Add `infoWithoutErrors(info: PageJobInfo)` to `host-parity-lib.ts`, beside
+       `withoutErrors`, with tests.
+     - A difference here is the mirror gap above: **stop** and report it.
 5. **`AGENTS.md`'s `host:parity` row and `CONTRIBUTING.md`** need no new command: the flags do
    not change.
 
@@ -247,14 +274,33 @@ Follow the proposal's test table. In particular:
     - they read `pageJobInfo(...)` and `chunks[0].json`;
     - `expected(...)` keeps building the want from `planEngineJob`;
     - the query-count assertions still hold: one query when `c0 === 0`, else two.
+  - The `planJob failures` describe (`:332-447`) is ported like this:
+    - the three kind tests (a query that throws is `plan`, a non-Error value, a
+      `PlanJobError` rethrown unchanged) go onto `planRender` with `singleChunkRequest`;
+    - in the `test.each` at `:424-439`, the three cps cases become `windowPlan` tests in
+      `tests/render-offline.test.ts`. They extend the existing `invalid cps` test (`:282`) to
+      NaN, 0 and -1 rather than sit beside it;
+    - its other three rows are now refusals of the request, so they move to the new
+      `validateRenderRequest` block with the new messages:
+      - the negative and NaN lookbacks give `bad request: chunk.lookbackSec must be 'auto'
+        or a number of seconds >= 0`;
+      - the empty window gives `bad request: length window must be integers with 0 <=
+        fromBar < toBar <= 100000`;
+    - the buffer-bound test (`:441-446`) is rewritten at `toBar: 100000`, since `1e7` is now
+      over `MAX_RENDER_BARS` and a bad request. At the fake's cps it is still kind `plan`
+      with `render buffer too large: … bytes (max 1000000000)`.
   - Add a `validateRenderRequest` block with the six `chunk` refusals from the step 1 table
-    and an accepted chunk for each mode.
+    (the first is `chunk must be an object`), the moved rows above, and an accepted chunk for
+    each mode.
 - **`tests/host-entry.test.ts`.** The `planJob:` tests (`:85-187`) go through
   `strudelandHost.planRender(code, JSON.stringify({ ...singleChunkRequest(req) }))`.
   - Tests that re-check what an existing `planRender:` test checks are deleted:
     - the ASCII text;
     - a bad request is kind plan;
     - meta, eval and plan carry their kinds.
+  - "a request without the window fields fails in the plan step" (`:181`) becomes a
+    `planRender` with `chunk: {}`: kind `plan`, and the message starts `bad request:
+    chunk.overlapBars`.
   - The console-capture and shim tests are ported. Their subject is the bundle, not the entry
     point.
   - "importing the entry installs" asserts the three members.
@@ -286,8 +332,19 @@ Follow the proposal's test table. In particular:
       `plan_timeout_bounds_the_planning`);
     - add `plan_is_not_a_command`;
     - delete the rest.
-  - `never_panics.rs`: `odd_request_numbers_are_errors` gains the odd `chunk` values from the
-    proposal. A bad `chunk` value must be a bad request.
+  - `never_panics.rs`:
+    - `odd_request_numbers_are_errors` gains the odd `chunk` values that a typed
+      `SingleChunk` can hold: `overlap_bars: u32::MAX`, and `LookbackSec::Seconds` of NaN,
+      negative infinity and -0.5. Each must be `HostError::Plan` starting `bad request:`.
+      Its `RenderRequest` cases are ported onto chunk requests, except `sample_rate: 0`,
+      which no request can carry any more.
+    - The values a typed `SingleChunk` cannot hold go through raw JSON in `bin.rs`, as
+      `plan-render --request` text: a negative and a fractional `overlapBars`, a non-number
+      `lookbackSec` (`"x"`, `null`, `[]`), an unknown `mode`, and an unknown `chunk` key.
+      Each is a serde `invalid request` and exits 2 with the usage.
+    - The other `plan_job` calls are ported to `plan_render` with a chunk: `:69` and `:87`
+      (malformed songs), `:195` (the huge lookback), `:225` and `:234` (the 100000-bar window
+      and its last bar), and `:253` and `:261` (the heap hog and the fresh heap after it).
   - `bench.rs`: the hash and size test compares with `plan-render`'s `chunks[0].json`.
   - `perf_budget.rs`: `Fixture.request` is the single-chunk `RenderPlanRequest`. `largest`
     and the timed runs use `plan_render`.
@@ -314,8 +371,12 @@ Follow the proposal's test table. In particular:
   - Layout: in "The headless host", `planJob` becomes `planRender`, and the binary has
     `plan-render`, `query` and `bench`. In "The render pipeline", `BATCH_REUSE_SCHEDULE` is
     removed.
-  - Rules, "Headless host": "`host:parity --batch` is the check that `plan-render` plans the
-    page's plans and the page's single-chunk jobs".
+  - Rules, "Headless host":
+    - "`host:parity --batch` is the check that `plan-render` plans the page's plans and the
+      page's single-chunk jobs";
+    - the `host:parity` sentence (`AGENTS.md:428-429`) becomes "byte-equal job text, and
+      `info` deep-equal without `errors`; `errors` is not compared: the page-only and
+      host-only error sources differ, crate README" (step 5.4).
 - **`crates/strudeland-host/README.md`.**
   - The library and binary lists drop `plan_job`, `PlannedJob` and `plan`.
   - "Batch planning":
@@ -323,37 +384,65 @@ Follow the proposal's test table. In particular:
     - `chunk` plans one chunk for the harness;
     - the `BATCH_REUSE_SCHEDULE` paragraph is deleted.
   - "Planning timeout": `RenderPlanRequest.timeoutSec` only.
-  - "Performance budget": bench and `perf_budget` plan one chunk through `plan_render`.
+  - "Performance budget":
+    - bench and `perf_budget` plan one chunk through `plan_render`;
+    - `--profile`'s `queryMs` (the `querying` mark to the result slot) now also covers
+      building the plan, with the job text escaped inside it and the chunk's `info`.
+      `jsonMs` is the read-out plus the serde parse of the plan. Neither is comparable with a
+      figure from before this change;
+    - `perf_budget` times exactly that one `plan_render` call on a fresh host. It does not
+      time a production render, which plans every chunk.
   - "Known differences": `plan_render`'s chunk jobs are byte-equal to the single-chunk plan of
     each chunk's request (`host:parity --batch`).
 - **`crates/strudeland-render/README.md`.** Nothing, unless it names `plan_job`. Check with
   `git grep -n plan_job -- '*.md'`.
+- **The live-pressure job recipe** (`tests/bench/live-pressure.js:3-5`, and the pointer in
+  `crates/strudeland-live/README.md:163`). It uses `plan`, so it becomes:
+
+  ```sh
+  cargo run -p strudeland-host -- plan-render --song tests/bench/live-pressure.js \
+    --request '{"length":{"kind":"window","fromBar":0,"toBar":12,"layout":"linear"},"chunk":{"overlapBars":0,"lookbackSec":0,"mode":"mix"}}' \
+    | jq -j '.chunks[0].json' > crates/strudeland-live/tests/data/live-pressure.job.json
+  ```
+
+  The old request's `sampleRate: 44100` is `SAMPLE_RATE` (`contract.ts:15`). `plan --out`
+  wrote the job text with no trailing newline, and `jq -j` writes the string the same way, so
+  the bytes are the same. Run it once and check `git diff --quiet` on the job file. The
+  README's sentence names the recipe and needs no other change.
 - `SKILL.md`, `CONTRIBUTING.md` and `GLOSSARY.md` do not change.
 
 ## Step 8: regeneration and the full gate
 
 1. Run `bun run format` and `cargo fmt --all`.
-2. Run the full gate in [000-prompt.md](000-prompt.md), steps 1-4 and 6-13 (step 5 does not
-   apply). For this stage:
+2. Run the full gate in [000-prompt.md](000-prompt.md), steps 1-13. Of step 5, only
+   `engine:vectors` applies; it must exit 0. For this stage:
    - **Step 2** (`engine:refs`, check). Every micro case and fixture job is planned by the
-     page's new `job` kind. The diff summary must show provenance only. A job-text difference
-     is a **stop**: the single-chunk path is not `planJob`.
-   - **Step 4** must print `provenance-only`.
+     page's new `job` kind. The diff summary must show provenance only, as in 001:
+     `plannerSha256`, the job files' index hashes and the two floor cases. A job-text
+     difference is a **stop**: the single-chunk path is not `planJob`.
+   - **Step 4** must end `engine:refs (check) exit 0`, with the floor cases re-rendered as
+     in 001.
    - **Step 10** must be all `ok`: `host:parity`, `--batch` (per-chunk and whole-plan) and
      `--mixed-meter`.
    - **Step 11** (`perf_budget`). Record the median. Over `BUDGET.full_song_max_ms` (2000) is
      a **stop**.
-   - **Step 12**: `equal: 77 cases`, with no new `contentFrames` beyond stage 001's.
+   - **Step 12**: `equal: 96 cases`, with no new `contentFrames` beyond stage 001's.
    - **Step 13**: `equal`. The kept engine job texts of the page and host modes are the
      absolute job-text check against `a8151213`.
 3. Confirm that the deletions are complete:
 
    ```sh
-   git grep -n 'planJob\|plan_job\|PlannedJob\|BATCH_REUSE_SCHEDULE\|reuseSchedule\|__strudelandJob\|hostPlanArgs\|parsePlanOutput' -- src scripts crates tests AGENTS.md CONTRIBUTING.md
+   git grep -n 'planJob\|plan_job\|BATCH_REUSE_SCHEDULE\|reuseSchedule\|__strudelandJob\|hostPlanArgs\|parsePlanOutput\|host -- plan \|strudeland-host plan[ `"]' -- src scripts crates tests AGENTS.md CONTRIBUTING.md
+   git grep -n 'PlannedJob' -- crates
    ```
 
-   It prints nothing except the generated `crates/strudeland-host/js/host.js` if a string
-   survives there. It must not, after `host:build`.
+   Both print nothing. The generated `crates/strudeland-host/js/host.js` must not match
+   either, after `host:build`.
+   - `PlannedJob` is searched in `crates` only: the Rust type goes, and the TS `PlannedJob`
+     (`src/lib/render/engine-job.ts:289`, used at `page-job.ts:7` and `:50`) stays.
+   - The `plan` command is matched as `host -- plan ` and `strudeland-host plan` followed by a
+     space, a backtick or a quote. A bare `host plan ` would also match prose such as "one
+     host plan of every chunk" (`joiner_identity.rs:1`).
 4. Check `strudeland-host plan`: `cargo run -p strudeland-host -- plan --song x --request '{}'`
    exits 2 with `unknown command plan`.
 
