@@ -14,7 +14,7 @@ This stage edits no file in the repository and commits nothing.
 - `$S/0127-baseline/digest/`: the #121 digest crate (`Cargo.toml`, `src/main.rs`), copied from
   `~/.cache/strudeland-0121/digest/`. `ab.sh baseline` copies the workspace `Cargo.lock` in.
 - `$S/0127-baseline/{bin,extra,base,cur}/`, written by `ab.sh`.
-- `~/.cache/strudeland-0127/{ab.sh,digest/,base/,BASE}`, the snapshot `ab.sh baseline` writes.
+- `~/.cache/strudeland-0127/{ab.sh,digest/,base/,SOURCE_SHA}`, the snapshot `ab.sh baseline` writes.
 
 Throughout:
 
@@ -68,7 +68,7 @@ Throughout:
    copy, or the snapshot has none: the check must build the baseline's digest. A difference here is a
    STOP: a guard that varies by itself cannot be used. Report the first lines of `$B/diff.txt`.
 4. **Check the snapshot.** `~/.cache/strudeland-0127/` holds `ab.sh`, `digest/` (no `target/`),
-   `base/` and `BASE` (the HEAD sha). `diff -r "$B/base" ~/.cache/strudeland-0127/base` prints
+   `base/` and `SOURCE_SHA` (the HEAD sha; not `BASE`, which a case-insensitive volume confuses with `base/`). `diff -r "$B/base" ~/.cache/strudeland-0127/base` prints
    nothing.
 5. **Write the stage report.** Include:
    - the baseline line;
@@ -416,7 +416,7 @@ baseline)
 	cp "$0" "$CACHE/ab.sh"
 	rsync -a --delete --exclude target "$B/digest/" "$CACHE/digest/"
 	rsync -a --delete "$B/base/" "$CACHE/base/"
-	git -C "$REPO" rev-parse HEAD >"$CACHE/BASE"
+	git -C "$REPO" rev-parse HEAD >"$CACHE/SOURCE_SHA"
 	echo "baseline: $(wc -l <"$B/base/render.tsv" | tr -d ' ') jobs, $(cat "$B/base/digest-refs.txt" "$B/base/digest-extra.txt" | wc -l | tr -d ' ') digest lines, $sounds sounds, $targets targets"
 	;;
 check)
@@ -450,7 +450,7 @@ restore)
 	fi
 	rsync -a --exclude target "$CACHE/digest/" "$B/digest/"
 	rsync -a --delete "$CACHE/base/" "$B/base/"
-	echo "restored base/ and digest/ from $CACHE (recorded at $(cat "$CACHE/BASE"))"
+	echo "restored base/ and digest/ from $CACHE (recorded at $(cat "$CACHE/SOURCE_SHA"))"
 	;;
 *)
 	echo "usage: ab.sh baseline | check | restore" >&2
