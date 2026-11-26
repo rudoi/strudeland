@@ -46,7 +46,6 @@ function fakePort() {
     tickDuration: TICK,
     time: 0,
     cps: 0.5,
-    reads: 0,
   };
   const port: ClockPort = {
     get started() {
@@ -364,6 +363,71 @@ describe('createLiveClock', () => {
     edit(f, MIXED, 1);
     expect(held.history).toEqual(heldHistory);
     expect(f.clock.snapshot().history).not.toBe(held.history);
+  });
+
+  test('resume assigns map, history and phase, keeping the live structure', () => {
+    const f = playing(MIXED);
+    f.tick(26);
+    edit(f, MIXED, 1.5);
+    f.tick(1);
+    const held = f.clock.snapshot();
+    f.clock.edit({
+      structure: MIXED_2_4,
+      meter: TWO_FOUR,
+      nextCps: 0.25,
+      codeSetCps: false,
+      segments: INITIAL_SEGMENTS,
+    });
+    const live = f.clock.structure;
+    expect(live).toBe(MIXED_2_4);
+    f.clock.resume({ ...held, structure: CONSTANT } as typeof held);
+    const after = f.clock.snapshot();
+    expect(after.structure).toBe(live);
+    expect(after.map).toBe(held.map);
+    expect(after.history).toBe(held.history);
+    expect(after.phaseOffsetSec).toBe(held.phaseOffsetSec);
+  });
+
+  test('resume then setLayout equals restore with the live structure then setLayout', () => {
+    const run = (handover: (c: LiveClock, s: ReturnType<LiveClock['snapshot']>) => void) => {
+      const f = playing(MIXED);
+      f.tick(26);
+      edit(f, MIXED, 1.5);
+      f.tick(1);
+      const held = f.clock.snapshot();
+      const anchor = f.clock.anchor();
+      f.clock.reset();
+      f.clock.setLayout(INITIAL_SEGMENTS);
+      handover(f.clock, held);
+      f.clock.setLayout(INITIAL_SEGMENTS, anchor);
+      const s = f.clock.snapshot();
+      return {
+        structure: s.structure,
+        history: s.history.map((h) => [h.end, h.cps, h.referenceMeter, h.map !== null]),
+        phaseOffsetSec: s.phaseOffsetSec,
+        map: s.map !== null,
+        toCycle: f.clock.toCycle(1.4),
+        toClock: f.clock.toClock(1.9),
+        now: f.clock.now(),
+        cps: f.clock.cpsNow(),
+      };
+    };
+    const viaRestore = run((c, s) => c.restore({ ...s, structure: c.structure }));
+    const viaResume = run((c, s) => c.resume(s));
+    expect(viaResume).toEqual(viaRestore);
+  });
+
+  test('audibleCycle is toCycle(audibleReference()), unclamped; now clamps it at 0', () => {
+    const f = playing(MIXED);
+    expect(f.port.now()).toBeLessThan(0);
+    expect(f.clock.audibleCycle()).toBe(f.clock.toCycle(f.clock.audibleReference()));
+    expect(f.clock.audibleCycle()).toBeLessThan(0);
+    expect(f.clock.now()).toBe(0);
+    f.tick(26);
+    edit(f, MIXED, 1.5);
+    f.tick(1);
+    expect(f.clock.audibleCycle()).toBe(f.clock.toCycle(f.clock.audibleReference()));
+    expect(f.clock.now()).toBe(f.clock.audibleCycle());
   });
 
   test('reset empties the history and zeroes the phase, keeping structure and map', () => {

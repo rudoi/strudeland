@@ -40,7 +40,7 @@ export interface ClockPort {
 }
 
 /** One live edit still in the lookahead: the map, tempo and reference meter before it. */
-export interface ClockHistoryEntry {
+interface ClockHistoryEntry {
   /** The edit's anchor: where the old structure stops governing. */
   end: { cycle: number; clock: number };
   /** The layout map before the edit. */
@@ -60,9 +60,9 @@ export interface ClockSnapshot {
 }
 
 export interface LiveClock {
-  /** The live structure (the runtime's former `liveStructure`). */
+  /** The live structure: the one the last evaluate installed. */
   readonly structure: SongStructure | null;
-  /** The layout map (the runtime's former `clock`). */
+  /** The layout map from layout cycles to reference clock; null when they coincide. */
   readonly map: LayoutClock | null;
   /** phase = offset + reference clock / CPS, rebased when an evaluate changes the tempo. */
   readonly phaseOffsetSec: number;
@@ -72,13 +72,18 @@ export interface LiveClock {
   toClock(cycle: number): number;
   /** The reference clock now sounding, walked back across the edits in the lookahead. */
   audibleReference(): number;
-  /** max(0, toCycle(audibleReference())): the runtime's former `now`. */
+  /** toCycle(audibleReference()), unclamped: the layout cycle now sounding; Strudel's getTime. */
+  audibleCycle(): number;
+  /** max(0, audibleCycle()): the audible playhead. */
   now(): number;
-  /** The former `audibleCps`; Strudel's getCps. */
+  /** The cps now sounding, at the meter of the bar now sounding; Strudel's getCps. */
   cpsNow(): number;
-  /** The former `scheduledAnchor`: { cycle: toCycle(Number(lastEnd)), clock: Number(lastEnd) }. */
+  /** The scheduler's query horizon: { cycle: toCycle(Number(lastEnd)), clock: Number(lastEnd) }. */
   anchor(): { cycle: number; clock: number };
-  /** The former `setLiveLayout` without the `segments` assignment (the runtime keeps that). */
+  /**
+   * Rebuilds the map for `segments` (anchored at `anchor`), or clears it when the structure has no
+   * meter changes and the anchor maps a cycle to itself. Does not keep `segments`.
+   */
   setLayout(segments: readonly Segment[], anchor?: { cycle: number; clock: number }): void;
   /** An evaluate's install: anchor, history push, phase rebase, structure, layout. Returns the anchor. */
   edit(e: {
@@ -98,6 +103,8 @@ export interface LiveClock {
   snapshot(): ClockSnapshot;
   /** Assigns the four fields from `s` and nothing else. */
   restore(s: ClockSnapshot): void;
+  /** Assigns map, history and phase offset from `s`, keeping the live structure. */
+  resume(s: Pick<ClockSnapshot, 'map' | 'history' | 'phaseOffsetSec'>): void;
 }
 
 /** Reads nothing from `port` while constructing. */
@@ -158,7 +165,8 @@ export function createLiveClock(port: ClockPort): LiveClock {
     const reference = Number(port.lastEnd);
     return { cycle: toCycle(reference), clock: reference };
   };
-  const now = (): number => Math.max(0, toCycle(audibleReference()));
+  const audibleCycle = (): number => toCycle(audibleReference());
+  const now = (): number => Math.max(0, audibleCycle());
   const edit: LiveClock['edit'] = (e) => {
     const a = port.started ? anchor() : undefined;
     if (a && (map || e.structure?.meterChanges?.length)) {
@@ -192,6 +200,7 @@ export function createLiveClock(port: ClockPort): LiveClock {
     toCycle,
     toClock,
     audibleReference,
+    audibleCycle,
     now,
     cpsNow,
     anchor,
@@ -204,6 +213,11 @@ export function createLiveClock(port: ClockPort): LiveClock {
     snapshot: () => ({ structure, map, history, phaseOffsetSec }),
     restore: (s) => {
       structure = s.structure;
+      map = s.map;
+      history = s.history;
+      phaseOffsetSec = s.phaseOffsetSec;
+    },
+    resume: (s) => {
       map = s.map;
       history = s.history;
       phaseOffsetSec = s.phaseOffsetSec;

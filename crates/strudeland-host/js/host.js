@@ -29252,7 +29252,8 @@ Please check with "npm ls @strudel/core".`);
       const reference = Number(port.lastEnd);
       return { cycle: toCycle(reference), clock: reference };
     };
-    const now = () => Math.max(0, toCycle(audibleReference()));
+    const audibleCycle = () => toCycle(audibleReference());
+    const now = () => Math.max(0, audibleCycle());
     const edit = (e) => {
       const a = port.started ? anchor2() : undefined;
       if (a && (map2 || e.structure?.meterChanges?.length)) {
@@ -29283,6 +29284,7 @@ Please check with "npm ls @strudel/core".`);
       toCycle,
       toClock,
       audibleReference,
+      audibleCycle,
       now,
       cpsNow,
       anchor: anchor2,
@@ -29295,6 +29297,11 @@ Please check with "npm ls @strudel/core".`);
       snapshot: () => ({ structure, map: map2, history, phaseOffsetSec }),
       restore: (s2) => {
         structure = s2.structure;
+        map2 = s2.map;
+        history = s2.history;
+        phaseOffsetSec = s2.phaseOffsetSec;
+      },
+      resume: (s2) => {
         map2 = s2.map;
         history = s2.history;
         phaseOffsetSec = s2.phaseOffsetSec;
@@ -29948,7 +29955,7 @@ Please check with "npm ls @strudel/core".`);
       setInterval: opts.setInterval,
       clearInterval: opts.clearInterval,
       beforeEval: async () => {
-        setTime(() => liveClock.toCycle(liveClock.audibleReference()));
+        setTime(liveClock.audibleCycle);
         setCpsFunc(liveClock.cpsNow);
         await ensurePrebaked();
         await hooks?.beforeEval?.();
@@ -30248,7 +30255,7 @@ Please check with "npm ls @strudel/core".`);
         if (countIn && state2.structure !== null)
           setLiveLayout(withCountIn(segments));
         if (from) {
-          liveClock.restore({ ...from, structure: liveClock.structure });
+          liveClock.resume(from);
           setLiveLayout(from.segments, from.anchor);
           r.scheduler.lastEnd = from.cycle;
         }
@@ -30260,7 +30267,7 @@ Please check with "npm ls @strudel/core".`);
           r.stop();
         else {
           segments = saved.segments;
-          liveClock.restore({ ...saved, structure: liveClock.structure });
+          liveClock.resume(saved);
           r.scheduler.lastEnd = 0;
         }
         if (r.scheduler.pattern !== savedPattern)

@@ -139,7 +139,7 @@ export function stubRuntime(opts: { audio?: RuntimeState['audio']; live?: boolea
     position: () => pos,
     tempoNow: () => {
       const s = get(store);
-      const bar = s.started && s.structure?.meterChanges ? (pos.located?.songBar ?? null) : null;
+      const bar = s.started ? (pos.located?.songBar ?? null) : null;
       return tempoAtBar(s.cps, s.meter, s.structure, bar);
     },
     query(from, to) {

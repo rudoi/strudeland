@@ -484,7 +484,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     setInterval: opts.setInterval,
     clearInterval: opts.clearInterval,
     beforeEval: async () => {
-      setTime(() => liveClock.toCycle(liveClock.audibleReference()));
+      setTime(liveClock.audibleCycle);
       setCpsFunc(liveClock.cpsNow);
       await ensurePrebaked();
       await hooks?.beforeEval?.();
@@ -877,7 +877,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       // Directly, not through the transport model: its state is the same with a count-in.
       if (countIn && state.structure !== null) setLiveLayout(withCountIn(segments));
       if (from) {
-        liveClock.restore({ ...from, structure: liveClock.structure });
+        liveClock.resume(from);
         setLiveLayout(from.segments, from.anchor);
         // The cyclist's first tick queries from `lastEnd` (a stop sets it to 0).
         r.scheduler.lastEnd = from.cycle;
@@ -890,7 +890,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       if (r.scheduler.started) r.stop();
       else {
         segments = saved.segments;
-        liveClock.restore({ ...saved, structure: liveClock.structure });
+        liveClock.resume(saved);
         r.scheduler.lastEnd = 0;
       }
       if (r.scheduler.pattern !== savedPattern) await r.scheduler.setPattern(savedPattern, false);

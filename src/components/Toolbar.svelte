@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { App } from '../lib/app';
   import { meterString } from '../lib/strudel/structure';
   import Button from './ui/Button.svelte';
@@ -16,13 +17,22 @@
   // While a take runs, play and stop belong to it.
   const taking = $derived($play.taking);
   // The tempo shown: sampled on every runtime change, and every scope frame while a song with
-  // meter changes plays.
+  // meter changes plays. A sample replaces it only when cps, bpm or the meter object differs
+  // (a bar's meter is the structure's own object), so the readouts do not re-render every frame.
   let tempo = $state.raw(runtime.tempoNow());
+  const sample = () => {
+    const next = runtime.tempoNow();
+    if (next.cps !== tempo.cps || next.bpm !== tempo.bpm || next.meter !== tempo.meter) {
+      tempo = next;
+    }
+  };
+  const metered = $derived($rt.started && !!$rt.structure?.meterChanges);
   $effect(() => {
-    const { started, structure } = $rt;
-    tempo = runtime.tempoNow();
-    if (!started || !structure?.meterChanges) return;
-    return scopeClock.subscribe(() => (tempo = runtime.tempoNow()));
+    void $rt;
+    untrack(sample);
+  });
+  $effect(() => {
+    if (metered) return scopeClock.subscribe(sample);
   });
   const stopHelp = $derived.by(() => {
     if ($play.stopTarget === 'take') {
