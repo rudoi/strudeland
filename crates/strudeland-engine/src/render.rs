@@ -7,7 +7,7 @@
 
 use crate::Rendered;
 use crate::bus::BusGraph;
-use crate::controls::unsupported_signatures_in;
+use crate::capability::unsupported_signatures_in;
 use crate::job::{EngineJob, ErrorKind, JobError, RenderError, bar_of};
 use crate::orbit::OrbitBank;
 use crate::render_core::{Core, HapTag, ScheduleArgs, SyncSettler};

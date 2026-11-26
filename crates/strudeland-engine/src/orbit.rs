@@ -56,7 +56,7 @@
 //! `offlineDuck` changes, the engine, the goldens and the refs move together.
 
 use crate::QUANTUM;
-use crate::controls::{js_max, js_min, js_to_string};
+use crate::coerce::{js_max, js_min, js_to_string};
 use crate::delay::{FeedbackDelay, get_delay, sum_into};
 use crate::djf::Djf;
 use crate::job::{EngineJob, OrbitSpec, Value, ValueMap, orbit_number};

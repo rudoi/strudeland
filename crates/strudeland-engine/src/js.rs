@@ -317,7 +317,7 @@ impl Occurrence {
 }
 
 /// `voiceSeed(cycle, value)` (rng.mjs) with the audio seed `seed`. `map` is the value after
-/// superdough's mutation (`controls::prepare_value`). The occurrence counter resets whenever
+/// superdough's mutation (`params::prepare_value`). The occurrence counter resets whenever
 /// `cycle` differs from the previous call's (JS `!==`: NaN always differs, `-0` equals `0`), so
 /// it is call-order dependent.
 pub fn voice_seed(cycle: f64, map: &ValueMap, seed: i32, occ: &mut Occurrence) -> u32 {
@@ -340,7 +340,7 @@ pub fn voice_seed(cycle: f64, map: &ValueMap, seed: i32, occ: &mut Occurrence) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controls::prepare_value;
+    use crate::params::prepare_value;
     use crate::test_vectors::{decode, load as vectors, num};
     use serde_json::Value as J;
 

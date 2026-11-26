@@ -3,11 +3,12 @@
 
 use std::collections::BTreeSet;
 
-use crate::controls::{js_to_string, prepare_value};
+use crate::coerce::js_to_string;
 use crate::job::{EngineJob, JobError, Value, orbit_number};
 use crate::js::number_to_string;
 use crate::orbit::{Orbit, sum_stereo};
 use crate::panner::{Stereo, pan_to_target_value};
+use crate::params::prepare_value;
 use crate::render::{Engine, zeroed};
 use crate::render_core::Slot;
 use crate::voice::{VoiceOutput, sound_name};

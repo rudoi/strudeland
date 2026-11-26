@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use serde_json::Value;
-use strudeland_engine::controls::unsupported_signatures;
+use strudeland_engine::capability::unsupported_signatures;
 use strudeland_engine::wav::read_f32;
 use strudeland_engine::{ErrorKind, render};
 

@@ -24,7 +24,7 @@
 
 use crate::QUANTUM;
 use crate::SAMPLE_RATE;
-use crate::controls::{js_max, js_min};
+use crate::coerce::{js_max, js_min};
 use crate::orbit::Input;
 use crate::param::{Param, ParamError, ParamInputs, Rate, idl_float};
 use crate::voice::GainNode;

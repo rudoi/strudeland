@@ -209,8 +209,11 @@ the V8 download the host brings.
   `tests/render/` the corpus (`corpus.json`, `corpus/*.js`, `samples/`) and `goldens/*.json`.
 - `crates/strudeland-engine/` the single-threaded Rust renderer of engine jobs, ported from
   superdough and Blink at the Chromium tag Playwright drives. `job` (schema 2 and validation),
-  `controls` (the allowlist, audited in `controls.md`) and `signatures` (the binary's unsupported
-  detection, called by `scripts/render/rust-engine.ts`), `js` (superdough's seeding and `String(number)`),
+  `capability` (what the engine plays: the key allowlist audited in `controls.md`, the
+  sounds, chain and modulator keys, the unsupported detection behind the binary's `signatures`
+  subcommand, called by `scripts/render/rust-engine.ts`, and the `controls --json` dump),
+  `params` (the typed controls a voice reads, superdough's defaults and its mutation of a hap
+  value), `coerce` (JS `Number`, `String`, truthiness and `Math.max`/`min`), `js` (superdough's seeding and `String(number)`),
   `jsmath` (V8's `Math.*` bit for bit: CORE-MATH and V8 ports, the host `pow`/`tanh`),
   `render_core` (the render core both drivers share: voices, buses, orbits, caches, the IR
   settler seam), `render` (the offline driver: the pause loop and frame conversions), `voice` (one

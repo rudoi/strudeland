@@ -94,6 +94,12 @@ fn optional_number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<
 /// A control map with sorted keys.
 pub type ValueMap = BTreeMap<String, Value>;
 
+/// A [`ValueMap`] from a JSON object (tests only).
+#[cfg(test)]
+pub(crate) fn value_map(v: serde_json::Value) -> ValueMap {
+    serde_json::from_value(v).unwrap()
+}
+
 /// A decoded control value. `{"$num": ...}` wrappers are decoded to `Num`, `{"$unsupported":
 /// type}` markers to `Unsupported`, `{"$set": [...]}` wrappers (a JS `Set`, members in insertion
 /// order) to `Set`.
@@ -193,7 +199,7 @@ impl<'de> Deserialize<'de> for Value {
 pub fn orbit_number(map: &ValueMap) -> f64 {
     let n = match map.get("orbit") {
         None | Some(Value::Null) => 1.0,
-        Some(v) => crate::controls::js_to_number(v),
+        Some(v) => crate::coerce::js_to_number(v),
     };
     if n.is_finite() { n } else { 1.0 }
 }

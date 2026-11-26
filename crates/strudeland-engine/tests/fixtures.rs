@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use strudeland_engine::controls::unsupported_signatures;
+use strudeland_engine::capability::unsupported_signatures;
 use strudeland_engine::wav::{read_f32, write_f32};
 use strudeland_engine::{EngineJob, ErrorKind, render};
 

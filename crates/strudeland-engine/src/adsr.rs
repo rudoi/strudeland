@@ -2,7 +2,7 @@
 //! `getParamADSR` (the event list it schedules on a param), plus util.mjs's `nanFallback`.
 //! The arithmetic is JS `f64`; values reach the param through WebIDL `float` conversion.
 
-use crate::controls::{js_max, js_min};
+use crate::coerce::{js_max, js_min};
 use crate::param::{Param, ParamError, idl_float};
 
 /// The `curve` argument (`'linear'` or `'exponential'`; `getParamADSR`'s default and any other

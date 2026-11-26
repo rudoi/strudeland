@@ -3,7 +3,7 @@
 //! stage that implements a key adds its extremes here.
 
 use serde_json::{Value, json};
-use strudeland_engine::{ALLOWED_KEYS, ALLOWED_SOUNDS, EngineJob, ErrorKind, render};
+use strudeland_engine::{ALLOWED_KEYS, EngineJob, ErrorKind, allowed_sounds, render};
 
 mod common;
 use common::{PauseHap, base_job};
@@ -1178,9 +1178,10 @@ fn every_allowed_key_renders_finite_audio() {
         Some(0),
         "the base voice is supported"
     );
+    let sounds = allowed_sounds();
     for (i, key) in ALLOWED_KEYS.iter().enumerate() {
         for (j, x) in values.iter().enumerate() {
-            let s = ALLOWED_SOUNDS[(i + j) % ALLOWED_SOUNDS.len()];
+            let s = sounds[(i + j) % sounds.len()];
             let mut map = json!({
                 "s": s, "note": 60, "cutoff": 2000, "pan": 0.3, "delay": 0.5, "delaytime": 0.01,
                 "room": 0.5, "roomsize": 0.02, "roomlp": 0
@@ -1258,7 +1259,7 @@ fn extreme_fx_chains_never_panic() {
         "cutoff": 2000, "pan": 0.3, "delay": 0.5, "delaytime": 0.01, "room": 0.5,
         "roomsize": 0.02, "roomlp": 0
     });
-    let chain_keys = strudeland_engine::controls::CHAIN_KEYS;
+    let chain_keys = strudeland_engine::capability::CHAIN_KEYS;
     assert!(!chain_keys.is_empty());
     for (i, key) in chain_keys.iter().enumerate() {
         for (j, x) in values.iter().enumerate() {

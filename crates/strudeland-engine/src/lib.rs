@@ -5,9 +5,10 @@
 pub(crate) mod adsr;
 pub(crate) mod biquad;
 pub(crate) mod bus;
+pub mod capability;
 pub(crate) mod chain;
+pub(crate) mod coerce;
 pub(crate) mod compressor;
-pub mod controls;
 pub(crate) mod delay;
 pub(crate) mod djf;
 pub(crate) mod envelope;
@@ -24,6 +25,7 @@ pub mod orbit;
 pub(crate) mod osc;
 pub(crate) mod panner;
 pub(crate) mod param;
+pub(crate) mod params;
 pub(crate) mod periodic;
 pub(crate) mod pulse;
 pub(crate) mod render;
@@ -40,7 +42,7 @@ pub(crate) mod vowel;
 pub mod wav;
 pub(crate) mod worklet;
 
-pub use controls::{ALLOWED_KEYS, ALLOWED_SOUNDS, controls_json};
+pub use capability::{ALLOWED_KEYS, allowed_sounds, controls_json};
 pub use job::{EngineJob, ErrorKind, JobError, OrbitSpec, RenderError, Value, ValueMap};
 /// superdough's `mulberry32`, reused by the render pipeline's dither.
 pub use js::Mulberry32;

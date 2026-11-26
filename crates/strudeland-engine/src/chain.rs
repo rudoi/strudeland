@@ -29,10 +29,8 @@
 
 use crate::QUANTUM;
 use crate::biquad::{Biquad, BiquadInputs, FilterKind};
+use crate::coerce::{js_max, js_min, js_to_number, js_truthy};
 use crate::compressor::Compressor;
-use crate::controls::{
-    EntryParams, FilterParams, VoiceParams, gain_stage, js_max, js_min, js_to_number, js_truthy,
-};
 use crate::delay::{FeedbackDelay, MAX_FEEDBACK};
 use crate::job::Value;
 use crate::jsmath;
@@ -41,6 +39,7 @@ use crate::lfo::{self, Lfo, LfoProps, ShapeInput, get_lfo};
 use crate::orbit::{Input, sum_stereo};
 use crate::panner::{Stereo, StereoPanner};
 use crate::param::{Param, ParamInputs};
+use crate::params::{EntryParams, FilterParams, VoiceParams, gain_stage};
 use crate::reverb::Reverb;
 use crate::shaper::{Coarse, Crush, Distort, Shape, Shaper, ShaperKind};
 use crate::transient::{Transient, TransientNode};
@@ -577,6 +576,9 @@ pub struct ParamRef {
     pub slot: ParamSlot,
 }
 
+/// The sound a value without `s` plays (superdough's `s = 'triangle'` default).
+pub const DEFAULT_SOUND: &str = "triangle";
+
 /// What a voice's source is, as the node table sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -592,24 +594,36 @@ pub enum SourceKind {
     Bus,
 }
 
-/// The oscillator sounds (`getOscillator`'s periodic-wave types and their aliases, `user`).
-pub const OSC_SOUNDS: &[&str] = &[
-    "sine", "sawtooth", "square", "triangle", "sin", "saw", "sqr", "tri", "user",
-];
-
 impl SourceKind {
+    /// Every `s` the engine builds and its kind (`getOscillator`'s periodic-wave types and their
+    /// aliases, `user`, the noises, `one`, `supersaw`, `pulse`, `bus`).
+    pub const NAMES: &'static [(&'static str, SourceKind)] = &[
+        ("one", SourceKind::Constant),
+        ("supersaw", SourceKind::Supersaw),
+        ("pulse", SourceKind::Pulse),
+        ("bus", SourceKind::Bus),
+        ("sine", SourceKind::Osc),
+        ("sawtooth", SourceKind::Osc),
+        ("square", SourceKind::Osc),
+        ("triangle", SourceKind::Osc),
+        ("sin", SourceKind::Osc),
+        ("saw", SourceKind::Osc),
+        ("sqr", SourceKind::Osc),
+        ("tri", SourceKind::Osc),
+        ("user", SourceKind::Osc),
+        ("white", SourceKind::Noise),
+        ("pink", SourceKind::Noise),
+        ("brown", SourceKind::Noise),
+        ("crackle", SourceKind::Noise),
+    ];
+
     /// The kind of sound `s` (already defaulted to `triangle`), `None` for a sound the engine
     /// does not build (the build throws `sound .. not found`).
     pub fn of(s: &str) -> Option<SourceKind> {
-        Some(match s {
-            "one" => SourceKind::Constant,
-            "supersaw" => SourceKind::Supersaw,
-            "pulse" => SourceKind::Pulse,
-            "bus" => SourceKind::Bus,
-            _ if OSC_SOUNDS.contains(&s) => SourceKind::Osc,
-            _ if crate::noise::NoiseKind::from_name(s).is_some() => SourceKind::Noise,
-            _ => return None,
-        })
+        Self::NAMES
+            .iter()
+            .find(|(name, _)| *name == s)
+            .map(|(_, kind)| *kind)
     }
 }
 
@@ -1495,7 +1509,7 @@ impl LocalReverb {
 /// `frequency.value = center + 282` and `Q.value = 2 - min(max(depth * 2, 0), 1.9)`, the LFO
 /// connected to its `detune`. Each `.value =` throws on a non-finite value.
 pub fn build_phaser(
-    p: &crate::controls::PhaserParams,
+    p: &crate::params::PhaserParams,
     begin: f64,
     end: f64,
     now: u64,
@@ -1520,12 +1534,12 @@ pub fn build_phaser(
 #[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
-    use crate::controls::{parse_entry_params, parse_voice_params};
     use crate::job::{OrbitSpec, ValueMap};
     use crate::noise::NoiseCache;
     use crate::orbit::Orbit;
     use crate::panner::{pan_to_target_value, pan_with_sample_accurate_values};
     use crate::param::Param;
+    use crate::params::{parse_entry_params, parse_voice_params};
     use crate::periodic::WaveTables;
     use crate::reverb::IrCache;
     use crate::shaper::Distort;
@@ -4041,5 +4055,41 @@ mod tests {
         };
         assert_eq!(freed, 138 * 128, "freed right after the cut quantum");
         assert_eq!(TailCut::at(0.1 + 0.3).quantum(), Some(137));
+    }
+
+    #[test]
+    fn source_names_match_the_builders() {
+        use crate::noise::NoiseKind;
+        let names = SourceKind::NAMES;
+        for (i, (name, _)) in names.iter().enumerate() {
+            assert!(
+                !names[i + 1..].iter().any(|(n, _)| n == name),
+                "{name} is listed once"
+            );
+        }
+        for (name, kind) in names {
+            assert_eq!(
+                *kind == SourceKind::Noise,
+                NoiseKind::from_name(name).is_some(),
+                "{name}: a Noise row exactly when it names a noise"
+            );
+        }
+        for noise in [
+            NoiseKind::White,
+            NoiseKind::Pink,
+            NoiseKind::Brown,
+            NoiseKind::Crackle,
+        ] {
+            // Exhaustive, so a new noise fails to compile until it is listed above.
+            match noise {
+                NoiseKind::White | NoiseKind::Pink | NoiseKind::Brown | NoiseKind::Crackle => {}
+            }
+            assert!(
+                names.contains(&(noise.name(), SourceKind::Noise)),
+                "{} is a Noise row",
+                noise.name()
+            );
+        }
+        assert_eq!(SourceKind::of(DEFAULT_SOUND), Some(SourceKind::Osc));
     }
 }
