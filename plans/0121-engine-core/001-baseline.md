@@ -132,7 +132,7 @@ sets `B=$(cd "$(dirname "$0")" && pwd)` and `REPO` as above, so a copy restored 
 session's scratchpad works unchanged.
 
 - **`rebuild-baseline`:**
-  - refuses (exit 2) unless `git -C "$REPO" diff --quiet 3cd77ba -- 'crates/*/src'` succeeds,
+  - refuses (exit 2) unless `git -C "$REPO" diff --quiet 3cd77ba -- 'crates/*/src/*'` succeeds,
     that is, unless the tree's engine sources are those of `3cd77ba` (HEAD is the 001 commit or
     earlier, with no source edit in the working tree);
   - builds the engine binary and the digest crate as steps 1 and 2 do, and copies them to

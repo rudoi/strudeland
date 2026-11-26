@@ -417,7 +417,7 @@ jobs has a local reverb.
   2. make a WIP commit if the tree is dirty;
   3. `git switch --detach <001-sha>`;
   4. `ab.sh rebuild-baseline`, which builds both baseline binaries from the tree and refuses
-     unless `git diff 3cd77ba -- 'crates/*/src'` is empty; then `ab.sh baseline`;
+     unless `git diff 3cd77ba -- 'crates/*/src/*'` is empty; then `ab.sh baseline`;
   5. `git switch -`, and undo the WIP commit.
 
   Never use a scratch worktree.
