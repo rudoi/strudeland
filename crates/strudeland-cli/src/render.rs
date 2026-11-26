@@ -81,7 +81,7 @@ pub fn failure(lines: &ProgressLines<'_>, e: RunError) -> RenderError {
     if let (Some(failed), Some(last)) = (&e.failed, e.written.last()) {
         lines.partial_write(&last.absolute, failed);
     }
-    cli_error(e.source)
+    cli_error(*e.source)
 }
 
 /// The flags `--stems` rejects, checked in order. The stem output itself is fixed by the export.

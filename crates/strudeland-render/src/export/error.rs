@@ -37,7 +37,8 @@ pub enum Error {
 /// empty, nothing was published.
 #[derive(Debug)]
 pub struct RunError {
-    pub source: Error,
+    /// Boxed: a large `Err` variant (paths are wider on Windows) trips clippy's `result_large_err`.
+    pub source: Box<Error>,
     pub written: Vec<WrittenPath>,
     /// The mix file whose publish failed (its target path); `None` for a failure before the
     /// publish and for a stem set.
@@ -47,7 +48,7 @@ pub struct RunError {
 impl From<Error> for RunError {
     fn from(source: Error) -> Self {
         RunError {
-            source,
+            source: Box::new(source),
             written: Vec::new(),
             failed: None,
         }

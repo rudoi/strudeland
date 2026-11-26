@@ -78,7 +78,7 @@ fn project(dir: &Path) -> (Project, PathBuf) {
 
 fn failed(result: Result<Finished, RunError>) -> Error {
     match result {
-        Err(e) if e.written.is_empty() => e.source,
+        Err(e) if e.written.is_empty() => *e.source,
         other => panic!("not a failure before any publish: {other:?}"),
     }
 }
@@ -297,7 +297,7 @@ fn create_new_keeps_a_competing_file() {
             "{label}"
         );
         assert_eq!(p.failed.as_deref(), Some(second.as_path()), "{label}");
-        assert!(matches!(p.source, Error::Project { .. }), "{label}");
+        assert!(matches!(*p.source, Error::Project { .. }), "{label}");
         assert_eq!(fs::read(&first).unwrap(), b"intro");
         assert_eq!(fs::read(&second).unwrap(), b"competing");
     }
@@ -331,7 +331,7 @@ fn a_moved_chosen_folder_is_refused() {
     let p = partial(result);
     assert_eq!(p.written.len(), 1);
     assert!(
-        matches!(&p.source, Error::FolderChanged { path } if *path == folder),
+        matches!(p.source.as_ref(), Error::FolderChanged { path } if *path == folder),
         "{:?}",
         p.source
     );
@@ -748,7 +748,7 @@ fn stem_failures_report_written_paths() {
                     absolute: mix_path.clone()
                 }]
             );
-            assert!(matches!(p.source, Error::Render(RenderError::Io { .. })));
+            assert!(matches!(*p.source, Error::Render(RenderError::Io { .. })));
         } else {
             assert!(matches!(
                 failed(result),

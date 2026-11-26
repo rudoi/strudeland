@@ -363,7 +363,7 @@ fn run_mix(
         };
         if let Err(source) = pipeline.publish(&step, &file.output.bytes) {
             return Err(RunError {
-                source,
+                source: Box::new(source),
                 written: published
                     .iter()
                     .map(|file| WrittenPath {
@@ -424,7 +424,7 @@ fn run_stems(
     result
         .map(|export| Finished::Stems { grouping, export })
         .map_err(|e| RunError {
-            source: Error::Render(e),
+            source: Box::new(Error::Render(e)),
             written: written.into_inner(),
             failed: None,
         })

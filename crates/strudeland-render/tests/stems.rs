@@ -49,7 +49,7 @@ fn stems(
     ) {
         Ok(export::Finished::Stems { export, .. }) => Ok(export),
         Ok(_) => panic!("expected a stem set"),
-        Err(e) => Err(e.source.into()),
+        Err(e) => Err((*e.source).into()),
     }
 }
 

@@ -813,7 +813,7 @@ mod tests {
                 absolute: "/abs/renders/main-intro.wav".into(),
             }],
             failed: Some("renders/main-loop.wav".into()),
-            source: export::Error::RolesMismatch { extra_intro: true },
+            source: Box::new(export::Error::RolesMismatch { extra_intro: true }),
         });
         assert_eq!(e.message, "the rendered files do not match the preview");
         assert_eq!(e.written, [PathBuf::from("renders/main-intro.wav")]);
