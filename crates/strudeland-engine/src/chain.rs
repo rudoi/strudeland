@@ -1783,6 +1783,7 @@ pub fn build_phaser(
 #[cfg(test)]
 #[allow(clippy::needless_range_loop)]
 pub(crate) mod tests {
+    use super::StageSpec as S;
     use super::*;
     use crate::job::{OrbitSpec, ValueMap};
     use crate::noise::NoiseCache;
@@ -2231,8 +2232,28 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    fn entry(v: &Voice, name: &str) -> Option<NodeList> {
-        v.node_table().get(FxKey::Main, name).cloned()
+    /// The plan of `v` (parsed with the `voice()` helper's duration and cps).
+    fn planned(v: serde_json::Value) -> NodeTable {
+        let map: ValueMap = serde_json::from_value(v).unwrap();
+        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+        let s = crate::voice::sound_name(params.s.as_ref());
+        NodeTable::plan(&params, SourceKind::of(&s).unwrap())
+    }
+
+    const M: FxKey = FxKey::Main;
+    const X0: FxKey = FxKey::Index(0);
+
+    /// A planned filter copy of the entry `entry`.
+    fn filter(entry: FxKey, kind: FilterKind, ladder: bool) -> S {
+        S::Filter {
+            entry,
+            kind,
+            ladder,
+        }
+    }
+
+    fn entry(t: &NodeTable, name: &str) -> Option<NodeList> {
+        t.get(FxKey::Main, name).cloned()
     }
 
     fn one(id: usize) -> Option<NodeList> {
@@ -2243,7 +2264,7 @@ pub(crate) mod tests {
     fn fm_gain_node_table_last_writer() {
         // Matrix order: fmi (1 -> 0), fmi13 (1 -> 3), fmi2 (2 -> 1). Connections 0, 1, 2.
         let v = voice(json!({ "s": "sine", "fmi": 1, "fmi13": 3, "fmi2": 2 }));
-        let fm = |i: usize| entry(&v, &format!("fm_{i}_gain"));
+        let fm = |i: usize| entry(v.node_table(), &format!("fm_{i}_gain"));
         // fm_1: source of fmi, source of fmi13, then the target side of fmi2 (Gain(2)).
         assert_eq!(
             fm(1),
@@ -2262,12 +2283,12 @@ pub(crate) mod tests {
         // The source side is the last writer when no later entry touches the modulator.
         let v = voice(json!({ "s": "sine", "fmi": 1.5, "fmi2": 2 }));
         assert_eq!(
-            entry(&v, "fm_1_gain"),
+            entry(v.node_table(), "fm_1_gain"),
             Some(NodeList::Array(vec![Some(Node::Detached { value: 2.0 })]))
         );
         let v = voice(json!({ "s": "sine", "fmi": 1.5 }));
         assert_eq!(
-            entry(&v, "fm_1_gain"),
+            entry(v.node_table(), "fm_1_gain"),
             Some(NodeList::Array(vec![Some(Node::FmAmount(0))]))
         );
 
@@ -2275,22 +2296,22 @@ pub(crate) mod tests {
         // side's Gain(3) feeds nothing audible either.
         let v = voice(json!({ "s": "sine", "fmi": 1, "fmi13": 3, "fmwave3": "white" }));
         assert_eq!(
-            entry(&v, "fm_1_gain"),
+            entry(v.node_table(), "fm_1_gain"),
             Some(NodeList::Array(vec![Some(Node::Detached { value: 3.0 })]))
         );
         assert_eq!(
-            entry(&v, "fm_3_gain"),
+            entry(v.node_table(), "fm_3_gain"),
             Some(NodeList::Array(vec![Some(Node::Detached { value: 3.0 })]))
         );
         // A connection after a skipped one gets the next connection index.
         let v = voice(json!({ "s": "sine", "fmi13": 3, "fmwave3": "white", "fmi2": 2 }));
         assert_eq!(
-            entry(&v, "fm_2_gain"),
+            entry(v.node_table(), "fm_2_gain"),
             Some(NodeList::Array(vec![Some(Node::FmAmount(0))]))
         );
         // No FM: no entry.
         let v = voice(json!({ "s": "sine" }));
-        assert_eq!(entry(&v, "fm_1_gain"), None);
+        assert_eq!(entry(v.node_table(), "fm_1_gain"), None);
     }
 
     #[test]
@@ -2354,130 +2375,144 @@ pub(crate) mod tests {
 
     #[test]
     fn main_entry_registers_gain_filters_pan_post() {
-        // Stages: Gain(0.3), envGain, gain stage, lpf x2, hpf, pan, post.
-        let v = voice(json!({
+        let value = json!({
             "s": "saw", "cutoff": 500, "ftype": "24db", "hcutoff": 100, "pan": 0.2
-        }));
-        assert_eq!(entry(&v, "gain"), one(2));
+        });
+        let t = planned(value.clone());
+        let lp = filter(M, FilterKind::Lowpass, false);
+        let hp = filter(M, FilterKind::Highpass, false);
         assert_eq!(
-            entry(&v, "lpf"),
+            t.specs(),
+            [
+                S::SynthGain,
+                S::EnvGain,
+                S::EntryGain(M),
+                lp,
+                lp,
+                hp,
+                hp,
+                S::Pan(M),
+                S::Post
+            ]
+        );
+        assert_eq!(entry(&t, "gain"), one(2));
+        assert_eq!(
+            entry(&t, "lpf"),
             Some(NodeList::Array(vec![
                 Some(Node::Stage(StageId(3))),
                 Some(Node::Stage(StageId(4)))
             ]))
         );
         assert_eq!(
-            entry(&v, "hpf"),
+            entry(&t, "hpf"),
             Some(NodeList::Array(vec![
                 Some(Node::Stage(StageId(5))),
                 Some(Node::Stage(StageId(6)))
             ]))
         );
-        assert_eq!(entry(&v, "bpf"), None);
-        assert_eq!(entry(&v, "pan"), one(7));
-        assert_eq!(entry(&v, "post"), one(8));
-        assert_eq!(v.output_channels(), 2);
+        assert_eq!(entry(&t, "bpf"), None);
+        assert_eq!(entry(&t, "pan"), one(7));
+        assert_eq!(entry(&t, "post"), one(8));
+        assert_eq!(voice(value).output_channels(), 2);
 
         // 12 dB band-pass only, no pan: no `pan` entry, a mono voice.
-        let v = voice(json!({ "s": "saw", "bandf": 900, "dry": 0.5, "room": 0.3 }));
-        assert_eq!(entry(&v, "gain"), one(2));
-        assert_eq!(entry(&v, "bpf"), one(3));
-        assert_eq!(entry(&v, "lpf"), None);
-        assert_eq!(entry(&v, "pan"), None);
-        assert_eq!(entry(&v, "post"), one(4));
-        assert_eq!(v.output_channels(), 1);
+        let value = json!({ "s": "saw", "bandf": 900, "dry": 0.5, "room": 0.3 });
+        let t = planned(value.clone());
+        assert_eq!(
+            t.specs(),
+            [
+                S::SynthGain,
+                S::EnvGain,
+                S::EntryGain(M),
+                filter(M, FilterKind::Bandpass, false),
+                S::Post
+            ]
+        );
+        assert_eq!(entry(&t, "gain"), one(2));
+        assert_eq!(entry(&t, "bpf"), one(3));
+        assert_eq!(entry(&t, "lpf"), None);
+        assert_eq!(entry(&t, "pan"), None);
+        assert_eq!(entry(&t, "post"), one(4));
+        assert_eq!(voice(value).output_channels(), 1);
         // `dry`, `bus` and `bmod` are never registered; the sends are (`room` is the orbit's
         // convolver, `room_mix` the voice's send), as is the source.
         for name in ["dry", "bus", "bmod", "delay", "delay_mix", "djf"] {
-            assert_eq!(entry(&v, name), None, "{name}");
+            assert_eq!(entry(&t, name), None, "{name}");
         }
         assert_eq!(
-            entry(&v, "room"),
+            entry(&t, "room"),
             Some(NodeList::Array(vec![Some(Node::OrbitReverb)]))
         );
         assert_eq!(
-            entry(&v, "room_mix"),
+            entry(&t, "room_mix"),
             Some(NodeList::Array(vec![Some(Node::RoomSend)]))
         );
         assert_eq!(
-            entry(&v, "source"),
+            entry(&t, "source"),
             Some(NodeList::Array(vec![Some(Node::Source)]))
         );
-        assert_eq!(v.node_table().get(FxKey::Index(0), "gain"), None);
+        assert_eq!(t.get(FxKey::Index(0), "gain"), None);
         assert_eq!(
-            v.node_table().keys(FxKey::Main),
+            t.keys(FxKey::Main),
             [
                 "source", "gain", "bpf", "bpf_lfo", "post", "room", "room_mix"
             ]
         );
     }
 
-    fn kind(s: &Stage) -> &'static str {
-        match s {
-            Stage::Gain(_) => "gain",
-            Stage::Biquad(_) => "biquad",
-            Stage::Ladder(_) => "ladder",
-            Stage::Panner(_) => "panner",
-            Stage::Transient(_) => "transient",
-            Stage::Tremolo(_) => "tremolo",
-            Stage::Vowel(_) => "vowel",
-            Stage::Compressor(_) => "compressor",
-            Stage::Phaser(_) => "phaser",
-            Stage::Release(_) => "release",
-            Stage::LocalDelay(_) => "local delay",
-            Stage::LocalReverb(_) => "local reverb",
-            Stage::Shaper(sh) => match sh.kind {
-                ShaperKind::Coarse(_) => "coarse",
-                ShaperKind::Crush(_) => "crush",
-                ShaperKind::Shape(_) => "shape",
-                ShaperKind::Distort(_) => "distort",
-            },
-        }
-    }
-
     #[test]
     fn worklets_are_built_in_superdough_order_and_registered() {
-        let v = voice(json!({
+        let value = json!({
             "s": "saw", "transient": 0.5, "cutoff": 500, "coarse": 4, "crush": 8,
             "shape": 0.3, "distort": 1, "pan": 0.2
-        }));
-        let kinds: Vec<&str> = v.stages().iter().map(kind).collect();
+        });
+        let t = planned(value.clone());
         assert_eq!(
-            kinds,
+            t.specs(),
             [
-                "gain",
-                "gain",
-                "transient",
-                "gain",
-                "biquad",
-                "coarse",
-                "crush",
-                "shape",
-                "distort",
-                "panner",
-                "gain"
+                S::SynthGain,
+                S::EnvGain,
+                S::Transient(M),
+                S::EntryGain(M),
+                filter(M, FilterKind::Lowpass, false),
+                S::Coarse(M),
+                S::Crush(M),
+                S::Shape(M),
+                S::Distort(M),
+                S::Pan(M),
+                S::Post
             ]
         );
         assert_eq!(
-            entry(&v, "transient"),
+            entry(&t, "transient"),
             Some(NodeList::NotArray(Node::Stage(StageId(2)))),
             "transient is a bare node"
         );
-        assert_eq!(entry(&v, "gain"), one(3));
-        assert_eq!(entry(&v, "lpf"), one(4));
-        assert_eq!(entry(&v, "coarse"), one(5));
-        assert_eq!(entry(&v, "crush"), one(6));
-        assert_eq!(entry(&v, "shape"), one(7));
-        assert_eq!(entry(&v, "distort"), one(8));
-        assert_eq!(entry(&v, "pan"), one(9));
-        assert_eq!(entry(&v, "post"), one(10));
-        assert_eq!(v.output_channels(), 2);
+        assert_eq!(entry(&t, "gain"), one(3));
+        assert_eq!(entry(&t, "lpf"), one(4));
+        assert_eq!(entry(&t, "coarse"), one(5));
+        assert_eq!(entry(&t, "crush"), one(6));
+        assert_eq!(entry(&t, "shape"), one(7));
+        assert_eq!(entry(&t, "distort"), one(8));
+        assert_eq!(entry(&t, "pan"), one(9));
+        assert_eq!(entry(&t, "post"), one(10));
+        assert_eq!(voice(value).output_channels(), 2);
         // Only defined controls build a worklet; `null` counts as defined.
-        let v = voice(json!({ "s": "sine", "crush": null }));
-        let kinds: Vec<&str> = v.stages().iter().map(kind).collect();
-        assert_eq!(kinds, ["gain", "gain", "gain", "crush", "gain"]);
-        assert_eq!(entry(&v, "coarse"), None);
-        assert_eq!(entry(&v, "transient"), None);
+        let value = json!({ "s": "sine", "crush": null });
+        let t = planned(value.clone());
+        assert_eq!(
+            t.specs(),
+            [
+                S::SynthGain,
+                S::EnvGain,
+                S::EntryGain(M),
+                S::Crush(M),
+                S::Post
+            ]
+        );
+        assert_eq!(entry(&t, "coarse"), None);
+        assert_eq!(entry(&t, "transient"), None);
+        let v = voice(value);
         assert_eq!(
             v.output_channels(),
             1,
@@ -2786,20 +2821,28 @@ pub(crate) mod tests {
 
     #[test]
     fn ladder_slots_replace_the_biquads_and_register() {
-        let v = voice(json!({
+        let value = json!({
             "s": "saw", "cutoff": 900, "resonance": 8, "hcutoff": 100, "bandf": 500,
             "ftype": "ladder", "drive": 3, "pan": 0.1
-        }));
-        let kinds: Vec<&str> = v.stages().iter().map(kind).collect();
+        });
+        let t = planned(value.clone());
         assert_eq!(
-            kinds,
+            t.specs(),
             [
-                "gain", "gain", "gain", "ladder", "ladder", "ladder", "panner", "gain"
+                S::SynthGain,
+                S::EnvGain,
+                S::EntryGain(M),
+                filter(M, FilterKind::Lowpass, true),
+                filter(M, FilterKind::Highpass, true),
+                filter(M, FilterKind::Bandpass, true),
+                S::Pan(M),
+                S::Post
             ]
         );
-        assert_eq!(entry(&v, "lpf"), one(3));
-        assert_eq!(entry(&v, "hpf"), one(4));
-        assert_eq!(entry(&v, "bpf"), one(5));
+        assert_eq!(entry(&t, "lpf"), one(3));
+        assert_eq!(entry(&t, "hpf"), one(4));
+        assert_eq!(entry(&t, "bpf"), one(5));
+        let v = voice(value);
         assert_eq!(v.output_channels(), 2);
         let ladders: Vec<&Ladder> = v
             .stages()
@@ -2832,8 +2875,8 @@ pub(crate) mod tests {
             }
             other => panic!("{other:?}"),
         }
-        let v = voice(json!({ "s": "saw", "cutoff": 900, "ftype": 1 }));
-        assert_eq!(kind(&v.stages()[3]), "biquad");
+        let t = planned(json!({ "s": "saw", "cutoff": 900, "ftype": 1 }));
+        assert_eq!(t.specs()[3], filter(M, FilterKind::Lowpass, false));
         let v = voice(json!({ "s": "saw", "cutoff": 900, "ftype": "24db" }));
         assert_eq!(v.filters().len(), 2);
         // A null drive is `.value = null`: 0.
@@ -3165,7 +3208,7 @@ pub(crate) mod tests {
         assert!(t.lfo.params.iter().all(|p| p.events().len() == 1));
         assert_eq!(t.lfo.params[lfo::BEGIN].events()[0].time, 128.0 / 44100.0);
         let id = StageId(1);
-        assert!(matches!(stages[1], Stage::Tremolo(_)));
+        assert_eq!(table.specs()[1], S::Tremolo(M));
         assert_eq!(
             table.get(FxKey::Main, "tremolo"),
             Some(&NodeList::Array(vec![Some(Node::StageLfo(id))]))
@@ -3192,9 +3235,8 @@ pub(crate) mod tests {
         let (stages, _, _) = built(json!({ "tremolo": null })).unwrap();
         assert_eq!(tremolo_of(&stages).lfo.params[lfo::FREQUENCY].value(), 0.0);
         // No tremolo: none, whatever the other keys.
-        let (stages, table, _) =
-            built(json!({ "tremolodepth": 0.5, "tremoloshape": "sine" })).unwrap();
-        assert!(!stages.iter().any(|s| matches!(s, Stage::Tremolo(_))));
+        let (_, table, _) = built(json!({ "tremolodepth": 0.5, "tremoloshape": "sine" })).unwrap();
+        assert!(!table.specs().iter().any(|s| matches!(s, S::Tremolo(_))));
         assert_eq!(table.get(FxKey::Main, "tremolo"), None);
         // Depth: gain max(1 - d, 0), the LFO's depth d.
         for (d, gain) in [(0.25, 0.75f32), (1.5, 0.0), (-0.5, 1.5), (0.0, 1.0)] {
@@ -3229,9 +3271,11 @@ pub(crate) mod tests {
         assert_eq!(l.params[lfo::SKEW].value(), 0.2);
         assert_eq!(l.params[lfo::PHASEOFFSET].value(), 0.25);
         // Built after the shapers, before the panner.
-        let (stages, _, _) = built(json!({ "tremolo": 4, "crush": 4, "pan": 0.3 })).unwrap();
-        let kinds: Vec<&str> = stages.iter().map(kind).collect();
-        assert_eq!(kinds, ["gain", "crush", "tremolo", "panner"]);
+        let (_, table, _) = built(json!({ "tremolo": 4, "crush": 4, "pan": 0.3 })).unwrap();
+        assert_eq!(
+            table.specs(),
+            [S::EntryGain(M), S::Crush(M), S::Tremolo(M), S::Pan(M)]
+        );
     }
 
     #[test]
@@ -3710,10 +3754,6 @@ pub(crate) mod tests {
         assert_ne!(a.out[0], b.out[0]);
     }
 
-    fn kinds(stages: &[Stage]) -> Vec<&'static str> {
-        stages.iter().map(kind).collect()
-    }
-
     #[test]
     fn native_effects_build_in_superdough_order_and_register() {
         let (stages, table, lfos) = built(json!({
@@ -3722,17 +3762,22 @@ pub(crate) mod tests {
         }))
         .unwrap();
         assert_eq!(
-            kinds(&stages),
+            table.specs(),
             [
-                "gain",
-                "biquad",
-                "vowel",
-                "crush",
-                "tremolo",
-                "compressor",
-                "panner",
-                "phaser"
+                S::EntryGain(M),
+                filter(M, FilterKind::Lowpass, false),
+                S::Vowel(M),
+                S::Crush(M),
+                S::Tremolo(M),
+                S::Compressor(M),
+                S::Pan(M),
+                S::Phaser(M)
             ]
+        );
+        assert_eq!(
+            stages.len(),
+            table.specs().len(),
+            "one built stage per spec"
         );
         let vowel: Vec<Option<Node>> = (0..5)
             .map(|n| Some(Node::VowelFilter(StageId(2), n)))
@@ -3806,7 +3851,11 @@ pub(crate) mod tests {
             let (stages, table, _, r) = walk_entry(&params, TIMES);
             let e = r.unwrap_err();
             assert!(e.detail.contains("non-finite"), "{v}: {}", e.detail);
-            assert_eq!(kinds(&stages), ["gain", "crush"], "{v}");
+            assert_eq!(
+                &table.specs()[..stages.len()],
+                [S::EntryGain(M), S::Crush(M)],
+                "{v}"
+            );
             assert!(table.get(FxKey::Main, "compressor").is_some(), "planned");
         }
     }
@@ -3833,7 +3882,11 @@ pub(crate) mod tests {
             let e = r.unwrap_err();
             assert_eq!(e.kind, crate::job::ErrorKind::Hap);
             assert_eq!(e.detail, msg);
-            assert_eq!(kinds(&stages), ["gain", "biquad"], "built before the vowel");
+            assert_eq!(
+                &table.specs()[..stages.len()],
+                [S::EntryGain(M), filter(M, FilterKind::Lowpass, false)],
+                "built before the vowel"
+            );
             assert!(table.get(FxKey::Main, "vowel").is_some(), "planned");
         }
         assert!(built(json!({ "vowel": "ø" })).is_ok());
@@ -3980,11 +4033,11 @@ pub(crate) mod tests {
 
     #[test]
     fn compressor_makes_the_voice_stereo_and_pan_takes_the_stereo_law() {
-        let v = voice(json!({ "s": "sine", "compressor": -10, "pan": 0.5 }));
-        assert_eq!(v.output_channels(), 2);
-        let ks = kinds(v.stages());
-        let c = ks.iter().position(|k| *k == "compressor").unwrap();
-        assert_eq!(ks[c + 1], "panner");
+        let value = json!({ "s": "sine", "compressor": -10, "pan": 0.5 });
+        assert_eq!(voice(value.clone()).output_channels(), 2);
+        let specs = planned(value).specs().to_vec();
+        let c = specs.iter().position(|s| *s == S::Compressor(M)).unwrap();
+        assert_eq!(specs[c + 1], S::Pan(M));
         // Pan 0.5 on a stereo bus: the stereo law passes both channels unchanged (no -3 dB).
         let mut p = StereoPanner::new();
         p.pan.set_value(0.0, 0).unwrap();
@@ -4013,10 +4066,12 @@ pub(crate) mod tests {
     #[test]
     fn release_stage_rule() {
         // FXrelease > release: one release gain after the FX loop, before post.
-        let v = voice(json!({ "s": "sine", "release": 0.02, "FXrelease": 0.3, "phaserrate": 1 }));
-        let ks = kinds(v.stages());
-        assert_eq!(&ks[ks.len() - 3..], ["phaser", "release", "gain"]);
-        let Stage::Release(g) = &v.stages()[ks.len() - 2] else {
+        let value = json!({ "s": "sine", "release": 0.02, "FXrelease": 0.3, "phaserrate": 1 });
+        let t = planned(value.clone());
+        let n = t.specs().len();
+        assert_eq!(&t.specs()[n - 3..], [S::Phaser(M), S::Release, S::Post]);
+        let v = voice(value);
+        let Stage::Release(g) = &v.stages()[n - 2] else {
             panic!()
         };
         let ev: Vec<(crate::param::RampKind, f32, f64)> = g
@@ -4048,16 +4103,14 @@ pub(crate) mod tests {
             val.as_object_mut()
                 .unwrap()
                 .extend(extra.as_object().unwrap().clone());
-            let v = voice(val.clone());
-            assert!(
-                !v.stages().iter().any(|s| matches!(s, Stage::Release(_))),
-                "{val}"
-            );
+            assert!(!planned(val.clone()).specs().contains(&S::Release), "{val}");
         }
         // The default release 0.01: FXrelease 0.02 builds; a null release is 0.
-        let v = voice(json!({ "s": "sine", "FXrelease": 0.02 }));
-        assert!(v.stages().iter().any(|s| matches!(s, Stage::Release(_))));
-        let v = voice(json!({ "s": "sine", "release": null, "FXrelease": 0.001 }));
+        let t = planned(json!({ "s": "sine", "FXrelease": 0.02 }));
+        assert!(t.specs().contains(&S::Release));
+        let value = json!({ "s": "sine", "release": null, "FXrelease": 0.001 });
+        assert!(planned(value.clone()).specs().contains(&S::Release));
+        let v = voice(value);
         let Some(Stage::Release(g)) = v.stages().iter().find(|s| matches!(s, Stage::Release(_)))
         else {
             panic!("null release is 0")
@@ -4148,10 +4201,6 @@ pub(crate) mod tests {
         Ok(v)
     }
 
-    fn voice_kinds(v: &Voice) -> Vec<&'static str> {
-        kinds(v.stages())
-    }
-
     fn local_delay(v: &Voice) -> Option<&LocalDelay> {
         v.stages().iter().find_map(|s| match s {
             Stage::LocalDelay(d) => Some(&**d),
@@ -4168,7 +4217,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_chain_entry_with_every_key_builds_in_superdough_order() {
-        let v = fx_voice(json!({
+        let t = planned(json!({
             "s": "sawtooth", "FXrelease": 0.3,
             "FX": [{
                 "transient": 0.5, "cutoff": 500, "hcutoff": 100, "bandf": 1000, "vowel": "a",
@@ -4176,35 +4225,33 @@ pub(crate) mod tests {
                 "compressor": -10, "pan": 0.3, "phaserrate": 2, "delay": 0.5, "delaytime": 0.1,
                 "room": 0.3, "roomsize": 0.1
             }]
-        }))
-        .unwrap();
+        }));
         assert_eq!(
-            voice_kinds(&v),
+            t.specs(),
             [
-                "gain",
-                "gain",
-                "transient",
-                "gain",
-                "biquad",
-                "biquad",
-                "biquad",
-                "vowel",
-                "coarse",
-                "crush",
-                "shape",
-                "distort",
-                "tremolo",
-                "compressor",
-                "panner",
-                "phaser",
-                "local delay",
-                "local reverb",
-                "gain",
-                "release",
-                "gain"
+                S::SynthGain,
+                S::EnvGain,
+                S::Transient(X0),
+                S::EntryGain(X0),
+                filter(X0, FilterKind::Lowpass, false),
+                filter(X0, FilterKind::Highpass, false),
+                filter(X0, FilterKind::Bandpass, false),
+                S::Vowel(X0),
+                S::Coarse(X0),
+                S::Crush(X0),
+                S::Shape(X0),
+                S::Distort(X0),
+                S::Tremolo(X0),
+                S::Compressor(X0),
+                S::Pan(X0),
+                S::Phaser(X0),
+                S::LocalDelay(X0),
+                S::LocalReverb(X0),
+                S::EntryGain(M),
+                S::Release,
+                S::Post
             ]
         );
-        let t = v.node_table();
         assert_eq!(
             t.keys(FxKey::Index(0)),
             [
@@ -4254,10 +4301,13 @@ pub(crate) mod tests {
         assert_eq!(t.stage(StageId(16)), Some(StageKind::LocalDelay));
         assert_eq!(t.stage(StageId(17)), Some(StageKind::LocalReverb));
         // Two chain entries, then main: each its own gain stage, in order.
-        let v = fx_voice(json!({
+        let value = json!({
             "s": "sine", "gain": 0.5, "FX": [{ "gain": 0.25 }, { "velocity": 0.5 }]
-        }))
-        .unwrap();
+        });
+        let t = planned(value.clone());
+        assert!(t.has_entry(FxKey::Index(1)));
+        assert!(!t.has_entry(FxKey::Index(2)));
+        let v = fx_voice(value).unwrap();
         let gains: Vec<f32> = v.stages()[2..5]
             .iter()
             .map(|s| match s {
@@ -4266,8 +4316,6 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(gains, [0.25, 0.4, 0.5]);
-        assert!(v.node_table().has_entry(FxKey::Index(1)));
-        assert!(!v.node_table().has_entry(FxKey::Index(2)));
     }
 
     #[test]
@@ -4297,19 +4345,34 @@ pub(crate) mod tests {
 
     #[test]
     fn the_24db_doubling_is_the_haps_and_the_ladder_the_entrys() {
-        let count = |v: &Voice, k: &str| voice_kinds(v).iter().filter(|x| **x == k).count();
-        let v =
-            fx_voice(json!({ "s": "sine", "ftype": "24db", "FX": [{ "cutoff": 500 }] })).unwrap();
-        assert_eq!(count(&v, "biquad"), 2);
-        let v =
-            fx_voice(json!({ "s": "sine", "FX": [{ "cutoff": 500, "ftype": "24db" }] })).unwrap();
-        assert_eq!(count(&v, "biquad"), 1);
-        let v = fx_voice(json!({
+        let count = |v: serde_json::Value, ladder: bool| {
+            planned(v)
+                .specs()
+                .iter()
+                .filter(|s| matches!(s, S::Filter { ladder: l, .. } if *l == ladder))
+                .count()
+        };
+        let counts = |v: serde_json::Value| (count(v.clone(), true), count(v, false));
+        assert_eq!(
+            count(
+                json!({ "s": "sine", "ftype": "24db", "FX": [{ "cutoff": 500 }] }),
+                false
+            ),
+            2
+        );
+        assert_eq!(
+            count(
+                json!({ "s": "sine", "FX": [{ "cutoff": 500, "ftype": "24db" }] }),
+                false
+            ),
+            1
+        );
+        let value = json!({
             "s": "sine", "cutoff": 800, "drive": 5,
             "FX": [{ "cutoff": 500, "ftype": "ladder", "drive": 2 }]
-        }))
-        .unwrap();
-        assert_eq!((count(&v, "ladder"), count(&v, "biquad")), (1, 1));
+        });
+        assert_eq!(counts(value.clone()), (1, 1));
+        let v = fx_voice(value).unwrap();
         let drive = v
             .stages()
             .iter()
@@ -4319,16 +4382,20 @@ pub(crate) mod tests {
             })
             .unwrap();
         assert_eq!(drive, 2.0, "the entry's drive");
-        let v =
-            fx_voice(json!({ "s": "sine", "ftype": "ladder", "FX": [{ "cutoff": 500 }] })).unwrap();
-        assert_eq!((count(&v, "ladder"), count(&v, "biquad")), (0, 1));
+        assert_eq!(
+            counts(json!({ "s": "sine", "ftype": "ladder", "FX": [{ "cutoff": 500 }] })),
+            (0, 1)
+        );
     }
 
     #[test]
     fn local_delay_conditions_and_values() {
         let with = |e: serde_json::Value| fx_voice(json!({ "s": "sine", "FX": [e] })).unwrap();
+        let plan = |e: serde_json::Value| planned(json!({ "s": "sine", "FX": [e] }));
         let base = json!({ "delay": 0.5, "delaytime": 0.1, "delayfeedback": 0.5 });
-        assert!(local_delay(&with(base.clone())).is_some());
+        let t = plan(base.clone());
+        assert!(t.specs().contains(&S::LocalDelay(X0)));
+        assert!(t.get(X0, "delay").is_some());
         // Each of the three 0, negative or NaN disables it (JS `>`).
         for (k, bad) in [
             ("delay", json!(0)),
@@ -4341,12 +4408,9 @@ pub(crate) mod tests {
         ] {
             let mut e = base.clone();
             e[k] = bad.clone();
-            let v = with(e);
-            assert!(local_delay(&v).is_none(), "{k} = {bad}");
-            assert!(
-                v.node_table().get(FxKey::Index(0), "delay").is_none(),
-                "{k}"
-            );
+            let t = plan(e);
+            assert!(!t.specs().contains(&S::LocalDelay(X0)), "{k} = {bad}");
+            assert!(t.get(X0, "delay").is_none(), "{k}");
         }
         // The default delay time is delaysync 3/16 cycles over cps; the default feedback 0.5.
         let v = with(json!({ "delay": 0.5 }));
@@ -4386,23 +4450,35 @@ pub(crate) mod tests {
 
     #[test]
     fn the_main_entry_never_builds_local_effects() {
-        let v = fx_voice(json!({
+        let local = |t: &NodeTable| -> Vec<S> {
+            t.specs()
+                .iter()
+                .copied()
+                .filter(|s| matches!(s, S::LocalDelay(_) | S::LocalReverb(_)))
+                .collect()
+        };
+        let value = json!({
             "s": "sine", "delay": 0.5, "delaytime": 0.1, "room": 0.5, "roomsize": 0.1
-        }))
-        .unwrap();
-        assert!(local_delay(&v).is_none() && local_reverb(&v).is_none());
-        assert_eq!(v.send_levels(), (Some(0.5), Some(0.5)));
+        });
+        let t = planned(value.clone());
+        assert_eq!(local(&t), []);
         assert_eq!(
-            v.node_table().get(FxKey::Main, "delay").cloned(),
+            t.get(FxKey::Main, "delay").cloned(),
             Some(NodeList::Array(vec![Some(Node::OrbitDelay)]))
         );
+        assert_eq!(
+            fx_voice(value).unwrap().send_levels(),
+            (Some(0.5), Some(0.5))
+        );
         // A chain entry's delay and room are local only: no orbit send.
-        let v = fx_voice(json!({
+        let value = json!({
             "s": "sine", "FX": [{ "delay": 0.5, "delaytime": 0.1, "room": 0.5, "roomsize": 0.1 }]
-        }))
-        .unwrap();
-        assert!(local_delay(&v).is_some() && local_reverb(&v).is_some());
-        assert_eq!(v.send_levels(), (None, None));
+        });
+        assert_eq!(
+            local(&planned(value.clone())),
+            [S::LocalDelay(X0), S::LocalReverb(X0)]
+        );
+        assert_eq!(fx_voice(value).unwrap().send_levels(), (None, None));
     }
 
     #[test]
@@ -4444,14 +4520,22 @@ pub(crate) mod tests {
         );
         assert_eq!(ch(json!({ "s": "supersaw", "FX": [{ "cutoff": 500 }] })), 2);
         // Mono until the entry's local stage, stereo after it (fold of `channels_out`).
-        let v = fx_voice(json!({ "s": "sine", "FX": [{ "cutoff": 500, "delay": 0.5, "delaytime": 0.1 }, { "hcutoff": 50 }] })).unwrap();
+        let value = json!({ "s": "sine", "FX": [{ "cutoff": 500, "delay": 0.5, "delaytime": 0.1 }, { "hcutoff": 50 }] });
+        assert_eq!(
+            planned(value.clone()).specs()[3..6],
+            [
+                filter(X0, FilterKind::Lowpass, false),
+                S::LocalDelay(X0),
+                S::EntryGain(FxKey::Index(1))
+            ]
+        );
+        let v = fx_voice(value).unwrap();
         let mut n = 1;
         let mut seq = Vec::new();
         for s in v.stages() {
             n = s.channels_out(n);
             seq.push(n);
         }
-        assert_eq!(voice_kinds(&v)[3..6], ["biquad", "local delay", "gain"]);
         assert_eq!(seq, [1, 1, 1, 1, 2, 2, 2, 2, 2]);
     }
 

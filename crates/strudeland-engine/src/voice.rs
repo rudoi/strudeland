@@ -2678,6 +2678,12 @@ mod tests {
         }
     }
 
+    /// The plan of `v` (parsed with the `params()` helper's cps).
+    fn planned(v: serde_json::Value, dur: f64) -> NodeTable {
+        let p = params(v, dur);
+        NodeTable::plan(&p, SourceKind::of(&sound_name(p.s.as_ref())).unwrap())
+    }
+
     fn try_voice(v: serde_json::Value, dur: f64) -> Result<Voice, VoiceError> {
         Voice::new(
             &params(v, dur),
@@ -3029,13 +3035,34 @@ mod tests {
         v.filters().iter().map(|f| f.kind()).collect()
     }
 
+    /// The kinds of the planned filter copies of `v`, in order.
+    fn planned_kinds(v: serde_json::Value) -> Vec<FilterKind> {
+        planned(v, 0.1)
+            .specs()
+            .iter()
+            .filter_map(|s| match s {
+                StageSpec::Filter { kind, .. } => Some(*kind),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn filters_follow_superdough_order_and_24db_doubles_them() {
         use FilterKind::*;
         let all = json!({ "s": "saw", "bandf": 500, "hcutoff": 200, "cutoff": 3000 });
+        assert_eq!(planned_kinds(all.clone()), [Lowpass, Highpass, Bandpass]);
+        // The build turns each planned kind into its biquad, once per copy of a doubled one.
+        assert_eq!(kinds(&voice(all.clone(), 0.1)), planned_kinds(all.clone()));
+        let mut all_24db = all.clone();
+        all_24db["ftype"] = json!("24db");
         assert_eq!(
-            kinds(&voice(all.clone(), 0.1)),
-            [Lowpass, Highpass, Bandpass]
+            kinds(&voice(all_24db.clone(), 0.1)),
+            [Lowpass, Lowpass, Highpass, Highpass, Bandpass, Bandpass]
+        );
+        assert_eq!(
+            kinds(&voice(all_24db.clone(), 0.1)),
+            planned_kinds(all_24db)
         );
         for (ftype, doubled) in [
             (json!("24db"), true),
@@ -3058,21 +3085,48 @@ mod tests {
             } else {
                 vec![Lowpass, Highpass, Bandpass]
             };
-            assert_eq!(kinds(&voice(v, 0.1)), want, "ftype {ftype}");
+            assert_eq!(planned_kinds(v), want, "ftype {ftype}");
         }
         // Only the filters whose frequency control is defined (a null one counts).
-        assert!(voice(json!({ "s": "saw" }), 0.1).filters().is_empty());
+        assert!(planned_kinds(json!({ "s": "saw" })).is_empty());
         assert_eq!(
-            kinds(&voice(json!({ "s": "saw", "hcutoff": null }), 0.1)),
+            planned_kinds(json!({ "s": "saw", "hcutoff": null })),
             [Highpass]
         );
         assert_eq!(
-            kinds(&voice(
-                json!({ "s": "saw", "bandf": 300, "ftype": "24db" }),
-                0.1
-            )),
+            planned_kinds(json!({ "s": "saw", "bandf": 300, "ftype": "24db" })),
             [Bandpass, Bandpass]
         );
+    }
+
+    #[test]
+    fn voice_build_throws_in_plan_order() {
+        // Each value arms two sites whose texts differ: the text names the first thrower.
+        for (v, text) in [
+            // A chain entry before the main entry.
+            (
+                json!({ "s": "sine", "FX": [{ "pan": "x" }], "cutoff": 100, "resonance": "x" }),
+                "pan is not a finite",
+            ),
+            // The entries before Release.
+            (
+                json!({ "s": "sine", "FX": [{ "pan": "x" }], "FXrelease": { "$num": "Infinity" } }),
+                "pan is not a finite",
+            ),
+            // Release before Post.
+            (
+                json!({ "s": "sine", "FXrelease": { "$num": "Infinity" }, "postgain": "x" }),
+                "linearRampToValueAtTime",
+            ),
+            // `pw_lfo` before the entries.
+            (
+                json!({ "s": "pulse", "pwsweep": "x", "velocity": "x" }),
+                "'value' on 'AudioParam'",
+            ),
+        ] {
+            let e = try_voice(v.clone(), 0.1).unwrap_err();
+            assert!(e.detail.contains(text), "{v}: {}", e.detail);
+        }
     }
 
     #[test]
@@ -3851,7 +3905,7 @@ mod tests {
         let v = pulse(json!({ "s": "pulse" })).unwrap();
         assert!(lfo_of(&v).is_none());
         assert_eq!(
-            v.node_table().get(FxKey::Main, "pw_lfo"),
+            planned(json!({ "s": "pulse" }), 0.25).get(FxKey::Main, "pw_lfo"),
             Some(&NodeList::Array(vec![None]))
         );
         // pwsweep 0 with a rate: none either.
@@ -3876,7 +3930,7 @@ mod tests {
         };
         assert_eq!(p(lfo::END), w.end, "the pulse's end");
         assert_eq!(
-            v.node_table().get(FxKey::Main, "pw_lfo"),
+            planned(json!({ "s": "pulse", "pwrate": 2 }), 0.25).get(FxKey::Main, "pw_lfo"),
             Some(&NodeList::Array(vec![Some(Node::PulseLfo)]))
         );
         // pwsweep alone: rate 1; null controls take the defaults.
@@ -3898,8 +3952,9 @@ mod tests {
         assert!(e.detail.contains("TypeError"), "{}", e.detail);
         // Other sounds ignore both and register no `pw_lfo`.
         for s in ["supersaw", "sine"] {
-            let v = try_voice(json!({ "s": s, "pwrate": 2, "pwsweep": "x" }), 0.25).unwrap();
-            assert_eq!(v.node_table().get(FxKey::Main, "pw_lfo"), None, "{s}");
+            let v = json!({ "s": s, "pwrate": 2, "pwsweep": "x" });
+            assert!(try_voice(v.clone(), 0.25).is_ok(), "{s}");
+            assert_eq!(planned(v, 0.25).get(FxKey::Main, "pw_lfo"), None, "{s}");
         }
         // The modulation sounds: with the LFO the pulse differs from the plain one only after
         // the LFO's first active quantum.
@@ -4433,9 +4488,17 @@ mod tests {
 
     #[test]
     fn worklet_synths_connect_straight_to_their_envelope_in_stereo() {
-        let v = voice(json!({ "s": "supersaw", "note": 45 }), 0.2);
         // envGain first (no Gain(0.3)), then the gain stage and post.
-        assert_eq!(v.stages().len(), 3);
+        let worklet_specs = [
+            StageSpec::EnvGain,
+            StageSpec::EntryGain(FxKey::Main),
+            StageSpec::Post,
+        ];
+        for s in ["supersaw", "pulse"] {
+            let t = planned(json!({ "s": s, "note": 45 }), 0.2);
+            assert_eq!(t.specs(), worklet_specs, "{s}");
+        }
+        let v = voice(json!({ "s": "supersaw", "note": 45 }), 0.2);
         let Stage::Gain(env) = &v.stages()[0] else {
             panic!("envGain first")
         };
@@ -4611,11 +4674,10 @@ mod tests {
 
     #[test]
     fn worklet_synth_node_table_entries() {
-        let v = voice(
+        let t = planned(
             json!({ "s": "supersaw", "vib": 5, "fmi": 2, "fmi13": 1 }),
             0.1,
         );
-        let t = v.node_table();
         assert_eq!(
             t.get(FxKey::Main, "source"),
             Some(&NodeList::Array(vec![Some(Node::Source)]))
@@ -4638,10 +4700,10 @@ mod tests {
             Some(&NodeList::Array(vec![Some(Node::FmOsc(1))]))
         );
         assert!(t.get(FxKey::Main, "fm_1_gain").is_some());
-        let p = voice(json!({ "s": "pulse" }), 0.1);
-        assert!(p.node_table().get(FxKey::Main, "vib").is_none());
-        assert!(p.node_table().get(FxKey::Main, "fm_1").is_none());
-        assert!(p.node_table().get(FxKey::Main, "source").is_some());
+        let p = planned(json!({ "s": "pulse" }), 0.1);
+        assert!(p.get(FxKey::Main, "vib").is_none());
+        assert!(p.get(FxKey::Main, "fm_1").is_none());
+        assert!(p.get(FxKey::Main, "source").is_some());
     }
 
     #[test]
