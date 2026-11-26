@@ -1,7 +1,7 @@
 # 0127 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0127-fx-entry-walk`.
-- **Plan:** [the proposal](../0127-fx-entry-walk.md). It is the contract. It covers:
+- **Plan:** [the proposal](proposal.md). It is the contract. It covers:
   - `StageSpec`, the walk and `build_stage`;
   - `FmStep` and `NodeName`;
   - the A/B guard;
@@ -22,16 +22,16 @@
 The stages run in order. Each later stage builds on the one before. Run each stage's gates
 before starting the next.
 
-1. [001-baseline.md](001-baseline.md): the A/B guard, built and recorded twice **before any
+1. [001-baseline.md](proposal.md): the A/B guard, built and recorded twice **before any
    engine edit**, then snapshotted. Commits nothing.
-2. [002-stage-walk.md](002-stage-walk.md): `StageSpec` and `VoiceParams::entry`; `NodeTable`
+2. [002-stage-walk.md](proposal.md): `StageSpec` and `VoiceParams::entry`; `NodeTable`
    stores specs; `Voice::build` plans first and walks; `build_stage`. Deleted: `build_entry`,
    `push_stage`, `push_shaper`, the debug assertion and `the_plan_names_the_built_stages`
    (`StageKind::of` becomes test-only). The walk's error-order test. Also the README and
    AGENTS.md.
-3. [003-fm-steps.md](003-fm-steps.md): `FmStep`, and `apply_fm` built from the planned walk.
-4. [004-node-names.md](004-node-names.md): `NodeName`, and the `TARGETS` cross-check.
-5. [005-tests.md](005-tests.md): the structural tests on the pure plan. Deleted: `kind()` and its
+3. [003-fm-steps.md](proposal.md): `FmStep`, and `apply_fm` built from the planned walk.
+4. [004-node-names.md](proposal.md): `NodeName`, and the `TARGETS` cross-check.
+5. [005-tests.md](proposal.md): the structural tests on the pure plan. Deleted: `kind()` and its
    helpers. The voice-level throw-order test, and the README re-read.
 
 ## Rules for every stage
@@ -73,7 +73,7 @@ before starting the next.
     - `S` is your session's scratchpad. The planning session's was
       `/private/tmp/claude-501/-Volumes-rudenet-code-strudeland-worktrees-poptart/2d85ebc3-84cd-4f6d-90b0-657c13b5df8a/scratchpad`.
       A later session sets `S` to its own and restores the guard as
-      [001-baseline.md](001-baseline.md) "Recovery" says.
+      [001-baseline.md](proposal.md) "Recovery" says.
     - `N` is the stage number (`002` … `005`).
 
     ```sh
@@ -98,7 +98,7 @@ before starting the next.
     runs `strudeland-live`'s `rt_alloc.rs` and `player.rs`. The dropout and decode benches
     (`--ignored`) measure timing. They are not gates, because no work moves onto the callback.
 - **The guard must exist before any engine edit.** If `$S/0127-baseline/base/` is missing,
-  recover it first ([001-baseline.md](001-baseline.md) "Recovery"). Never record a baseline
+  recover it first ([001-baseline.md](proposal.md) "Recovery"). Never record a baseline
   from an edited tree: `ab.sh baseline` refuses to.
 - **STOP and report** (do not commit, do not "fix" the expectation) when:
   - the A/B check reports any difference;

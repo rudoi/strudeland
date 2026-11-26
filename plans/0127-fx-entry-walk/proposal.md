@@ -29,7 +29,7 @@ A debug assertion compares the two lists by `StageKind` only. After this task:
 
 ## Background
 
-[The re-verification](0127-fx-entry-walk/reverify.md) has the evidence at `416caa6`. In short:
+[The re-verification](reverify.md) has the evidence at `416caa6`. In short:
 
 - **Two lists, one assertion.** `plan_entry` (chain.rs:917-1000) and `build_entry`
   (chain.rs:1175-1325) list the same ten steps per entry in the same order. `NodeTable::plan`
@@ -304,7 +304,7 @@ pub enum NodeName {
 
 ### Tests: replace, don't layer
 
-The full list is in [005-tests.md](0127-fx-entry-walk/005-tests.md). In short:
+The full list is in [005-tests.md](proposal.md). In short:
 
 - **Stage 002** keeps the suite green with the least change. The tests that called
   `build_entry` go through a test helper, `walk_entry`, that walks
@@ -354,7 +354,7 @@ Each item names the guard that proves it.
 
 ## The A/B guard
 
-[001-baseline.md](0127-fx-entry-walk/001-baseline.md) builds it: `$S/0127-baseline/ab.sh`, a
+[001-baseline.md](proposal.md) builds it: `$S/0127-baseline/ab.sh`, a
 merge of #121's `ab.sh` and #122's `eq.sh`, with `BASE_SRC=416caa6`. The draft is
 `$S/0127-draft/ab.sh` in the planning session's scratchpad, quoted in full in 001.
 
