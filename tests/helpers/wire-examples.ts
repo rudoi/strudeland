@@ -10,8 +10,6 @@ const DIR = new URL('../../crates/strudeland-ctl/tests/wire/', import.meta.url);
 export interface WireEntry {
   name: string;
   value: unknown;
-  /** An older app's reply, with fields missing. */
-  older?: boolean;
 }
 
 /** Params a method refuses, with the exact error. */
@@ -20,8 +18,6 @@ export interface WireInvalid {
   params: unknown;
   code: number;
   message: string;
-  /** Overrides the method's `answeredBy` for this entry. */
-  answeredBy?: 'app' | 'webview';
 }
 
 /** One `<method>.json`. */
@@ -30,7 +26,12 @@ export interface WireExample {
   answeredBy: 'app' | 'webview';
   params: WireEntry[];
   results: WireEntry[];
+  /** An older app's replies, with fields missing. */
+  olderResults?: WireEntry[];
+  /** Refuses whoever answers the method (`answeredBy`). */
   invalid: WireInvalid[];
+  /** A webview method's refusals that the app answers before forwarding. */
+  invalidApp?: WireInvalid[];
 }
 
 const read = (file: string): unknown => JSON.parse(readFileSync(new URL(file, DIR), 'utf8'));
@@ -47,7 +48,7 @@ export function wireExamples(): WireExample[] {
   return examples;
 }
 
-export function wireExample(method: MethodName): WireExample {
+function wireExample(method: MethodName): WireExample {
   const hit = examples.find((e) => e.method === method);
   if (!hit) throw new Error(`no wire example for ${method}`);
   return hit;

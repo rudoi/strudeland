@@ -1,6 +1,12 @@
 //! The golden wire examples (`tests/wire/`) against the typed method table: every params and
 //! result example round-trips through its method's types, the refusals are well formed, and
 //! `errors.json` and `limits.json` equal the crate's constants.
+//!
+//! A `<method>.json` holds `params`, `results` and `invalid`, plus two optional lists:
+//! `olderResults` (an older app's replies, with fields missing: they decode, and every key they
+//! have serializes back equal) and `invalidApp` (refusals of a webview-answered method that the
+//! app answers before forwarding; `control.rs` tests them). A method the app answers itself
+//! (`answeredBy: "app"`) keeps all its refusals in `invalid`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -59,7 +65,7 @@ fn one_file_per_method_plus_errors_and_limits() {
     for m in Method::ALL {
         let ex = read(&format!("{}.json", m.as_str()));
         assert_eq!(ex["method"], m.as_str());
-        let by = if matches!(m, Method::Ping | Method::Screenshot) {
+        let by = if m.answered_by_app() {
             "app"
         } else {
             "webview"
@@ -103,6 +109,19 @@ fn entries<'a>(m: Method, ex: &'a Value, list: &str) -> &'a [Value] {
     let entries = ex[list]
         .as_array()
         .unwrap_or_else(|| panic!("{m}: no {list} list"));
+    unique(m, list, entries)
+}
+
+/// The entries of `list` when the file has it, else none, with their names checked unique.
+fn optional<'a>(m: Method, ex: &'a Value, list: &str) -> &'a [Value] {
+    match ex.get(list) {
+        None => &[],
+        Some(_) => entries(m, ex, list),
+    }
+}
+
+/// `entries`, with their names checked present and unique.
+fn unique<'a>(m: Method, list: &str, entries: &'a [Value]) -> &'a [Value] {
     let mut names = BTreeSet::new();
     for e in entries {
         let name = e["name"]
@@ -131,40 +150,57 @@ fn check_rpc<M: Rpc>(m: Method, ex: &Value) {
     for r in results {
         let name = r["name"].as_str().unwrap_or_default();
         let value = &r["value"];
-        let typed: M::Result = serde_json::from_value(value.clone())
-            .unwrap_or_else(|e| panic!("{m} result '{name}': {e}"));
-        let back = serde_json::to_value(&typed).unwrap();
-        if r["older"] == true {
-            // An older app's reply: every key it has comes back equal.
-            let (Value::Object(old), Value::Object(new)) = (value, &back) else {
-                panic!("{m} result '{name}': an older reply is an object");
-            };
-            for (k, v) in old {
-                assert!(
-                    new.get(k).is_some_and(|w| same(v, w)),
-                    "{m} result '{name}': '{k}' came back as {:?}",
-                    new.get(k)
-                );
-            }
-        } else {
+        let back = result_back::<M>(m, name, value);
+        assert!(
+            same(value, &back),
+            "{m} result '{name}': {value} came back as {back}"
+        );
+    }
+    let older = optional(m, ex, "olderResults");
+    for r in older {
+        let name = r["name"].as_str().unwrap_or_default();
+        let value = &r["value"];
+        let back = result_back::<M>(m, name, value);
+        let (Value::Object(old), Value::Object(new)) = (value, &back) else {
+            panic!("{m} older result '{name}': an older reply is an object");
+        };
+        for (k, v) in old {
             assert!(
-                same(value, &back),
-                "{m} result '{name}': {value} came back as {back}"
+                new.get(k).is_some_and(|w| same(v, w)),
+                "{m} older result '{name}': '{k}' came back as {:?}",
+                new.get(k)
             );
         }
     }
-    for i in entries(m, ex, "invalid") {
+    unique(m, "results and olderResults", &[results, older].concat());
+    let invalid = entries(m, ex, "invalid");
+    let app = optional(m, ex, "invalidApp");
+    assert!(
+        app.is_empty() || !m.answered_by_app(),
+        "{m}: the app answers the method, so its refusals belong in invalid"
+    );
+    check_refusals(m, invalid, "invalid");
+    check_refusals(m, app, "invalidApp");
+    unique(m, "invalid and invalidApp", &[invalid, app].concat());
+}
+
+/// `value` decoded as the method's result and serialized again.
+fn result_back<M: Rpc>(m: Method, name: &str, value: &Value) -> Value {
+    let typed: M::Result = serde_json::from_value(value.clone())
+        .unwrap_or_else(|e| panic!("{m} result '{name}': {e}"));
+    serde_json::to_value(&typed).unwrap()
+}
+
+fn check_refusals(m: Method, list: &[Value], kind: &str) {
+    for i in list {
         let name = i["name"].as_str().unwrap_or_default();
-        assert_eq!(i["code"], codes::INVALID_PARAMS, "{m} invalid '{name}'");
+        assert_eq!(i["code"], codes::INVALID_PARAMS, "{m} {kind} '{name}'");
         let message = i["message"].as_str().unwrap_or_default();
         assert!(
             message.starts_with("invalid params: "),
-            "{m} invalid '{name}': {message}"
+            "{m} {kind} '{name}': {message}"
         );
-        assert!(!i["params"].is_null(), "{m} invalid '{name}': null params");
-        if let Some(by) = i.get("answeredBy") {
-            assert!(*by == "app" || *by == "webview", "{m} invalid '{name}'");
-        }
+        assert!(!i["params"].is_null(), "{m} {kind} '{name}': null params");
     }
 }
 

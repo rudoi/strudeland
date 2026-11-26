@@ -44,10 +44,11 @@
         "levels": { "peakDb": [null, 2.1], "overs": 12, "limitDb": -2.3, "limiter": true },
         "vim": true
       }
-    },
+    }
+  ],
+  "olderResults": [
     {
       "name": "minimal",
-      "older": true,
       "value": {
         "project": { "name": "demo", "root": "/Users/me/demo" },
         "songs": [

@@ -7,11 +7,6 @@ use serde_json::Value;
 
 use crate::methods::Method;
 
-/// `errors.json`: every error code by its Rust name.
-pub const ERRORS: &str = include_str!("../tests/wire/errors.json");
-/// `limits.json`: `eventsLimitDefault` and `eventsLimitMax`.
-pub const LIMITS: &str = include_str!("../tests/wire/limits.json");
-
 /// One state-independent refusal of a method's params.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invalid {
@@ -19,12 +14,10 @@ pub struct Invalid {
     pub params: Value,
     pub code: i64,
     pub message: String,
-    /// The method's `answeredBy` unless the entry overrides it.
-    pub answered_by: String,
 }
 
 /// The example file of `method`, as committed.
-pub fn text(method: Method) -> &'static str {
+fn text(method: Method) -> &'static str {
     match method {
         Method::Ping => include_str!("../tests/wire/ping.json"),
         Method::State => include_str!("../tests/wire/state.json"),
@@ -50,50 +43,58 @@ fn example(method: Method) -> Value {
         .unwrap_or_else(|e| panic!("the {method} example is not JSON: {e}"))
 }
 
-/// The `value` of the entry called `name` in the example's `list` (`params` or `results`).
-fn named(method: Method, list: &str, kind: &str, name: &str) -> Value {
+/// The `value` of the entry called `name` in the first of the example's `lists` that has one.
+fn named(method: Method, lists: &[&str], kind: &str, name: &str) -> Value {
     let ex = example(method);
-    ex[list]
-        .as_array()
-        .and_then(|list| list.iter().find(|e| e["name"] == name))
+    lists
+        .iter()
+        .filter_map(|list| ex[*list].as_array())
+        .flatten()
+        .find(|e| e["name"] == name)
         .map(|e| e["value"].clone())
         .unwrap_or_else(|| panic!("no {kind} example '{name}' for {method}"))
 }
 
-/// The params example called `name`.
-pub fn params(method: Method, name: &str) -> Value {
-    named(method, "params", "params", name)
-}
-
-/// The result example called `name`.
+/// The result example called `name`: a current reply from `results`, else an older app's reply
+/// from `olderResults`.
 pub fn result(method: Method, name: &str) -> Value {
-    named(method, "results", "result", name)
+    named(method, &["results", "olderResults"], "result", name)
 }
 
-/// Every invalid entry of the method, in file order.
-pub fn invalid(method: Method) -> Vec<Invalid> {
+/// The entries of the example's `list` as refusals, in file order; an absent list is empty.
+fn refusals(method: Method, list: &str) -> Vec<Invalid> {
     let ex = example(method);
-    let default = ex["answeredBy"].as_str().unwrap_or_default().to_string();
     let field = |e: &Value, key: &str| {
         e[key]
             .as_str()
-            .unwrap_or_else(|| panic!("an invalid entry of {method} has no string '{key}'"))
+            .unwrap_or_else(|| panic!("an {list} entry of {method} has no string '{key}'"))
             .to_string()
     };
-    ex["invalid"]
+    ex[list]
         .as_array()
-        .unwrap_or_else(|| panic!("the {method} example has no invalid list"))
+        .map(Vec::as_slice)
+        .unwrap_or_default()
         .iter()
         .map(|e| Invalid {
             name: field(e, "name"),
             params: e["params"].clone(),
             code: e["code"]
                 .as_i64()
-                .unwrap_or_else(|| panic!("an invalid entry of {method} has no integer code")),
+                .unwrap_or_else(|| panic!("an {list} entry of {method} has no integer code")),
             message: field(e, "message"),
-            answered_by: e["answeredBy"].as_str().unwrap_or(&default).to_string(),
         })
         .collect()
+}
+
+/// The method's `invalid` refusals, answered by whoever answers the method (`answeredBy`).
+pub fn invalid(method: Method) -> Vec<Invalid> {
+    refusals(method, "invalid")
+}
+
+/// The method's `invalidApp` refusals: a webview method's refusals the app answers before
+/// forwarding. Empty for most methods.
+pub fn invalid_app(method: Method) -> Vec<Invalid> {
+    refusals(method, "invalidApp")
 }
 
 #[cfg(test)]
@@ -102,12 +103,10 @@ mod tests {
 
     #[test]
     fn named_entries_are_found() {
-        assert_eq!(params(Method::Events, "bars")["limit"], 10);
-        let app: Vec<_> = invalid(Method::ProjectOpen)
-            .into_iter()
-            .filter(|e| e.answered_by == "app")
-            .collect();
-        assert_eq!(app.len(), 1, "{app:?}");
+        assert_eq!(result(Method::Events, "truncated")["truncated"], true);
+        assert_eq!(result(Method::State, "minimal")["bpm"], 120);
+        assert_eq!(invalid_app(Method::ProjectOpen).len(), 1);
+        assert!(invalid_app(Method::State).is_empty());
     }
 
     #[test]

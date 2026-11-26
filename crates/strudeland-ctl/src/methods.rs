@@ -75,6 +75,11 @@ impl Method {
         }
     }
 
+    /// Whether the app answers the method itself rather than forwarding it to the webview.
+    pub const fn answered_by_app(self) -> bool {
+        matches!(self, Method::Ping | Method::Screenshot)
+    }
+
     /// The method with this wire name, or `None` for an unknown one.
     pub fn parse(s: &str) -> Option<Method> {
         Method::ALL.into_iter().find(|m| m.as_str() == s)

@@ -195,7 +195,8 @@ A method file looks like this:
 These rules hold for every file:
 
 - **`method`** equals the file name without `.json`.
-- **`answeredBy`** is `"app"` for `ping` and `screenshot`, else `"webview"`.
+- **`answeredBy`** is `"app"` for `ping` and `screenshot` (`Method::answered_by_app`), else
+  `"webview"`.
 - **`params`** is a list of requests that both sides accept:
   - Rust decodes each one into `M::Params`, and it serializes back equal (see "Numeric compare"
     below).
@@ -207,10 +208,11 @@ These rules hold for every file:
   example, `song.rename`'s example is `{ "song": "b", "name": "intro" }`.
 - **`results`** is a list of named replies:
   - Rust decodes each one into `M::Result`, and it serializes back equal.
-  - An entry with `"older": true` is an older app's reply, with fields missing. It must only
-    decode, and every key it has must serialize back equal. Only `state`'s `minimal` is older.
   - The values are the ones the CLI's tests print (`songs/main.js`, "Main Theme"), because those
     tests read the results.
+- **`olderResults`** (optional) is a list of an older app's replies, with fields missing. Each
+  must only decode, and every key it has must serialize back equal. Only `state` has one, holding
+  `minimal`. Names are unique across `results` and `olderResults`.
 - **`invalid`** is a list of state-independent shape refusals with their exact current texts.
   - Each entry is what the handler (or the app) returns for the params as sent. Absent and `null`
     params never get that far: `parse_request` (`frame.rs:147-149`) turns them into `{}`. So no
@@ -222,13 +224,16 @@ These rules hold for every file:
   - A refusal whose text depends on the state stays a hand test where it is. Examples:
     `song.rename`'s `'name' must be a string`, which comes after song resolution, the `events`
     range errors, and `screenshot`'s directory errors.
-  - An entry may carry `"answeredBy": "app"`, which overrides the method's. That marks the one
-    refusal that Rust answers before forwarding: `project.open`'s
-    `{ "path": "relative" }` → `-32602` "invalid params: 'path' must be an absolute path".
-    The TS test skips such entries, and `control.rs`'s test runs them.
+  - The refusals are answered by whoever answers the method: the webview's are run by the TS
+    handler test, and an app-answered method's (`screenshot`) by `control.rs`'s tests.
+- **`invalidApp`** (optional) is a webview-answered method's refusals that Rust answers before
+  forwarding, in the same entry shape. Only `project.open` has one: `{ "path": "relative" }` →
+  `-32602` "invalid params: 'path' must be an absolute path". An app-answered method has none,
+  since all its refusals are in `invalid`. The TS test does not read it, and `control.rs`'s test
+  runs it. Names are unique across `invalid` and `invalidApp`.
 - **`ping`** has no `invalid` entries, because Rust ignores its params.
 
-**State.** `state.json` has two results:
+**State.** `state.json` has a result and an older result:
 
 - `full`: every nullable and optional field is non-null and present at least once:
   - `project`, `active`, `playing`, `evalError`, `metaError`, `outputError`;
@@ -241,8 +246,8 @@ These rules hold for every file:
   - a song with `conflict: "changed"`.
 
   The values need not be a state the app can reach. `bpm` is written `120`, as the app sends it.
-- `minimal` (`older: true`): the reply of an app from before `seed`. It has the twelve original
-  fields and none of the later ones. Its values are `run.rs`'s `state_json()` today: project
+- `minimal` (in `olderResults`): the reply of an app from before `seed`. It has the twelve
+  original fields and none of the later ones. Its values are `run.rs`'s `state_json()` today: project
   `demo` at `/Users/me/demo`, songs `main` (dirty) and `verse` (`conflict: "changed"`), and the
   rest of that function's values.
 
@@ -271,12 +276,11 @@ Integers in the examples stay below 2^53.
 ```rust
 // crates/strudeland-ctl/src/wire_fixtures.rs, #[cfg(any(test, feature = "wire-fixtures"))]
 //! The golden wire examples (`tests/wire/`) for tests in other crates.
-pub fn text(method: Method) -> &'static str;              // exhaustive match over include_str!
-pub fn params(method: Method, name: &str) -> Value;      // panics naming the method and name
-pub fn result(method: Method, name: &str) -> Value;
-pub fn invalid(method: Method) -> Vec<Invalid>;          // { name, params, code, message, answered_by }
-pub const ERRORS: &str;
-pub const LIMITS: &str;
+fn text(method: Method) -> &'static str;                 // exhaustive match over include_str!
+pub fn result(method: Method, name: &str) -> Value;      // results, then olderResults; panics
+                                                         // naming the method and name
+pub fn invalid(method: Method) -> Vec<Invalid>;          // { name, params, code, message }
+pub fn invalid_app(method: Method) -> Vec<Invalid>;      // invalidApp, empty when absent
 ```
 
 - **The match over `Method` is exhaustive, and `include_str!` needs the file at compile time.**
@@ -297,13 +301,15 @@ pub const LIMITS: &str;
 
 - **The file set** is `Method::ALL`'s wire names plus `errors.json` and `limits.json`, with
   nothing else and nothing missing. Each file's `method` equals its name, and its `answeredBy`
-  is `app` exactly for `ping` and `screenshot`.
+  is `app` exactly when `Method::answered_by_app` is true (`ping` and `screenshot`).
 - **One dispatcher with no `_` arm:**
   `fn check(m: Method, ex: &Value) { match m { Method::Ping => check_rpc::<Ping>(m, ex), … } }`.
   `check_rpc::<M>` asserts `M::METHOD == m` (this replaces `markers_carry_their_method`). It then
-  round-trips every `params` and `results` entry, applying the `older` rule, and asserts that
-  each `invalid` entry has the code `INVALID_PARAMS` and a message starting `invalid params: `.
-  Names are unique within each list.
+  round-trips every `params` and `results` entry exactly and every `olderResults` entry one way
+  (decodes, every key it has serializes back equal). It asserts that each `invalid` and
+  `invalidApp` entry has the code `INVALID_PARAMS` and a message starting `invalid params: `,
+  and that an app-answered method has no `invalidApp`. Names are unique within each list, across
+  `results` and `olderResults`, and across `invalid` and `invalidApp`.
 - **`errors.json`** equals `codes::ALL` as a map, and `ALL` has no duplicate name or value.
 - **`limits.json`** equals `EVENTS_LIMIT_DEFAULT` and `EVENTS_LIMIT_MAX`.
 - **`state`'s `full`** is checked for completeness. After the round trip, every `Option` field of
@@ -315,7 +321,7 @@ pub const LIMITS: &str;
 
 - **`tests/helpers/wire-examples.ts`** (new) reads `crates/strudeland-ctl/tests/wire/` with
   `readdirSync` and `readFileSync`. It exports:
-  - `wireExamples(): WireExample[]` and `wireExample(method)`;
+  - `wireExamples(): WireExample[]`;
   - `wireResult(method, name)`;
   - `wireErrors` and `wireLimits`;
   - the `WireExample` type, which mirrors the schema above.
@@ -352,8 +358,8 @@ pub const LIMITS: &str;
     playback (`stubRuntime({ audio: 'running', live: true })` and the evaluate), and its
     `setPosition` and `arm({ loop, through })` give non-null `playing`, `playhead` (with
     `songBar` and `section`) and `loopThrough`. `h.rt.patch({ seed: 7 })` is added so the
-    optional `seed` key is present. `live` and `levels` are null there, so two more calls check
-    their nested shapes: in "engine and live come through" (`:1199`) and in the levels test
+    optional `seed` key is present. `live` and `levels` are null there, so two more checks
+    compare their nested shapes with `full`'s `live` and `levels` through the same diff: in "engine and live come through" (`:1199`) and in the levels test
     (`:1217`) after its first `setLevels`. The shape check skips a key where either side is
     `null`.
   - **Limits:** `handler.ts` exports `EVENTS_LIMIT` and `EVENTS_LIMIT_MAX`, and the test asserts
@@ -464,7 +470,8 @@ both.
   - `screenshot_rejects_invalid_params` takes its state-independent cases from
     `screenshot.json` and keeps the directory cases inline.
   - `project_open_checks_native_absolute_paths_before_forwarding` takes its refusal from
-    `project.open.json`'s app entry, with the exact message (it checked only the code before).
+    `project.open.json`'s `invalidApp` entry, with the exact message (it checked only the code
+    before).
 
 ## Dependencies
 
@@ -535,12 +542,12 @@ plan is one document, so there are no fracture or loss-check stages.
    needs no per-type where clauses.
 5. **`codes::ALL` comes from a macro in stage 002,** so it is complete by construction. Stage 001
    uses a hand list because the TS regex still reads the plain consts until stage 002 deletes it.
-6. **Older-app results are marked `older: true`** and checked as decode plus a subset round trip.
-   Every other result must round-trip exactly.
+6. **Older-app results go in `olderResults`** and are checked as decode plus a subset round
+   trip. Every `results` entry must round-trip exactly.
 7. **The invalid entries run in three handler states.** That makes "state-independent" a checked
    property.
-8. **An invalid entry can be `answeredBy: "app"`.** It is used only for `project.open`'s native
-   absolute-path check.
+8. **A webview method's app-answered refusals go in `invalidApp`.** It is used only for
+   `project.open`'s native absolute-path check.
 9. **The params examples target the handler harness** (`/p`; songs `a`, `b`, `m`). The result
    examples carry the CLI's values.
 10. **`e2e.rs`'s state test reads `minimal`,** and its expected text changes. `events.json` keeps

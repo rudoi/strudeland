@@ -933,12 +933,14 @@ mod tests {
         r.error.as_ref().expect("an error response").code
     }
 
-    /// The method's wire-example refusals that the app answers itself.
+    /// The method's wire-example refusals that the app answers itself: all of an app-answered
+    /// method's, else the webview method's `invalidApp` ones.
     fn app_answered(method: Method) -> Vec<wire_fixtures::Invalid> {
-        wire_fixtures::invalid(method)
-            .into_iter()
-            .filter(|e| e.answered_by == "app")
-            .collect()
+        if method.answered_by_app() {
+            wire_fixtures::invalid(method)
+        } else {
+            wire_fixtures::invalid_app(method)
+        }
     }
 
     #[test]
@@ -1085,14 +1087,11 @@ mod tests {
         let d = dir.path().display().to_string();
         let missing = dir.path().join("missing");
         let root = dir.path().ancestors().last().unwrap().display().to_string();
-        let examples = wire_fixtures::invalid(Method::Screenshot);
+        let examples = app_answered(Method::Screenshot);
         assert!(
             !examples.is_empty(),
             "the screenshot example lists refusals"
         );
-        for e in &examples {
-            assert_eq!(e.answered_by, "app", "{}", e.name);
-        }
         let from_examples = examples
             .into_iter()
             .map(|e| (e.params, RpcError::new(e.code, e.message)));

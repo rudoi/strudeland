@@ -124,14 +124,9 @@ function wireShapeDiff(actual: unknown, example: unknown, path = ''): string[] {
   return diffs;
 }
 
-/**
- * `actual` has the key shape of `method`'s wire result `resultName` (or of its value at the
- * top-level key `key`, for a nested object only some tests fill).
- */
-function expectWireShape(actual: unknown, method: MethodName, resultName: string, key?: string) {
-  const example = wireResult(method, resultName);
-  const diffs = wireShapeDiff(actual, key === undefined ? example : example[key], key ?? '');
-  expect(diffs).toEqual([]);
+/** `actual` has the key shape of `method`'s wire result `resultName`. */
+function expectWireShape(actual: unknown, method: MethodName, resultName: string) {
+  expect(wireShapeDiff(actual, wireResult(method, resultName))).toEqual([]);
 }
 
 describe('expectWireShape', () => {
@@ -1226,7 +1221,7 @@ describe('state: playhead, transport and outputError', () => {
     const state = (await h.handle('state', {})) as any;
     expect(state.engine).toBe('rust');
     expect(state.live).toEqual(live);
-    expectWireShape(state.live, 'state', 'full', 'live');
+    expect(wireShapeDiff(state.live, wireResult('state', 'full').live, 'live')).toEqual([]);
   });
 
   test('levels: null before a frame, a summary after, the limiter follows the store', async () => {
@@ -1240,7 +1235,7 @@ describe('state: playhead, transport and outputError', () => {
       limitDb: -2.3,
       limiter: false,
     });
-    expectWireShape(levels, 'state', 'full', 'levels');
+    expect(wireShapeDiff(levels, wireResult('state', 'full').levels, 'levels')).toEqual([]);
     h.rt.patch({ limiter: true });
     h.rt.setLevels({ peak: [0.5, 0.0001], overs: 0, limitDb: 0 });
     expect(((await h.handle('state', {})) as any).levels).toEqual({
@@ -1920,7 +1915,6 @@ describe('wire examples', () => {
     };
     for (const ex of webview) {
       for (const entry of ex.invalid) {
-        if ((entry.answeredBy ?? ex.answeredBy) !== 'webview') continue;
         test(`${ex.method} ${entry.name}`, async () => {
           for (const [label, make] of Object.entries(states)) {
             const h = await make();

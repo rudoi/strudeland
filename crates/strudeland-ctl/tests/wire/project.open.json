@@ -52,15 +52,16 @@
       },
       "code": -32602,
       "message": "invalid params: unknown parameter 'x'"
-    },
+    }
+  ],
+  "invalidApp": [
     {
       "name": "relative path",
       "params": {
         "path": "relative"
       },
       "code": -32602,
-      "message": "invalid params: 'path' must be an absolute path",
-      "answeredBy": "app"
+      "message": "invalid params: 'path' must be an absolute path"
     }
   ]
 }
