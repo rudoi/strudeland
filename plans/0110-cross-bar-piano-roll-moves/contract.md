@@ -48,7 +48,8 @@ The existing event edit scales mask fragments affinely in logical cycles and app
 existing clip and duration rules. The piano roll's duration guarantee applies to the whole
 note. Project the visible fragments of an edited note together when their identity is
 known and leave unrelated unisons alone. During refresh, the inspected fragments are
-authoritative.
+authoritative. A mask edge at a viewport boundary can briefly preview as ordinary
+viewport clipping until refresh. Keitora #148 tracks distinguishing these cases.
 
 In Expression, the source of a generated note can depend on the query CPS. Keep
 mixed-meter fallback to source material whose time and values are proved independent of
