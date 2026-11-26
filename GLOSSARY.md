@@ -58,6 +58,13 @@ A section a stopped transport will start from or loop when playback starts, name
 was armed for.
 _Avoid_: armed index, pending start
 
+**Shown tempo**
+
+The cps, bpm and meter the toolbar and `strudeland state` report: the last successful
+evaluate's tempo at the meter of the bar now sounding. A live edit shows its tempo at once,
+briefly ahead of the audio.
+_Avoid_: audible tempo (what is sounding), current tempo
+
 **Take**
 
 One recording of a voice memo, from the record click (starting) until it is stopped and saved,

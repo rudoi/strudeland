@@ -22,21 +22,21 @@ import type { Readable } from 'svelte/store';
 import type { Hap, ScheduleRoute } from './types';
 import { meteredPlayback, meteredSchedule, MIXED_CPS_ERROR, queryMetered } from './metered-pattern';
 import { createInstrumentTranspiler, type InstrumentSnapshot } from './instruments';
-import { layoutClock, type LayoutClock } from './timing';
+import { layoutClock } from './timing';
+import { createLiveClock, type ClockPort, type ClockSnapshot } from './live-clock';
 import { applySeed } from './seed';
 import { editPatternEvents, type EventEditSpec } from './event-edits';
 import { songEditComment } from './event-document';
 import { beginEvaluate, registeredStructure, setSegmentSource } from './song';
 import {
-  buildStructure,
-  cpsAtMeter,
   cpsFor,
   sameStructure,
-  meterString,
   DEFAULT_BPM,
   DEFAULT_METER,
+  tempoAtBar,
   type Meter,
   type SongStructure,
+  type Tempo,
 } from './structure';
 import {
   createTransportModel,
@@ -191,6 +191,13 @@ export interface Runtime {
   /** The scheduler's cycle (clamped >= 0) and where the evaluated song is at it. */
   position(): { cycle: number; located: Located | null };
   /**
+   * The tempo to show now: the last successful evaluate's cps and bpm, at the meter of the song
+   * bar sounding while a song with meter changes plays, else at the evaluate's meter. It is the
+   * scheduled tempo: after a live edit it changes at once, ahead of the audio. Changes nothing
+   * (unlike `position`, it prunes no segments).
+   */
+  tempoNow(): Tempo;
+  /**
    * The evaluated pattern's haps over cycles `[fromCycle, toCycle)` of the linear song timeline
    * (`LINEAR_SEGMENTS`: cycle N is song bar N, independent of loop, armed section and playback),
    * or null before the first successful evaluate. Pattern errors throw. `segments` defaults to
@@ -334,73 +341,33 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   /** The one mutable segment list; `song()` reads it at every query. */
   let segments: readonly Segment[] = INITIAL_SEGMENTS;
   setSegmentSource(() => segments);
-  let liveStructure: SongStructure | null = null;
-  let clock: LayoutClock | null = null;
-  // A hot edit starts at Cyclist's query horizon. Audio between the audible
-  // playhead and that horizon still follows the previous structure.
-  type ClockHistory = {
-    end: { cycle: number; clock: number };
-    map: LayoutClock | null;
-    cps: number;
-    referenceMeter?: Meter;
-  }[];
-  let audibleHistory: ClockHistory = [];
-  // phase = offset + reference clock / CPS, rebased when an evaluate changes the tempo.
-  let phaseOffsetSec = 0;
-  const toCycle = (reference: number) => {
-    const previous = audibleHistory.find((h) => reference < h.end.clock);
-    return (previous ? previous.map : clock)?.toCycle(reference) ?? reference;
+  // Getters: `r` is created below; nothing reads the port before it exists.
+  const port: ClockPort = {
+    get started() {
+      return r.scheduler.started;
+    },
+    now: () => r.scheduler.now(),
+    get lastBegin() {
+      return r.scheduler.lastBegin;
+    },
+    get lastEnd() {
+      return r.scheduler.lastEnd;
+    },
+    get lastTick() {
+      return r.scheduler.lastTick;
+    },
+    get tickDuration() {
+      return r.scheduler.clock.duration;
+    },
+    getTime: () => r.scheduler.getTime(),
+    get cps() {
+      return r.scheduler.cps;
+    },
   };
-  const toClock = (cycle: number) => {
-    const previous = audibleHistory.find((h) => cycle < h.end.cycle);
-    return (previous ? previous.map : clock)?.toClock(cycle) ?? cycle;
-  };
-  function audibleReference(): number {
-    const sch = r.scheduler;
-    const latest = audibleHistory.at(-1);
-    const current = sch.now();
-    if (
-      !sch.started ||
-      !latest ||
-      (sch.lastBegin >= latest.end.clock && current >= latest.end.clock)
-    ) {
-      return current;
-    }
-    // Cyclist.now places lastBegin at lastTick + one tick duration. The end of
-    // that query is one tick later. Walk back from it at the tempos already
-    // scheduled, including multiple edits within the lookahead window.
-    let reference = Number(sch.lastEnd);
-    let seconds = sch.lastTick + 2 * sch.clock.duration - sch.getTime();
-    let cps = sch.cps;
-    for (let i = audibleHistory.length - 1; i >= 0; i--) {
-      const previous = audibleHistory[i]!;
-      const sinceEdit = (reference - previous.end.clock) / cps;
-      if (seconds <= sinceEdit) break;
-      seconds -= sinceEdit;
-      reference = previous.end.clock;
-      cps = previous.cps;
-    }
-    return reference - seconds * cps;
-  }
-  function audibleCps(): number {
-    const sch = r.scheduler;
-    if (!sch.started || (!clock && audibleHistory.length === 0)) return sch.cps;
-    const reference = audibleReference();
-    const previous = audibleHistory.find((h) => reference < h.end.clock);
-    const map = previous ? previous.map : clock;
-    const base = previous ? previous.referenceMeter : liveStructure?.meter;
-    const cps = previous?.cps ?? sch.cps;
-    return base && map ? cpsAtMeter(cps, base, map.meterAt(map.toCycle(reference))) : cps;
-  }
+  const liveClock = createLiveClock(port);
   function setLiveLayout(next: readonly Segment[], anchor?: { cycle: number; clock: number }) {
     segments = next;
-    const needsClock =
-      liveStructure?.meterChanges?.length || (anchor && anchor.cycle !== anchor.clock);
-    clock = liveStructure && needsClock ? layoutClock(liveStructure, next, anchor) : null;
-  }
-  function scheduledAnchor() {
-    const reference = Number(r.scheduler.lastEnd);
-    return { cycle: toCycle(reference), clock: reference };
+    liveClock.setLayout(next, anchor);
   }
   /** `state.started`; notified where `onToggle` re-applies the transport, after `patch`. */
   const startedSubscribers = new Set<(started: boolean) => void>();
@@ -467,10 +434,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       // repl installs the candidate before it awaits the first scheduler start.
       // A failed start must leave the previous pattern and clock available.
       const previous = {
-        liveStructure,
-        clock,
-        phaseOffsetSec,
-        audibleHistory,
+        clock: liveClock.snapshot(),
         evaluatedPattern,
         unseededPattern,
         playbackPattern,
@@ -478,58 +442,36 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         schedulerPattern: r.scheduler.pattern,
       };
       undoInstall = () => {
-        ({
-          liveStructure,
-          clock,
-          phaseOffsetSec,
-          audibleHistory,
-          evaluatedPattern,
-          unseededPattern,
-          playbackPattern,
-          playError,
-        } = previous);
+        liveClock.restore(previous.clock);
+        ({ evaluatedPattern, unseededPattern, playbackPattern, playError } = previous);
         r.scheduler.pattern = previous.schedulerPattern;
         active().setSeed(state.seed ?? 0);
       };
-      const anchor = r.scheduler.started ? scheduledAnchor() : undefined;
-      if (anchor && (clock || structure?.meterChanges?.length)) {
-        const audible = audibleReference();
-        audibleHistory = audibleHistory.filter((h) => h.end.clock > audible);
-        if (audibleHistory.at(-1)?.end.clock !== anchor.clock) {
-          audibleHistory.push({
-            end: anchor,
-            map: clock,
-            cps: r.scheduler.cps,
-            referenceMeter: liveStructure?.meter,
-          });
-        }
-      }
-      if (anchor && !codeSetCps) {
-        phaseOffsetSec += anchor.clock / r.scheduler.cps - anchor.clock / pending.cps;
-      }
-      liveStructure =
-        structure ??
-        (anchor && anchor.cycle !== anchor.clock
-          ? buildStructure({ meter: meterString(pending.meter) })
-          : null);
-      setLiveLayout(segments, anchor);
-      if (anchor && clock && structure?.meterChanges?.length) {
+      const anchor = liveClock.edit({
+        structure,
+        meter: pending.meter,
+        nextCps: pending.cps,
+        codeSetCps,
+        segments,
+      });
+      const map = liveClock.map;
+      if (anchor && map && structure?.meterChanges?.length) {
         // Check the next live query before replacing an audible pattern. A
         // tempo conflict in a later window is reported by meteredPlayback.
-        const end = clock.toCycle(anchor.clock + r.scheduler.clock.duration * pending.cps);
+        const end = map.toCycle(anchor.clock + r.scheduler.clock.duration * pending.cps);
         const imminent = new State(new TimeSpan(anchor.cycle, end), { cyclist: 'cyclist' });
-        queryMetered(seeded, imminent, structure, clock, pending.cps);
+        queryMetered(seeded, imminent, structure, map, pending.cps);
       }
       evaluatedPattern = seeded;
       unseededPattern = edited;
       playError = null;
       playbackPattern =
-        clock && liveStructure
+        liveClock.map && liveClock.structure
           ? meteredPlayback(
               seeded,
-              liveStructure,
-              () => clock,
-              () => phaseOffsetSec,
+              liveClock.structure,
+              () => liveClock.map,
+              () => liveClock.phaseOffsetSec,
               (error) => {
                 playError = errorMessage(error);
                 patch({ outputError: playError });
@@ -542,8 +484,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     setInterval: opts.setInterval,
     clearInterval: opts.clearInterval,
     beforeEval: async () => {
-      setTime(() => toCycle(audibleReference()));
-      setCpsFunc(audibleCps);
+      setTime(liveClock.audibleCycle);
+      setCpsFunc(liveClock.cpsNow);
       await ensurePrebaked();
       await hooks?.beforeEval?.();
       // useRNG changes a module global; keep one song's choice from leaking into the next.
@@ -619,7 +561,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     if (codeRunning) {
       codeSetCps = true;
       if (pending.expectedStructure?.meterChanges) throw new Error(MIXED_CPS_ERROR);
-    } else if (liveStructure?.meterChanges?.length) {
+    } else if (liveClock.structure?.meterChanges?.length) {
       patch({ outputError: MIXED_CPS_ERROR });
       throw new Error(MIXED_CPS_ERROR);
     }
@@ -779,12 +721,12 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     return swapTo(to, drain);
   };
 
-  const now = (): number => Math.max(0, toCycle(audibleReference()));
+  const now = liveClock.now;
 
   /** Drop segments that stopped governing more than `HISTORY_CYCLES` before `cycle`. */
   const pruneAt = (cycle: number) => {
     const next = prune(segments, cycle - HISTORY_CYCLES);
-    if (next !== segments) setLiveLayout(next, scheduledAnchor());
+    if (next !== segments) setLiveLayout(next, liveClock.anchor());
   };
 
   function position(): { cycle: number; located: Located | null } {
@@ -798,14 +740,11 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     started: startedToggles,
     structure: () => state.structure,
     boundary: {
-      horizon: () => toCycle(r.scheduler.lastEnd),
+      horizon: () => liveClock.toCycle(r.scheduler.lastEnd),
       segments: () => segments,
       install(next, started) {
-        setLiveLayout(next, started ? scheduledAnchor() : undefined);
-        if (!started) {
-          phaseOffsetSec = 0;
-          audibleHistory = [];
-        }
+        setLiveLayout(next, started ? liveClock.anchor() : undefined);
+        if (!started) liveClock.reset();
       },
       prune: pruneAt,
     },
@@ -873,17 +812,16 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       const handoff: number = sch.lastEnd;
       const prev = active();
       // Seconds until the hand-off cycle sounds on the old engine (0 when its time is unknown).
-      const at = cycleTime(toCycle(handoff));
+      const at = cycleTime(liveClock.toCycle(handoff));
       const lead = at === null ? 0 : Math.max(0, at - prev.getTime());
       // A fresh start sounds its first cycle after the clock's minimum latency plus the hap lead.
       const firstSound = (sch.clock?.minLatency ?? 0) + sch.latency;
       const early = Math.max(0, lead - firstSound) * sch.cps;
       const from = {
-        cycle: Math.max(0, handoff - early),
+        ...liveClock.snapshot(),
         segments,
-        anchor: scheduledAnchor(),
-        audibleHistory,
-        phaseOffsetSec,
+        anchor: liveClock.anchor(),
+        cycle: Math.max(0, handoff - early),
         onsetsFrom: handoff,
       };
       if (!stop(swap.to, lead)) return;
@@ -902,13 +840,11 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
    */
   async function start(
     startOpts?: StartOptions,
-    from?: {
-      cycle: number;
+    from?: ClockSnapshot & {
       segments: readonly Segment[];
-      onsetsFrom: number;
       anchor: { cycle: number; clock: number };
-      audibleHistory: ClockHistory;
-      phaseOffsetSec: number;
+      cycle: number;
+      onsetsFrom: number;
     },
   ): Promise<boolean> {
     const ready = () => !state.started && !evaluating && evaluatedPattern !== null;
@@ -923,10 +859,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       return false;
     }
     const countIn = startOpts?.countIn === true;
-    const savedSegments = segments;
-    const savedClock = clock;
-    const savedPhaseOffset = phaseOffsetSec;
-    const savedHistory = audibleHistory;
+    const saved = { ...liveClock.snapshot(), segments };
     const savedPattern = r.scheduler.pattern;
     // Without `song()` no segment gates the pattern: delay the pattern itself by one cycle and
     // silence the count-in (a cyclic pattern shifted by a cycle would still sound there, with its
@@ -944,9 +877,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       // Directly, not through the transport model: its state is the same with a count-in.
       if (countIn && state.structure !== null) setLiveLayout(withCountIn(segments));
       if (from) {
+        liveClock.resume(from);
         setLiveLayout(from.segments, from.anchor);
-        phaseOffsetSec = from.phaseOffsetSec;
-        audibleHistory = from.audibleHistory;
         // The cyclist's first tick queries from `lastEnd` (a stop sets it to 0).
         r.scheduler.lastEnd = from.cycle;
       }
@@ -957,10 +889,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       // A stop rewinds the transport, as every stop does; otherwise put the segments back.
       if (r.scheduler.started) r.stop();
       else {
-        segments = savedSegments;
-        clock = savedClock;
-        phaseOffsetSec = savedPhaseOffset;
-        audibleHistory = savedHistory;
+        segments = saved.segments;
+        liveClock.resume(saved);
         r.scheduler.lastEnd = 0;
       }
       if (r.scheduler.pattern !== savedPattern) await r.scheduler.setPattern(savedPattern, false);
@@ -976,7 +906,9 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     if (sch.num_ticks_since_checkpoint === 0 && sch.checkpoint === staleCheckpoint) return null;
     // cyclist.mjs's hap target time plus its fixed latency.
     const t =
-      (toClock(cycle) - sch.checkpoint.cycles) / sch.cps + sch.checkpoint.seconds + sch.latency;
+      (liveClock.toClock(cycle) - sch.checkpoint.cycles) / sch.cps +
+      sch.checkpoint.seconds +
+      sch.latency;
     return Number.isFinite(t) ? t : null;
   }
 
@@ -992,13 +924,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   return {
     scheduler: r.scheduler,
     get drawingScheduler() {
-      if (!clock || !liveStructure) return r.scheduler;
+      if (!liveClock.map || !liveClock.structure) return r.scheduler;
       const logical = evaluatedPattern;
-      const structure = liveStructure;
+      const structure = liveClock.structure;
       return {
         now,
         pattern: new Pattern((state: any) =>
-          queryMetered(logical, state, structure, clock!, r.scheduler.cps),
+          queryMetered(logical, state, structure, liveClock.map!, r.scheduler.cps),
         ),
       };
     },
@@ -1113,6 +1045,12 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     },
     transport,
     position,
+    tempoNow() {
+      const s = state.structure;
+      const bar =
+        state.started && s?.meterChanges ? (locate(now(), s, segments)?.songBar ?? null) : null;
+      return tempoAtBar(state.cps, state.meter, s, bar);
+    },
     query,
     readScope: (buf) => active().readScope?.(buf) ?? false,
     drainLevels() {

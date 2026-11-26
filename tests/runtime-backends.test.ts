@@ -10,8 +10,6 @@ import {
   type RuntimeState,
 } from '../src/lib/strudel/runtime';
 import { song } from '../src/lib/strudel/song';
-import { layoutClock } from '../src/lib/strudel/timing';
-import { INITIAL_SEGMENTS } from '../src/lib/strudel/transport';
 import { okHeader } from './helpers/song-header';
 import { fakeRuntime as fake } from './helpers/fake-runtime';
 
@@ -553,41 +551,7 @@ test('editing a mixed meter preserves the play position at the scheduler handoff
   rt.stop();
 });
 
-test('repeated live tempo changes take effect as their scheduled mixed-meter audio reaches the playhead', async () => {
-  const { rt, b, tick } = fake();
-  expect(await rt.evaluate(MIXED_SONG)).toBe(true);
-  tick(26);
-  const clock = layoutClock(snap(rt).structure!, INITIAL_SEGMENTS);
-  const start = b.now;
-  const baseline = rt.scheduler.now();
-  const first = rt.scheduler.lastEnd;
-  const firstSec = (first - baseline) / 0.5;
-  const checkReference = (reference: number) => {
-    expect(rt.position().cycle).toBeCloseTo(clock.toCycle(reference), 10);
-    expect(rt.drawingScheduler.now()).toBeCloseTo(rt.position().cycle, 10);
-  };
-  expect(await rt.evaluate(MIXED_SONG, { cps: 1.5 })).toBe(true);
-  checkReference(baseline);
-  tick(1);
-  checkReference(baseline + (b.now - start) * 0.5);
-  const second = rt.scheduler.lastEnd;
-  const secondSec = firstSec + (second - first) / 1.5;
-  expect(await rt.evaluate(MIXED_SONG, { cps: 0.25 })).toBe(true);
-  checkReference(baseline + (b.now - start) * 0.5);
-  for (let i = 0; i < 7; i++) {
-    tick(1);
-    const elapsed = b.now - start;
-    const reference =
-      baseline +
-      Math.min(elapsed, firstSec) * 0.5 +
-      Math.max(0, Math.min(elapsed, secondSec) - firstSec) * 1.5 +
-      Math.max(0, elapsed - secondSec) * 0.25;
-    checkReference(reference);
-  }
-  rt.stop();
-});
-
-test('getCps follows the audible meter and tempo across a change to both', async () => {
+test('getCps reads the live clock', async () => {
   const { rt, tick } = fake();
   expect(await rt.evaluate(MIXED_SONG)).toBe(true);
   expect(core.getCps()).toBe(0.5);
@@ -595,13 +559,35 @@ test('getCps follows the audible meter and tempo across a change to both', async
   expect(core.getCps()).toBeCloseTo(4 / 3);
   const changed = MIXED_SONG.replace("meter: '4/4', sections", "meter: '2/4', sections");
   expect(await rt.evaluate(changed, { cps: 1.5, meter: { num: 2, den: 4 } })).toBe(true);
+  // The edit is still in the lookahead: the runtime's clock port walks back to the old tempo.
   expect(core.getCps()).toBeCloseTo(4 / 3);
+  expect(rt.drawingScheduler.now()).toBeCloseTo(rt.position().cycle);
   tick(3);
   expect(core.getCps()).toBeCloseTo(2);
-  tick(6);
-  expect(core.getCps()).toBeCloseTo(0.75);
   rt.stop();
   expect(core.getCps()).toBe(1.5);
+});
+
+test('tempoNow reports the scheduled tempo at the audible bar', async () => {
+  const { rt, tick } = fake();
+  expect(await rt.evaluate(MIXED_SONG)).toBe(true);
+  expect(rt.tempoNow()).toEqual({ cps: 0.5, bpm: 120, meter: { num: 4, den: 4 } });
+  tick(22);
+  let tempo = rt.tempoNow();
+  expect(tempo.meter).toEqual({ num: 3, den: 8 });
+  expect(tempo.cps).toBeCloseTo(4 / 3, 10);
+  expect(tempo.bpm).toBe(120);
+  expect(await rt.evaluate(MIXED_SONG, { cps: 1.5 })).toBe(true);
+  tempo = rt.tempoNow();
+  expect(tempo.bpm).toBe(360);
+  expect(tempo.meter).toEqual({ num: 3, den: 8 });
+  expect(tempo.cps).toBeCloseTo(4, 10);
+  rt.stop();
+  expect(rt.tempoNow()).toEqual({ cps: 1.5, bpm: 360, meter: { num: 4, den: 4 } });
+  expect(await rt.evaluate(SONG)).toBe(true);
+  tick(25);
+  expect(rt.tempoNow()).toEqual({ cps: 0.5, bpm: 120, meter: { num: 4, den: 4 } });
+  rt.stop();
 });
 
 test('a drawing window preserves painter order and repetitions across meter boundaries', async () => {

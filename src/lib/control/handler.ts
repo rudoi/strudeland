@@ -20,12 +20,10 @@ import { songPath, stripSongExt } from '../project/ui';
 import { peakDb, roundDb, type LevelHoldSnapshot } from '../levels/levels';
 import type { Runtime } from '../strudel/runtime';
 import {
-  bpmFromCps,
-  cpsAtMeter,
   isInt,
   isPlainObject,
-  meterAtBar,
   meterString,
+  tempoAtBar,
   type SongStructure,
 } from '../strudel/structure';
 import { barPosition, toEvents } from './events';
@@ -300,10 +298,7 @@ export function createControlHandler({
     const pb = get(session.playback.store);
     const open = ss.project !== null;
     const position = rs.started ? runtime.position() : null;
-    const meter =
-      position?.located && rs.structure?.meterChanges
-        ? meterAtBar(rs.structure, position.located.songBar)
-        : rs.meter;
+    const tempo = tempoAtBar(rs.cps, rs.meter, rs.structure, position?.located?.songBar ?? null);
     return {
       project: ss.project ? { name: ss.project.name, root: ss.project.root } : null,
       songs: open
@@ -317,9 +312,9 @@ export function createControlHandler({
       active: open ? ss.active : null,
       playing: open && pb.playing ? { path: pb.playing.path, title: pb.playing.title } : null,
       started: pb.started,
-      cps: cpsAtMeter(rs.cps, rs.meter, meter),
-      bpm: Math.round(bpmFromCps(rs.cps, rs.meter)),
-      meter: meterString(meter),
+      cps: tempo.cps,
+      bpm: Math.round(tempo.bpm),
+      meter: meterString(tempo.meter),
       audio: rs.audio,
       evalError: rs.evalError,
       metaError: open ? ss.metaError : null,

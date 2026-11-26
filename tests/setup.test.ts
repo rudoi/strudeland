@@ -34,6 +34,7 @@ function fakeRuntime() {
         reset: () => {},
       },
       position: () => ({ cycle: 0, located: null }),
+      tempoNow: () => ({ cps: 0.5, bpm: 120, meter: { num: 4, den: 4 } }),
       query: () => null,
       readScope: () => false,
       drainLevels: () => null,

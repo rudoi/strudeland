@@ -1,12 +1,8 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { App } from '../lib/app';
-  import {
-    bpmFromCps,
-    cpsAtMeter,
-    meterAtBar,
-    meterString,
-    type Meter,
-  } from '../lib/strudel/structure';
+  import { meterString } from '../lib/strudel/structure';
+  import { nextShownTempo } from '../lib/strudel/shown-tempo';
   import Button from './ui/Button.svelte';
   import Scope from './ui/Scope.svelte';
   import RecordControls from './RecordControls.svelte';
@@ -21,20 +17,21 @@
   const play = arbiter.store;
   // While a take runs, play and stop belong to it.
   const taking = $derived($play.taking);
-  let playingMeter = $state.raw<Meter | null>(null);
+  // The tempo shown: sampled on every runtime change, and every scope frame while a song with
+  // meter changes plays. `nextShownTempo` keeps the same object when nothing shown changed, and
+  // `$state.raw` skips an identical assignment, so the readouts do not re-render every frame.
+  let tempo = $state.raw(runtime.tempoNow());
+  const sample = () => {
+    tempo = nextShownTempo(tempo, runtime.tempoNow());
+  };
+  const metered = $derived($rt.started && !!$rt.structure?.meterChanges);
   $effect(() => {
-    const structure = $rt.structure;
-    if (!$rt.started || !structure?.meterChanges) {
-      playingMeter = null;
-      return;
-    }
-    return scopeClock.subscribe(() => {
-      const { located } = runtime.position();
-      playingMeter = located ? meterAtBar(structure, located.songBar) : null;
-    });
+    void $rt;
+    untrack(sample);
   });
-  const meter = $derived(playingMeter ?? $rt.meter);
-  const bpm = $derived(bpmFromCps($rt.cps, $rt.meter));
+  $effect(() => {
+    if (metered) return scopeClock.subscribe(sample);
+  });
   const stopHelp = $derived.by(() => {
     if ($play.stopTarget === 'take') {
       if ($play.takePhase === 'starting') return 'Wait for the recording to start.';
@@ -90,13 +87,13 @@
     }}>Piano Roll</Button
   >
   <RecordControls {recording} {session} {arbiter} />
-  {@render readout(cpsAtMeter($rt.cps, $rt.meter, meter).toFixed(3), 'cps')}
+  {@render readout(tempo.cps.toFixed(3), 'cps')}
   {@render readout(
-    String(Math.round(bpm)),
+    String(Math.round(tempo.bpm)),
     'bpm',
     'one cycle is one bar; bpm counts quarter notes, so 6/8 at 120 has 3 per bar',
   )}
-  {@render readout(meterString(meter), 'meter', 'current time signature')}
+  {@render readout(meterString(tempo.meter), 'meter', 'current time signature')}
   <span class="label out" class:live={$rt.started}>out</span>
   <Scope size="md" running={$rt.started} />
   <span class="hint backend">backend: {$rt.backend}</span>

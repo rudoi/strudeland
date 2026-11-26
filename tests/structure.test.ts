@@ -17,6 +17,7 @@ import {
   sectionsProblem,
   StructureError,
   type StructureField,
+  tempoAtBar,
   withLoops,
 } from '../src/lib/strudel/structure';
 
@@ -62,6 +63,48 @@ describe('tempo', () => {
     expect(parseMeter('-4/4')).toBeNull();
     expect(parseMeter('4.0/4')).toBeNull();
     expect(parseMeter('4 / 4')).toBeNull();
+  });
+});
+
+describe('tempoAtBar', () => {
+  const four = { num: 4, den: 4 };
+  const metered = buildStructure({
+    meter: '4/4',
+    sections: [{ name: 'a', bars: 4 }],
+    meterChanges: [{ bar: 2, meter: '3/8' }],
+  });
+
+  test('a bar in another meter scales cps and keeps the reference bpm', () => {
+    const tempo = tempoAtBar(0.5, four, metered, 2);
+    expect(tempo.meter).toEqual({ num: 3, den: 8 });
+    expect(tempo.meter).toBe(metered.meterChanges![0]!.meter);
+    expect(tempo.cps).toBeCloseTo(4 / 3, 12);
+    expect(tempo.bpm).toBe(120);
+  });
+
+  test('a bar in the reference meter keeps cps', () => {
+    // Zero-based: meta bar 2 is structure bar 1, so bar 0 is the only 4/4 bar.
+    expect(metered.meterChanges![0]!.bar).toBe(1);
+    expect(tempoAtBar(0.5, four, metered, 0)).toEqual({ cps: 0.5, bpm: 120, meter: four });
+  });
+
+  test('a null bar is at the evaluate meter', () => {
+    const tempo = tempoAtBar(0.5, four, metered, null);
+    expect(tempo).toEqual({ cps: 0.5, bpm: 120, meter: four });
+    expect(tempo.meter).toBe(four);
+  });
+
+  test('a structure without meterChanges ignores the bar', () => {
+    const six = { num: 6, den: 8 };
+    const constant = buildStructure({ meter: '6/8', sections: [{ name: 'a', bars: 4 }] });
+    const tempo = tempoAtBar(2 / 3, six, constant, 3);
+    expect(tempo.meter).toBe(six);
+    expect(tempo.cps).toBe(2 / 3);
+    expect(tempo.bpm).toBeCloseTo(120, 12);
+  });
+
+  test('no structure is the constant-meter tempo', () => {
+    expect(tempoAtBar(1.5, four, null, 5)).toEqual({ cps: 1.5, bpm: 360, meter: four });
   });
 });
 
