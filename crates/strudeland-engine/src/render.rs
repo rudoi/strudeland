@@ -7,7 +7,7 @@
 
 use crate::bus::{BusBank, BusGraph};
 use crate::controls::{parse_voice_params, prepare_value, unsupported_signatures_in};
-use crate::job::{EngineJob, ErrorKind, JobError, RenderError, ValueMap, bar_of};
+use crate::job::{EngineJob, ErrorKind, JobError, OrbitSpec, RenderError, ValueMap, bar_of};
 use crate::js::{Occurrence, voice_seed};
 use crate::noise::NoiseCache;
 use crate::orbit::{DuckControls, OrbitBank};
@@ -200,6 +200,69 @@ impl Core {
         let index = self.bus_graph.push_value(map);
         self.buses.grow(self.bus_graph.keys());
         index
+    }
+
+    /// `OrbitBank::create`: a no-op when the number exists, else appended (first-add order).
+    pub(crate) fn create_orbit(&mut self, spec: &OrbitSpec) {
+        self.orbits.create(spec);
+    }
+
+    /// Drops every voice: clears the slots, their outputs and their orbit map together. Never
+    /// resets the sequence counter, and never touches the orbits, the IR and noise caches,
+    /// `occurrence`, the wave tables, the bus graph and buses, the frame, the mix or the errors
+    /// (`alive` is rebuilt by every step). Effect tails on the orbits ring on.
+    pub(crate) fn stop_voices(&mut self) {
+        self.slots.clear();
+        self.outputs.clear();
+        self.orbit_of.clear();
+    }
+
+    /// Changes the audio seed: resets the noise and IR caches and returns true; the same seed
+    /// is a no-op returning false.
+    pub(crate) fn set_seed(&mut self, seed: i32) -> bool {
+        if seed == self.seed {
+            return false;
+        }
+        self.seed = seed;
+        self.noise = NoiseCache::new(seed);
+        self.ir_cache = IrCache::new();
+        true
+    }
+
+    /// The next frame to render (always a multiple of the quantum).
+    pub(crate) fn frame(&self) -> u64 {
+        self.frame
+    }
+
+    /// The last quantum's mix, one buffer per destination channel.
+    pub(crate) fn mix(&self) -> &[[f32; QUANTUM]] {
+        &self.mix
+    }
+
+    /// The bus graph (levels, cyclic readers).
+    pub(crate) fn bus_graph(&self) -> &BusGraph {
+        &self.bus_graph
+    }
+
+    /// A driver's own error (offline: a late hap), in order with the core's.
+    pub(crate) fn push_error(&mut self, e: RenderError) {
+        self.errors.push(e);
+    }
+
+    /// Live: drains every error (the caller takes at most 32 and drops the rest).
+    pub(crate) fn drain_errors(&mut self) -> std::vec::Drain<'_, RenderError> {
+        self.errors.drain(..)
+    }
+
+    /// Offline: the errors and whether the mix overflowed.
+    pub(crate) fn finish(self) -> (Vec<RenderError>, bool) {
+        (self.errors, self.mix_overflowed)
+    }
+
+    /// The orbits (tests).
+    #[cfg(test)]
+    pub(crate) fn orbits(&self) -> &OrbitBank {
+        &self.orbits
     }
 
     /// Schedules one hap: the duck, superdough's mutation, the voice seed, the voice build.
@@ -444,28 +507,34 @@ impl<'a> Engine<'a> {
 
     pub(crate) fn run_observing_overflow(mut self) -> (Rendered, bool) {
         let job = self.job;
-        let unsupported = unsupported_signatures_in(job, &self.core.bus_graph);
-        if !unsupported.is_empty() {
-            self.core.errors = unsupported
+        let unsupported = unsupported_signatures_in(job, self.core.bus_graph());
+        let played = unsupported.is_empty();
+        if played {
+            self.play();
+        }
+        let Engine {
+            mut channels,
+            core,
+            capture,
+            ..
+        } = self;
+        // Nothing has rendered on the unsupported path, so the overflow flag is still false.
+        let (errors, overflowed) = if played {
+            core.finish()
+        } else {
+            let errors = unsupported
                 .into_iter()
                 .map(|u| {
                     let msg = format!("s={} keys={}", u.s, u.keys.join(","));
                     RenderError::new(ErrorKind::Unsupported, msg, Some(u.first_bar))
                 })
                 .collect();
-        } else {
-            self.play();
+            (errors, false)
+        };
+        if let Some(capture) = capture {
+            channels.extend(capture.channels);
         }
-        if let Some(capture) = self.capture {
-            self.channels.extend(capture.channels);
-        }
-        (
-            Rendered {
-                channels: self.channels,
-                errors: self.core.errors,
-            },
-            self.core.mix_overflowed,
-        )
+        (Rendered { channels, errors }, overflowed)
     }
 
     /// The pause loop: render to each pause frame, schedule its haps, settle the IRs; then
@@ -506,7 +575,7 @@ impl<'a> Engine<'a> {
             if now - t > LATE_EPSILON {
                 let detail = format!("scheduled late (now {now:.6})");
                 let tag = HapTag::new(Some(bar_of(hap.cycle)), t, value);
-                self.core.errors.push(tag.error(ErrorKind::Hap, &detail));
+                self.core.push_error(tag.error(ErrorKind::Hap, &detail));
             }
             t = now;
         }
@@ -526,12 +595,12 @@ impl<'a> Engine<'a> {
     fn render_to(&mut self, target: u64) {
         let end = round_up_128(target.min(self.job.frames));
         let frames = self.job.frames;
-        while self.core.frame < end {
-            let q = self.core.frame;
+        while self.core.frame() < end {
+            let q = self.core.frame();
             self.core.step_with_stems(self.capture.as_mut());
             let n = (frames.saturating_sub(q)).min(Q) as usize;
             let start = q as usize;
-            for (ch, m) in self.channels.iter_mut().zip(self.core.mix.iter()) {
+            for (ch, m) in self.channels.iter_mut().zip(self.core.mix().iter()) {
                 if let Some(dst) = ch.get_mut(start..start + n) {
                     dst.copy_from_slice(&m[..n]);
                 }
@@ -2011,6 +2080,149 @@ mod tests {
             cps,
             now_frame: 0,
         }
+    }
+
+    /// Settles the core's pending reverb requests as the offline driver does at a pause.
+    fn settle(core: &mut Core) {
+        core.orbits.settle(core.seed, &mut core.ir_cache);
+        for slot in &mut core.slots {
+            if std::mem::take(&mut slot.unsettled) {
+                slot.voice
+                    .settle_local_reverbs(core.seed, &mut core.ir_cache);
+            }
+        }
+    }
+
+    /// Schedules a hap of value `index` at the render head.
+    fn at_head<'v>(core: &Core, value: &'v ValueMap, index: usize, dur: f64) -> ScheduleArgs<'v> {
+        ScheduleArgs {
+            now_frame: core.frame(),
+            ..args(value, index, core.frame() as f64 / SR, dur, 0.5)
+        }
+    }
+
+    #[test]
+    fn stop_voices_drops_every_voice_and_keeps_the_rest() {
+        let value = value_map(json!({ "s": "sine", "room": 0.5, "roomsize": 0.05 }));
+        let run = |stop: bool| {
+            let mut core = bare_core(0);
+            assert_eq!(core.add_value(&value), 0);
+            core.schedule(args(&value, 0, 0.0, 0.5, 0.5));
+            core.schedule(args(&value, 0, 0.0, 0.5, 0.5));
+            settle(&mut core);
+            steps(&mut core, 2);
+            if stop {
+                let kept = (
+                    core.orbits().count(),
+                    core.orbits().orbits().len(),
+                    core.ir_cache.len(),
+                    core.bus_graph().max_level(),
+                    core.frame(),
+                );
+                assert_eq!(core.slots.len(), 2);
+                core.stop_voices();
+                assert!(core.slots.is_empty());
+                assert!(core.outputs.is_empty());
+                assert!(core.orbit_of.is_empty());
+                let after = (
+                    core.orbits().count(),
+                    core.orbits().orbits().len(),
+                    core.ir_cache.len(),
+                    core.bus_graph().max_level(),
+                    core.frame(),
+                );
+                assert_eq!(after, kept);
+            }
+            core.schedule(at_head(&core, &value, 0, 0.5));
+            assert!(core.errors.is_empty(), "{:?}", core.errors);
+            core
+        };
+        let (stopped, never) = (run(true), run(false));
+        assert_eq!(stopped.slots.len(), 1);
+        assert_eq!(
+            stopped.slots[0].seq, 2,
+            "the sequence continues after a stop"
+        );
+        assert_eq!(stopped.seeds.len(), 3);
+        assert_eq!(stopped.seeds, never.seeds, "the voice seeds continue");
+    }
+
+    #[test]
+    fn stop_voices_keeps_the_orbit_reverb_tail() {
+        let value = value_map(json!({ "s": "sine", "room": 0.8 }));
+        let mut core = bare_core(0);
+        core.add_value(&value);
+        core.schedule(args(&value, 0, 0.0, 0.05, 0.5));
+        settle(&mut core);
+        steps(&mut core, 4);
+        core.stop_voices();
+        assert!(
+            steps(&mut core, 20).iter().any(|x| *x != 0.0),
+            "the tail rings"
+        );
+    }
+
+    #[test]
+    fn set_seed_resets_the_caches_and_the_same_seed_is_a_no_op() {
+        use crate::noise::NoiseKind;
+        let values = [
+            value_map(json!({ "s": "sine", "room": 0.8, "roomsize": 0.5 })),
+            value_map(json!({ "s": "white" })),
+            value_map(json!({ "s": "sine", "FX": [{ "room": 0.8, "roomsize": 0.5 }] })),
+        ];
+        let mut core = bare_core(0);
+        for v in &values {
+            core.add_value(v);
+        }
+        core.schedule(args(&values[0], 0, 0.0, 0.02, 0.5));
+        core.schedule(args(&values[1], 1, 0.0, 0.02, 0.5));
+        settle(&mut core);
+        steps(&mut core, 1);
+        assert!(core.errors.is_empty(), "{:?}", core.errors);
+        assert_eq!(core.ir_cache.len(), 1);
+        assert!(core.noise.is_cached(NoiseKind::White));
+
+        assert!(!core.set_seed(0), "the same seed is a no-op");
+        assert_eq!(core.ir_cache.len(), 1, "the same seed keeps the IR cache");
+        assert!(core.noise.is_cached(NoiseKind::White));
+
+        assert!(core.set_seed(5));
+        assert_eq!(core.ir_cache.len(), 0, "another seed empties the IR cache");
+        assert!(!core.noise.is_cached(NoiseKind::White), "and the noise");
+
+        // A local reverb is a new reverb per voice, so it requests its IR, and the cleared cache
+        // generates it again.
+        core.schedule(at_head(&core, &values[2], 2, 0.02));
+        settle(&mut core);
+        assert!(core.errors.is_empty(), "{:?}", core.errors);
+        assert_eq!(core.ir_cache.generated(), 1);
+        assert_eq!(core.ir_cache.len(), 1);
+    }
+
+    #[test]
+    fn create_orbit_keeps_first_add_order() {
+        let mut core = Core::new(0, BusGraph::default(), OrbitBank::empty(2));
+        for orbit in [3.0, 1.0, 3.0, 2.0] {
+            core.create_orbit(&OrbitSpec {
+                orbit,
+                channels: vec![0, 1],
+            });
+        }
+        let numbers: Vec<f64> = core.orbits().orbits().iter().map(|o| o.orbit()).collect();
+        assert_eq!(numbers, [3.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn finish_returns_the_errors_and_the_overflow_flag() {
+        let mut core = bare_core(0);
+        let errors = vec![
+            RenderError::new(ErrorKind::Hap, "first", Some(0)),
+            RenderError::new(ErrorKind::Other, "second", None),
+        ];
+        for e in &errors {
+            core.push_error(e.clone());
+        }
+        assert_eq!(core.finish(), (errors, false));
     }
 
     #[test]

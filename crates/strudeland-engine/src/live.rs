@@ -15,10 +15,9 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use crate::bus::BusGraph;
 use crate::controls::signature_of_with_bus;
 use crate::job::{OrbitSpec, ValueMap};
-use crate::noise::NoiseCache;
 use crate::orbit::OrbitBank;
 use crate::render::{Core, ScheduleArgs};
-use crate::reverb::{Convolver, IrCache, IrKey, IrPlan, normalization_scale};
+use crate::reverb::{Convolver, IrKey, IrPlan, normalization_scale};
 use crate::{QUANTUM, SAMPLE_RATE_F64 as SR};
 
 /// At most this many core render errors become [`LiveEvent::Error`]s per
@@ -164,12 +163,7 @@ impl LiveEngine {
     /// cache (an orbit reverb keeps its IR until its next request). The same seed again is a
     /// no-op (every evaluate re-sends it).
     pub fn set_seed(&mut self, seed: i32) {
-        if seed == self.core.seed {
-            return;
-        }
-        self.core.seed = seed;
-        self.core.noise = NoiseCache::new(seed);
-        self.core.ir_cache = IrCache::new();
+        self.core.set_seed(seed);
     }
 
     /// Adds value `index` (0, 1, 2, ... in order; anything else is an error event and ignored)
@@ -187,7 +181,7 @@ impl LiveEngine {
         self.core.add_value(&value);
         self.values.push(value);
         if let Some(o) = orbit {
-            self.core.orbits.create(&o);
+            self.core.create_orbit(&o);
         }
     }
 
@@ -207,7 +201,7 @@ impl LiveEngine {
             hap.frame,
             hap.t_sec
         );
-        let generation = self.core.bus_graph.cycle_generation();
+        let generation = self.core.bus_graph().cycle_generation();
         if generation != self.decided_generation {
             // A later value closed a bus cycle: its readers are unsupported from now on.
             self.decided.clear();
@@ -215,7 +209,7 @@ impl LiveEngine {
         }
         let key = (hap.value, hap.cps.to_bits());
         let decided = self.decided.entry(key).or_insert_with(|| {
-            let cyclic = self.core.bus_graph.cyclic_readers()[v];
+            let cyclic = self.core.bus_graph().cyclic_readers()[v];
             signature_of_with_bus(&self.values[v], cyclic, hap.cps)
         });
         if let Some(signature) = decided {
@@ -232,13 +226,13 @@ impl LiveEngine {
             return;
         }
         self.counters.haps += 1;
-        let now = self.core.frame as f64 / SR;
+        let now = self.core.frame() as f64 / SR;
         let mut t = hap.t_sec;
         if t < now {
             self.counters.late_haps += 1;
             t = now;
         }
-        let now_frame = self.core.frame;
+        let now_frame = self.core.frame();
         self.core.schedule(ScheduleArgs {
             value: &self.values[v],
             value_index: v,
@@ -253,7 +247,7 @@ impl LiveEngine {
 
     /// The render head: the next frame [`Self::render_quantum`] renders.
     pub fn now_frame(&self) -> u64 {
-        self.core.frame
+        self.core.frame()
     }
 
     /// Renders the next 128 frames into `out`, interleaved `L R`: built IRs land first, then the
@@ -262,7 +256,8 @@ impl LiveEngine {
         self.poll_ir();
         self.settle_reverbs();
         self.core.step();
-        let (l, r) = (&self.core.mix[0], &self.core.mix[1]);
+        let mix = self.core.mix();
+        let (l, r) = (&mix[0], &mix[1]);
         for i in 0..QUANTUM {
             out[2 * i] = l[i];
             out[2 * i + 1] = r[i];
@@ -272,9 +267,7 @@ impl LiveEngine {
     /// Drops every voice (effect tails on the orbits ring out); values, orbits, the IR cache,
     /// requests in flight and the counters stay.
     pub fn stop(&mut self) {
-        self.core.slots.clear();
-        self.core.outputs.clear();
-        self.core.orbit_of.clear();
+        self.core.stop_voices();
     }
 
     /// Drains the events, then up to 32 of the core's render errors (the rest are dropped).
@@ -282,8 +275,7 @@ impl LiveEngine {
         let mut out = std::mem::take(&mut self.events);
         out.extend(
             self.core
-                .errors
-                .drain(..)
+                .drain_errors()
                 .take(MAX_ERRORS_PER_TAKE)
                 .map(|e| LiveEvent::Error { message: e.message }),
         );
@@ -539,7 +531,7 @@ mod tests {
         e.add_value(2, sine(), spec(3.0));
         // Created even for an unsupported value.
         e.add_value(3, value_map(json!({ "s": "bd" })), spec(2.0));
-        let numbers: Vec<f64> = e.core.orbits.orbits().iter().map(|o| o.orbit()).collect();
+        let numbers: Vec<f64> = e.core.orbits().orbits().iter().map(|o| o.orbit()).collect();
         assert_eq!(numbers, [3.0, 1.0, 2.0]);
     }
 
@@ -682,7 +674,7 @@ mod tests {
             value_map(json!({ "s": "one", "attack": 0, "sustain": 1, "dry": 0, "bus": "A" })),
             None,
         );
-        assert_eq!(e.core.bus_graph.level_of_value(0), 2);
+        assert_eq!(e.core.bus_graph().level_of_value(0), 2);
         let t = e.now_frame() as f64 / SR;
         e.schedule(hap(t, 0.1, 1, 0.5));
         e.schedule(hap(t, 0.1, 2, 0.5));
@@ -711,19 +703,6 @@ mod tests {
     }
 
     #[test]
-    fn set_seed_to_the_same_seed_keeps_the_caches() {
-        let mut e = LiveEngine::with_options(0, LiveOptions { sync_ir: true });
-        e.add_value(0, room(), orbit1());
-        e.schedule(hap(0.0, 0.02, 0, 0.5));
-        render(&mut e, 1);
-        assert_eq!(e.core.ir_cache.len(), 1);
-        e.set_seed(0);
-        assert_eq!(e.core.ir_cache.len(), 1, "the same seed keeps the IR cache");
-        e.set_seed(5);
-        assert_eq!(e.core.ir_cache.len(), 0, "another seed clears it");
-    }
-
-    #[test]
     fn stop_drops_the_voices_and_keeps_the_values() {
         let mut e = LiveEngine::new(0);
         e.add_value(0, sine(), orbit1());
@@ -737,19 +716,6 @@ mod tests {
         e.schedule(hap(t, 0.1, 1, 0.5));
         assert!(render(&mut e, 4).iter().any(|x| *x != 0.0));
         assert_eq!(e.counters().haps, 2);
-    }
-
-    #[test]
-    fn stop_keeps_an_orbit_reverb_tail() {
-        let mut e = LiveEngine::new(0);
-        e.add_value(0, value_map(json!({ "s": "sine", "room": 0.8 })), orbit1());
-        e.schedule(hap(0.0, 0.05, 0, 0.5));
-        render(&mut e, 4);
-        e.stop();
-        assert!(
-            render(&mut e, 20).iter().any(|x| *x != 0.0),
-            "the tail rings"
-        );
     }
 
     fn room() -> ValueMap {
