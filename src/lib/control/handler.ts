@@ -156,8 +156,8 @@ const needProject = (session: Session): void => {
 const songParam = (params: unknown) => optSong(object(params, ['song']));
 
 /** Default `events` limit; the largest one allowed. */
-const EVENTS_LIMIT = 2000;
-const EVENTS_LIMIT_MAX = 100000;
+export const EVENTS_LIMIT = 2000;
+export const EVENTS_LIMIT_MAX = 100000;
 /** The widest `events` range for a pattern without `song()`, which has no last bar to clamp to. */
 const PLAIN_BARS_MAX = 1024;
 

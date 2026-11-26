@@ -8,65 +8,53 @@ pub(crate) const JSONRPC_VERSION: &str = "2.0";
 /// The longest request line the app reads, newline included (1 MiB).
 pub const MAX_LINE_BYTES: usize = 1_048_576;
 
-/// The error codes of the control protocol. `src/lib/control/protocol.ts` mirrors them and a
-/// frontend test reads this file to check the two agree, so keep one `pub const NAME: i64 = N;`
-/// per line.
+/// The error codes of the control protocol. `src/lib/control/protocol.ts` mirrors them; the wire
+/// examples' `errors.json` is the cross-check.
 pub mod codes {
-    /// The line is not valid JSON, or is too long.
-    pub const PARSE_ERROR: i64 = -32700;
-    /// The JSON is not a valid request (bad `id`, `jsonrpc`, `method`, or a notification).
-    pub const INVALID_REQUEST: i64 = -32600;
-    /// The method is not one of `Method`.
-    pub const METHOD_NOT_FOUND: i64 = -32601;
-    /// The params do not match the method.
-    pub const INVALID_PARAMS: i64 = -32602;
-    /// An unexpected exception in the webview handler.
-    pub const INTERNAL_ERROR: i64 = -32603;
-    /// The webview did not answer in time.
-    pub const TIMEOUT: i64 = -32002;
-    /// The webview is not attached (or reloaded while the request was pending).
-    pub const NOT_READY: i64 = -32003;
-    /// No project is open.
-    pub const NO_PROJECT: i64 = -32004;
-    /// The `song` param names no song of the open project.
-    pub const NO_SUCH_SONG: i64 = -32005;
-    /// The song could not be loaded (read failed, or deleted on disk).
-    pub const SONG_UNLOADABLE: i64 = -32006;
-    /// `events` before any successful evaluate.
-    pub const NOTHING_EVALUATED: i64 = -32007;
-    /// The webview snapshot failed.
-    pub const SCREENSHOT_FAILED: i64 = -32008;
-    /// `code.set`'s `expect` does not match the buffer.
-    pub const SONG_CHANGED: i64 = -32010;
-    /// `song.delete` or `project.open` would lose unsaved edits and `discard` was not set.
-    pub const UNSAVED: i64 = -32011;
-    /// `song.new` or `song.rename` names a song that already exists.
-    pub const SONG_EXISTS: i64 = -32012;
-    /// `project.open` was given a path that is not a project.
-    pub const OPEN_FAILED: i64 = -32013;
-    /// `project.open` while the app waits on an open dialog or loads a project the user chose.
-    pub const BUSY: i64 = -32014;
+    macro_rules! codes {
+        ($($(#[$doc:meta])* $name:ident = $value:expr;)*) => {
+            $($(#[$doc])* pub const $name: i64 = $value;)*
+            /// Every code by its Rust name, in declaration order.
+            pub const ALL: &[(&str, i64)] = &[$((stringify!($name), $name)),*];
+        };
+    }
 
-    /// Every code by its Rust name, in declaration order.
-    pub const ALL: &[(&str, i64)] = &[
-        ("PARSE_ERROR", PARSE_ERROR),
-        ("INVALID_REQUEST", INVALID_REQUEST),
-        ("METHOD_NOT_FOUND", METHOD_NOT_FOUND),
-        ("INVALID_PARAMS", INVALID_PARAMS),
-        ("INTERNAL_ERROR", INTERNAL_ERROR),
-        ("TIMEOUT", TIMEOUT),
-        ("NOT_READY", NOT_READY),
-        ("NO_PROJECT", NO_PROJECT),
-        ("NO_SUCH_SONG", NO_SUCH_SONG),
-        ("SONG_UNLOADABLE", SONG_UNLOADABLE),
-        ("NOTHING_EVALUATED", NOTHING_EVALUATED),
-        ("SCREENSHOT_FAILED", SCREENSHOT_FAILED),
-        ("SONG_CHANGED", SONG_CHANGED),
-        ("UNSAVED", UNSAVED),
-        ("SONG_EXISTS", SONG_EXISTS),
-        ("OPEN_FAILED", OPEN_FAILED),
-        ("BUSY", BUSY),
-    ];
+    codes! {
+        /// The line is not valid JSON, or is too long.
+        PARSE_ERROR = -32700;
+        /// The JSON is not a valid request (bad `id`, `jsonrpc`, `method`, or a notification).
+        INVALID_REQUEST = -32600;
+        /// The method is not one of `Method`.
+        METHOD_NOT_FOUND = -32601;
+        /// The params do not match the method.
+        INVALID_PARAMS = -32602;
+        /// An unexpected exception in the webview handler.
+        INTERNAL_ERROR = -32603;
+        /// The webview did not answer in time.
+        TIMEOUT = -32002;
+        /// The webview is not attached (or reloaded while the request was pending).
+        NOT_READY = -32003;
+        /// No project is open.
+        NO_PROJECT = -32004;
+        /// The `song` param names no song of the open project.
+        NO_SUCH_SONG = -32005;
+        /// The song could not be loaded (read failed, or deleted on disk).
+        SONG_UNLOADABLE = -32006;
+        /// `events` before any successful evaluate.
+        NOTHING_EVALUATED = -32007;
+        /// The webview snapshot failed.
+        SCREENSHOT_FAILED = -32008;
+        /// `code.set`'s `expect` does not match the buffer.
+        SONG_CHANGED = -32010;
+        /// `song.delete` or `project.open` would lose unsaved edits and `discard` was not set.
+        UNSAVED = -32011;
+        /// `song.new` or `song.rename` names a song that already exists.
+        SONG_EXISTS = -32012;
+        /// `project.open` was given a path that is not a project.
+        OPEN_FAILED = -32013;
+        /// `project.open` while the app waits on an open dialog or loads a project the user chose.
+        BUSY = -32014;
+    }
 }
 
 /// A request line. Members are JSON-RPC's own, so there is no `rename_all`.
