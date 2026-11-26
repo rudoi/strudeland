@@ -754,13 +754,132 @@ pub struct FmStep {
     pub connects: bool,
 }
 
+/// `fm_<n>` for n in 1..=8 (`NodeName::Fm(n)`).
+const FM_NAMES: [&str; 8] = [
+    "fm_1", "fm_2", "fm_3", "fm_4", "fm_5", "fm_6", "fm_7", "fm_8",
+];
+
+/// `fm_<n>_gain` for n in 1..=8 (`NodeName::FmGain(n)`).
+const FM_GAIN_NAMES: [&str; 8] = [
+    "fm_1_gain",
+    "fm_2_gain",
+    "fm_3_gain",
+    "fm_4_gain",
+    "fm_5_gain",
+    "fm_6_gain",
+    "fm_7_gain",
+    "fm_8_gain",
+];
+
+/// A key of superdough's `nodes` tracker that the plan or the modulator loop writes. The table
+/// matches and looks entries up by [`NodeName::as_str`], superdough's text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NodeName {
+    /// `source`: the sound's source node (or the bus).
+    Source,
+    /// `pw_lfo`: the pulse's width LFO.
+    PwLfo,
+    /// `vib`: the vibrato oscillator.
+    Vib,
+    /// `vib_gain`: the vibrato depth.
+    VibGain,
+    /// `fm_<n>`, n in 1..=8: the FM modulator.
+    Fm(u8),
+    /// `fm_<n>_gain`, n in 1..=8: the FM amount.
+    FmGain(u8),
+    Transient,
+    Gain,
+    Lpf,
+    LpfLfo,
+    Hpf,
+    HpfLfo,
+    Bpf,
+    BpfLfo,
+    /// `vowel`: the five formant filters.
+    Vowel,
+    Coarse,
+    Crush,
+    Shape,
+    Distort,
+    Tremolo,
+    TremoloGain,
+    Compressor,
+    Pan,
+    Phaser,
+    PhaserLfo,
+    /// `delay`: the orbit delay on `Main`, the local delay on a chain entry.
+    Delay,
+    /// `delay_mix`: the delay send on `Main`, the local delay's wet gain on a chain entry.
+    DelayMix,
+    /// `room`: the orbit reverb on `Main`, the local reverb on a chain entry.
+    Room,
+    /// `room_mix`: the reverb send on `Main`, the local reverb's wet gain on a chain entry.
+    RoomMix,
+    /// `post`: the `postgain` stage.
+    Post,
+    /// `djf`: the orbit's DJ filter.
+    Djf,
+    /// `lfo_<id>` / `env_<id>` (the modulator loop's).
+    Mod(String),
+}
+
+impl NodeName {
+    /// superdough's key text.
+    pub fn as_str(&self) -> &str {
+        match self {
+            NodeName::Source => "source",
+            NodeName::PwLfo => "pw_lfo",
+            NodeName::Vib => "vib",
+            NodeName::VibGain => "vib_gain",
+            NodeName::Fm(n) => FM_NAMES[usize::from(*n) - 1],
+            NodeName::FmGain(n) => FM_GAIN_NAMES[usize::from(*n) - 1],
+            NodeName::Transient => "transient",
+            NodeName::Gain => "gain",
+            NodeName::Lpf => "lpf",
+            NodeName::LpfLfo => "lpf_lfo",
+            NodeName::Hpf => "hpf",
+            NodeName::HpfLfo => "hpf_lfo",
+            NodeName::Bpf => "bpf",
+            NodeName::BpfLfo => "bpf_lfo",
+            NodeName::Vowel => "vowel",
+            NodeName::Coarse => "coarse",
+            NodeName::Crush => "crush",
+            NodeName::Shape => "shape",
+            NodeName::Distort => "distort",
+            NodeName::Tremolo => "tremolo",
+            NodeName::TremoloGain => "tremolo_gain",
+            NodeName::Compressor => "compressor",
+            NodeName::Pan => "pan",
+            NodeName::Phaser => "phaser",
+            NodeName::PhaserLfo => "phaser_lfo",
+            NodeName::Delay => "delay",
+            NodeName::DelayMix => "delay_mix",
+            NodeName::Room => "room",
+            NodeName::RoomMix => "room_mix",
+            NodeName::Post => "post",
+            NodeName::Djf => "djf",
+            NodeName::Mod(s) => s,
+        }
+    }
+
+    /// A filter slot's stage name and its LFO's: `(lpf, lpf_lfo)` and so on.
+    pub fn filter(kind: FilterKind) -> (NodeName, NodeName) {
+        match kind {
+            FilterKind::Lowpass => (NodeName::Lpf, NodeName::LpfLfo),
+            FilterKind::Highpass => (NodeName::Hpf, NodeName::HpfLfo),
+            FilterKind::Bandpass => (NodeName::Bpf, NodeName::BpfLfo),
+            FilterKind::Notch => unreachable!("the phaser is not a filter slot"),
+        }
+    }
+}
+
 /// The plan of a voice: its source kind, the stage specs `Voice::build` walks, the FM matrix
 /// walk, which FM modulators are noise, and superdough's `nodes` tracker in insertion order (`Object.keys`
 /// order: a later write of a key replaces its list in place). [`NodeTable::plan`] is the only
 /// constructor besides [`NodeTable::empty`]; the modulator loop adds `lfo_<id>`/`env_<id>`.
 #[derive(Debug, Clone)]
 pub struct NodeTable {
-    entries: Vec<(FxKey, String, NodeList)>,
+    entries: Vec<(FxKey, NodeName, NodeList)>,
     source: SourceKind,
     specs: Vec<StageSpec>,
     /// The FM matrix walk, one step per matrix entry in order.
@@ -771,25 +890,25 @@ pub struct NodeTable {
 
 impl NodeTable {
     /// `nodes[key][name] = list`: replaces any earlier entry in place (the last writer wins).
-    pub fn set(&mut self, key: FxKey, name: &str, list: NodeList) {
+    pub fn set(&mut self, key: FxKey, name: NodeName, list: NodeList) {
         match self
             .entries
             .iter_mut()
-            .find(|(k, n, _)| *k == key && n == name)
+            .find(|(k, n, _)| *k == key && n.as_str() == name.as_str())
         {
             Some(e) => e.2 = list,
-            None => self.entries.push((key, name.to_string(), list)),
+            None => self.entries.push((key, name, list)),
         }
     }
 
     /// `nodes[key][name].push(n)` of an element that may be `undefined` (a missing filter LFO);
     /// starts an array when the entry is missing, and turns a bare node into an array holding it
     /// first.
-    fn push_element(&mut self, key: FxKey, name: &str, n: Option<Node>) {
+    fn push_element(&mut self, key: FxKey, name: NodeName, n: Option<Node>) {
         match self
             .entries
             .iter_mut()
-            .find(|(k, m, _)| *k == key && m == name)
+            .find(|(k, m, _)| *k == key && m.as_str() == name.as_str())
         {
             Some((_, _, NodeList::Array(v))) => v.push(n),
             Some(e) => {
@@ -797,9 +916,7 @@ impl NodeTable {
                     e.2 = NodeList::Array(vec![Some(first), n]);
                 }
             }
-            None => self
-                .entries
-                .push((key, name.to_string(), NodeList::Array(vec![n]))),
+            None => self.entries.push((key, name, NodeList::Array(vec![n]))),
         }
     }
 
@@ -807,7 +924,7 @@ impl NodeTable {
     pub fn get(&self, key: FxKey, name: &str) -> Option<&NodeList> {
         self.entries
             .iter()
-            .find(|(k, n, _)| *k == key && n == name)
+            .find(|(k, n, _)| *k == key && n.as_str() == name)
             .map(|(_, _, l)| l)
     }
 
@@ -857,7 +974,7 @@ impl NodeTable {
     }
 
     /// Registers a single-node entry `nodes[key][name] = [node]`.
-    fn one(&mut self, key: FxKey, name: &str, node: Node) {
+    fn one(&mut self, key: FxKey, name: NodeName, node: Node) {
         self.set(key, name, NodeList::Array(vec![Some(node)]));
     }
 
@@ -893,9 +1010,9 @@ impl NodeTable {
         let main = FxKey::Main;
         let mut t = NodeTable::empty(source);
         match source {
-            SourceKind::Constant => t.set(main, "source", NodeList::NotArray(Node::Source)),
-            SourceKind::Bus => t.one(main, "source", Node::Bus),
-            _ => t.one(main, "source", Node::Source),
+            SourceKind::Constant => t.set(main, NodeName::Source, NodeList::NotArray(Node::Source)),
+            SourceKind::Bus => t.one(main, NodeName::Source, Node::Bus),
+            _ => t.one(main, NodeName::Source, Node::Source),
         }
         let synth = matches!(
             source,
@@ -903,13 +1020,13 @@ impl NodeTable {
         );
         if source == SourceKind::Pulse {
             let node = (params.pwsweep != 0.0).then_some(Node::PulseLfo);
-            t.set(main, "pw_lfo", NodeList::Array(vec![node]));
+            t.set(main, NodeName::PwLfo, NodeList::Array(vec![node]));
         }
         let vib = synth && params.vib.is_some_and(|v| v > 0.0);
         let plan_vib = |t: &mut NodeTable| {
             if vib {
-                t.one(main, "vib", Node::Vibrato);
-                t.one(main, "vib_gain", Node::VibratoGain);
+                t.one(main, NodeName::Vib, Node::Vibrato);
+                t.one(main, NodeName::VibGain, Node::VibratoGain);
             }
         };
         if source == SourceKind::Osc {
@@ -935,18 +1052,18 @@ impl NodeTable {
             t.stage_id(StageSpec::Release);
         }
         let post = t.stage_id(StageSpec::Post);
-        t.one(main, "post", Node::Stage(post));
+        t.one(main, NodeName::Post, Node::Stage(post));
         let m = &params.main;
         if delay_applies(m) {
-            t.one(main, "delay", Node::OrbitDelay);
-            t.one(main, "delay_mix", Node::DelaySend);
+            t.one(main, NodeName::Delay, Node::OrbitDelay);
+            t.one(main, NodeName::DelayMix, Node::DelaySend);
         }
         if m.room > 0.0 {
-            t.one(main, "room", Node::OrbitReverb);
-            t.one(main, "room_mix", Node::RoomSend);
+            t.one(main, NodeName::Room, Node::OrbitReverb);
+            t.one(main, NodeName::RoomMix, Node::RoomSend);
         }
         if params.djf.is_some() {
-            t.one(main, "djf", Node::OrbitDjf);
+            t.one(main, NodeName::Djf, Node::OrbitDjf);
         }
         t
     }
@@ -975,7 +1092,7 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
                     let pos = t.fm_noise.len();
                     t.fm_noise.push(is_noise(idx));
                     created[idx] = Some(pos);
-                    t.one(FxKey::Main, &format!("fm_{idx}"), Node::FmOsc(pos));
+                    t.one(FxKey::Main, NodeName::Fm(idx as u8), Node::FmOsc(pos));
                     (pos, true)
                 }
             };
@@ -991,7 +1108,7 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
                     value: e.amount as f32,
                 }
             };
-            t.one(FxKey::Main, &format!("fm_{idx}_gain"), node);
+            t.one(FxKey::Main, NodeName::FmGain(idx as u8), node);
         }
         t.fm_steps.push(FmStep { sides, connects });
         if connects {
@@ -1011,20 +1128,24 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
 pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut NodeTable) {
     if params.transient.is_some() {
         let id = t.stage_id(StageSpec::Transient(key));
-        t.set(key, "transient", NodeList::NotArray(Node::Stage(id)));
+        t.set(
+            key,
+            NodeName::Transient,
+            NodeList::NotArray(Node::Stage(id)),
+        );
     }
     let id = t.stage_id(StageSpec::EntryGain(key));
-    t.one(key, "gain", Node::Stage(id));
+    t.one(key, NodeName::Gain, Node::Stage(id));
     let filters = [
-        (&params.lowpass, FilterKind::Lowpass, "lpf"),
-        (&params.highpass, FilterKind::Highpass, "hpf"),
-        (&params.bandpass, FilterKind::Bandpass, "bpf"),
+        (&params.lowpass, FilterKind::Lowpass),
+        (&params.highpass, FilterKind::Highpass),
+        (&params.bandpass, FilterKind::Bandpass),
     ];
-    for (filter, kind, name) in filters {
+    for (filter, kind) in filters {
         let Some(f) = filter else {
             continue;
         };
-        let lfo_name = format!("{name}_lfo");
+        let (name, lfo_name) = NodeName::filter(kind);
         let has_lfo = filter_lfo_props(f, &EntryTimes::PLAN).is_some();
         let ladder = params.ftype_ladder;
         let copies = if !ladder && ftype_24db { 2 } else { 1 };
@@ -1037,24 +1158,40 @@ pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut No
             let id = t.stage_id(spec);
             let lfo = has_lfo.then_some(Node::StageLfo(id));
             if k == 0 {
-                t.one(key, name, Node::Stage(id));
-                t.set(key, &lfo_name, NodeList::Array(vec![lfo]));
+                t.one(key, name.clone(), Node::Stage(id));
+                t.set(key, lfo_name.clone(), NodeList::Array(vec![lfo]));
             } else {
-                t.push_element(key, name, Some(Node::Stage(id)));
-                t.push_element(key, &lfo_name, lfo);
+                t.push_element(key, name.clone(), Some(Node::Stage(id)));
+                t.push_element(key, lfo_name.clone(), lfo);
             }
         }
     }
     if params.vowel.is_some() {
         let id = t.stage_id(StageSpec::Vowel(key));
         let filters = (0..5).map(|n| Some(Node::VowelFilter(id, n))).collect();
-        t.set(key, "vowel", NodeList::Array(filters));
+        t.set(key, NodeName::Vowel, NodeList::Array(filters));
     }
     let shapers = [
-        (params.coarse.is_some(), StageSpec::Coarse(key), "coarse"),
-        (params.crush.is_some(), StageSpec::Crush(key), "crush"),
-        (params.shape.is_some(), StageSpec::Shape(key), "shape"),
-        (params.distort.is_some(), StageSpec::Distort(key), "distort"),
+        (
+            params.coarse.is_some(),
+            StageSpec::Coarse(key),
+            NodeName::Coarse,
+        ),
+        (
+            params.crush.is_some(),
+            StageSpec::Crush(key),
+            NodeName::Crush,
+        ),
+        (
+            params.shape.is_some(),
+            StageSpec::Shape(key),
+            NodeName::Shape,
+        ),
+        (
+            params.distort.is_some(),
+            StageSpec::Distort(key),
+            NodeName::Distort,
+        ),
     ];
     for (present, spec, name) in shapers {
         if present {
@@ -1064,34 +1201,34 @@ pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut No
     }
     if params.tremolo.is_some() {
         let id = t.stage_id(StageSpec::Tremolo(key));
-        t.one(key, "tremolo", Node::StageLfo(id));
-        t.one(key, "tremolo_gain", Node::Stage(id));
+        t.one(key, NodeName::Tremolo, Node::StageLfo(id));
+        t.one(key, NodeName::TremoloGain, Node::Stage(id));
     }
     if params.compressor.is_some() {
         let id = t.stage_id(StageSpec::Compressor(key));
-        t.one(key, "compressor", Node::Stage(id));
+        t.one(key, NodeName::Compressor, Node::Stage(id));
     }
     if params.pan.is_some() {
         let id = t.stage_id(StageSpec::Pan(key));
-        t.one(key, "pan", Node::Stage(id));
+        t.one(key, NodeName::Pan, Node::Stage(id));
     }
     if params.phaser.is_some() {
         let id = t.stage_id(StageSpec::Phaser(key));
-        t.one(key, "phaser", Node::Stage(id));
-        t.one(key, "phaser_lfo", Node::StageLfo(id));
+        t.one(key, NodeName::Phaser, Node::Stage(id));
+        t.one(key, NodeName::PhaserLfo, Node::StageLfo(id));
     }
     if key == FxKey::Main {
         return;
     }
     if delay_applies(params) {
         let id = t.stage_id(StageSpec::LocalDelay(key));
-        t.one(key, "delay", Node::Stage(id));
-        t.one(key, "delay_mix", Node::StageWet(id));
+        t.one(key, NodeName::Delay, Node::Stage(id));
+        t.one(key, NodeName::DelayMix, Node::StageWet(id));
     }
     if params.room > 0.0 {
         let id = t.stage_id(StageSpec::LocalReverb(key));
-        t.one(key, "room", Node::Stage(id));
-        t.one(key, "room_mix", Node::StageWet(id));
+        t.one(key, NodeName::Room, Node::Stage(id));
+        t.one(key, NodeName::RoomMix, Node::StageWet(id));
     }
 }
 
@@ -1645,7 +1782,7 @@ pub fn build_phaser(
 
 #[cfg(test)]
 #[allow(clippy::needless_range_loop)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::job::{OrbitSpec, ValueMap};
     use crate::noise::NoiseCache;
@@ -1878,16 +2015,116 @@ mod tests {
         assert!(!evented.process(0, bus.active(), false, &ParamInputs::NONE));
     }
 
+    /// Every [`NodeName`] variant, so a new one fails to compile until the tests list it.
+    pub(crate) fn listed(n: &NodeName) -> bool {
+        match n {
+            NodeName::Source
+            | NodeName::PwLfo
+            | NodeName::Vib
+            | NodeName::VibGain
+            | NodeName::Fm(_)
+            | NodeName::FmGain(_)
+            | NodeName::Transient
+            | NodeName::Gain
+            | NodeName::Lpf
+            | NodeName::LpfLfo
+            | NodeName::Hpf
+            | NodeName::HpfLfo
+            | NodeName::Bpf
+            | NodeName::BpfLfo
+            | NodeName::Vowel
+            | NodeName::Coarse
+            | NodeName::Crush
+            | NodeName::Shape
+            | NodeName::Distort
+            | NodeName::Tremolo
+            | NodeName::TremoloGain
+            | NodeName::Compressor
+            | NodeName::Pan
+            | NodeName::Phaser
+            | NodeName::PhaserLfo
+            | NodeName::Delay
+            | NodeName::DelayMix
+            | NodeName::Room
+            | NodeName::RoomMix
+            | NodeName::Post
+            | NodeName::Djf
+            | NodeName::Mod(_) => true,
+        }
+    }
+
+    /// The static variants with superdough's text, then the FM names at both ends.
+    pub(crate) const STATIC_NAMES: &[(NodeName, &str)] = &[
+        (NodeName::Source, "source"),
+        (NodeName::PwLfo, "pw_lfo"),
+        (NodeName::Vib, "vib"),
+        (NodeName::VibGain, "vib_gain"),
+        (NodeName::Transient, "transient"),
+        (NodeName::Gain, "gain"),
+        (NodeName::Lpf, "lpf"),
+        (NodeName::LpfLfo, "lpf_lfo"),
+        (NodeName::Hpf, "hpf"),
+        (NodeName::HpfLfo, "hpf_lfo"),
+        (NodeName::Bpf, "bpf"),
+        (NodeName::BpfLfo, "bpf_lfo"),
+        (NodeName::Vowel, "vowel"),
+        (NodeName::Coarse, "coarse"),
+        (NodeName::Crush, "crush"),
+        (NodeName::Shape, "shape"),
+        (NodeName::Distort, "distort"),
+        (NodeName::Tremolo, "tremolo"),
+        (NodeName::TremoloGain, "tremolo_gain"),
+        (NodeName::Compressor, "compressor"),
+        (NodeName::Pan, "pan"),
+        (NodeName::Phaser, "phaser"),
+        (NodeName::PhaserLfo, "phaser_lfo"),
+        (NodeName::Delay, "delay"),
+        (NodeName::DelayMix, "delay_mix"),
+        (NodeName::Room, "room"),
+        (NodeName::RoomMix, "room_mix"),
+        (NodeName::Post, "post"),
+        (NodeName::Djf, "djf"),
+    ];
+
+    #[test]
+    fn node_names_are_superdough_keys() {
+        for (name, text) in STATIC_NAMES {
+            assert!(listed(name));
+            assert_eq!(name.as_str(), *text, "{name:?}");
+        }
+        assert_eq!(NodeName::Fm(1).as_str(), "fm_1");
+        assert_eq!(NodeName::Fm(8).as_str(), "fm_8");
+        assert_eq!(NodeName::FmGain(1).as_str(), "fm_1_gain");
+        assert_eq!(NodeName::FmGain(8).as_str(), "fm_8_gain");
+        for n in 1..=8u8 {
+            assert_eq!(NodeName::Fm(n).as_str(), format!("fm_{n}"));
+            assert_eq!(NodeName::FmGain(n).as_str(), format!("fm_{n}_gain"));
+        }
+        assert_eq!(NodeName::Mod("lfo_x".into()).as_str(), "lfo_x");
+        assert_eq!(
+            NodeName::filter(FilterKind::Lowpass),
+            (NodeName::Lpf, NodeName::LpfLfo)
+        );
+        assert_eq!(
+            NodeName::filter(FilterKind::Highpass),
+            (NodeName::Hpf, NodeName::HpfLfo)
+        );
+        assert_eq!(
+            NodeName::filter(FilterKind::Bandpass),
+            (NodeName::Bpf, NodeName::BpfLfo)
+        );
+    }
+
     #[test]
     fn node_table_set_replaces_push_appends_and_a_missing_key_is_none() {
         let mut t = NodeTable::empty(SourceKind::Osc);
         assert_eq!(t.get(FxKey::Main, "lpf"), None);
         t.set(
             FxKey::Main,
-            "lpf",
+            NodeName::Lpf,
             NodeList::Array(vec![Some(Node::Stage(StageId(3)))]),
         );
-        t.push_element(FxKey::Main, "lpf", Some(Node::Stage(StageId(4))));
+        t.push_element(FxKey::Main, NodeName::Lpf, Some(Node::Stage(StageId(4))));
         assert_eq!(
             t.get(FxKey::Main, "lpf"),
             Some(&NodeList::Array(vec![
@@ -1899,7 +2136,7 @@ mod tests {
         assert_eq!(t.get(FxKey::Index(0), "lpf"), None);
         t.set(
             FxKey::Index(0),
-            "lpf",
+            NodeName::Lpf,
             NodeList::Array(vec![Some(Node::Stage(StageId(9)))]),
         );
         assert_eq!(
@@ -1912,7 +2149,7 @@ mod tests {
         // `set` replaces, whatever was there.
         t.set(
             FxKey::Main,
-            "lpf",
+            NodeName::Lpf,
             NodeList::NotArray(Node::Detached { value: 0.5 }),
         );
         assert_eq!(
@@ -1920,7 +2157,7 @@ mod tests {
             Some(&NodeList::NotArray(Node::Detached { value: 0.5 }))
         );
         // A push onto a bare node makes an array holding it first.
-        t.push_element(FxKey::Main, "lpf", Some(Node::FmAmount(1)));
+        t.push_element(FxKey::Main, NodeName::Lpf, Some(Node::FmAmount(1)));
         assert_eq!(
             t.get(FxKey::Main, "lpf"),
             Some(&NodeList::Array(vec![
@@ -1929,18 +2166,22 @@ mod tests {
             ]))
         );
         // A push onto a missing entry starts an array.
-        t.push_element(FxKey::Index(2), "hpf", Some(Node::Stage(StageId(1))));
+        t.push_element(
+            FxKey::Index(2),
+            NodeName::Hpf,
+            Some(Node::Stage(StageId(1))),
+        );
         assert_eq!(
             t.get(FxKey::Index(2), "hpf"),
             Some(&NodeList::Array(vec![Some(Node::Stage(StageId(1)))]))
         );
         // An `undefined` element (`lpf_lfo` without a filter LFO) is kept as `None`.
-        t.set(FxKey::Main, "lpf_lfo", NodeList::Array(vec![None]));
+        t.set(FxKey::Main, NodeName::LpfLfo, NodeList::Array(vec![None]));
         assert_eq!(
             t.get(FxKey::Main, "lpf_lfo"),
             Some(&NodeList::Array(vec![None]))
         );
-        t.push_element(FxKey::Main, "lpf_lfo", Some(Node::Stage(StageId(0))));
+        t.push_element(FxKey::Main, NodeName::LpfLfo, Some(Node::Stage(StageId(0))));
         assert_eq!(
             t.get(FxKey::Main, "lpf_lfo"),
             Some(&NodeList::Array(vec![None, Some(Node::Stage(StageId(0)))]))
@@ -1950,8 +2191,12 @@ mod tests {
         assert_eq!(t.get(FxKey::Main, ""), None);
         // `Object.keys` order: first insertion, a later `set` keeps the key's place.
         assert_eq!(t.keys(FxKey::Main), ["lpf", "lpf_lfo"]);
-        t.set(FxKey::Main, "gain", NodeList::NotArray(Node::Source));
-        t.set(FxKey::Main, "lpf", NodeList::Array(vec![None]));
+        t.set(
+            FxKey::Main,
+            NodeName::Gain,
+            NodeList::NotArray(Node::Source),
+        );
+        t.set(FxKey::Main, NodeName::Lpf, NodeList::Array(vec![None]));
         assert_eq!(t.keys(FxKey::Main), ["lpf", "lpf_lfo", "gain"]);
         assert_eq!(t.keys(FxKey::Index(2)), ["hpf"]);
         assert!(t.has_entry(FxKey::Main) && t.has_entry(FxKey::Index(2)));

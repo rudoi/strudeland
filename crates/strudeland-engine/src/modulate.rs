@@ -16,7 +16,9 @@
 
 use crate::QUANTUM;
 use crate::bus::{BusBank, bus_key};
-use crate::chain::{FxKey, Node, NodeList, NodeTable, ParamRef, ParamSlot, SourceKind, StageKind};
+use crate::chain::{
+    FxKey, Node, NodeList, NodeName, NodeTable, ParamRef, ParamSlot, SourceKind, StageKind,
+};
 use crate::coerce::{js_to_number_full, js_to_string, parse_js_number};
 use crate::envelope::{self, EnvProps, Envelope, get_envelope};
 use crate::job::{Value, ValueMap};
@@ -765,12 +767,12 @@ fn probe_tables() -> Vec<NodeTable> {
             let mut table = NodeTable::plan(&params, *kind);
             table.set(
                 FxKey::Main,
-                "lfo_0",
+                NodeName::Mod("lfo_0".into()),
                 NodeList::Array(vec![Some(Node::Lfo(0))]),
             );
             table.set(
                 FxKey::Main,
-                "env_0",
+                NodeName::Mod("env_0".into()),
                 NodeList::Array(vec![Some(Node::Env(1))]),
             );
             tables.push(table);
@@ -785,12 +787,12 @@ fn register(table: &mut NodeTable, c: &Config<'_>, index: usize) {
     match c.ty {
         ModType::Lfo => table.set(
             FxKey::Main,
-            &format!("lfo_{id}"),
+            NodeName::Mod(format!("lfo_{id}")),
             NodeList::Array(vec![Some(Node::Lfo(index))]),
         ),
         ModType::Env => table.set(
             FxKey::Main,
-            &format!("env_{id}"),
+            NodeName::Mod(format!("env_{id}")),
             NodeList::Array(vec![Some(Node::Env(index))]),
         ),
         ModType::Bmod => {}
@@ -2563,6 +2565,42 @@ pub(crate) mod tests {
         "vibmod",
         "vowel",
     ];
+
+    #[test]
+    fn every_planned_name_is_a_target_node() {
+        use crate::chain::tests::STATIC_NAMES;
+        let mut planned = std::collections::BTreeSet::new();
+        for table in probe_tables() {
+            for key in [FxKey::Main, FxKey::Index(0)] {
+                for name in table.keys(key) {
+                    if name != "lfo_0" && name != "env_0" {
+                        planned.insert(name.to_string());
+                    }
+                }
+            }
+        }
+        // `room` is the orbit's convolver on `Main` and the local reverb on a chain entry: no
+        // param of it is a control's target. `TARGETS` reaches the reverb's level through
+        // `room_mix`.
+        for name in &planned {
+            if name == "room" {
+                continue;
+            }
+            assert!(
+                TARGETS.iter().any(|(_, node, _)| node == name),
+                "{name} is planned but no TARGETS row names it"
+            );
+        }
+        // The probe reaches every name the plan can register.
+        let mut every: Vec<String> = STATIC_NAMES.iter().map(|(_, t)| t.to_string()).collect();
+        for n in 1..=8u8 {
+            every.push(NodeName::Fm(n).as_str().to_string());
+            every.push(NodeName::FmGain(n).as_str().to_string());
+        }
+        for name in &every {
+            assert!(planned.contains(name), "the probe tables never plan {name}");
+        }
+    }
 
     #[test]
     fn modulatable_targets_are_todays() {
