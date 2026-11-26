@@ -6,10 +6,12 @@
 
 import type { InstrumentSnapshot } from '../strudel/instruments';
 import type { SongStructure } from '../strudel/structure';
+import type { AssembledWindow } from './chunks';
 import type { UnsupportedSignature } from './engine-job';
 import type { EngineName } from './engines';
 import type { RenderPlanRequest } from './job-plan';
 import type { RenderEvent } from './schedule';
+import type { RenderTiming } from './timing';
 
 /** The only supported sample rate. */
 export const SAMPLE_RATE = 44100;
@@ -67,9 +69,10 @@ export interface RenderResult {
   frames: number;
   /** Frame index of fromBar inside `channels`. */
   windowStartFrame: number;
-  /** Mapped frames between fromBar and toBar, excluding lookback and overlap. */
-  contentFrames?: number;
-  /** Mapped frames after content. */
+  /** Mapped frames between fromBar and toBar, excluding lookback and overlap (the plan's
+   *  `contentFrames`). */
+  contentFrames: number;
+  /** Mapped frames after content; present exactly when `request.overlapBars > 0`. */
   overlapFrames?: number;
   /** Lookback actually rendered, seconds, never negative. */
   lookbackSecUsed: number;
@@ -107,6 +110,16 @@ export interface Renderer {
    *  `fromBar`, `lookbackSec`, `mode` and `mutation` are ignored. */
   schedule(req: RenderRequest): Promise<ScheduleResult>;
   render(req: RenderRequest): Promise<RenderResult>;
+  /** Renders `[base.fromBar, base.toBar)` of `base.code` as one window through the renderer's
+   *  own production path. When present, the harness takes the fixture's main window from it
+   *  instead of joining chunk renders. `events` is the harness schedule, attached as
+   *  `assembleWindow` attaches it; `song` is the cps and (mixed meter) timing the harness
+   *  derived from that schedule. */
+  renderWindow?(
+    base: RenderRequest,
+    events: RenderEvent[],
+    song: { cps: number; timing?: RenderTiming },
+  ): Promise<AssembledWindow>;
   dispose(): Promise<void>;
 }
 

@@ -1,17 +1,37 @@
 //! The batch path (one host plan of every chunk, parallel engine renders, the joiner) against the
-//! per-chunk path the harness takes (one `Host::plan_job` per chunk request on a fresh host, one
-//! engine render each, the same joiner): the job texts are equal and the joined audio is bit for
-//! bit the same.
+//! per-chunk path the harness takes (a single-chunk `plan_render` per chunk request on a fresh
+//! host, one engine render each, the same joiner): the job texts are equal and the joined audio is
+//! bit for bit the same.
 
 mod common;
 
 use common::{corpus_song, options, window};
 use strudeland_engine::EngineJob;
 use strudeland_host::{
-    Host, Layout, LookbackSec, Mode, RenderPlanRequest, RenderRequest, SAMPLE_RATE,
+    ChunkWindow, Host, Layout, LengthRequest, LookbackSec, Mode, RenderPlanRequest, SingleChunk,
 };
 use strudeland_render::join::Joiner;
 use strudeland_render::render_audio;
+
+/// The single-chunk request at `plan`'s bars and lookback: linear, overlap 0, mix.
+fn single(plan: &ChunkWindow) -> RenderPlanRequest {
+    RenderPlanRequest {
+        instruments: Default::default(),
+        preset: None,
+        length: LengthRequest::Window {
+            from_bar: plan.from_bar,
+            to_bar: plan.to_bar,
+            layout: Layout::Linear,
+        },
+        include_events: None,
+        chunk: Some(SingleChunk {
+            overlap_bars: 0,
+            lookback_sec: LookbackSec::Seconds(plan.lookback_sec),
+            mode: Mode::Mix,
+        }),
+        timeout_sec: None,
+    }
+}
 
 #[test]
 fn batch_and_per_chunk_renders_join_bit_identically() {
@@ -38,6 +58,7 @@ fn batch_and_per_chunk_renders_join_bit_identically() {
                 preset: None,
                 length,
                 include_events: None,
+                chunk: None,
                 timeout_sec: None,
             },
         )
@@ -45,23 +66,25 @@ fn batch_and_per_chunk_renders_join_bit_identically() {
     assert_eq!(planned.chunks.len(), audio.chunks.len());
     assert_eq!(planned.cps.to_bits(), audio.cps.to_bits());
 
-    let mut joiner = Joiner::for_plans(&audio.summary.window, audio.cps, &audio.chunks, 2).unwrap();
+    let mut joiner = Joiner::for_plans(
+        &audio.summary.window,
+        &audio.chunks,
+        2,
+        audio.music_frames,
+        0,
+    )
+    .unwrap();
     for (k, (plan, batch)) in audio.chunks.iter().zip(&planned.chunks).enumerate() {
         assert_eq!(&batch.plan, plan, "chunk {k}: the window");
-        let request = RenderRequest {
-            layout: Layout::Linear,
-            from_bar: plan.from_bar,
-            to_bar: plan.to_bar,
-            overlap_bars: 0,
-            lookback_sec: LookbackSec::Seconds(plan.lookback_sec),
-            mode: Mode::Mix,
-            sample_rate: SAMPLE_RATE,
-        };
         // A fresh host per chunk, as the harness's one process per request.
-        let job = Host::new().unwrap().plan_job(&code, &request).unwrap();
-        assert!(job.json == batch.json, "chunk {k}: the job text differs");
-        let rendered =
-            strudeland_engine::render(&EngineJob::from_json(&job.json).unwrap()).unwrap();
+        let one = Host::new()
+            .unwrap()
+            .plan_render(&code, &single(plan))
+            .unwrap();
+        assert_eq!(one.chunks.len(), 1, "chunk {k}: a single-chunk plan");
+        let job = &one.chunks[0].json;
+        assert!(*job == batch.json, "chunk {k}: the job text differs");
+        let rendered = strudeland_engine::render(&EngineJob::from_json(job).unwrap()).unwrap();
         assert!(
             rendered.errors.is_empty(),
             "chunk {k}: {:?}",

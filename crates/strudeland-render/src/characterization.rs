@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::join::window_frames;
 use crate::loop_export::finish_export;
+use crate::testing::window_frames;
 use crate::{
     BitDepth, EncoderOptions, ExportFile, ExportPreset, ExportRole, LoopAudio, Loudness, Mp3Mode,
     OutputOptions, PipelineAudio, Progress, RenderError, Summary, Timings, testing,

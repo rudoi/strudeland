@@ -77,15 +77,21 @@ pub(crate) fn render_planned(
         export,
     } = planned;
     let tail_frames = export.as_ref().map_or(0, |export| export.tail_frames);
-    let music_frames =
-        music_frames.unwrap_or_else(|| join::window_frames(window.from_bar, window.to_bar, cps));
-    let loop_start = export.as_ref().and_then(|export| {
-        let bar = export.loop_start_bar?;
-        let frame = export
-            .loop_start_frame
-            .unwrap_or_else(|| join::window_frames(window.from_bar, bar, cps));
-        Some((bar, frame))
-    });
+    let loop_start = match export
+        .as_ref()
+        .map(|e| (e.loop_start_bar, e.loop_start_frame))
+    {
+        None | Some((None, None)) => None,
+        Some((Some(bar), Some(frame))) => Some((bar, frame)),
+        Some((Some(_), None)) => {
+            return Err(RenderError::render("the plan's loop start has no frame"));
+        }
+        Some((None, Some(_))) => {
+            return Err(RenderError::render(
+                "the plan's loop start frame has no bar",
+            ));
+        }
+    };
     let repeat_jobs = jobs.split_off(chunks.len());
     let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
     let workers = render::workers_for(opts.jobs, chunks.len());
@@ -105,55 +111,42 @@ pub(crate) fn render_planned(
         channels: joined,
         errors: mut engine_errors,
     } = render_window(
-        join::Joiner::for_plans_with_tail(
-            &window,
-            cps,
-            &chunks,
-            channels,
-            Some(music_frames),
-            tail_frames,
-        )?,
+        join::Joiner::for_plans(&window, &chunks, channels, music_frames, tail_frames)?,
         &chunks,
         jobs,
         workers,
         |job| renderer.render(job, stems.as_ref()),
         &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
-    let (isolated_body, repeat_workers) =
-        if let Some(repeat) = export.and_then(|export| export.repeat) {
-            let (from_bar, start_frame) = loop_start
-                .ok_or_else(|| RenderError::render("the isolated body has no loop start"))?;
-            let expected = music_frames
-                .checked_sub(start_frame)
-                .ok_or_else(|| RenderError::render("loop begins past the opening"))?;
-            if repeat.music_frames.is_some_and(|frames| frames != expected) {
-                return Err(RenderError::render(
-                    "isolated body length differs from the opening loop",
-                ));
-            }
-            let body_window = PlannedWindow { from_bar, ..window };
-            let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
-            let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
-            let body = render_window(
-                join::Joiner::for_plans_with_tail(
-                    &body_window,
-                    cps,
-                    &body_chunks,
-                    2,
-                    Some(expected),
-                    repeat.tail_frames,
-                )?,
-                &body_chunks,
-                repeat_jobs,
-                repeat_workers,
-                |job| renderer.render(job, None),
-                &|event| report_chunk(progress, event, chunks.len(), chunk_count),
-            )?;
-            engine_errors.extend(body.errors);
-            (Some(body.channels), repeat_workers)
-        } else {
-            (None, 0)
-        };
+    let (isolated_body, repeat_workers) = if let Some(repeat) =
+        export.and_then(|export| export.repeat)
+    {
+        let (from_bar, start_frame) =
+            loop_start.ok_or_else(|| RenderError::render("the isolated body has no loop start"))?;
+        let expected = music_frames
+            .checked_sub(start_frame)
+            .ok_or_else(|| RenderError::render("loop begins past the opening"))?;
+        if repeat.music_frames != expected {
+            return Err(RenderError::render(
+                "isolated body length differs from the opening loop",
+            ));
+        }
+        let body_window = PlannedWindow { from_bar, ..window };
+        let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
+        let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
+        let body = render_window(
+            join::Joiner::for_plans(&body_window, &body_chunks, 2, expected, repeat.tail_frames)?,
+            &body_chunks,
+            repeat_jobs,
+            repeat_workers,
+            |job| renderer.render(job, None),
+            &|event| report_chunk(progress, event, chunks.len(), chunk_count),
+        )?;
+        engine_errors.extend(body.errors);
+        (Some(body.channels), repeat_workers)
+    } else {
+        (None, 0)
+    };
     let render_ms = ms_since(render_started);
 
     let summary = Summary {
@@ -276,19 +269,21 @@ mod tests {
                 c1: to_bar,
                 lookback_sec_used: 0.0,
                 window_start_frame: head,
-                content_frames: Some(content),
+                content_frames: content,
+                overlap_frames: None,
                 buffer_start_sec: 0.0,
                 frames,
                 from_bar,
                 to_bar,
                 lookback_sec: 0.0,
             },
+            info: None,
         }
     }
 
     fn planned(
         window: (u32, u32),
-        music_frames: Option<u64>,
+        music_frames: u64,
         chunks: Vec<PlannedChunk>,
         export: Option<PlannedExport>,
     ) -> PlannedRender {
@@ -387,7 +382,7 @@ mod tests {
     fn a_plan_renders_and_joins_its_chunks() {
         let plan = planned(
             (0, 2),
-            Some(2000),
+            2000,
             vec![
                 chunk(0, 1, 10, 1000, 0, 1, &[]),
                 chunk(1, 2, 20, 1000, 0, 2, &[]),
@@ -429,7 +424,7 @@ mod tests {
     fn unsupported_material_is_refused_before_any_render() {
         let plan = planned(
             (0, 1),
-            Some(1000),
+            1000,
             vec![chunk(0, 1, 0, 1000, 0, 1, &[json!({ "s": "bd" })])],
             None,
         );
@@ -457,7 +452,7 @@ mod tests {
         };
         let plan = planned(
             (0, 2),
-            Some(2000),
+            2000,
             vec![
                 chunk(0, 1, 0, 1000, 0, 1, &[]),
                 chunk(1, 2, 5, 1000, 100, 2, &[]),
@@ -476,38 +471,49 @@ mod tests {
     }
 
     #[test]
-    fn missing_frames_fall_back_to_the_window() {
-        let bar = join::window_frames(0, 1, CPS);
-        assert_eq!(bar, 88_200);
-        let export = PlannedExport {
-            loop_start_bar: Some(1),
-            loop_start_frame: None,
-            tail_frames: 0,
-            repeat: None,
-        };
-        let plan = planned(
-            (0, 2),
-            None,
-            vec![
-                chunk(0, 1, 0, bar, 0, 1, &[]),
-                chunk(1, 2, 0, bar, 0, 2, &[]),
-            ],
-            Some(export),
-        );
-        let (result, _) = run(plan, 1, AudioMode::Standard, &Ramp::default());
-        let out = result.unwrap();
-        assert_eq!(out.audio.music_frames, join::window_frames(0, 2, CPS));
-        assert_eq!(out.audio.summary.frames, 2 * bar);
-        let loop_audio = out.loop_audio.unwrap();
-        assert_eq!(loop_audio.start_bar, 1);
-        assert_eq!(loop_audio.start_frame, join::window_frames(0, 1, CPS));
-        assert!(loop_audio.isolated_body.is_none());
+    fn a_half_loop_start_is_an_error() {
+        for (bar, frame, text) in [
+            (
+                Some(1),
+                None,
+                "render failed: the plan's loop start has no frame",
+            ),
+            (
+                None,
+                Some(1000),
+                "render failed: the plan's loop start frame has no bar",
+            ),
+        ] {
+            let export = PlannedExport {
+                loop_start_bar: bar,
+                loop_start_frame: frame,
+                tail_frames: 0,
+                repeat: None,
+            };
+            let plan = planned(
+                (0, 2),
+                2000,
+                vec![
+                    chunk(0, 1, 0, 1000, 0, 1, &[]),
+                    chunk(1, 2, 0, 1000, 0, 2, &[]),
+                ],
+                Some(export),
+            );
+            let ramp_renderer = Ramp::default();
+            let (result, _) = run(plan, 1, AudioMode::Standard, &ramp_renderer);
+            assert_eq!(render_err(result), text);
+            assert_eq!(
+                ramp_renderer.calls(),
+                0,
+                "{text}: refused before any render"
+            );
+        }
     }
 
     fn isolated_export(
         loop_start_bar: Option<u32>,
         loop_start_frame: Option<u64>,
-        repeat_music: Option<u64>,
+        repeat_music: u64,
     ) -> PlannedExport {
         PlannedExport {
             loop_start_bar,
@@ -524,7 +530,7 @@ mod tests {
     fn opening(export: PlannedExport) -> PlannedRender {
         planned(
             (0, 2),
-            Some(2000),
+            2000,
             vec![
                 chunk(0, 1, 0, 1000, 0, 1, &[]),
                 chunk(1, 2, 0, 1000, 0, 2, &[]),
@@ -535,7 +541,7 @@ mod tests {
 
     #[test]
     fn the_isolated_body_renders_after_the_opening() {
-        let plan = opening(isolated_export(Some(1), Some(1000), Some(1000)));
+        let plan = opening(isolated_export(Some(1), Some(1000), 1000));
         let ramp_renderer = Ramp::default();
         let (result, mut events) = run(plan, 4, AudioMode::Standard, &ramp_renderer);
         let out = result.unwrap();
@@ -580,15 +586,15 @@ mod tests {
     fn isolated_body_errors() {
         let cases = [
             (
-                isolated_export(None, None, Some(1000)),
+                isolated_export(None, None, 1000),
                 "render failed: the isolated body has no loop start",
             ),
             (
-                isolated_export(Some(1), Some(3000), None),
+                isolated_export(Some(1), Some(3000), 1000),
                 "render failed: loop begins past the opening",
             ),
             (
-                isolated_export(Some(1), Some(1000), Some(999)),
+                isolated_export(Some(1), Some(1000), 999),
                 "render failed: isolated body length differs from the opening loop",
             ),
         ];
@@ -605,7 +611,7 @@ mod tests {
         let sine = [json!({ "s": "sine" })];
         let plan = planned(
             (0, 2),
-            Some(2000),
+            2000,
             vec![
                 chunk(0, 1, 0, 1000, 0, 1, &sine),
                 chunk(1, 2, 0, 1000, 0, 2, &sine),
@@ -636,7 +642,7 @@ mod tests {
         ] {
             let plan = planned(
                 (0, 1),
-                Some(frames),
+                frames,
                 vec![chunk(0, 1, 0, 1000, 0, 1, &sine)],
                 None,
             );
@@ -650,12 +656,7 @@ mod tests {
 
     #[test]
     fn engine_errors_become_render_warnings() {
-        let mut plan = planned(
-            (0, 1),
-            Some(1000),
-            vec![chunk(0, 1, 0, 1000, 0, 1, &[])],
-            None,
-        );
+        let mut plan = planned((0, 1), 1000, vec![chunk(0, 1, 0, 1000, 0, 1, &[])], None);
         plan.errors = vec![PlanError {
             kind: "eval".into(),
             message: "bad mini".into(),

@@ -4,7 +4,7 @@
  * Chromium and tests alike.
  */
 
-import { windowFrames, type RenderResult } from './contract';
+import type { RenderResult } from './contract';
 import { ampToDb, BANDS, bandEnvelopeDb, mixToMono, onsetEnvelope, peak, round } from './dsp';
 import { integratedLufs } from './loudness';
 
@@ -134,7 +134,7 @@ export function extractFeatures(result: RenderResult): Features {
   if (req.mode !== 'mix') throw new RangeError('features need a mix render');
   if (!result.ok) throw new RangeError('render failed');
   const sr = result.sampleRate;
-  const n = result.contentFrames ?? windowFrames(req.fromBar, req.toBar, result.cps, sr);
+  const n = result.contentFrames;
   const start = result.windowStartFrame;
   if (result.channels.length !== 2 || start < 0 || start + n > result.frames) {
     throw new RangeError('window outside the rendered buffer');

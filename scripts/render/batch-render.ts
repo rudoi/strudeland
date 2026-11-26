@@ -7,6 +7,11 @@
  * injectable `EngineProcessRunner`, so `bun test` covers this file without cargo or a binary.
  * No Playwright import.
  *
+ * `PipelineRenderer` is how `render:check --planner batch` uses `BatchRenderer`: it is the
+ * host-planned `RustRenderer` for every request, plus a `renderWindow` that renders the
+ * fixture's main window through `BatchRenderer` (the song written to
+ * `<outDir>/batch/<sha256>.js`, the outputs named `<sha8>-<from>-<to>-<layout>`).
+ *
  * Outcomes: a binary that cannot be spawned is `HarnessError('build-missing')` (the run stops);
  * a non-zero exit (stderr's first 2000 characters), an unreadable info file or WAV, a failed
  * cross-check or a WAV of the wrong shape is a `RenderFailedError` (the fixture's error).
@@ -21,7 +26,12 @@ import {
   type BatchInfo,
 } from '../../src/lib/render/batch-window';
 import type { AssembledWindow } from '../../src/lib/render/chunks';
-import type { RenderRequest } from '../../src/lib/render/contract';
+import type {
+  RenderRequest,
+  RenderResult,
+  Renderer,
+  ScheduleResult,
+} from '../../src/lib/render/contract';
 import type { RenderEvent } from '../../src/lib/render/schedule';
 import type { RenderTiming } from '../../src/lib/render/timing';
 import { decodeWav, type DecodedWav } from '../../src/lib/render/wav';
@@ -34,6 +44,8 @@ import {
   spawnOrMissing,
   type EngineProcessRunner,
 } from './rust-engine';
+import { SongFiles } from './host-planner';
+import type { RustRenderer } from './rust-renderer';
 import { RenderFailedError } from './transfer';
 
 const RENDER_PACKAGE = 'strudeland-render';
@@ -86,7 +98,7 @@ export function batchRenderArgs(
 
 /** What a batch render needs to know about the fixture. */
 export interface BatchTarget {
-  /** The fixture's name (the output file names). */
+  /** The stem of the output file names. */
   name: string;
   /** The song file, absolute. */
   songPath: string;
@@ -98,7 +110,7 @@ export interface BatchTarget {
 
 export interface BatchRendererOptions {
   bin: string;
-  /** The run's `--out` folder; files go to `<outDir>/batch/<fixture>.wav` and `.info.json`. */
+  /** The run's `--out` folder; files go to `<outDir>/batch/<name>.wav` and `.info.json`. */
   outDir: string;
   runner?: EngineProcessRunner;
   readFile?: (path: string) => Uint8Array;
@@ -150,9 +162,76 @@ export class BatchRenderer {
     const reasons = batchCrossChecks(info, t);
     if (reasons.length > 0) throw new RenderFailedError(reasons);
     try {
-      return batchAssembled(wav, info, t.base, t.events, ms, t.timing);
+      return batchAssembled(wav, info, t.base, t.events, ms);
     } catch (e) {
       throw new RenderFailedError([errorMessage(e)]);
     }
+  }
+}
+
+/** What `PipelineRenderer` takes from the host-planned `RustRenderer`. */
+export type PipelineInner = Pick<
+  RustRenderer,
+  'schedule' | 'render' | 'version' | 'dispose' | 'rustVersion'
+>;
+
+export interface PipelineRendererOptions {
+  inner: PipelineInner;
+  batch: BatchRenderer;
+  /** The run's `--out` folder; song files go to `<outDir>/batch/<sha256(code)>.js`, each
+   *  written once per renderer. */
+  outDir: string;
+  /** The `strudeland-render` build, for the run header. */
+  renderVersion: string;
+}
+
+/** `--planner batch`'s renderer: the host-planned `RustRenderer` for every request, and the whole
+ *  Rust pipeline (`strudeland-render render`) for a fixture's main window (`renderWindow`). */
+export class PipelineRenderer implements Renderer {
+  readonly engine = 'rust' as const;
+  readonly renderVersion: string;
+  private readonly songs: SongFiles;
+
+  constructor(private readonly o: PipelineRendererOptions) {
+    this.renderVersion = o.renderVersion;
+    this.songs = new SongFiles(join(o.outDir, 'batch'));
+  }
+
+  schedule(req: RenderRequest): Promise<ScheduleResult> {
+    return this.o.inner.schedule(req);
+  }
+
+  render(req: RenderRequest): Promise<RenderResult> {
+    return this.o.inner.render(req);
+  }
+
+  version(): Promise<string> {
+    return this.o.inner.version();
+  }
+
+  get rustVersion(): string {
+    return this.o.inner.rustVersion;
+  }
+
+  /** The window from `BatchRenderer`, cross-checked against the harness's schedule and the cps
+   *  and timing `render:check` derives from it (no second schedule request). */
+  renderWindow(
+    base: RenderRequest,
+    events: RenderEvent[],
+    song: { cps: number; timing?: RenderTiming },
+  ): Promise<AssembledWindow> {
+    const { path: songPath, hash } = this.songs.file(base.code);
+    return this.o.batch.window({
+      name: `${hash.slice(0, 8)}-${base.fromBar}-${base.toBar}-${base.layout}`,
+      songPath,
+      base,
+      cps: song.cps,
+      events,
+      ...(song.timing ? { timing: song.timing } : {}),
+    });
+  }
+
+  dispose(): Promise<void> {
+    return this.o.inner.dispose();
   }
 }

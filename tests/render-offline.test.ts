@@ -29,7 +29,12 @@ import {
   selectHaps,
   windowPlan,
 } from '../src/lib/render/plan';
-import { expectedFrames, type HapMutation, type RenderRequest } from '../src/lib/render/contract';
+import {
+  expectedFrames,
+  windowFrames,
+  type HapMutation,
+  type RenderRequest,
+} from '../src/lib/render/contract';
 import { orbitPair } from '../src/lib/render/gates/stems';
 import { eventsFromValues } from '../src/lib/render/schedule';
 import { renderTiming } from '../src/lib/render/timing';
@@ -259,6 +264,18 @@ describe('windowPlan', () => {
     expect(p.windowStartFrame).toBe(Math.round(p.lookbackSecUsed * 44100));
     expect(p.bufferStartSec).toBe(4 / c);
   });
+  test('constant meter: contentFrames and overlapFrames are windowFrames of the same edges', () => {
+    // 97 bpm 4/4: a bar is 109113.40... frames, so every bar edge after 0 rounds.
+    const c = 97 / 240;
+    const p = windowPlan(req({ fromBar: 3, toBar: 7, overlapBars: 2 }), c, 1);
+    expect(p.contentFrames).toBe(windowFrames(3, 7, c, 44100));
+    expect(p.overlapFrames).toBe(windowFrames(7, 9, c, 44100));
+    // The legacy arithmetic is untouched: the buffer is the lookback plus both measures.
+    expect(p.frames).toBe(p.windowStartFrame + p.contentFrames + p.overlapFrames!);
+    const q = windowPlan(req({ fromBar: 3, toBar: 7 }), c, 0);
+    expect(q.contentFrames).toBe(windowFrames(3, 7, c, 44100));
+    expect('overlapFrames' in q).toBe(false);
+  });
   test('overlap extends frames and c1', () => {
     const a = windowPlan(req({ fromBar: 2, toBar: 4 }), cps, 0);
     const b = windowPlan(req({ fromBar: 2, toBar: 4, overlapBars: 2 }), cps, 0);
@@ -279,7 +296,9 @@ describe('windowPlan', () => {
     expect(windowPlan(req({ mode: 'mix', toBar: 100 }), cps, 0).frames * 2 * 4).toBeLessThan(
       MAX_BUFFER_BYTES,
     );
-    expect(() => windowPlan(req(), 0, 0)).toThrow('invalid cps');
+    for (const bad of [NaN, 0, -1]) {
+      expect(() => windowPlan(req(), bad, 0)).toThrow(new RangeError(`invalid cps ${bad}`));
+    }
     expect(() => windowPlan(req(), cps, -1)).toThrow('invalid lookback');
   });
 });

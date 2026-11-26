@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  batchRequestJson,
+  asJson,
+  batchRequest,
+  comparableWithoutErrors,
   compareBatch,
   failureText,
   firstDifference,
@@ -10,7 +12,11 @@ import {
   PARITY_USAGE,
   scheduleFailed,
   textDifference,
+  withoutErrors,
+  worseStatus,
 } from '../src/lib/render/host-parity-lib';
+import type { PlannedRender } from '../src/lib/render/job-plan';
+import type { PageJobInfo } from '../src/lib/render/page-job';
 
 describe('jsonPath', () => {
   test('the a.b[2].c format', () => {
@@ -154,10 +160,10 @@ describe('--batch', () => {
   });
 
   test('the request is the window kind, in the host spelling', () => {
-    expect(batchRequestJson({ fromBar: 40, toBar: 60, layout: 'linear' })).toBe(
+    expect(JSON.stringify(batchRequest({ fromBar: 40, toBar: 60, layout: 'linear' }))).toBe(
       '{"length":{"kind":"window","fromBar":40,"toBar":60,"layout":"linear"}}',
     );
-    expect(JSON.parse(batchRequestJson({ fromBar: 0, toBar: 12, layout: 'clip' }))).toEqual({
+    expect(batchRequest({ fromBar: 0, toBar: 12, layout: 'clip' })).toEqual({
       length: { kind: 'window', fromBar: 0, toBar: 12, layout: 'clip' },
     });
   });
@@ -250,5 +256,86 @@ describe('scheduleFailed', () => {
   test('failureText: the message or the errors', () => {
     expect(failureText({ ok: false, message: 'm' })).toBe('m');
     expect(failureText({ ok: true, errors: ['a', 'b'] })).toBe('a; b');
+  });
+});
+
+describe('withoutErrors', () => {
+  const errors = [{ kind: 'other' as const, message: 'page only' }];
+
+  test('a plan without its errors keeps every other key, and the input is unchanged', () => {
+    const plan = {
+      window: { fromBar: 0, toBar: 4, layout: 'linear' },
+      musicFrames: 10,
+      cps: 0.5,
+      structure: {},
+      lookbackSec: 0,
+      errors,
+      chunks: [],
+    } as unknown as PlannedRender;
+    const out = withoutErrors(plan);
+    expect('errors' in out).toBe(false);
+    expect(out as object).toEqual({
+      window: plan.window,
+      musicFrames: 10,
+      cps: 0.5,
+      structure: {},
+      lookbackSec: 0,
+      chunks: [],
+    });
+    expect(plan.errors).toBe(errors);
+    // Plans that differ only in their errors compare equal.
+    expect(firstDifference(withoutErrors(plan), withoutErrors({ ...plan, errors: [] }))).toBeNull();
+    expect(firstDifference(withoutErrors(plan), withoutErrors({ ...plan, cps: 1 }))).toBe('cps');
+  });
+
+  test('an info without its errors keeps every other key', () => {
+    const info = {
+      jsonLength: 3,
+      events: [],
+      errors,
+      plan: {},
+      cps: 0.5,
+      structure: {},
+      stemPairs: 1,
+    } as unknown as PageJobInfo;
+    const out = withoutErrors(info);
+    expect('errors' in out).toBe(false);
+    expect(out as object).toEqual({
+      jsonLength: 3,
+      events: [],
+      plan: {},
+      cps: 0.5,
+      structure: {},
+      stemPairs: 1,
+    });
+    expect(firstDifference(out, withoutErrors({ ...info, errors: [] }))).toBeNull();
+    expect(firstDifference(out, withoutErrors({ ...info, stemPairs: 2 }))).toBe('stemPairs');
+  });
+});
+
+describe('comparableWithoutErrors', () => {
+  test('an undefined property is an absent one and -0 is 0, as the host sends them', () => {
+    // The page's object keeps an undefined key and a -0; the host's has been through serde.
+    const page = { cps: 0.5, lookbackSec: -0, export: undefined, errors: ['page only'] };
+    const host = { lookbackSec: 0, cps: 0.5, errors: [] };
+    expect(firstDifference(withoutErrors(page), withoutErrors(host))).not.toBeNull();
+    expect(
+      firstDifference(comparableWithoutErrors(page), comparableWithoutErrors(host)),
+    ).toBeNull();
+    expect(firstDifference(asJson({ a: undefined, b: [-0] }), asJson({ b: [0] }))).toBeNull();
+    // A real difference still shows.
+    expect(
+      firstDifference(comparableWithoutErrors(page), comparableWithoutErrors({ ...host, cps: 1 })),
+    ).toBe('cps');
+  });
+});
+
+describe('worseStatus', () => {
+  test('a difference never hides a failure', () => {
+    expect(worseStatus('ok', 'DIFF')).toBe('DIFF');
+    expect(worseStatus('DIFF', 'DIFF')).toBe('DIFF');
+    expect(worseStatus('FAIL', 'DIFF')).toBe('FAIL');
+    expect(worseStatus('DIFF', 'FAIL')).toBe('FAIL');
+    expect(worseStatus('ok', 'ok')).toBe('ok');
   });
 });

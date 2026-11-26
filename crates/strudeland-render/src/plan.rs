@@ -24,6 +24,7 @@ pub(crate) fn plan(
         length: opts.length.clone(),
         preset,
         include_events: opts.include_events.then_some(true),
+        chunk: None,
         timeout_sec: opts.plan_timeout.map(|d| d.as_secs_f64()),
     };
     let planned = {

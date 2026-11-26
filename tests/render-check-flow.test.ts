@@ -22,6 +22,7 @@ import type { Corpus, FixtureEntry } from '../src/lib/render/corpus';
 import type { UnsupportedSignature } from '../src/lib/render/engine-job';
 import { lookbackBars, lookbackSeconds, scaleChunkBars } from '../src/lib/render/lookback';
 import type { RenderEvent } from '../src/lib/render/schedule';
+import type { RenderTiming } from '../src/lib/render/timing';
 import { buildStructure } from '../src/lib/strudel/structure';
 import {
   CHUNK_MIN_BARS,
@@ -171,6 +172,10 @@ class FakeRenderer implements Renderer {
       sampleRate: SR,
       frames,
       windowStartFrame: head,
+      contentFrames: windowFrames(req.fromBar, req.toBar, CPS, SR),
+      ...(req.overlapBars > 0
+        ? { overlapFrames: windowFrames(req.toBar, req.toBar + req.overlapBars, CPS, SR) }
+        : {}),
       lookbackSecUsed: lb,
       bufferStartSec: req.fromBar / CPS - lb,
       cps: CPS,
@@ -1057,76 +1062,106 @@ describe('manifestDisagreement', () => {
 });
 
 describe('runCheck --planner batch', () => {
-  /** The batch window: the whole window rendered at once by a fake at `gain`. */
-  const batchOf = async (gain: number, calls: FixtureContext[]) => {
-    const whole = new FakeRenderer({ gain, engine: 'rust' });
-    return async (fx: FixtureContext): Promise<AssembledWindow> => {
-      calls.push(fx);
-      const r = await whole.render(fx.base);
-      return { ...r, events: fx.sched.events, seamSecs: [] };
-    };
-  };
+  type WindowSong = { cps: number; timing?: RenderTiming };
+  type WindowCall = [RenderRequest, RenderEvent[], WindowSong];
 
-  test('mix, bass and parity take the batch window; twin and seam still render chunks', async () => {
-    const corpus = corpusOf(fixture());
-    const plain = await rustRun(rustFake(), corpus, { planner: 'host' });
-    const calls: FixtureContext[] = [];
-    const r = rustFake();
-    const d = await withGoldens(new FakeRenderer(), corpus);
-    const run = await runCheck(opts({ engine: 'rust', planner: 'batch', keepWav: true }), {
+  /** A rust fake whose `renderWindow` renders the whole window at once at `gain` (or runs
+   *  `window`), recording each call; its chunk renders are the plain fake's. */
+  class WindowFake extends FakeRenderer {
+    windowCalls: WindowCall[] = [];
+    constructor(
+      private readonly w: {
+        gain?: number;
+        window?: (base: RenderRequest, events: RenderEvent[]) => Promise<AssembledWindow>;
+      } & FakeOptions = {},
+    ) {
+      super({ ...w, engine: 'rust' });
+    }
+
+    async renderWindow(
+      base: RenderRequest,
+      events: RenderEvent[],
+      song: WindowSong,
+    ): Promise<AssembledWindow> {
+      this.windowCalls.push([base, events, song]);
+      if (this.w.window) return this.w.window(base, events);
+      const r = await new FakeRenderer({ gain: this.w.gain ?? 1, engine: 'rust' }).render(base);
+      return { ...r, events, seamSecs: [] };
+    }
+  }
+
+  const batchRun = (r: FakeRenderer, d: Awaited<ReturnType<typeof withGoldens>>, o = {}) =>
+    runCheck(opts({ engine: 'rust', planner: 'batch', ...o }), {
       ...d,
       renderer: r,
       rustVersion: RUST_VERSION,
-      batchWindow: await batchOf(0.5, calls),
     });
-    expect(calls.map((fx) => [fx.fixture.name, fx.base])).toEqual([['a', BASE]]);
-    // The batch audio is half the chunks' level: the mix gate measured it.
+
+  test('mix, bass and parity take the renderWindow window; twin and seam still render chunks', async () => {
+    const corpus = corpusOf(fixture());
+    const plain = await rustRun(rustFake(), corpus, { planner: 'host' });
+    const r = new WindowFake({ gain: 0.5 });
+    const d = await withGoldens(new FakeRenderer(), corpus);
+    const run = await batchRun(r, d, { keepWav: true });
+    // Called once with the fixture's base request, its schedule's events and the cps the
+    // harness derived (a constant-meter song: no timing).
+    expect(r.windowCalls).toEqual([[BASE, bassEvents(14), { cps: CPS, timing: undefined }]]);
+    // The window audio is half the chunks' level: the mix gate measured it.
     const peak = (x: typeof run) => gateOf(x, 'a', 'mix')!.measurements.peak as number;
     expect(peak(run)).toBeCloseTo(peak(plain) / 2, 3);
     expect(gateOf(run, 'a', 'bass')!.verdict).toBe('pass');
-    // Chunk renders (seam, twin) still go through the renderer, the twin twice.
+    // Chunk renders (seam, twin) still go through render, the twin twice.
     expect(r.renders.length).toBe(3);
     expect(r.renders.filter((q) => q.fromBar === 0).length).toBe(2);
-    // --keep-wav writes the batch audio.
+    // --keep-wav writes the renderWindow audio.
     const kept = d.fs.files.get(join('/out', 'wav', 'a.wav')) as Uint8Array;
     expect(decodeWav(kept).channels[0]!.length).toBe(windowFrames(0, 12, CPS, SR));
     expect(Math.max(...decodeWav(kept).channels[0]!)).toBeCloseTo(peak(plain) / 2, 3);
   });
 
-  test('a mix-only fixture renders nothing through the renderer', async () => {
+  test('a mix-only fixture renders nothing through render', async () => {
     const corpus = corpusOf(fixture({ gates: ['mix', 'bass'], expectChunks: undefined }));
-    const r = rustFake();
-    const d = await withGoldens(new FakeRenderer(), corpus);
-    const calls: FixtureContext[] = [];
-    const run = await runCheck(opts({ engine: 'rust', planner: 'batch' }), {
-      ...d,
-      renderer: r,
-      rustVersion: RUST_VERSION,
-      batchWindow: await batchOf(1, calls),
-    });
-    expect(calls.length).toBe(1);
+    const r = new WindowFake();
+    const run = await batchRun(r, await withGoldens(new FakeRenderer(), corpus));
+    expect(r.windowCalls.length).toBe(1);
     expect(r.renders).toEqual([]);
     expect(run.report.fixtures[0]!.gates.map((g) => g.verdict)).toEqual(['pass', 'pass']);
   });
 
-  test('a failed batch render is the fixture error; the run goes on', async () => {
+  test('a renderer without renderWindow joins the chunk renders', async () => {
+    const corpus = corpusOf(fixture({ gates: ['mix', 'bass'], expectChunks: undefined }));
+    for (const [engine, planner] of [
+      ['superdough', 'page'],
+      ['rust', 'host'],
+    ] as const) {
+      const r = new FakeRenderer({ engine });
+      const d = await withGoldens(new FakeRenderer(), corpus);
+      const run = await runCheck(opts({ engine, planner }), {
+        ...d,
+        renderer: r,
+        rustVersion: engine === 'rust' ? RUST_VERSION : null,
+      });
+      expect(r.renders.length).toBeGreaterThan(0);
+      expect(r.renders.every((q) => q.mode === 'mix' && q.mutation === undefined)).toBe(true);
+      expect(run.report.fixtures[0]!.gates.map((g) => g.verdict)).toEqual(['pass', 'pass']);
+    }
+  });
+
+  test('a failed renderWindow is the fixture error; the run goes on', async () => {
     const corpus = corpusOf(fixture({ gates: ['mix'], expectChunks: undefined }), {
       ...fixture({ gates: ['mix'], expectChunks: undefined }),
       name: 'b',
       file: 'b.js',
     });
-    const d = await withGoldens(new FakeRenderer(), corpus);
-    const run = await runCheck(opts({ engine: 'rust', planner: 'batch' }), {
-      ...d,
-      renderer: rustFake(),
-      rustVersion: RUST_VERSION,
-      batchWindow: async (fx) => {
-        if (fx.fixture.name === 'a') {
+    const r = new WindowFake({
+      window: async (base, events) => {
+        if (base.code === '// a.js') {
           throw new RenderFailedError(["batch: the batch schedule differs from the planner's"]);
         }
-        return { ...(await new FakeRenderer().render(fx.base)), seamSecs: [] };
+        return { ...(await new FakeRenderer().render(base)), events, seamSecs: [] };
       },
     });
+    const run = await batchRun(r, await withGoldens(new FakeRenderer(), corpus));
     expect(run.exitCode).toBe(1);
     expect(run.report.fixtures.map((f) => [f.name, f.status, f.errors])).toEqual([
       ['a', 'error', ["batch: the batch schedule differs from the planner's"]],
@@ -1134,39 +1169,32 @@ describe('runCheck --planner batch', () => {
     ]);
   });
 
-  test('an unsupported fixture never reaches the batch', async () => {
-    const calls: FixtureContext[] = [];
+  test('an unsupported fixture never reaches renderWindow', async () => {
     const corpus = corpusOf(fixture({ rust: 'unsupported' }));
-    const d = await withGoldens(new FakeRenderer(), corpus);
-    const run = await runCheck(opts({ engine: 'rust', planner: 'batch' }), {
-      ...d,
-      renderer: rustFake({ unsupported: [SIG] }),
-      rustVersion: RUST_VERSION,
-      batchWindow: await batchOf(1, calls),
-    });
+    const r = new WindowFake({ unsupported: [SIG] });
+    const run = await batchRun(r, await withGoldens(new FakeRenderer(), corpus));
     expect(run.exitCode).toBe(0);
-    expect(calls).toEqual([]);
+    expect(r.windowCalls).toEqual([]);
     expect(run.report.fixtures[0]!.status).toBe('unsupported');
   });
 
-  test('mutations re-render the chunks; the batch window is not mutated', async () => {
+  test('mutations re-render the chunks; the renderWindow window is not mutated', async () => {
     const spec: MutationSpec = {
       name: 'bass-gone',
       fixture: 'a',
       gate: 'bass',
       apply: (q) => ({ ...q, mutation: { kind: 'dropNotesBelowHz', hz: 130, bars: [3, 4, 5, 6] } }),
     };
-    const calls: FixtureContext[] = [];
-    const r = rustFake();
+    const r = new WindowFake();
     const d = await withGoldens(new FakeRenderer(), corpusOf(fixture()));
     const run = await runCheck(opts({ engine: 'rust', planner: 'batch', mutations: true }), {
       ...d,
       renderer: r,
       rustVersion: RUST_VERSION,
-      batchWindow: await batchOf(1, calls),
       mutations: [spec],
     });
-    expect(calls.length).toBe(1);
+    expect(r.windowCalls.length).toBe(1);
+    expect(r.windowCalls[0]![0].mutation).toBeUndefined();
     expect(r.renders.some((q) => q.mutation?.kind === 'dropNotesBelowHz')).toBe(true);
     expect(run.report.mutations).toEqual([
       expect.objectContaining({ name: 'bass-gone', status: 'caught' }),

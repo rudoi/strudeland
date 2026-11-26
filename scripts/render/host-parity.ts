@@ -1,21 +1,28 @@
 /**
  * `bun run host:parity [fixture|glob|tag:<tag>]… [--batch] [--out DIR]`: plans every engine job
- * `render:check --engine rust` asks for, on the render page in Chromium and with the headless
- * host (`strudeland-host`), and compares the job text byte for byte. It renders nothing, so it
- * does not depend on the engine. Imports Playwright (through `superdough-renderer.ts`) and runs
- * cargo: never import this from a test.
+ * `render:check --engine rust` asks for, as a single-chunk `planRender` on the render page in
+ * Chromium and with the headless host (`strudeland-host plan-render`), and compares the job text
+ * byte for byte and the job info deep-equal without its `errors` (the host's info has been
+ * through the Rust mirror of the plan, so this is also the check that the mirror loses nothing).
+ * It renders nothing, so it does not depend on the engine. Imports Playwright (through
+ * `superdough-renderer.ts`) and runs cargo: never import this from a test.
  *
- * `--batch` compares the batch planner instead: per fixture, the window's chunk plans with no seam
- * overlap (`renderChunkPlans`, overlap 0), each chunk's job planned on the page, against one
- * `strudeland-host plan-render` call over the same window (chunk count, windows, job text byte
- * for byte). A song the page cannot schedule must make `plan-render` fail too.
+ * `--batch` compares the batch planner instead, per fixture: the page's whole `planRender` plan
+ * of the window against the host's `plan-render` plan (`firstDifference`, both without `errors`:
+ * the page and the host capture errors differently), and each host chunk's job against the
+ * page's single-chunk job at that chunk's bars and lookback with overlap 0 (`renderChunkPlans`,
+ * overlap 0; chunk count, windows, job text byte for byte), the evidence that each chunk's cut of
+ * the schedule equals its own query. A song the page cannot schedule must make `plan-render` fail
+ * too.
  *
  * Per fixture, the request set is the full window (what `RustRenderer.schedule` plans), every
  * chunk (`chunkRequest`) and, when the fixture has the stems gate, every stems chunk
  * (`stemsRequest`). Mutations are applied after planning, so they are not part of it. A song the
  * page cannot schedule is planned on the host only, which must fail too (a failed plan or errors
- * in its info, the rule the page side gets from `prepareFixture`). Exit 0 every request equal, 1 a
- * difference or a failure on one side only, 2 harness error.
+ * in its info, the rule the page side gets from `prepareFixture`). `--mixed-meter` compares the
+ * mixed-meter song's clip and loop-preset plans whole, and two single-chunk jobs over it (one with
+ * overlap across the 3/8 bar) by text and info. Exit 0 every request equal, 1 a difference or a
+ * failure on one side only, 2 harness error.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -25,7 +32,7 @@ import { chunkRequest, renderChunkPlans } from '../../src/lib/render/chunks';
 import { SAMPLE_RATE, type RenderRequest } from '../../src/lib/render/contract';
 import type { FixtureEntry } from '../../src/lib/render/corpus';
 import {
-  batchRequestJson,
+  batchRequest,
   compareBatch,
   failureText,
   firstDifference,
@@ -33,8 +40,13 @@ import {
   parseParityArgs,
   PARITY_USAGE,
   scheduleFailed,
+  asJson,
+  comparableWithoutErrors,
+  worseStatus,
+  type ParityStatus,
   type PlanOutcome,
 } from '../../src/lib/render/host-parity-lib';
+import type { PageJobInfo } from '../../src/lib/render/page-job';
 import type { ExportPreset, PlannedRender, RenderPlanRequest } from '../../src/lib/render/job-plan';
 import { errorMessage } from '../../src/lib/errors';
 import { ensureBuilt, Limiter, loadCorpus, prepareFixture, stemsRequest } from './check';
@@ -50,10 +62,11 @@ const PAGE_CONCURRENCY = 2;
 /** Host processes at once. */
 const HOST_CONCURRENCY = 4;
 
-type Planned = { ok: true; text: string; errors: string[] } | { ok: false; message: string };
+type Planned =
+  { ok: true; text: string; info: PageJobInfo; errors: string[] } | { ok: false; message: string };
 
 interface FixtureParity {
-  status: 'ok' | 'DIFF' | 'FAIL';
+  status: ParityStatus;
   /** Requests compared. */
   requests: number;
   /** Detail lines (differences, one-sided failures). */
@@ -64,7 +77,7 @@ interface FixtureParity {
 async function plan(source: JobSource, limit: Limiter, req: RenderRequest): Promise<Planned> {
   try {
     const { text, info } = await limit.run(() => source.job(req));
-    return { ok: true, text, errors: info.errors.map(formatRenderError) };
+    return { ok: true, text, info, errors: info.errors.map(formatRenderError) };
   } catch (e) {
     if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
     return { ok: false, message: errorMessage(e) };
@@ -80,7 +93,9 @@ async function planBatch(
 ): Promise<{ ok: true; planned: PlannedRender } | { ok: false; message: string }> {
   try {
     const song = host.songFile(code);
-    const planned = await limit.run(() => host.planRender(song, batchRequestJson(window)));
+    const planned = await limit.run(() =>
+      host.planRender(song, JSON.stringify(batchRequest(window))),
+    );
     return { ok: true, planned };
   } catch (e) {
     if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
@@ -88,8 +103,40 @@ async function planBatch(
   }
 }
 
+/** Where two planned jobs differ: the text byte for byte (written as `<name>.page.json` and
+ *  `<name>.host.json` in `dir`), else the info without `errors` (`<name>.info.*.json`). Null
+ *  when both are equal. */
+function jobDifference(
+  p: { text: string; info: PageJobInfo },
+  h: { text: string; info: PageJobInfo },
+  dir: string,
+  name: string,
+): string | null {
+  if (p.text !== h.text) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${name}.page.json`), p.text);
+    writeFileSync(join(dir, `${name}.host.json`), h.text);
+    let where: string;
+    try {
+      where = firstDifference(JSON.parse(p.text), JSON.parse(h.text)) ?? 'key order or spacing';
+    } catch (e) {
+      where = `unparseable JSON (${errorMessage(e)})`;
+    }
+    return `first difference at ${where}`;
+  }
+  const pi = comparableWithoutErrors(p.info);
+  const hi = comparableWithoutErrors(h.info);
+  const where = firstDifference(pi, hi);
+  if (where === null) return null;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${name}.info.page.json`), JSON.stringify(pi, null, 2));
+  writeFileSync(join(dir, `${name}.info.host.json`), JSON.stringify(hi, null, 2));
+  return `info: first difference at ${where}`;
+}
+
 /** Mixed-meter exports have two passes and no equivalent single-window page request. Compare
- * the entire plans, including their frame counts, schedules, and exact engine-job text. */
+ * the entire plans, including their frame counts, schedules, and exact engine-job text; then two
+ * single-chunk jobs (no corpus fixture has `meterChanges`). */
 async function compareMixedMeter(
   host: HostPlanner,
   page: SuperdoughRenderer,
@@ -118,7 +165,7 @@ async function compareMixedMeter(
         page.planRender(code, request),
         host.planRender(song, JSON.stringify(request)),
       ]);
-      const difference = firstDifference(p, h);
+      const difference = firstDifference(asJson(p), asJson(h));
       if (difference !== null) {
         failed = true;
         mkdirSync(dir, { recursive: true });
@@ -145,7 +192,46 @@ async function compareMixedMeter(
       failed = true;
     }
   }
+  const chunks: [string, RenderRequest][] = [
+    ['chunk 2-6 overlap 1', mixedMeterChunk(code, 2, 6, 1)],
+    ['chunk 0-12', mixedMeterChunk(code, 0, 12, 0)],
+  ];
+  for (const [i, [name, req]] of chunks.entries()) {
+    try {
+      const [p, h] = await Promise.all([page.job(req), host.job(req)]);
+      const difference = jobDifference(p, h, dir, `chunk-${i}`);
+      if (difference !== null) {
+        failed = true;
+        console.log(`DIFF mixed-meter ${name}: ${difference}`);
+      } else {
+        console.log(`ok   mixed-meter ${name}`);
+      }
+    } catch (e) {
+      if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
+      console.log(`FAIL mixed-meter ${name}: ${errorMessage(e)}`);
+      failed = true;
+    }
+  }
   return failed ? 1 : 0;
+}
+
+/** A linear single-chunk request over the mixed-meter song, lookback 'auto', mix. */
+function mixedMeterChunk(
+  code: string,
+  fromBar: number,
+  toBar: number,
+  overlapBars: number,
+): RenderRequest {
+  return {
+    code,
+    layout: 'linear',
+    fromBar,
+    toBar,
+    overlapBars,
+    lookbackSec: 'auto',
+    mode: 'mix',
+    sampleRate: SAMPLE_RATE,
+  };
 }
 
 /** The request set of a scheduled fixture (module doc). */
@@ -210,6 +296,22 @@ async function main(argv: string[]): Promise<number> {
   const hostLimit = new Limiter(HOST_CONCURRENCY);
   const readSong = (f: string) => io.readSong(f) ?? '';
 
+  /** The page's whole plan of a window, or its failure; a fatal harness error is rethrown. */
+  const pagePlanRender = async (
+    code: string,
+    window: { fromBar: number; toBar: number; layout: RenderRequest['layout'] },
+  ): Promise<{ ok: true; planned: PlannedRender } | { ok: false; message: string }> => {
+    try {
+      return {
+        ok: true,
+        planned: await pageLimit.run(() => page.planRender(code, batchRequest(window))),
+      };
+    } catch (e) {
+      if (e instanceof HarnessError && isFatalHarnessError(e)) throw e;
+      return { ok: false, message: errorMessage(e) };
+    }
+  };
+
   const compareBatchFixture = async (fixture: FixtureEntry): Promise<FixtureParity> => {
     const dir = join(outDir, 'host-parity', fixture.name);
     rmSync(dir, { recursive: true, force: true });
@@ -252,9 +354,10 @@ async function main(argv: string[]): Promise<number> {
       timing: fx.timing,
       overlapBars: 0,
     });
-    const [pages, h] = await Promise.all([
+    const [pages, h, pagePlan] = await Promise.all([
       Promise.all(plans.map((p) => plan(page, pageLimit, chunkRequest(fx.base, p)))),
       planBatch(host, hostLimit, code, window),
+      pagePlanRender(code, window),
     ]);
     const out: FixtureParity = { status: 'ok', requests: plans.length, lines: [] };
     const at = `${fixture.name} batch`;
@@ -272,10 +375,25 @@ async function main(argv: string[]): Promise<number> {
       out.status = 'FAIL';
       for (const f of pageFailures) out.lines.push(`${at}: the page failed: ${f}`);
     }
+    if (!pagePlan.ok) {
+      out.status = 'FAIL';
+      out.lines.push(`${at}: the page's plan failed: ${pagePlan.message}`);
+    } else {
+      const pw = comparableWithoutErrors(pagePlan.planned);
+      const hw = comparableWithoutErrors(h.planned);
+      const where = firstDifference(pw, hw);
+      if (where !== null) {
+        out.status = worseStatus(out.status, 'DIFF');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'batch-plan.page.json'), JSON.stringify(pw, null, 2));
+        writeFileSync(join(dir, 'batch-plan.host.json'), JSON.stringify(hw, null, 2));
+        out.lines.push(`${at}: batch plan: first difference at ${where}`);
+      }
+    }
     const texts = pages.map((p) => (p.ok ? p.text : null));
     const differences = compareBatch(plans.map(chunkBars), texts, h.planned.chunks);
     for (const d of differences) {
-      if (out.status === 'ok') out.status = 'DIFF';
+      out.status = worseStatus(out.status, 'DIFF');
       if (d.kind === 'text') {
         mkdirSync(dir, { recursive: true });
         writeFileSync(join(dir, `batch-${d.index}.page.json`), texts[d.index]!);
@@ -347,18 +465,10 @@ async function main(argv: string[]): Promise<number> {
         );
         return;
       }
-      if (p.text === h.text) return;
-      if (out.status === 'ok') out.status = 'DIFF';
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, `${n}.page.json`), p.text);
-      writeFileSync(join(dir, `${n}.host.json`), h.text);
-      let where: string;
-      try {
-        where = firstDifference(JSON.parse(p.text), JSON.parse(h.text)) ?? 'key order or spacing';
-      } catch (e) {
-        where = `unparseable JSON (${errorMessage(e)})`;
-      }
-      out.lines.push(`${at}: first difference at ${where}`);
+      const difference = jobDifference(p, h, dir, String(n));
+      if (difference === null) return;
+      out.status = worseStatus(out.status, 'DIFF');
+      out.lines.push(`${at}${difference.startsWith('info') ? ' ' : ': '}${difference}`);
     });
     return out;
   };

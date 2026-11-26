@@ -3,13 +3,17 @@
  * (`strudeland-render render`, loudness off, a float WAV and an `--info` file) as the
  * `AssembledWindow` the gates and the parity features read. `parseBatchInfo` reads the info file,
  * `batchCrossChecks` compares it with the fixture's own (host-planned) schedule, and
- * `batchAssembled` builds the window. Pure: no fs, Strudel, DOM or Playwright imports.
+ * `batchAssembled` builds the window. The frames, seams and buffer start are the planner's, read
+ * from the info file's chunks (`contentFrames`, the first chunk's `bufferStartSec` and
+ * `lookbackSecUsed`, summed as `assembleWindow` sums them). Only the cross-check computes a frame
+ * count, independently: the window's `renderWindowFrames` (with the fixture's mixed-meter timing),
+ * which the summed `contentFrames` must equal. Pure: no fs, Strudel, DOM or Playwright imports.
  */
 
 import type { AssembledWindow } from './chunks';
 import { SAMPLE_RATE, type RenderError, type RenderRequest, type SegmentLayout } from './contract';
 import { isRecord } from './engine-job';
-import { firstDifference } from './host-parity-lib';
+import { asJson, firstDifference } from './host-parity-lib';
 import type { RenderEvent } from './schedule';
 import { renderWindowFrames, type RenderTiming } from './timing';
 
@@ -22,8 +26,14 @@ export interface BatchInfo {
   errors: RenderError[];
   /** The schedule over `[0, toBar)`. */
   events: RenderEvent[];
-  /** The chunk windows, in order. */
-  chunks: { fromBar: number; toBar: number }[];
+  /** The chunk windows, in order, with the planner's content frames and buffer placement. */
+  chunks: {
+    fromBar: number;
+    toBar: number;
+    contentFrames: number;
+    bufferStartSec: number;
+    lookbackSecUsed: number;
+  }[];
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -64,8 +74,18 @@ export function parseBatchInfo(text: string): BatchInfo {
   });
   if (!Array.isArray(raw.chunks)) return bad('chunks', 'an array');
   raw.chunks.forEach((c: unknown, i: number) => {
-    if (!isRecord(c) || !isBar(c.fromBar) || !isBar(c.toBar)) {
-      bad(`chunks[${i}]`, 'a chunk window with fromBar and toBar');
+    const ok =
+      isRecord(c) &&
+      isBar(c.fromBar) &&
+      isBar(c.toBar) &&
+      isBar(c.contentFrames) &&
+      isNum(c.bufferStartSec) &&
+      isNum(c.lookbackSecUsed);
+    if (!ok) {
+      bad(
+        `chunks[${i}]`,
+        'a chunk window with fromBar, toBar, contentFrames, bufferStartSec and lookbackSecUsed',
+      );
     }
   });
   return {
@@ -74,30 +94,30 @@ export function parseBatchInfo(text: string): BatchInfo {
     lookbackSec: raw.lookbackSec,
     errors: raw.errors as RenderError[],
     events: raw.events as RenderEvent[],
-    chunks: (raw.chunks as { fromBar: number; toBar: number }[]).map((c) => ({
+    chunks: (raw.chunks as BatchInfo['chunks']).map((c) => ({
       fromBar: c.fromBar,
       toBar: c.toBar,
+      contentFrames: c.contentFrames,
+      bufferStartSec: c.bufferStartSec,
+      lookbackSecUsed: c.lookbackSecUsed,
     })),
   };
 }
 
-/** `v` as the info file carries it: through JSON, so an `undefined` property is an absent one and
- *  `-0` is `0` (the info file passes through serde, which also reorders keys; `firstDifference`
- *  ignores key order). */
-const asJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
-
-/** What the fixture planned: its base request, cps and schedule. */
+/** What the fixture planned: its base request, cps, schedule and (mixed meter) timing. */
 export interface BatchFixture {
   base: RenderRequest;
   cps: number;
   events: RenderEvent[];
+  timing?: RenderTiming;
 }
 
 const kindLine = (e: RenderError): string =>
   `${e.kind}: ${e.message}${e.bar === undefined ? '' : ` (bar ${e.bar})`}`;
 
 /** The reasons the batch render does not stand for the fixture (empty: it does): a different
- *  window, cps or schedule, planner errors, or chunks that do not tile the window. */
+ *  window, cps or schedule, planner errors, chunks that do not tile the window, or chunk frames
+ *  that do not add up to the fixture's own `renderWindowFrames` of the window. */
 export function batchCrossChecks(info: BatchInfo, fx: BatchFixture): string[] {
   const out: string[] = [];
   const { fromBar, toBar, layout } = fx.base;
@@ -127,32 +147,44 @@ export function batchCrossChecks(info: BatchInfo, fx: BatchFixture): string[] {
     out.push(
       `batch: the chunks ${list || '(none)'} do not tile the window [${w.fromBar}, ${w.toBar})`,
     );
+  } else {
+    const planned = info.chunks.reduce((n, c) => n + c.contentFrames, 0);
+    const want = renderWindowFrames(fromBar, toBar, fx.cps, SAMPLE_RATE, fx.timing);
+    if (planned !== want) {
+      out.push(
+        `batch: the chunks plan ${planned} content frames, the window [${fromBar}, ${toBar}) has ${want}`,
+      );
+    }
   }
   return out;
 }
 
 /** The seam positions `assembleWindow` would report: the start of every chunk after the first,
- *  in seconds from the window start. */
-export function batchSeamSecs(info: BatchInfo, timing?: RenderTiming): number[] {
-  const from = info.window.fromBar;
-  return info.chunks
-    .slice(1)
-    .map((c) => renderWindowFrames(from, c.fromBar, info.cps, SAMPLE_RATE, timing) / SAMPLE_RATE);
+ *  in seconds from the window start (the running sum of the chunks' `contentFrames`). */
+export function batchSeamSecs(info: BatchInfo): number[] {
+  const seams: number[] = [];
+  let at = 0;
+  for (const [i, c] of info.chunks.entries()) {
+    if (i > 0) seams.push(at / SAMPLE_RATE);
+    at += c.contentFrames;
+  }
+  return seams;
 }
 
-/** The batch render as the fixture's main window. Throws a `RangeError` unless the WAV is 2
- *  channels of `windowFrames(fromBar, toBar)` frames at 44100 Hz. `renderMs` is the dev binary's
- *  process time. */
+/** The batch render as the fixture's main window. Throws a `RangeError` on no chunks, or unless
+ *  the WAV is 2 channels, at 44100 Hz, of the chunks' summed `contentFrames`. `renderMs` is the
+ *  dev binary's process time. `bufferStartSec` is the first chunk's `bufferStartSec +
+ *  lookbackSecUsed`, as `assembleWindow` computes it, so the two windows agree bit for bit. */
 export function batchAssembled(
   wav: { channels: Float32Array[]; sampleRate: number },
   info: BatchInfo,
   base: RenderRequest,
   events: RenderEvent[],
   renderMs: number,
-  timing?: RenderTiming,
 ): AssembledWindow {
-  const { fromBar, toBar } = base;
-  const frames = renderWindowFrames(fromBar, toBar, info.cps, SAMPLE_RATE, timing);
+  const first = info.chunks[0];
+  if (!first) throw new RangeError('batch: the plan has no chunks');
+  const frames = info.chunks.reduce((n, c) => n + c.contentFrames, 0);
   if (wav.sampleRate !== SAMPLE_RATE) {
     throw new RangeError(`batch: the WAV is ${wav.sampleRate} Hz, not ${SAMPLE_RATE}`);
   }
@@ -169,10 +201,8 @@ export function batchAssembled(
     frames,
     windowStartFrame: 0,
     lookbackSecUsed: 0,
-    bufferStartSec: timing
-      ? timing.frameAt(fromBar, SAMPLE_RATE) / SAMPLE_RATE
-      : fromBar / info.cps,
-    ...(timing ? { contentFrames: frames } : {}),
+    bufferStartSec: first.bufferStartSec + first.lookbackSecUsed,
+    contentFrames: frames,
     cps: info.cps,
     events,
     stemPairs: 1,
@@ -180,6 +210,6 @@ export function batchAssembled(
     ok: true,
     timing: { evalMs: 0, renderMs, totalMs: renderMs },
     request: { ...base, overlapBars: 0, lookbackSec: 0 },
-    seamSecs: batchSeamSecs(info, timing),
+    seamSecs: batchSeamSecs(info),
   };
 }

@@ -4,8 +4,21 @@
  * them with `assembleSlices`), and the page's error bookkeeping.
  */
 
+import { SAMPLE_RATE } from '../lib/render/contract';
+
 export { asciiJson, dedupeErrors, pageJob } from '../lib/render/page-job';
 export { isErrorLog } from '../lib/render/logged-errors';
+
+/** Throws unless a `job` request's `sampleRate` is absent or `SAMPLE_RATE`: the shared planner
+ *  always plans at `SAMPLE_RATE` (`singleChunkRequest`), so any other rate would be silently
+ *  ignored. */
+export function checkJobSampleRate(req: { sampleRate?: unknown }): void {
+  if (req.sampleRate !== undefined && req.sampleRate !== SAMPLE_RATE) {
+    throw new Error(
+      `job: sampleRate ${String(req.sampleRate)} is not supported; jobs are planned at ${SAMPLE_RATE} Hz`,
+    );
+  }
+}
 
 /** `btoa` input slice: small enough for `String.fromCharCode(...)`, and a multiple of 3 so the
  *  slices' base64 concatenates without padding in the middle. */

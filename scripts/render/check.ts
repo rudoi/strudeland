@@ -12,9 +12,10 @@
  * play is reported `unsupported` without gates; it fails the run only when its corpus.json
  * `rust` field disagrees. `--planner host` plans its jobs with the headless host
  * (`host-planner.ts`) instead of the render page, so that run opens no browser. `--planner batch`
- * is `host`, and each fixture's main window (`fx.assembled`: the mix and bass gates, the parity
- * features, `--keep-wav`) comes from the whole Rust pipeline (`batch-render.ts`) instead of the
- * joined chunk renders; twin, seam, stems and the mutations keep the per-request host plans.
+ * is `host` with a `PipelineRenderer` (`batch-render.ts`), whose `renderWindow` gives each
+ * fixture's main window (`fx.assembled`) from the whole Rust pipeline instead of the joined chunk
+ * renders. That window feeds the mix and bass gates, the parity features and `--keep-wav`; twin,
+ * seam, stems and the mutations keep the per-request host plans.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -141,9 +142,6 @@ export interface CheckDeps {
   mutations?: MutationSpec[];
   /** Progress lines; default none. */
   log?: (line: string) => void;
-  /** `--planner batch`: the fixture's main window from the whole Rust pipeline, set as
-   *  `fx.assembled` before any gate reads it. Absent: the joined chunk renders. */
-  batchWindow?: (fx: FixtureContext) => Promise<AssembledWindow>;
 }
 
 export interface CheckRun {
@@ -295,7 +293,14 @@ export async function assembledOf(
   batch: RenderBatch = {},
 ): Promise<AssembledWindow> {
   if (tx === undefined && fx.assembled) return fx.assembled;
-  const a = assembleWindow(await chunkResults(fx, tx, batch), fx.sched.events);
+  const r = fx.renderer;
+  // The unmutated main window comes from the renderer's own window path when it has one.
+  const a =
+    tx === undefined && r.renderWindow
+      ? await fx.limit.run(() =>
+          r.renderWindow!(fx.base, fx.sched.events, { cps: fx.cps, timing: fx.timing }),
+        )
+      : assembleWindow(await chunkResults(fx, tx, batch), fx.sched.events);
   if (tx === undefined) fx.assembled = a;
   return a;
 }
@@ -611,14 +616,10 @@ async function runFixture(
     if (opts.keepWav && fixture.gates.includes('stems')) fx.stemsContent = [];
     report.chunks = fx.plans.length;
 
-    // The chunks (or the batch render), then the twin and stems renders, all start at once
-    // (within the limit).
+    // The chunks (or the renderer's window), then the twin and stems renders, all start at
+    // once (within the limit).
     const batch: RenderBatch = {};
-    const ctx = fx;
-    const batchWindow = deps.batchWindow;
-    const assembled = batchWindow
-      ? ctx.limit.run(() => batchWindow(ctx)).then((a) => (ctx.assembled = a))
-      : assembledOf(fx, undefined, batch);
+    const assembled = assembledOf(fx, undefined, batch);
     prefetchGateRenders(fx, batch);
     await assembled;
     for (const gate of fixture.gates) {
@@ -963,7 +964,9 @@ export function playwrightPin(): string {
  *  skips the build) and, with `planner` host or batch, the host (`STRUDELAND_HOST_BIN` skips that build;
  *  no Chromium page is created then). Imports the Playwright renderers lazily. A failed build
  *  throws `HarnessError('build-missing')`. `plannerVersion` is the host build for the host
- *  planner, null when the render page plans. */
+ *  planner, null when the render page plans. With `planner` batch it also builds
+ *  `strudeland-render` (`STRUDELAND_RENDER_BIN` skips that build) and returns a
+ *  `PipelineRenderer`; `renderVersion` is that binary's version, null otherwise. */
 export async function createRenderer(
   engine: EngineName,
   opts: Pick<CheckOptions, 'outDir' | 'keepWav' | 'planner'>,
@@ -971,10 +974,16 @@ export async function createRenderer(
   renderer: Renderer & { version(): Promise<string> };
   rustVersion: string | null;
   plannerVersion: string | null;
+  renderVersion: string | null;
 }> {
   if (engine === 'superdough') {
     const { SuperdoughRenderer } = await import('./superdough-renderer');
-    return { renderer: new SuperdoughRenderer(), rustVersion: null, plannerVersion: null };
+    return {
+      renderer: new SuperdoughRenderer(),
+      rustVersion: null,
+      plannerVersion: null,
+      renderVersion: null,
+    };
   }
   const { bunRunner, findEngineBinary } = await import('./rust-engine');
   const override = process.env.STRUDELAND_ENGINE_BIN;
@@ -1003,45 +1012,32 @@ export async function createRenderer(
     jobs = new SuperdoughRenderer();
   }
   const { RustRenderer } = await import('./rust-renderer');
-  return {
-    renderer: new RustRenderer({
-      bin,
-      version,
-      outDir: opts.outDir,
-      keepWav: opts.keepWav,
-      jobs,
-    }),
-    rustVersion: version,
-    plannerVersion,
-  };
-}
-
-/** `--planner batch`: builds `strudeland-render` (`STRUDELAND_RENDER_BIN` skips the build; a
- *  failed build throws `HarnessError('build-missing')`) and returns the fixtures' main-window
- *  render and the binary's version. */
-export async function createBatchWindow(outDir: string): Promise<{
-  batchWindow: NonNullable<CheckDeps['batchWindow']>;
-  version: string;
-}> {
-  const { bunRunner } = await import('./rust-engine');
-  const { BatchRenderer, findRenderBinary } = await import('./batch-render');
+  const rustRenderer = new RustRenderer({
+    bin,
+    version,
+    outDir: opts.outDir,
+    keepWav: opts.keepWav,
+    jobs,
+  });
+  if (opts.planner !== 'batch') {
+    return { renderer: rustRenderer, rustVersion: version, plannerVersion, renderVersion: null };
+  }
+  const { BatchRenderer, findRenderBinary, PipelineRenderer } = await import('./batch-render');
   if (!process.env.STRUDELAND_RENDER_BIN) {
     console.log('render:check: building strudeland-render (cargo build --release)');
   }
-  const bin = await findRenderBinary(process.env, bunRunner, ROOT);
-  console.log(`render:check: main windows rendered by strudeland-render (${bin.path})`);
-  const batch = new BatchRenderer({ bin: bin.path, outDir });
+  const render = await findRenderBinary(process.env, bunRunner, ROOT);
+  console.log(`render:check: main windows rendered by strudeland-render (${render.path})`);
   return {
-    batchWindow: (fx) =>
-      batch.window({
-        name: fx.fixture.name,
-        songPath: join(CORPUS_DIR, fx.fixture.file),
-        base: fx.base,
-        cps: fx.cps,
-        events: fx.sched.events,
-        timing: fx.timing,
-      }),
-    version: bin.version,
+    renderer: new PipelineRenderer({
+      inner: rustRenderer,
+      batch: new BatchRenderer({ bin: render.path, outDir: opts.outDir }),
+      outDir: opts.outDir,
+      renderVersion: render.version,
+    }),
+    rustVersion: version,
+    plannerVersion,
+    renderVersion: render.version,
   };
 }
 
@@ -1088,15 +1084,8 @@ async function main(argv: string[]): Promise<number> {
     }
     throw e;
   }
-  const { renderer, rustVersion, plannerVersion } = created;
-  let batchWindow: CheckDeps['batchWindow'];
-  let batchVersion: string | null = null;
+  const { renderer, rustVersion, plannerVersion, renderVersion } = created;
   try {
-    if (opts.planner === 'batch') {
-      const made = await createBatchWindow(opts.outDir);
-      batchWindow = made.batchWindow;
-      batchVersion = made.version;
-    }
     // The host planner opens no browser: the report's chromium field reads `none`, and the
     // planner's version is on the run header line only.
     const engineVersion = plannerVersion === null ? await renderer.version() : 'none';
@@ -1104,7 +1093,7 @@ async function main(argv: string[]): Promise<number> {
       `render:check: ${selected.length} fixture(s), concurrency ${opts.concurrency}, ` +
         (plannerVersion === null ? `chromium ${engineVersion}` : `planner ${plannerVersion}`) +
         (rustVersion === null ? '' : `, engine ${rustVersion}`) +
-        (batchVersion === null ? '' : `, render ${batchVersion}`),
+        (renderVersion === null ? '' : `, render ${renderVersion}`),
     );
     const run = await runCheck(
       opts,
@@ -1119,7 +1108,6 @@ async function main(argv: string[]): Promise<number> {
         clock: { now: () => performance.now(), iso: () => new Date().toISOString() },
         goldensDir: GOLDENS_DIR,
         log: (line) => console.log(line),
-        batchWindow,
       },
       selected,
     );

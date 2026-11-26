@@ -1,15 +1,15 @@
-//! `Host`: the bundle loads, every corpus fixture plans into a valid engine job, requests are
-//! isolated, results are deterministic across hosts and threads, and every `HostError` variant
-//! is reachable.
+//! `Host`: the bundle loads, every corpus fixture plans into a valid single-chunk engine job,
+//! results are deterministic across hosts and threads, and every `HostError` variant is reachable
+//! (request isolation, timeouts and unsettled songs are in `plan_render.rs`).
 
 mod common;
 
 use std::time::Instant;
 
-use common::{SONG, corpus_song, repo_root, request};
+use common::{SONG, corpus_song, job, repo_root, request, single_chunk};
 use serde_json::Value;
 use strudeland_engine::EngineJob;
-use strudeland_host::{Host, HostError, Layout, LookbackSec, Mode, RenderRequest};
+use strudeland_host::{Host, HostError, Layout, LookbackSec, Mode, RenderPlanRequest, SingleChunk};
 
 #[test]
 fn the_bundle_loads_and_installs_the_entry() {
@@ -33,22 +33,23 @@ fn every_corpus_fixture_plans_a_valid_engine_job() {
     let fixtures = manifest["fixtures"].as_array().unwrap();
     assert!(!fixtures.is_empty());
     // Four hosts in parallel, each planning every fourth fixture, to bound the wall time.
-    let jobs: Vec<(String, String, RenderRequest)> = fixtures
+    let jobs: Vec<(String, String, RenderPlanRequest)> = fixtures
         .iter()
         .map(|fixture| {
             let name = fixture["name"].as_str().unwrap().to_string();
             let code = corpus_song(fixture["file"].as_str().unwrap());
             let window = fixture["windowBars"].as_array().unwrap();
             let layout: Layout = serde_json::from_value(fixture["layout"].clone()).unwrap();
-            let req = RenderRequest {
+            let req = single_chunk(
+                u32::try_from(window[0].as_u64().unwrap()).unwrap(),
+                u32::try_from(window[1].as_u64().unwrap()).unwrap(),
                 layout,
-                from_bar: u32::try_from(window[0].as_u64().unwrap()).unwrap(),
-                to_bar: u32::try_from(window[1].as_u64().unwrap()).unwrap(),
-                overlap_bars: 0,
-                lookback_sec: LookbackSec::Auto,
-                mode: Mode::Mix,
-                sample_rate: 44_100,
-            };
+                SingleChunk {
+                    overlap_bars: 0,
+                    lookback_sec: LookbackSec::Auto,
+                    mode: Mode::Mix,
+                },
+            );
             (name, code, req)
         })
         .collect();
@@ -62,17 +63,13 @@ fn every_corpus_fixture_plans_a_valid_engine_job() {
                 for (name, code, req) in jobs.iter().skip(w).step_by(4) {
                     let started = Instant::now();
                     let planned = host
-                        .plan_job(code, req)
+                        .plan_render(code, req)
                         .unwrap_or_else(|e| panic!("{name}: {e}"));
                     timings.push((name.clone(), started.elapsed().as_millis()));
-                    assert!(planned.json.is_ascii(), "{name}: job is not ASCII");
-                    let info: serde_json::Value = serde_json::from_str(&planned.info).unwrap();
-                    assert_eq!(
-                        info["jsonLength"].as_u64(),
-                        Some(planned.json.len() as u64),
-                        "{name}: jsonLength"
-                    );
-                    EngineJob::from_json(&planned.json).unwrap_or_else(|e| panic!("{name}: {e}"));
+                    let json = job(&planned);
+                    assert!(json.is_ascii(), "{name}: job is not ASCII");
+                    assert!(planned.chunks[0].info.is_some(), "{name}: no chunk info");
+                    EngineJob::from_json(json).unwrap_or_else(|e| panic!("{name}: {e}"));
                 }
                 timings
             })
@@ -87,37 +84,30 @@ fn every_corpus_fixture_plans_a_valid_engine_job() {
 }
 
 #[test]
-fn a_request_does_not_see_the_previous_ones_globals() {
-    // Song A defines a global, a registered method and a transpiler-level name; B reads them.
-    // (`x` itself is a Strudel control, from @strudel/draw, so the global has its own name.)
-    let song_a = "globalThis.hostLeakX = 1;\nconst hostLeak = 2;\nregister('hostTwice', (pat) => pat.fast(2));\n$: note(\"c e\").s(\"sine\").hostTwice()\n";
-    let song_b = "$: note(globalThis.hostLeakX === undefined && typeof hostLeak === 'undefined' && typeof hostTwice === 'undefined' ? 'c' : 'e').s(\"sine\")\n";
-    let host = Host::new().unwrap();
-    let a = host.plan_job(song_a, &request(2)).unwrap();
-    let b_after_a = host.plan_job(song_b, &request(2)).unwrap();
-    let b_fresh = Host::new().unwrap().plan_job(song_b, &request(2)).unwrap();
-    assert_ne!(a.json, b_fresh.json);
-    assert_eq!(b_after_a.json, b_fresh.json);
-    assert!(b_fresh.json.contains("\"note\":\"c\""), "{}", b_fresh.json);
-}
-
-#[test]
 fn a_song_planned_twice_gives_identical_jobs() {
     let code = corpus_song("sine-basic.js");
     let host = Host::new().unwrap();
-    let first = host.plan_job(&code, &request(4)).unwrap();
-    let second = host.plan_job(&code, &request(4)).unwrap();
+    let first = host.plan_render(&code, &request(4)).unwrap();
+    let second = host.plan_render(&code, &request(4)).unwrap();
     assert_eq!(first, second);
 }
 
 #[test]
 fn two_hosts_on_two_threads_agree() {
     let code = corpus_song("sine-basic.js");
-    let reference = Host::new().unwrap().plan_job(&code, &request(4)).unwrap();
+    let reference = Host::new()
+        .unwrap()
+        .plan_render(&code, &request(4))
+        .unwrap();
     let threads: Vec<_> = (0..2)
         .map(|_| {
             let code = code.clone();
-            std::thread::spawn(move || Host::new().unwrap().plan_job(&code, &request(4)).unwrap())
+            std::thread::spawn(move || {
+                Host::new()
+                    .unwrap()
+                    .plan_render(&code, &request(4))
+                    .unwrap()
+            })
         })
         .collect();
     for t in threads {
@@ -143,7 +133,7 @@ fn one_host_shared_by_threads_serves_each_call() {
 #[test]
 fn a_bad_meta_header_is_meta() {
     let host = Host::new().unwrap();
-    match host.plan_job("const meta = { bpm: 'x' };\n$: note(\"c\")\n", &request(2)) {
+    match host.plan_render("const meta = { bpm: 'x' };\n$: note(\"c\")\n", &request(2)) {
         Err(HostError::Meta(m)) => assert!(m.contains("bpm"), "{m}"),
         other => panic!("{other:?}"),
     }
@@ -156,11 +146,11 @@ fn a_bad_meta_header_is_meta() {
 #[test]
 fn a_throwing_song_is_eval() {
     let host = Host::new().unwrap();
-    match host.plan_job("throw new Error('boom-in-song');\n", &request(2)) {
+    match host.plan_render("throw new Error('boom-in-song');\n", &request(2)) {
         Err(HostError::Eval(m)) => assert!(m.contains("boom-in-song"), "{m}"),
         other => panic!("{other:?}"),
     }
-    match host.plan_job("$: note(\"c\".s(\n", &request(2)) {
+    match host.plan_render("$: note(\"c\".s(\n", &request(2)) {
         Err(HostError::Eval(_)) => {}
         other => panic!("syntax error: {other:?}"),
     }
@@ -178,68 +168,13 @@ fn a_throwing_song_is_eval() {
 #[test]
 fn a_song_calling_math_random_fails_with_the_clear_error() {
     let host = Host::new().unwrap();
-    match host.plan_job(
+    match host.plan_render(
         "const r = Math.random();\n$: note(\"c\").s(\"sine\")\n",
         &request(2),
     ) {
         Err(HostError::Eval(m)) => assert!(m.contains("Math.random is disabled"), "{m}"),
         other => panic!("{other:?}"),
     }
-}
-
-#[test]
-fn an_invalid_request_is_plan() {
-    let host = Host::new().unwrap();
-    let cases = [
-        RenderRequest {
-            from_bar: 4,
-            to_bar: 4,
-            ..request(4)
-        },
-        RenderRequest {
-            to_bar: 200_000,
-            ..request(4)
-        },
-        RenderRequest {
-            to_bar: u32::MAX,
-            overlap_bars: u32::MAX,
-            ..request(4)
-        },
-        RenderRequest {
-            lookback_sec: LookbackSec::Seconds(f64::NAN),
-            ..request(4)
-        },
-        RenderRequest {
-            lookback_sec: LookbackSec::Seconds(-1.0),
-            ..request(4)
-        },
-        RenderRequest {
-            sample_rate: 48_000,
-            ..request(4)
-        },
-    ];
-    for req in cases {
-        match host.plan_job(SONG, &req) {
-            Err(HostError::Plan(m)) => assert!(m.starts_with("invalid request: "), "{req:?}: {m}"),
-            other => panic!("{req:?}: {other:?}"),
-        }
-    }
-}
-
-#[test]
-fn a_song_waiting_on_a_timer_is_unsettled() {
-    let host = Host::new().unwrap();
-    let code =
-        "await new Promise((resolve) => setTimeout(resolve, 10));\n$: note(\"c\").s(\"sine\")\n";
-    assert_eq!(host.plan_job(code, &request(2)), Err(HostError::Unsettled));
-    assert_eq!(
-        host.query(code, 0.0, 1.0, Layout::Linear),
-        Err(HostError::Unsettled)
-    );
-    let never = "await new Promise(() => {});\n$: note(\"c\").s(\"sine\")\n";
-    assert_eq!(host.plan_job(never, &request(2)), Err(HostError::Unsettled));
-    // The host still serves the next request.
-    assert!(host.plan_job(SONG, &request(2)).is_ok());
 }
 
 #[test]
@@ -296,43 +231,35 @@ fn query_rejects_a_bad_window() {
 }
 
 #[test]
-fn the_info_describes_the_job() {
+fn the_chunk_info_describes_the_job() {
     let host = Host::new().unwrap();
     let planned = host
-        .plan_job(&corpus_song("sine-basic.js"), &request(4))
+        .plan_render(&corpus_song("sine-basic.js"), &request(4))
         .unwrap();
-    let info: serde_json::Value = serde_json::from_str(&planned.info).unwrap();
-    assert!(!planned.info.contains('\n'), "the info is one line");
-    for key in [
-        "jsonLength",
-        "events",
-        "errors",
-        "plan",
-        "cps",
-        "structure",
-        "stemPairs",
-    ] {
-        assert!(info.get(key).is_some(), "{key}: {info}");
-    }
-    assert_eq!(info["cps"], 0.5);
-    assert_eq!(info["errors"], serde_json::json!([]));
-    let job: Value = serde_json::from_str(&planned.json).unwrap();
+    let info = planned.chunks[0].info.as_ref().expect("the chunk's info");
+    let events = info.events.as_array().expect("the events array");
+    assert!(!events.is_empty());
+    assert_eq!(info.stem_pairs, 1);
+    let plan = &planned.chunks[0].plan;
+    assert_eq!((plan.from_bar, plan.to_bar, plan.c0, plan.c1), (0, 4, 0, 4));
+    assert_eq!(planned.cps, 0.5);
+    assert_eq!(planned.errors, vec![]);
+    let job: Value = serde_json::from_str(job(&planned)).unwrap();
     assert_eq!(job["schema"], 2);
     assert_eq!(job["sampleRate"], 44_100);
 }
 
 #[test]
-fn a_failure_core_logs_is_in_the_info_errors() {
+fn a_failure_core_logs_is_in_the_plan_errors() {
     // core's `queryArc` logs `[query] error: …` and answers [], as the page records from its
     // `strudel.log` event.
     let host = Host::new().unwrap();
     let song = format!(
         "note('c').withValue(() => {{ throw new Error('inner query broke'); }}).queryArc(0, 1);\n{SONG}"
     );
-    let planned = host.plan_job(&song, &request(2)).unwrap();
-    let info: Value = serde_json::from_str(&planned.info).unwrap();
+    let planned = host.plan_render(&song, &request(2)).unwrap();
     assert_eq!(
-        info["errors"],
+        serde_json::to_value(&planned.errors).unwrap(),
         serde_json::json!([{ "kind": "other", "message": "[query] error: inner query broke" }])
     );
 }

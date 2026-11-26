@@ -1,10 +1,13 @@
 /**
  * `host:parity`'s pure part: where two parsed JSON values first differ, the schedule-failure rule,
- * the command line, and `--batch`'s request and chunk comparison. Pure: no fs, Strudel, DOM,
+ * the command line, `--batch`'s request and chunk comparison, and the plans and infos without
+ * their `errors` (the page and the host capture errors differently). Pure: no fs, Strudel, DOM,
  * Tauri, Playwright or cargo.
  */
 
 import type { SegmentLayout } from './contract';
+import type { PlannedRender, RenderPlanRequest } from './job-plan';
+import type { PageJobInfo } from './page-job';
 
 /** One step into a JSON value: an object key or an array index. */
 export type JsonStep = string | number;
@@ -77,15 +80,19 @@ export const PARITY_USAGE = `usage: bun run host:parity [fixture | glob | tag:<t
        bun run host:parity --mixed-meter [--out DIR]
 
 Plans every engine job render:check --engine rust asks for (the full window, every chunk, and
-the stems chunks of fixtures with the stems gate) on the render page in Chromium and with the
-headless host (strudeland-host, built with cargo, or STRUDELAND_HOST_BIN), and compares the job
-text byte for byte. On a difference both texts go to <out>/host-parity/<fixture>/<n>.page.json
-and <n>.host.json. No fixture arguments = every fixture.
+the stems chunks of fixtures with the stems gate) as a single-chunk planRender on the render page
+in Chromium and with the headless host (strudeland-host, built with cargo, or
+STRUDELAND_HOST_BIN), and compares the job text byte for byte and the job info without its
+errors. On a difference both go to <out>/host-parity/<fixture>/<n>.page.json and <n>.host.json
+(<n>.info.page.json and <n>.info.host.json for the info). No fixture arguments = every fixture.
 
 With --batch it compares the batch planner instead: the fixture's window planned in chunks with
-no seam overlap, every chunk on the render page against one strudeland-host plan-render call
-(the chunk count, each chunk's window and each job's text byte for byte; differences go to
-batch-<i>.page.json and batch-<i>.host.json). The plain request set is not compared then.
+no seam overlap, every chunk's single-chunk job on the render page against one strudeland-host
+plan-render call (the chunk count, each chunk's window and each job's text byte for byte;
+differences go to batch-<i>.page.json and batch-<i>.host.json), and the page's whole plan of the
+window against the host's, without errors (batch-plan.page.json and batch-plan.host.json). The
+plain request set is not compared then. --mixed-meter compares the mixed-meter song's clip and
+loop preset plans, and two single-chunk jobs.
 
 options:
   --batch      compare the batch planner's chunk jobs
@@ -129,8 +136,8 @@ export function parseParityArgs(argv: string[]): ParityOptions | { error: string
 export type PlanOutcome = { ok: true; errors: readonly string[] } | { ok: false; message: string };
 
 /** Whether a side failed to schedule the song, by the rule `prepareFixture` applies to the page's
- *  schedule: a failed plan, or a plan whose info reports errors (the host's `plan` exits 0 with
- *  the schedule's errors in `info.errors`). */
+ *  schedule: a failed plan, or a plan that reports errors (the host's `plan-render` exits 0 with
+ *  the schedule's errors in the plan's `errors`). */
 export function scheduleFailed(o: PlanOutcome): boolean {
   return !o.ok || o.errors.length > 0;
 }
@@ -140,20 +147,53 @@ export function failureText(o: PlanOutcome): string {
   return o.ok ? o.errors.join('; ') : o.message;
 }
 
-/** The `plan-render` request of a fixture's window: the explicit window kind. */
-export function batchRequestJson(window: {
+/** A fixture's render window. */
+export interface ParityWindow {
   fromBar: number;
   toBar: number;
   layout: SegmentLayout;
-}): string {
-  return JSON.stringify({
+}
+
+/** The `plan-render` request of a fixture's window: the explicit window kind. */
+export function batchRequest(window: ParityWindow): RenderPlanRequest {
+  return {
     length: {
       kind: 'window',
       fromBar: window.fromBar,
       toBar: window.toBar,
       layout: window.layout,
     },
-  });
+  };
+}
+
+/** `x` without its `errors`, for the whole-plan and info comparisons (the page-only and host-only
+ *  error sources differ). */
+export function withoutErrors<T extends { errors: unknown }>(x: T): Omit<T, 'errors'> {
+  const { errors: _errors, ...rest } = x;
+  return rest;
+}
+
+/** `v` as it crosses a process boundary: through JSON, so an `undefined` property is an absent
+ *  one and `-0` is `0` (the host's side passes through serde, which also reorders keys;
+ *  `firstDifference` ignores key order). Normalise both sides before `firstDifference`. */
+export function asJson(v: unknown): unknown {
+  return JSON.parse(JSON.stringify(v));
+}
+
+/** `withoutErrors(x)` through `asJson`: the form both sides of the info and whole-plan
+ *  comparisons take. */
+export function comparableWithoutErrors<T extends { errors: unknown }>(x: T): unknown {
+  return asJson(withoutErrors(x));
+}
+
+/** A fixture's parity verdict, from best to worst. */
+export type ParityStatus = 'ok' | 'DIFF' | 'FAIL';
+
+const STATUS_RANK: Record<ParityStatus, number> = { ok: 0, DIFF: 1, FAIL: 2 };
+
+/** The worse of two verdicts: a difference never hides a failure. */
+export function worseStatus(a: ParityStatus, b: ParityStatus): ParityStatus {
+  return STATUS_RANK[b] > STATUS_RANK[a] ? b : a;
 }
 
 /** A chunk's content window. */

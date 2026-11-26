@@ -1,8 +1,8 @@
 /**
- * The engine-job planner shared by the render page's `job` kind (`src/render/main.ts`) and the
- * headless host: evaluate a song through a `PlannerRuntime`, query it, and plan the chunk's
- * engine job (`planJob`), or every chunk of a render in one call (`planRender`). Strudel- and
- * DOM-free: the runtime comes in through the adapter.
+ * The engine-job planner shared by the render page (`src/render/main.ts`) and the headless host:
+ * evaluate a song through a `PlannerRuntime`, query it once, and plan every chunk of a render in
+ * one call (`planRender`), or exactly one chunk for the harness (`chunk`). Strudel- and DOM-free:
+ * the runtime comes in through the adapter.
  */
 
 import { errorMessage } from '../errors';
@@ -16,9 +16,15 @@ import {
   type SongStructure,
 } from '../strudel/structure';
 import type { Segment } from '../strudel/transport';
-import { SAMPLE_RATE, type RenderError, type RenderRequest, type SegmentLayout } from './contract';
+import {
+  SAMPLE_RATE,
+  type RenderError,
+  type RenderMode,
+  type RenderRequest,
+  type SegmentLayout,
+} from './contract';
 import { chunkRequest, renderChunkPlans } from './chunks';
-import { planEngineJob } from './engine-job';
+import { isRecord, planEngineJob } from './engine-job';
 import { exportDecay, lookbackSeconds } from './lookback';
 import { pageJob, dedupeErrors, type PageJobInfo } from './page-job';
 import {
@@ -193,44 +199,7 @@ function planWindow(
   return pageJob(planned, { errors, plan, cps: ctx.cps, structure: ctx.structure });
 }
 
-/**
- * Plans `request`'s engine job: the same plan the page's render path gives `renderOffline`,
- * without a context. `captured` (errors captured while the song ran) is read once, last.
- * Throws `PlanJobError`; its message is the text the render page reports.
- */
-export async function planJob(
-  rt: PlannerRuntime,
-  request: RenderRequest,
-  captured: RenderError[],
-  onPhase?: (p: PlanJobPhase) => void,
-): Promise<{ info: PageJobInfo; json: string }> {
-  const { structure, cps, seed, segments, timing } = await evaluateSong(
-    rt,
-    request.code,
-    request.layout,
-    onPhase,
-  );
-  return asPlanError(() => {
-    const c1 = request.toBar + request.overlapBars;
-    const query = querySong(rt, segments);
-
-    // The full schedule [0, c1), selected once: the 'auto' lookback and every orbit the render
-    // must create up front.
-    const schedule = selectHaps(query(0, c1));
-    const events = eventsFromValues(eventSources(schedule.selected), cps, timing);
-    const lookbackSec =
-      request.lookbackSec === 'auto' ? lookbackSeconds(events) : request.lookbackSec;
-    return planWindow(
-      { query, cps, seed, structure, timing },
-      request,
-      lookbackSec,
-      schedule,
-      captured,
-    );
-  });
-}
-
-// ---- planRender: every chunk of a render in one call
+// ---- planRender: every chunk of a render, or one chunk for the harness, in one call
 
 /** What to render. `window` is for the harness and the dev binary; the command line never
  *  sends it. */
@@ -242,28 +211,56 @@ export type LengthRequest =
 
 export type ExportPreset = 'tagged-loop' | 'intro-loop' | 'folded-loop' | 'one-shot';
 
+/** A harness request for one chunk: exactly the job `[fromBar, toBar)` plus overlap, lookback
+ *  and mode would get, planned by the pass code every production chunk goes through. */
+export interface SingleChunk {
+  overlapBars: number;
+  lookbackSec: number | 'auto';
+  mode: RenderMode;
+}
+
 export interface RenderPlanRequest {
   preset?: ExportPreset;
   length: LengthRequest;
   /** Also return the schedule's events. Default false. */
   includeEvents?: boolean;
+  /** Plan exactly one chunk over `length` (a window), for the harness. */
+  chunk?: SingleChunk;
+}
+
+/** The single-chunk request for a harness `RenderRequest`: its window, overlap, lookback and
+ *  mode (`sampleRate` is always `SAMPLE_RATE`; `code` travels beside the request). */
+export function singleChunkRequest(req: RenderRequest): RenderPlanRequest {
+  return {
+    length: { kind: 'window', fromBar: req.fromBar, toBar: req.toBar, layout: req.layout },
+    chunk: { overlapBars: req.overlapBars, lookbackSec: req.lookbackSec, mode: req.mode },
+  };
 }
 
 /** A chunk's `WindowPlan` plus its content window and the exact lookback its request carries
  *  (`lookbackSecUsed` is not always equal to it in floating point). */
 export type ChunkWindowPlan = WindowPlan & { fromBar: number; toBar: number; lookbackSec: number };
 
+/** What a single-chunk plan adds to its chunk: the job's events and stem pairs (`PageJobInfo`). */
+export interface ChunkInfo {
+  events: RenderEvent[];
+  stemPairs: number;
+}
+
 interface RenderPass {
-  chunks: { json: string; plan: ChunkWindowPlan }[];
+  /** `info` is present only for a `chunk` request. */
+  chunks: { json: string; plan: ChunkWindowPlan; info?: ChunkInfo }[];
   tailFrames: number;
-  musicFrames?: number;
+  /** Mapped musical frames of the pass, excluding the lookback and the tail. */
+  musicFrames: number;
 }
 
 export interface PlannedRender {
   /** Extra frames on the last job and the isolated body when the opening includes an intro. */
   export?: {
     loopStartBar?: number;
-    /** Mapped musical frame offset from the opening's start. */
+    /** Mapped musical frame offset from the opening's start; present exactly when
+     *  `loopStartBar` is. */
     loopStartFrame?: number;
     tailFrames: number;
     /** The body from `loopStartBar` to `window.toBar`, with its own effect state. */
@@ -271,7 +268,7 @@ export interface PlannedRender {
   };
   window: { fromBar: number; toBar: number; layout: SegmentLayout };
   /** Mapped musical frames in the opening or standard render. */
-  musicFrames?: number;
+  musicFrames: number;
   cps: number;
   structure: SongStructure;
   /** `lookbackSeconds(events)` of the full schedule (the 'auto' lookback). */
@@ -280,19 +277,13 @@ export interface PlannedRender {
   errors: RenderError[];
   /** Present only with `includeEvents`; the opening's schedule for a loop export. */
   events?: RenderEvent[];
+  /** Every chunk of the opening or standard render; for a `chunk` request, exactly one, with
+   *  its `info`. */
   chunks: RenderPass['chunks'];
 }
 
 /** The widest render window, in bars (the host's request limit). */
 export const MAX_RENDER_BARS = 100_000;
-
-/**
- * True: each chunk's schedule selection is the full schedule's cut at the chunk's end (haps with
- * onset before it, original `index` kept). False: each chunk queries and selects [0, c1) itself,
- * as `planJob` does (quadratic, equal by construction). Kept `true` while the batch parity check
- * finds the jobs byte-equal to the page's.
- */
-export const BATCH_REUSE_SCHEDULE = true;
 
 const badRequest = (message: string): PlanJobError =>
   new PlanJobError('plan', `bad request: ${message}`);
@@ -300,13 +291,10 @@ const badRequest = (message: string): PlanJobError =>
 const isIntIn = (v: unknown, min: number, max: number): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-
-/** Checks the request's shape and its length: the one length validator. */
+/** Checks the request's shape, its length and its `chunk`: the one length validator. */
 function validateRenderRequest(request: unknown): asserts request is RenderPlanRequest {
-  if (!isObject(request)) throw badRequest('not a JSON object');
-  const { includeEvents, length } = request;
+  if (!isRecord(request)) throw badRequest('not a JSON object');
+  const { includeEvents, length, chunk } = request;
   if (includeEvents !== undefined && typeof includeEvents !== 'boolean') {
     throw badRequest('includeEvents must be true or false');
   }
@@ -316,7 +304,12 @@ function validateRenderRequest(request: unknown): asserts request is RenderPlanR
       !['tagged-loop', 'intro-loop', 'folded-loop', 'one-shot'].includes(request.preset))
   )
     throw badRequest(`unknown preset ${String(request.preset)}`);
-  if (!isObject(length)) throw badRequest('length must be an object');
+  if (!isRecord(length)) throw badRequest('length must be an object');
+  if (chunk !== undefined) {
+    if (!isRecord(chunk)) throw badRequest('chunk must be an object');
+    if (length.kind !== 'window') throw badRequest('chunk needs a window length');
+    if (request.preset !== undefined) throw badRequest('chunk cannot be combined with a preset');
+  }
   if (
     request.preset !== undefined &&
     request.preset !== 'one-shot' &&
@@ -333,15 +326,15 @@ function validateRenderRequest(request: unknown): asserts request is RenderPlanR
       if (length.loops !== undefined && !isIntIn(length.loops, 1, MAX_LOOPS)) {
         throw badRequest(`--loops must be an integer from 1 to ${MAX_LOOPS}`);
       }
-      return;
+      break;
     case 'section':
       if (typeof length.name !== 'string') throw badRequest('length.name must be a string');
-      return;
+      break;
     case 'length':
       if (!isIntIn(length.bars, 1, MAX_RENDER_BARS)) {
         throw badRequest(`length.bars must be an integer from 1 to ${MAX_RENDER_BARS}`);
       }
-      return;
+      break;
     case 'window': {
       const { fromBar, toBar, layout } = length;
       if (
@@ -356,11 +349,27 @@ function validateRenderRequest(request: unknown): asserts request is RenderPlanR
       if (layout !== 'clip' && layout !== 'linear') {
         throw badRequest(`unknown layout ${String(layout)}`);
       }
-      return;
+      break;
     }
     default:
       throw badRequest(`unknown length kind ${String(length.kind)}`);
   }
+  if (isRecord(chunk)) validateChunk(chunk, length.toBar as number);
+}
+
+/** The single chunk's ranges, once its window is known to be valid (`toBar` in range). */
+function validateChunk(chunk: Record<string, unknown>, toBar: number): void {
+  const { overlapBars, lookbackSec, mode } = chunk;
+  if (!isIntIn(overlapBars, 0, MAX_RENDER_BARS - toBar)) {
+    throw badRequest(`chunk.overlapBars must be an integer from 0 to ${MAX_RENDER_BARS - toBar}`);
+  }
+  if (
+    lookbackSec !== 'auto' &&
+    !(typeof lookbackSec === 'number' && Number.isFinite(lookbackSec) && lookbackSec >= 0)
+  ) {
+    throw badRequest("chunk.lookbackSec must be 'auto' or a number of seconds >= 0");
+  }
+  if (mode !== 'mix' && mode !== 'stems') throw badRequest(`unknown chunk mode ${String(mode)}`);
 }
 
 /** `structure` with the `--loops` override (unchanged without one), as a flagged `meta` error
@@ -528,9 +537,12 @@ export function cutSchedule(full: ScheduleSelection, c1: number): ScheduleSelect
  * Plans every chunk of a render in one call: evaluates once, resolves the length request against
  * the evaluated structure (the one playback follows; `--loops` replaces its loop count), queries
  * the schedule once, and plans each chunk's engine job (`renderChunkPlans`, no seam overlap).
- * Loop passes share the selected schedule. Standard jobs are byte-equal to `planJob` of the
- * same chunk request. `captured` is read as each chunk is planned. Throws `PlanJobError` (length
- * errors are kind 'meta' with a `flag`; a header or evaluation error comes first).
+ * Each chunk's selection is the schedule cut at the chunk's end; loop passes share the selected
+ * schedule. A `chunk` request plans exactly one chunk over its window, with the chunk's overlap,
+ * lookback ('auto': the schedule's) and mode, and carries its `info`; its job is byte-equal to
+ * the matching chunk of a full plan. `captured` is read as each chunk is planned. Throws
+ * `PlanJobError` (length errors are kind 'meta' with a `flag`; a header or evaluation error comes
+ * first).
  */
 export async function planRender(
   rt: PlannerRuntime,
@@ -538,8 +550,6 @@ export async function planRender(
   request: RenderPlanRequest,
   captured: RenderError[],
   onPhase?: (p: PlanJobPhase) => void,
-  /** Tests only: the schedule rule to use instead of `BATCH_REUSE_SCHEDULE`. */
-  reuseSchedule: boolean = BATCH_REUSE_SCHEDULE,
 ): Promise<PlannedRender> {
   validateRenderRequest(request);
   const loops = request.length.kind === 'clip' ? request.length.loops : undefined;
@@ -576,9 +586,10 @@ export async function planRender(
       toBar,
       overlapBars: 0,
       lookbackSec: 0,
-      mode: 'mix',
+      mode: request.chunk?.mode ?? 'mix',
       sampleRate: SAMPLE_RATE,
     };
+    const single = request.chunk;
     const errors: RenderError[] = [];
     let lookbackSec = 0;
 
@@ -603,30 +614,36 @@ export async function planRender(
       lookbackSec = Math.max(lookbackSec, history);
       const tailFrames = keepTail ? (decay?.tailFrames ?? 0) : 0;
       if (keepTail) checkBufferFrames(programFrames + tailFrames, 'mix');
-      const plans = renderChunkPlans({
-        fromBar: start,
-        toBar,
-        events: exportEvents ?? events,
-        cps,
-        overlapBars: 0,
-        lookbackSec: history,
-        timing,
-      });
-      for (const plan of plans) {
-        const req = chunkRequest(base, plan);
+      // Each request's lookback is resolved: the chunk plan's, or the single chunk's ('auto' is
+      // the schedule's history).
+      const requests: (RenderRequest & { lookbackSec: number })[] = single
+        ? [
+            {
+              ...base,
+              overlapBars: single.overlapBars,
+              lookbackSec: single.lookbackSec === 'auto' ? history : single.lookbackSec,
+            },
+          ]
+        : renderChunkPlans({
+            fromBar: start,
+            toBar,
+            events: exportEvents ?? events,
+            cps,
+            overlapBars: 0,
+            lookbackSec: history,
+            timing,
+          }).map((p) => ({ ...chunkRequest(base, p), lookbackSec: p.lookbackSec }));
+      for (const req of requests) {
         const chunkLookback =
           scheduleStart === 0
-            ? plan.lookbackSec
+            ? req.lookbackSec
             : Math.min(
-                plan.lookbackSec,
+                req.lookbackSec,
                 timing
                   ? secondsAt(req.fromBar) - secondsAt(scheduleStart)
                   : (req.fromBar - scheduleStart) / cps,
               );
-        const schedule =
-          frozenSchedule || reuseSchedule
-            ? cutSchedule(full, req.toBar)
-            : selectHaps(query(scheduleStart, req.toBar));
+        const schedule = cutSchedule(full, req.toBar + req.overlapBars);
         const { info, json } = planWindow(
           ctx,
           req,
@@ -645,6 +662,7 @@ export async function planRender(
             toBar: req.toBar,
             lookbackSec: chunkLookback,
           },
+          ...(single ? { info: { events: info.events, stemPairs: info.stemPairs } } : {}),
         });
       }
       return { chunks, events, tailFrames };
@@ -654,7 +672,8 @@ export async function planRender(
     // own decay after the final bar. When there is no intro to render, one pass supplies both.
     const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
     const scheduleStart = loopStartBar === fromBar ? fromBar : 0;
-    const full = selectHaps(query(scheduleStart, toBar));
+    const c1 = toBar + (single?.overlapBars ?? 0);
+    const full = selectHaps(query(scheduleStart, c1));
     const opening = planPass(full, fromBar, scheduleStart, !separateRepeat && !!request.preset);
     const repeat = separateRepeat
       ? planPass(
@@ -669,7 +688,7 @@ export async function planRender(
       : undefined;
     return {
       window,
-      ...(timing ? { musicFrames: musicalFrames } : {}),
+      musicFrames: musicalFrames,
       cps,
       structure,
       lookbackSec,
@@ -678,17 +697,16 @@ export async function planRender(
       ...(request.preset
         ? {
             export: {
-              ...(loopStartBar === undefined ? {} : { loopStartBar }),
-              ...(timing && loopStartBar !== undefined
-                ? { loopStartFrame: framesBetween(fromBar, loopStartBar) }
-                : {}),
+              ...(loopStartBar === undefined
+                ? {}
+                : { loopStartBar, loopStartFrame: framesBetween(fromBar, loopStartBar) }),
               tailFrames: opening.tailFrames,
               ...(repeat
                 ? {
                     repeat: {
                       chunks: repeat.chunks,
                       tailFrames: repeat.tailFrames,
-                      ...(timing ? { musicFrames: bodyFrames } : {}),
+                      musicFrames: bodyFrames,
                     },
                   }
                 : {}),

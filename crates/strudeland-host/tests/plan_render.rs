@@ -1,16 +1,16 @@
-//! `Host::plan_render`: every chunk of a render planned in one call, equal to planning each
-//! chunk's request with `Host::plan_job`; the length requests and their flagged errors; the
-//! planning timeout, which the same `Host` survives.
+//! `Host::plan_render`: every chunk of a render planned in one call, equal to the single-chunk
+//! plan of each chunk's request; the length requests and their flagged errors; the bad requests;
+//! request isolation; the planning timeout, which the same `Host` survives.
 
 mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{SONG, corpus_song, request};
+use common::{SONG, corpus_song, job, request, single_chunk};
 use strudeland_engine::{EngineJob, Value};
 use strudeland_host::{
     ExportPreset, Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedChunk,
-    PlannedRender, RenderPlanRequest, RenderRequest,
+    PlannedRender, RenderPlanRequest, SingleChunk,
 };
 
 fn plan_request(length: LengthRequest) -> RenderPlanRequest {
@@ -19,6 +19,7 @@ fn plan_request(length: LengthRequest) -> RenderPlanRequest {
         instruments: Default::default(),
         preset: None,
         include_events: None,
+        chunk: None,
         timeout_sec: None,
     }
 }
@@ -31,18 +32,19 @@ fn window(from_bar: u32, to_bar: u32, layout: Layout) -> RenderPlanRequest {
     })
 }
 
-/// The page request of chunk `i` (`chunkRequest(base, plan)` with overlap 0).
-fn chunk_request(planned: &PlannedRender, i: usize) -> RenderRequest {
+/// The single-chunk request of chunk `i` (`chunkRequest(base, plan)` with overlap 0).
+fn chunk_request(planned: &PlannedRender, i: usize) -> RenderPlanRequest {
     let plan = &planned.chunks[i].plan;
-    RenderRequest {
-        layout: planned.window.layout,
-        from_bar: plan.from_bar,
-        to_bar: plan.to_bar,
-        overlap_bars: 0,
-        lookback_sec: LookbackSec::Seconds(plan.lookback_sec),
-        mode: Mode::Mix,
-        sample_rate: 44_100,
-    }
+    single_chunk(
+        plan.from_bar,
+        plan.to_bar,
+        planned.window.layout,
+        SingleChunk {
+            overlap_bars: 0,
+            lookback_sec: LookbackSec::Seconds(plan.lookback_sec),
+            mode: Mode::Mix,
+        },
+    )
 }
 
 /// The chunk windows are contiguous, cover the window and parse as engine jobs.
@@ -65,7 +67,7 @@ fn assert_covers(name: &str, planned: &PlannedRender) {
 }
 
 #[test]
-fn chunks_equal_plan_job_of_each_chunk_request() {
+fn chunks_equal_the_single_chunk_plan_of_each_chunk_request() {
     let host = Host::new().unwrap();
     let cases = [
         ("pad-seam", "pad-seam.js", window(0, 20, Layout::Linear)),
@@ -94,21 +96,22 @@ fn chunks_equal_plan_job_of_each_chunk_request() {
         }
         for i in 0..planned.chunks.len() {
             let single = host
-                .plan_job(&code, &chunk_request(&planned, i))
+                .plan_render(&code, &chunk_request(&planned, i))
                 .unwrap_or_else(|e| panic!("{name} chunk {i}: {e}"));
             assert!(
-                single.json == planned.chunks[i].json,
-                "{name} chunk {i}: the batch job differs from plan_job's"
+                job(&single) == planned.chunks[i].json,
+                "{name} chunk {i}: the batch job differs from the single-chunk plan's"
             );
-            let info: serde_json::Value = serde_json::from_str(&single.info).unwrap();
             let plan = &planned.chunks[i].plan;
-            assert_eq!(info["plan"]["c0"], plan.c0, "{name} chunk {i}");
-            assert_eq!(info["plan"]["frames"], plan.frames, "{name} chunk {i}");
+            // Every field, `lookback_sec_used` and `lookback_sec` bit for bit (`PartialEq` on f64).
+            assert_eq!(&single.chunks[0].plan, plan, "{name} chunk {i}");
             assert_eq!(
-                info["plan"]["lookbackSecUsed"].as_f64().map(f64::to_bits),
-                Some(plan.lookback_sec_used.to_bits()),
+                single.chunks[0].plan.lookback_sec_used.to_bits(),
+                plan.lookback_sec_used.to_bits(),
                 "{name} chunk {i}"
             );
+            assert!(single.chunks[0].info.is_some(), "{name} chunk {i}: info");
+            assert!(planned.chunks[i].info.is_none(), "{name} chunk {i}: info");
         }
     }
     assert!(multi >= 2, "the cases must include multi-chunk renders");
@@ -357,6 +360,56 @@ fn a_bad_length_request_is_the_bundles_bad_request() {
         plan_request(LengthRequest::Length { bars: 100_001 }),
         plan_request(LengthRequest::Clip { loops: Some(0) }),
         plan_request(LengthRequest::Clip { loops: Some(1001) }),
+        // A single chunk: the window, its overlap past the limit, a lookback that is not
+        // finite and >= 0 (serde writes NaN as `null`), a chunk with a preset or without a window.
+        RenderPlanRequest {
+            length: LengthRequest::Window {
+                from_bar: 4,
+                to_bar: 4,
+                layout: Layout::Linear,
+            },
+            ..request(4)
+        },
+        RenderPlanRequest {
+            length: LengthRequest::Window {
+                from_bar: 0,
+                to_bar: 200_000,
+                layout: Layout::Linear,
+            },
+            ..request(4)
+        },
+        RenderPlanRequest {
+            chunk: Some(SingleChunk {
+                overlap_bars: 99_997,
+                lookback_sec: LookbackSec::Seconds(0.0),
+                mode: Mode::Mix,
+            }),
+            ..request(4)
+        },
+        RenderPlanRequest {
+            chunk: Some(SingleChunk {
+                overlap_bars: 0,
+                lookback_sec: LookbackSec::Seconds(f64::NAN),
+                mode: Mode::Mix,
+            }),
+            ..request(4)
+        },
+        RenderPlanRequest {
+            chunk: Some(SingleChunk {
+                overlap_bars: 0,
+                lookback_sec: LookbackSec::Seconds(-1.0),
+                mode: Mode::Mix,
+            }),
+            ..request(4)
+        },
+        RenderPlanRequest {
+            preset: Some(ExportPreset::TaggedLoop),
+            ..request(4)
+        },
+        RenderPlanRequest {
+            length: LengthRequest::Length { bars: 4 },
+            ..request(4)
+        },
     ];
     for req in cases {
         match host.plan_render(SONG, &req) {
@@ -423,10 +476,16 @@ fn the_timeout_does_not_move_the_plan() {
         )
         .unwrap();
     assert_eq!(plain, timed);
-    let job = host
-        .plan_job_with_timeout(&code, &request(4), Some(Duration::from_secs(600)))
+    let single = host
+        .plan_render(
+            &code,
+            &RenderPlanRequest {
+                timeout_sec: Some(600.0),
+                ..request(4)
+            },
+        )
         .unwrap();
-    assert_eq!(job, host.plan_job(&code, &request(4)).unwrap());
+    assert_eq!(single, host.plan_render(&code, &request(4)).unwrap());
 }
 
 #[test]
@@ -461,11 +520,6 @@ fn assert_timeout<T: std::fmt::Debug>(what: &str, started: Instant, result: Resu
 fn a_spinning_song_times_out_and_the_host_serves_the_next_request() {
     let host = Host::new().unwrap();
     let started = Instant::now();
-    let result = host.plan_job_with_timeout(SPIN, &request(2), Some(Duration::from_millis(500)));
-    assert_timeout("plan_job_with_timeout", started, result);
-    assert!(host.plan_job(SONG, &request(2)).is_ok());
-
-    let started = Instant::now();
     let result = host.plan_render(
         SPIN,
         &RenderPlanRequest {
@@ -482,20 +536,21 @@ fn a_spinning_song_times_out_and_the_host_serves_the_next_request() {
     // A spin in a microtask (after an await) is terminated in the drain.
     let later = "await Promise.resolve();\nwhile (true) {}\n";
     let started = Instant::now();
-    let result = host.plan_job_with_timeout(later, &request(2), Some(Duration::from_millis(500)));
+    let result = host.plan_render(
+        later,
+        &RenderPlanRequest {
+            timeout_sec: Some(0.5),
+            ..request(2)
+        },
+    );
     assert_timeout("spin after an await", started, result);
-    assert!(host.plan_job(SONG, &request(2)).is_ok());
+    assert!(host.plan_render(SONG, &request(2)).is_ok());
 }
 
 #[test]
 fn the_heap_limit_is_not_a_timeout() {
     let host = Host::new().unwrap();
     let hog = "const a = [];\nwhile (true) a.push(new Array(1e5).fill(1.5));\n";
-    let result = host.plan_job_with_timeout(hog, &request(2), Some(Duration::from_secs(600)));
-    match result {
-        Err(HostError::Runtime(m)) => assert!(m.contains("ran out of memory"), "{m}"),
-        other => panic!("{other:?}"),
-    }
     let result = host.plan_render(
         hog,
         &RenderPlanRequest {
@@ -507,7 +562,7 @@ fn the_heap_limit_is_not_a_timeout() {
         Err(HostError::Runtime(m)) => assert!(m.contains("ran out of memory"), "{m}"),
         other => panic!("{other:?}"),
     }
-    assert!(host.plan_job(SONG, &request(2)).is_ok());
+    assert!(host.plan_render(SONG, &request(2)).is_ok());
 }
 
 #[test]
@@ -527,6 +582,19 @@ fn a_waiting_song_is_unsettled_not_a_timeout() {
         Err(HostError::Unsettled)
     );
     assert!(started.elapsed() < Duration::from_secs(60));
+    // A song waiting on a timer: timers never fire, so it never settles.
+    let timer =
+        "await new Promise((resolve) => setTimeout(resolve, 10));\n$: note(\"c\").s(\"sine\")\n";
+    assert_eq!(
+        host.plan_render(timer, &request(2)),
+        Err(HostError::Unsettled)
+    );
+    assert_eq!(
+        host.query(timer, 0.0, 1.0, Layout::Linear),
+        Err(HostError::Unsettled)
+    );
+    // The host still serves the next request.
+    assert!(host.plan_render(SONG, &request(2)).is_ok());
     match host.plan_render(
         "throw new Error('boom-in-render');\n",
         &window(0, 2, Layout::Linear),

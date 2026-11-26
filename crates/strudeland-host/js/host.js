@@ -12189,10 +12189,11 @@
     const c1 = req.toBar + req.overlapBars;
     if (c1 <= c0)
       throw new RangeError(`empty render window [${c0}, ${c1})`);
+    const contentFrames = renderWindowFrames(req.fromBar, req.toBar, cps, req.sampleRate, timing);
+    const overlapFrames = req.overlapBars ? renderWindowFrames(req.toBar, c1, cps, req.sampleRate, timing) : undefined;
     if (timing) {
       const start = timing.frameAt(c0, req.sampleRate);
       const from = timing.frameAt(req.fromBar, req.sampleRate);
-      const to = timing.frameAt(req.toBar, req.sampleRate);
       const end = timing.frameAt(c1, req.sampleRate);
       const frames2 = end - start + tailFrames;
       checkBufferFrames(frames2, req.mode);
@@ -12203,8 +12204,8 @@
         windowStartFrame: from - start,
         bufferStartSec: start / req.sampleRate,
         frames: frames2,
-        contentFrames: to - from,
-        ...req.overlapBars ? { overlapFrames: end - to } : {}
+        contentFrames,
+        ...overlapFrames === undefined ? {} : { overlapFrames }
       };
     }
     const lookbackSecUsed = (req.fromBar - c0) / cps;
@@ -12216,7 +12217,9 @@
       lookbackSecUsed,
       windowStartFrame: Math.round(lookbackSecUsed * req.sampleRate),
       bufferStartSec: c0 / cps,
-      frames
+      frames,
+      contentFrames,
+      ...overlapFrames === undefined ? {} : { overlapFrames }
     };
   }
   var orbitNumber = (value) => {
@@ -18522,6 +18525,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     };
     return { job, events, stemPairs: layout.pairs };
   }
+  var isRecord = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
   var JOB_FIELDS = [
     "schema",
     "sampleRate",
@@ -18628,33 +18632,28 @@ Defaulting to 2020, but this will stop working in the future.`);
     const errors = dedupeErrors([...schedule.errors, ...chunk.errors, ...captured]);
     return pageJob(planned, { errors, plan, cps: ctx.cps, structure: ctx.structure });
   }
-  async function planJob(rt, request, captured, onPhase) {
-    const { structure, cps, seed, segments, timing } = await evaluateSong(rt, request.code, request.layout, onPhase);
-    return asPlanError(() => {
-      const c1 = request.toBar + request.overlapBars;
-      const query = querySong(rt, segments);
-      const schedule = selectHaps(query(0, c1));
-      const events = eventsFromValues(eventSources(schedule.selected), cps, timing);
-      const lookbackSec = request.lookbackSec === "auto" ? lookbackSeconds(events) : request.lookbackSec;
-      return planWindow({ query, cps, seed, structure, timing }, request, lookbackSec, schedule, captured);
-    });
-  }
   var MAX_RENDER_BARS = 1e5;
-  var BATCH_REUSE_SCHEDULE = true;
   var badRequest = (message) => new PlanJobError("plan", `bad request: ${message}`);
   var isIntIn = (v, min, max) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
-  var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
   function validateRenderRequest(request) {
-    if (!isObject2(request))
+    if (!isRecord(request))
       throw badRequest("not a JSON object");
-    const { includeEvents, length } = request;
+    const { includeEvents, length, chunk } = request;
     if (includeEvents !== undefined && typeof includeEvents !== "boolean") {
       throw badRequest("includeEvents must be true or false");
     }
     if (request.preset !== undefined && (typeof request.preset !== "string" || !["tagged-loop", "intro-loop", "folded-loop", "one-shot"].includes(request.preset)))
       throw badRequest(`unknown preset ${String(request.preset)}`);
-    if (!isObject2(length))
+    if (!isRecord(length))
       throw badRequest("length must be an object");
+    if (chunk !== undefined) {
+      if (!isRecord(chunk))
+        throw badRequest("chunk must be an object");
+      if (length.kind !== "window")
+        throw badRequest("chunk needs a window length");
+      if (request.preset !== undefined)
+        throw badRequest("chunk cannot be combined with a preset");
+    }
     if (request.preset !== undefined && request.preset !== "one-shot" && (length.kind !== "clip" || length.loops !== undefined)) {
       throw new PlanJobError("meta", "loop presets cannot be combined with --section, --length or --loops", "--preset");
     }
@@ -18663,16 +18662,16 @@ Defaulting to 2020, but this will stop working in the future.`);
         if (length.loops !== undefined && !isIntIn(length.loops, 1, MAX_LOOPS)) {
           throw badRequest(`--loops must be an integer from 1 to ${MAX_LOOPS}`);
         }
-        return;
+        break;
       case "section":
         if (typeof length.name !== "string")
           throw badRequest("length.name must be a string");
-        return;
+        break;
       case "length":
         if (!isIntIn(length.bars, 1, MAX_RENDER_BARS)) {
           throw badRequest(`length.bars must be an integer from 1 to ${MAX_RENDER_BARS}`);
         }
-        return;
+        break;
       case "window": {
         const { fromBar, toBar, layout } = length;
         if (!isIntIn(fromBar, 0, MAX_RENDER_BARS) || !isIntIn(toBar, 1, MAX_RENDER_BARS) || fromBar >= toBar) {
@@ -18681,11 +18680,24 @@ Defaulting to 2020, but this will stop working in the future.`);
         if (layout !== "clip" && layout !== "linear") {
           throw badRequest(`unknown layout ${String(layout)}`);
         }
-        return;
+        break;
       }
       default:
         throw badRequest(`unknown length kind ${String(length.kind)}`);
     }
+    if (isRecord(chunk))
+      validateChunk(chunk, length.toBar);
+  }
+  function validateChunk(chunk, toBar) {
+    const { overlapBars, lookbackSec, mode } = chunk;
+    if (!isIntIn(overlapBars, 0, MAX_RENDER_BARS - toBar)) {
+      throw badRequest(`chunk.overlapBars must be an integer from 0 to ${MAX_RENDER_BARS - toBar}`);
+    }
+    if (lookbackSec !== "auto" && !(typeof lookbackSec === "number" && Number.isFinite(lookbackSec) && lookbackSec >= 0)) {
+      throw badRequest("chunk.lookbackSec must be 'auto' or a number of seconds >= 0");
+    }
+    if (mode !== "mix" && mode !== "stems")
+      throw badRequest(`unknown chunk mode ${String(mode)}`);
   }
   function loopsApplied(structure, loops) {
     if (loops === undefined)
@@ -18790,7 +18802,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       errors: full.errors.filter((e) => e.bar === undefined || e.bar < c1)
     };
   }
-  async function planRender(rt, code, request, captured, onPhase, reuseSchedule = BATCH_REUSE_SCHEDULE) {
+  async function planRender(rt, code, request, captured, onPhase) {
     validateRenderRequest(request);
     const loops = request.length.kind === "clip" ? request.length.loops : undefined;
     const song = await evaluateState(rt, code, onPhase);
@@ -18825,9 +18837,10 @@ Defaulting to 2020, but this will stop working in the future.`);
         toBar,
         overlapBars: 0,
         lookbackSec: 0,
-        mode: "mix",
+        mode: request.chunk?.mode ?? "mix",
         sampleRate: SAMPLE_RATE
       };
+      const single = request.chunk;
       const errors = [];
       let lookbackSec = 0;
       function planPass(full2, start, scheduleStart2, keepTail) {
@@ -18840,7 +18853,13 @@ Defaulting to 2020, but this will stop working in the future.`);
         const tailFrames = keepTail ? decay?.tailFrames ?? 0 : 0;
         if (keepTail)
           checkBufferFrames(programFrames + tailFrames, "mix");
-        const plans = renderChunkPlans({
+        const requests = single ? [
+          {
+            ...base,
+            overlapBars: single.overlapBars,
+            lookbackSec: single.lookbackSec === "auto" ? history : single.lookbackSec
+          }
+        ] : renderChunkPlans({
           fromBar: start,
           toBar,
           events: exportEvents ?? events,
@@ -18848,11 +18867,10 @@ Defaulting to 2020, but this will stop working in the future.`);
           overlapBars: 0,
           lookbackSec: history,
           timing
-        });
-        for (const plan of plans) {
-          const req = chunkRequest(base, plan);
-          const chunkLookback = scheduleStart2 === 0 ? plan.lookbackSec : Math.min(plan.lookbackSec, timing ? secondsAt(req.fromBar) - secondsAt(scheduleStart2) : (req.fromBar - scheduleStart2) / cps);
-          const schedule = frozenSchedule || reuseSchedule ? cutSchedule(full2, req.toBar) : selectHaps(query(scheduleStart2, req.toBar));
+        }).map((p) => ({ ...chunkRequest(base, p), lookbackSec: p.lookbackSec }));
+        for (const req of requests) {
+          const chunkLookback = scheduleStart2 === 0 ? req.lookbackSec : Math.min(req.lookbackSec, timing ? secondsAt(req.fromBar) - secondsAt(scheduleStart2) : (req.fromBar - scheduleStart2) / cps);
+          const schedule = cutSchedule(full2, req.toBar + req.overlapBars);
           const { info, json } = planWindow(ctx, req, chunkLookback, schedule, captured, scheduleStart2, req.toBar === toBar ? tailFrames : 0);
           errors.push(...info.errors);
           chunks.push({
@@ -18862,14 +18880,16 @@ Defaulting to 2020, but this will stop working in the future.`);
               fromBar: req.fromBar,
               toBar: req.toBar,
               lookbackSec: chunkLookback
-            }
+            },
+            ...single ? { info: { events: info.events, stemPairs: info.stemPairs } } : {}
           });
         }
         return { chunks, events, tailFrames };
       }
       const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
       const scheduleStart = loopStartBar === fromBar ? fromBar : 0;
-      const full = selectHaps(query(scheduleStart, toBar));
+      const c1 = toBar + (single?.overlapBars ?? 0);
+      const full = selectHaps(query(scheduleStart, c1));
       const opening = planPass(full, fromBar, scheduleStart, !separateRepeat && !!request.preset);
       const repeat = separateRepeat ? planPass({
         selected: onsetsFrom(full.selected, loopStartBar),
@@ -18877,7 +18897,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       }, loopStartBar, loopStartBar, true) : undefined;
       return {
         window: window2,
-        ...timing ? { musicFrames: musicalFrames } : {},
+        musicFrames: musicalFrames,
         cps,
         structure,
         lookbackSec,
@@ -18885,14 +18905,13 @@ Defaulting to 2020, but this will stop working in the future.`);
         ...request.includeEvents === true ? { events: opening.events } : {},
         ...request.preset ? {
           export: {
-            ...loopStartBar === undefined ? {} : { loopStartBar },
-            ...timing && loopStartBar !== undefined ? { loopStartFrame: framesBetween(fromBar, loopStartBar) } : {},
+            ...loopStartBar === undefined ? {} : { loopStartBar, loopStartFrame: framesBetween(fromBar, loopStartBar) },
             tailFrames: opening.tailFrames,
             ...repeat ? {
               repeat: {
                 chunks: repeat.chunks,
                 tailFrames: repeat.tailFrames,
-                ...timing ? { musicFrames: bodyFrames } : {}
+                musicFrames: bodyFrames
               }
             } : {}
           }
@@ -29025,7 +29044,7 @@ Please check with "npm ls @strudel/core".`);
       return value.length <= 1024 && utf8Length(value) <= 1024;
     return scalar(value);
   }
-  function isRecord(value) {
+  function isRecord2(value) {
     if (typeof value !== "object" || value === null)
       return false;
     const proto = Object.getPrototypeOf(value);
@@ -29035,12 +29054,12 @@ Please check with "npm ls @strudel/core".`);
     const fail = (message) => {
       throw new Error(`Instrument '${id2}': ${message}`);
     };
-    if (!isRecord(definition) || definition.schema !== 1)
+    if (!isRecord2(definition) || definition.schema !== 1)
       return fail("expected schema 1");
     if (Object.keys(definition).length !== 3)
       return fail("expected schema, parameters and voices");
     const { parameters, voices } = definition;
-    if (!isRecord(parameters))
+    if (!isRecord2(parameters))
       return fail("parameters must be an object");
     const defaults = new Map;
     const entries = Object.entries(parameters);
@@ -29058,7 +29077,7 @@ Please check with "npm ls @strudel/core".`);
     const names = new Set;
     const kit = voices.length > 1;
     const compiledVoices = voices.map((voice2) => {
-      if (!isRecord(voice2) || typeof voice2.name !== "string" || !IDENTIFIER.test(voice2.name)) {
+      if (!isRecord2(voice2) || typeof voice2.name !== "string" || !IDENTIFIER.test(voice2.name)) {
         return fail("invalid voice name");
       }
       const { name, chain } = voice2;
@@ -29072,7 +29091,7 @@ Please check with "npm ls @strudel/core".`);
       if (chain.length > 64)
         return fail(`voice '${name}' exceeds 64 controls`);
       const controls2 = chain.map((step) => {
-        if (!isRecord(step) || Object.keys(step).length !== 2 || typeof step.control !== "string") {
+        if (!isRecord2(step) || Object.keys(step).length !== 2 || typeof step.control !== "string") {
           return fail(`invalid control in voice '${name}'`);
         }
         const { control: control2, value } = step;
@@ -29081,7 +29100,7 @@ Please check with "npm ls @strudel/core".`);
           return fail(`unknown control '${control2}' in voice '${name}'`);
         if (definitionScalar(value))
           return { set: set2, resolve: () => value };
-        if (isRecord(value) && Object.keys(value).length === 1 && typeof value.param === "string") {
+        if (isRecord2(value) && Object.keys(value).length === 1 && typeof value.param === "string") {
           const { param } = value;
           if (!defaults.has(param))
             return fail(`unknown parameter '${param}' in voice '${name}'`);
@@ -29092,7 +29111,7 @@ Please check with "npm ls @strudel/core".`);
       return { name, controls: controls2 };
     });
     return (options = {}) => {
-      if (!isRecord(options))
+      if (!isRecord2(options))
         return fail("options must be an object");
       const parameters2 = new Map(defaults);
       for (const [name, value] of Object.entries(options)) {
@@ -29122,7 +29141,7 @@ Please check with "npm ls @strudel/core".`);
     };
   }
   function compileNamespace(snapshot) {
-    if (!isRecord(snapshot))
+    if (!isRecord2(snapshot))
       throw new Error("Instrument snapshot must be an object");
     const entries = Object.entries(snapshot);
     if (entries.length > 128)
@@ -31919,8 +31938,8 @@ Please check with "npm ls @strudel/core".`);
     return pat.withHaps((haps) => {
       haps = haps.map((hap2) => {
         let hVal = hap2.value;
-        const isObject3 = typeof hVal === "object";
-        hVal = isObject3 ? hVal : { n: hVal };
+        const isObject2 = typeof hVal === "object";
+        hVal = isObject2 ? hVal : { n: hVal };
         const { note: note2, n: n2, value, ...otherValues } = hVal;
         const noteOrStep = note2 ?? n2 ?? value;
         if (noteOrStep === undefined) {
@@ -31946,7 +31965,7 @@ Please check with "npm ls @strudel/core".`);
             return;
           }
         }
-        hap2.value = isObject3 ? { ...otherValues, note: scaleNote } : scaleNote;
+        hap2.value = isObject2 ? { ...otherValues, note: scaleNote } : scaleNote;
         return hap2.setContext({ ...hap2.context, scale: scale3 });
       });
       return removeUndefineds(haps);
@@ -32962,18 +32981,6 @@ Please check with "npm ls @strudel/core".`);
     }
     return parsed;
   }
-  async function runPlanJob(code, requestJson) {
-    const request = { ...parseRequest(requestJson), code };
-    const captured = [];
-    const restore = captureConsole(captured);
-    try {
-      const { info, json } = await planJob(hostAdapter(hostRuntime()), request, captured, mark);
-      g.__strudelandJob = json;
-      return JSON.stringify(info);
-    } finally {
-      restore();
-    }
-  }
   async function runPlanRender(code, requestJson) {
     const request = parseRequest(requestJson);
     const captured = [];
@@ -33026,9 +33033,6 @@ Please check with "npm ls @strudel/core".`);
     }));
   }
   var strudelandHost = {
-    planJob(code, requestJson) {
-      settle(() => runPlanJob(code, requestJson));
-    },
     planRender(code, requestJson) {
       settle(() => runPlanRender(code, requestJson));
     },

@@ -1,8 +1,6 @@
-//! The requests the host plans. [`RenderRequest`] (one job) is a serde mirror of `RenderRequest`
-//! in `src/lib/render/contract.ts` without `code` (passed separately), `samples` and `mutation`
-//! (the planner does not read them; an unknown field is an error). [`RenderPlanRequest`] (every
-//! chunk of a render) mirrors `RenderPlanInput` in `src/lib/render/contract.ts`, plus the
-//! host-only `timeoutSec`; the bundle validates its length request.
+//! The request the host plans. [`RenderPlanRequest`] (every chunk of a render, or with
+//! [`SingleChunk`] exactly one) mirrors `RenderPlanInput` in `src/lib/render/contract.ts`, plus
+//! the host-only `timeoutSec`; the bundle validates its length request and its chunk.
 
 use std::{fmt, time::Duration};
 
@@ -93,55 +91,14 @@ impl From<LookbackSec> for LookbackRepr {
     }
 }
 
-/// One chunk's planning request (bars are layout bars, the window is `[from_bar, to_bar)`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// One chunk of a window, for the harness (`SingleChunk` in `job-plan.ts`); the bundle
+/// validates its ranges.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RenderRequest {
-    pub layout: Layout,
-    pub from_bar: u32,
-    pub to_bar: u32,
+pub struct SingleChunk {
     pub overlap_bars: u32,
     pub lookback_sec: LookbackSec,
     pub mode: Mode,
-    pub sample_rate: u32,
-}
-
-impl RenderRequest {
-    /// Checks what the types do not: `from_bar < to_bar`, `to_bar + overlap_bars <=`
-    /// [`MAX_BARS`], a finite non-negative lookback and the sample rate.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.from_bar >= self.to_bar {
-            return Err(format!(
-                "fromBar ({}) must be less than toBar ({})",
-                self.from_bar, self.to_bar
-            ));
-        }
-        let end = u64::from(self.to_bar) + u64::from(self.overlap_bars);
-        if end > MAX_BARS {
-            return Err(format!(
-                "toBar + overlapBars ({end}) is more than {MAX_BARS}"
-            ));
-        }
-        if let LookbackSec::Seconds(x) = self.lookback_sec
-            && !(x.is_finite() && x >= 0.0)
-        {
-            return Err(format!(
-                "lookbackSec ({x}) must be \"auto\" or a finite number >= 0"
-            ));
-        }
-        if self.sample_rate != SAMPLE_RATE {
-            return Err(format!(
-                "sampleRate ({}) must be {SAMPLE_RATE}",
-                self.sample_rate
-            ));
-        }
-        Ok(())
-    }
-
-    /// The request as the JSON object the bundle's `planJob` takes.
-    pub fn to_json(&self) -> Result<String, String> {
-        serde_json::to_string(self).map_err(|e| e.to_string())
-    }
 }
 
 /// The longest planning timeout a request may set, in seconds (one day).
@@ -202,6 +159,9 @@ pub struct RenderPlanRequest {
     /// Also return the schedule's events (the dev binary's `--info`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_events: Option<bool>,
+    /// Plan exactly one chunk of a window (the harness's request); production never sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk: Option<SingleChunk>,
     /// Seconds the planning may take; host-side only, never sent to the bundle.
     #[serde(default, skip_serializing)]
     pub timeout_sec: Option<f64>,
@@ -234,8 +194,8 @@ fn instrument_snapshot<'de, D: Deserializer<'de>>(
 
 impl RenderPlanRequest {
     /// Checks what the types do not: the instrument snapshot and a finite timeout in
-    /// `(0, MAX_TIMEOUT_SEC]`. The length request is the bundle's to check (`validateRenderRequest`
-    /// in `job-plan.ts`).
+    /// `(0, MAX_TIMEOUT_SEC]`. The length request and the chunk are the bundle's to check
+    /// (`validateRenderRequest` in `job-plan.ts`).
     pub fn validate(&self) -> Result<(), String> {
         validate_instrument_snapshot(&self.instruments).map_err(|e| e.to_string())?;
         if let Some(t) = self.timeout_sec
@@ -283,28 +243,6 @@ mod tests {
         assert!("song".parse::<Layout>().is_err());
     }
 
-    fn req() -> RenderRequest {
-        RenderRequest {
-            layout: Layout::Linear,
-            from_bar: 0,
-            to_bar: 4,
-            overlap_bars: 0,
-            lookback_sec: LookbackSec::Seconds(0.0),
-            mode: Mode::Mix,
-            sample_rate: 44_100,
-        }
-    }
-
-    #[test]
-    fn a_valid_request_parses_and_validates() {
-        let r: RenderRequest = serde_json::from_str(
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
-        )
-        .unwrap();
-        assert_eq!(r, req());
-        assert_eq!(r.validate(), Ok(()));
-    }
-
     #[test]
     fn auto_and_numeric_lookback_round_trip() {
         for (text, value) in [
@@ -331,109 +269,51 @@ mod tests {
     }
 
     #[test]
-    fn the_json_is_the_bundle_shape() {
-        let mut r = req();
-        r.lookback_sec = LookbackSec::Auto;
-        r.layout = Layout::Clip;
-        r.mode = Mode::Stems;
-        assert_eq!(
-            r.to_json().unwrap(),
-            r#"{"layout":"clip","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":"auto","mode":"stems","sampleRate":44100}"#
-        );
-        assert_eq!(Layout::Clip.as_str(), "clip");
-        assert_eq!(Layout::Linear.as_str(), "linear");
-    }
-
-    #[test]
-    fn from_bar_must_be_before_to_bar() {
-        for (from, to) in [(4, 4), (5, 4), (0, 0)] {
-            let r = RenderRequest {
-                from_bar: from,
-                to_bar: to,
-                ..req()
-            };
-            let e = r.validate().unwrap_err();
-            assert!(e.contains("fromBar"), "{from}..{to}: {e}");
+    fn a_single_chunk_parses_and_serializes_in_the_bundle_shape() {
+        for (text, chunk) in [
+            (
+                r#"{"overlapBars":1,"lookbackSec":"auto","mode":"stems"}"#,
+                SingleChunk {
+                    overlap_bars: 1,
+                    lookback_sec: LookbackSec::Auto,
+                    mode: Mode::Stems,
+                },
+            ),
+            (
+                r#"{"overlapBars":0,"lookbackSec":2.5,"mode":"mix"}"#,
+                SingleChunk {
+                    overlap_bars: 0,
+                    lookback_sec: LookbackSec::Seconds(2.5),
+                    mode: Mode::Mix,
+                },
+            ),
+        ] {
+            assert_eq!(serde_json::from_str::<SingleChunk>(text).unwrap(), chunk);
+            assert_eq!(serde_json::to_string(&chunk).unwrap(), text);
         }
     }
 
     #[test]
-    fn the_window_end_is_bounded() {
-        let at_limit = RenderRequest {
-            to_bar: 99_990,
-            overlap_bars: 10,
-            ..req()
-        };
-        assert_eq!(at_limit.validate(), Ok(()));
-        for (to, overlap) in [(99_990, 11), (100_001, 0), (u32::MAX, u32::MAX)] {
-            let r = RenderRequest {
-                to_bar: to,
-                overlap_bars: overlap,
-                ..req()
-            };
-            let e = r.validate().unwrap_err();
-            assert!(e.contains("toBar + overlapBars"), "{to}+{overlap}: {e}");
+    fn a_single_chunk_with_an_unknown_field_is_rejected() {
+        for text in [
+            r#"{"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
+            r#"{"overlapBars":0,"lookbackSec":0,"mode":"mix","fromBar":0}"#,
+            r#"{"overlap_bars":0,"lookbackSec":0,"mode":"mix"}"#,
+        ] {
+            let e = serde_json::from_str::<SingleChunk>(text)
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("unknown field"), "{text}: {e}");
         }
-    }
-
-    #[test]
-    fn lookback_must_be_finite_and_non_negative() {
-        for x in [f64::NAN, -1.0, -0.000_1, f64::INFINITY, f64::NEG_INFINITY] {
-            let r = RenderRequest {
-                lookback_sec: LookbackSec::Seconds(x),
-                ..req()
-            };
-            let e = r.validate().unwrap_err();
-            assert!(e.contains("lookbackSec"), "{x}: {e}");
-        }
-        for x in [0.0, -0.0, 1e9] {
-            let r = RenderRequest {
-                lookback_sec: LookbackSec::Seconds(x),
-                ..req()
-            };
-            assert_eq!(r.validate(), Ok(()), "{x}");
-        }
-        let auto = RenderRequest {
-            lookback_sec: LookbackSec::Auto,
-            ..req()
-        };
-        assert_eq!(auto.validate(), Ok(()));
-    }
-
-    #[test]
-    fn only_44100_is_accepted() {
-        for rate in [0, 48_000, 44_099, u32::MAX] {
-            let r = RenderRequest {
-                sample_rate: rate,
-                ..req()
-            };
-            let e = r.validate().unwrap_err();
-            assert!(e.contains("sampleRate"), "{rate}: {e}");
-        }
-    }
-
-    #[test]
-    fn malformed_json_is_rejected() {
-        let bad = [
-            // unknown fields: the planner ignores samples and mutation, so carrying them is an error
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100,"samples":{}}"#,
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100,"code":"x"}"#,
-            // missing field
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix"}"#,
-            // negative, fractional and out-of-range bars
-            r#"{"layout":"linear","fromBar":-1,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
-            r#"{"layout":"linear","fromBar":0.5,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
-            r#"{"layout":"linear","fromBar":0,"toBar":4294967296,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
-            // bad enum values
-            r#"{"layout":"song","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mix","sampleRate":44100}"#,
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":0,"mode":"mono","sampleRate":44100}"#,
-            r#"{"layout":"linear","fromBar":0,"toBar":4,"overlapBars":0,"lookbackSec":"soon","mode":"mix","sampleRate":44100}"#,
-            "[]",
-            "",
-        ];
-        for text in bad {
+        for text in [
+            r#"{"overlapBars":-1,"lookbackSec":0,"mode":"mix"}"#,
+            r#"{"overlapBars":0.5,"lookbackSec":0,"mode":"mix"}"#,
+            r#"{"overlapBars":0,"lookbackSec":"soon","mode":"mix"}"#,
+            r#"{"overlapBars":0,"lookbackSec":0,"mode":"mono"}"#,
+            r#"{"overlapBars":0,"lookbackSec":0}"#,
+        ] {
             assert!(
-                serde_json::from_str::<RenderRequest>(text).is_err(),
+                serde_json::from_str::<SingleChunk>(text).is_err(),
                 "accepted: {text}"
             );
         }
@@ -445,6 +325,7 @@ mod tests {
             instruments: Default::default(),
             preset: None,
             include_events: None,
+            chunk: None,
             timeout_sec: None,
         }
     }
@@ -512,6 +393,28 @@ mod tests {
         assert_eq!(
             r.to_json().unwrap(),
             r#"{"length":{"kind":"clip","loops":3},"includeEvents":false}"#
+        );
+        let r = RenderPlanRequest {
+            chunk: Some(SingleChunk {
+                overlap_bars: 1,
+                lookback_sec: LookbackSec::Auto,
+                mode: Mode::Mix,
+            }),
+            timeout_sec: Some(5.0),
+            ..plan_req(LengthRequest::Window {
+                from_bar: 2,
+                to_bar: 6,
+                layout: Layout::Linear,
+            })
+        };
+        let text = r#"{"length":{"kind":"window","fromBar":2,"toBar":6,"layout":"linear"},"chunk":{"overlapBars":1,"lookbackSec":"auto","mode":"mix"}}"#;
+        assert_eq!(r.to_json().unwrap(), text);
+        assert_eq!(
+            serde_json::from_str::<RenderPlanRequest>(text).unwrap(),
+            RenderPlanRequest {
+                timeout_sec: None,
+                ..r
+            }
         );
     }
 

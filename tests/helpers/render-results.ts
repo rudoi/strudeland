@@ -1,6 +1,6 @@
 /** Builds synthetic mix RenderResults for the features and parity tests. */
 
-import type { RenderRequest, RenderResult } from '../../src/lib/render/contract';
+import { windowFrames, type RenderRequest, type RenderResult } from '../../src/lib/render/contract';
 import { noiseSeeded, SR } from './render-signals';
 
 export function mixResult(
@@ -32,6 +32,7 @@ export function mixResult(
     sampleRate: SR,
     frames,
     windowStartFrame: head,
+    contentFrames: windowFrames(request.fromBar, request.toBar, cps, SR),
     lookbackSecUsed: head / SR,
     bufferStartSec: 0,
     cps,
