@@ -1,7 +1,7 @@
 # 0121 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0121-engine-core`.
-- **Plan:** [the proposal](../0121-engine-core.md). It is the contract: Core's interface, the
+- **Plan:** [the proposal](proposal.md). It is the contract: Core's interface, the
   settler seam and its two adapters, the deletions, the bit guard and the decisions.
 - **Evidence:** [reverify.md](reverify.md), with file and line at `3cd77ba`. Read its "What must
   not change (sound)" section before you edit anything.
@@ -12,14 +12,14 @@
 
 The stages run in order. Each one is one commit, green with every gate below.
 
-1. [001-baseline.md](001-baseline.md): the A/B baseline, built **before any edit**, and
+1. [001-baseline.md](proposal.md): the A/B baseline, built **before any edit**, and
    `live_equals_offline` extended to local reverbs.
-2. [002-core-lifecycle.md](002-core-lifecycle.md): `stop_voices`, `set_seed`, `create_orbit`,
+2. [002-core-lifecycle.md](proposal.md): `stop_voices`, `set_seed`, `create_orbit`,
    `frame`, `mix`, `bus_graph`, `push_error`, `drain_errors` and `finish`. Both drivers move onto
    them, and the live tests that read the touched fields are rewritten.
-3. [003-settler.md](003-settler.md): `IrTarget`, `IrSettler`, `SyncSettler`, the worker
+3. [003-settler.md](proposal.md): `IrTarget`, `IrSettler`, `SyncSettler`, the worker
    adapter, `settle_reverbs`/`land_ir`/`cache_ir`, the offline flag, and the deletions.
-4. [004-core-module.md](004-core-module.md): `render_core.rs` with private fields, `Slot`'s
+4. [004-core-module.md](proposal.md): `render_core.rs` with private fields, `Slot`'s
    accessors, the test readers, the `render.rs` test rewrite, and the README and AGENTS.md.
 
 ## Rules for every stage

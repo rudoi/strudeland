@@ -19,7 +19,7 @@ path and `strudeland-live` are untouched.
 
 ## Background
 
-The [re-verification](0121-engine-core/reverify.md) has the evidence, with file and line at
+The [re-verification](reverify.md) has the evidence, with file and line at
 `3cd77ba`. In short:
 
 - **Core has 18 `pub(crate)` fields** (`render.rs:130-167`), and `Slot` (`:87-108`) is open too.
