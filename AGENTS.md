@@ -400,6 +400,10 @@ the V8 download the host brings.
   checked by `tests/licence.rs`; LAME (LGPL) is statically linked into the AGPL binary, so keep
   the build instructions public. Renders are byte-reproducible (fixed dither and stream serials):
   a test that compares bytes breaks when an encoder crate is bumped.
+  `crates/strudeland-render/tests/golden/finish.json` pins finished bytes, summaries, warnings
+  and progress; it is written only by `STRUDELAND_WRITE_FINISH_GOLDEN=1 cargo test -p
+  strudeland-render characterization` (on macOS aarch64, where it is judged) after an encoder
+  crate bump, and `.prettierignore` keeps prettier off it.
 - Voice memos: only `src/lib/recording/api.ts` calls Tauri for recording; the frontend reads WAV
   bytes only through `recording_read`. A take is finalized into the project captured at start.
   The new-project `.gitignore` covers `/recordings/*` and keeps `recordings/.gitkeep` addable.

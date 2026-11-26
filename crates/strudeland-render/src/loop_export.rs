@@ -52,16 +52,32 @@ pub fn render_export(
     preset: ExportPreset,
     progress: &dyn Fn(Progress),
 ) -> Result<Vec<ExportFile>, RenderError> {
+    finish_export(
+        render_audio_for(code, opts, AudioMode::Preset(preset), progress)?,
+        preset,
+        &opts.output,
+        progress,
+    )
+}
+
+/// Finishes rendered export audio: trims a one-shot's silent post-roll, or splices the loop and
+/// levels every file with one static gain.
+pub(crate) fn finish_export(
+    pipeline: PipelineAudio,
+    preset: ExportPreset,
+    out: &OutputOptions,
+    progress: &dyn Fn(Progress),
+) -> Result<Vec<ExportFile>, RenderError> {
     let PipelineAudio {
         mut audio,
         loop_audio,
         ..
-    } = render_audio_for(code, opts, AudioMode::Preset(preset), progress)?;
+    } = pipeline;
     if preset == ExportPreset::OneShot {
         trim_silent_post_roll(&mut audio)?;
         return Ok(vec![ExportFile {
             role: ExportRole::Single,
-            output: finish_file(&audio, &opts.output, progress, true)?,
+            output: finish_file(&audio, out, progress, true)?,
             loop_points: None,
         }]);
     }
@@ -147,7 +163,7 @@ pub fn render_export(
     };
     let mut summary = audio.summary;
     summary.timings.level_ms = ms_since(measure_start);
-    finish_loop(parts, summary, &opts.output, program, loop_peak, progress)
+    finish_loop(parts, summary, out, program, loop_peak, progress)
 }
 
 fn render_error(message: &str) -> RenderError {

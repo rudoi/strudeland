@@ -4,12 +4,12 @@
 
 use std::path::PathBuf;
 
-use strudeland_host::{Layout, PlannedWindow};
+use strudeland_host::{Layout, Meter, PlannedWindow, Structure};
 
 use crate::export::{Error, Pipeline, PublishStep, publish_file};
 use crate::{
     ExportFile, ExportPreset, Format, Progress, RenderError, RenderOptions, RenderOutput,
-    StemExport, StemGrouping, StemTarget, Summary, Timings,
+    RenderedAudio, StemExport, StemGrouping, StemTarget, Summary, Timings,
 };
 
 #[derive(Debug, Default)]
@@ -133,5 +133,50 @@ pub fn output(bytes: &[u8], warnings: &[&str]) -> RenderOutput {
     RenderOutput {
         bytes: bytes.to_vec(),
         summary: summary(warnings),
+    }
+}
+
+/// An empty song structure: 120 bpm in 4/4 (cps 0.5), no sections, one loop and zero bars.
+pub fn structure() -> Structure {
+    Structure {
+        bpm: 120.0,
+        meter: Meter { num: 4, den: 4 },
+        beats_per_bar: 4.0,
+        cps: 0.5,
+        sections: vec![],
+        loop_index: None,
+        loop_range: None,
+        meter_changes: None,
+        loops: 1,
+        total_bars: 0,
+        intro_end: 0,
+        end_of_song: None,
+        clip_bars: 0,
+        clip_seconds: 0.0,
+    }
+}
+
+/// Joined audio for `channels` at `sample_rate`, as [`render_audio`](crate::render_audio) returns
+/// it: one linear `0..1` window at cps 0.5 ([`structure`]), no chunks, events or plan errors, and
+/// every frame musical. The summary is [`summary`]`(&[])` without a format or size.
+pub fn audio(channels: Vec<Vec<f32>>, sample_rate: u32) -> RenderedAudio {
+    let frames = channels.first().map_or(0, Vec::len) as u64;
+    RenderedAudio {
+        channels,
+        music_frames: frames,
+        cps: 0.5,
+        structure: structure(),
+        lookback_sec: 0.0,
+        chunks: vec![],
+        events: None,
+        plan_errors: vec![],
+        summary: Summary {
+            format: None,
+            bytes: None,
+            frames,
+            seconds: frames as f64 / f64::from(sample_rate),
+            sample_rate,
+            ..summary(&[])
+        },
     }
 }

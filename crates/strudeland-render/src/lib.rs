@@ -19,6 +19,8 @@
 )]
 
 pub mod bench;
+#[cfg(test)]
+mod characterization;
 pub mod encode;
 mod error;
 pub mod export;
