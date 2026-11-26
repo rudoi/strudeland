@@ -559,6 +559,9 @@ test('getCps reads the live clock', async () => {
   expect(core.getCps()).toBeCloseTo(4 / 3);
   const changed = MIXED_SONG.replace("meter: '4/4', sections", "meter: '2/4', sections");
   expect(await rt.evaluate(changed, { cps: 1.5, meter: { num: 2, den: 4 } })).toBe(true);
+  // The edit is still in the lookahead: the runtime's clock port walks back to the old tempo.
+  expect(core.getCps()).toBeCloseTo(4 / 3);
+  expect(rt.drawingScheduler.now()).toBeCloseTo(rt.position().cycle);
   tick(3);
   expect(core.getCps()).toBeCloseTo(2);
   rt.stop();
