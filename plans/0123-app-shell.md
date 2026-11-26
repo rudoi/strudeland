@@ -45,7 +45,7 @@ In:
 2. `src/lib/shell-ports.ts`: the Tauri side of the two ports. It only re-exposes the four
    existing adapter functions, so the "only X calls Tauri" rules hold unchanged.
 3. `tests/helpers/fake-shell-ports.ts` and `tests/shell.test.ts`; one test in
-   `tests/ipc-adapters.test.ts` that the Tauri ports are the existing adapter functions.
+   `tests/ipc-adapters.test.ts` that the Tauri ports call through to the existing adapters.
 4. `App.svelte` moved onto the shell, with nothing left behind.
 5. Docs: an `AGENTS.md` layout line, the "Application Quit" line, and a `GLOSSARY.md` term.
 
@@ -71,7 +71,7 @@ Out:
 
 ```mermaid
 flowchart TB
-  APP["App.svelte<br/>renders $shell · tick + focus · keydown parse · help"] -->|verbs| S
+  APP["App.svelte<br/>renders $shellStore · tick + focus · keydown parse · help"] -->|verbs| S
   WEL["Welcome · SongList · StatusBar<br/>(callbacks from App)"] --> APP
   S["shell.ts<br/>store: ready · quitting · modal<br/>verbs: start · menu · shortcut · projectAction · openRecent ·<br/>openSettings · openInstruments · close · canCloseWindow · onQuit · destroy<br/>allowed(action, gate)"]
   S --> SES["session (app.session)<br/>init · store · guardShutdown · instrumentSelection · activeText"]
@@ -133,7 +133,14 @@ interface MenuPort {
 wrapping logic.
 
 `createShell` subscribes to `session.store` at once and keeps the latest snapshot. Every gate
-reads the snapshot and `projectActions` at call time.
+reads the snapshot and `projectActions` at call time. A Svelte store calls its subscriber
+synchronously inside `subscribe`, so `createShell` initialises every field it holds (the state,
+`stopped`, the menu-attached flag, `lastSent`, the pending-sync flag) before it subscribes; the
+first callback then runs against complete state.
+
+`createShell` only constructs. It never calls `session.init`; `start()` is the one caller, so the
+close hook `session.init` registers once (`closeHookRegistered`, `session.ts:509`, checked at
+`:1307`) is the one carrying `canCloseWindow`.
 
 ### State
 
@@ -146,16 +153,21 @@ type Modal =
 interface ShellState { ready: boolean; quitting: boolean; modal: Modal | null }
 ```
 
-- `shell.store` is a readable store of `ShellState`. `shell.quitting` is a synchronous getter
-  over the same local value, read inside closures (`canCloseWindow`, the gate), as the plain
-  `let` is today.
+- `shell.store` is a readable store of `ShellState`. The shell itself is not a store (no
+  `subscribe` on `Shell`): App binds `const shellStore = shell.store` and reads `$shellStore`
+  everywhere. `shell.quitting` is a synchronous getter over the same local value, read inside
+  closures (`canCloseWindow`, the gate), as the plain `let` is today; it is true as soon as
+  `onQuit` starts, before any await.
 - `ready` is today's `projectsReady`: set once `session.init` resolved, the shell was not
   stopped, and `session.store.available` is true. It never goes back to false.
 - One `modal` slot replaces three variables. See Decisions for why this is behaviour-identical.
 
 ### The gate table
 
-`allowed(action: ShellAction, g: Gate): boolean`, exported and pure.
+`allowed(action: ShellAction, gate: Gate): boolean`, exported and pure. Inside `createShell` a
+private `gate(): Gate` builds the current gate from the snapshot, the local state and
+`projectActions`, and a private wrapper `const can = (a: ShellAction) => allowed(a, gate())` is
+what the verbs call. `allowed` always takes two arguments.
 
 ```ts
 type ShellAction =
@@ -187,8 +199,8 @@ shutdown side; the rows are the place to change if the user decides).
 ### Verbs
 
 1. **`start(): () => void`.** Today's `onMount` body without help:
-   - `session.init(canCloseWindow)`, then, unless stopped or the snapshot is not `available`:
-     `ready = true`;
+   - `session.init(canCloseWindow)` (the only call to `init`), then, unless stopped or the
+     snapshot is not `available`: `ready = true`;
    - `await menu.listen((a) => shell.menu(a))`; if stopped meanwhile, call the unlisten and
      return; else keep it and mark the menu attached, then send the current Export Audio
      availability (below);
@@ -196,29 +208,34 @@ shutdown side; the rows are the place to change if the user decides).
      stopped meanwhile, call the unlisten, else keep it;
    - the chain ends in `.catch(console.error)`.
 
-   The returned stop sets stopped and calls whichever unlisten functions it holds. It is
-   idempotent.
+   The order is today's: `ready` is true before `menu.listen` is called, and `menu.listen` has
+   resolved before `quit.listen` is called. The returned stop sets stopped and calls whichever
+   unlisten functions it holds. It is idempotent.
 2. **`menu(action: ProjectMenuAction)`.** `settings` → `openSettings(activeElement())`;
-   `exportAudio` → if `allowed('exportAudio')`, `captureExportSong(snapshot,
+   `exportAudio` → if `can('exportAudio')`, `captureExportSong(snapshot,
    session.activeText())` and, when it returns a song, `modal = { kind: 'export', song,
    controller: createExportDialog(song, exportApi) }`; anything else → `projectAction(action)`.
 3. **`shortcut(kind: AppShortcut): boolean`.** `openProject` → `projectAction('openProject')`,
-   returns false. `newSong` → returns `allowed('newSong')`; App sets `newSongOpen = true` on
+   returns false. `newSong` → returns `can('newSong')`; App sets `newSongOpen = true` on
    true. App still `preventDefault`s and `stopPropagation`s every matched key first.
-4. **`projectAction(action: ProjectAction)`.** If allowed, `void projectActions.run(action)`.
+4. **`projectAction(action: ProjectAction)`.** If `can(action)`, `void projectActions.run(action)`.
    The menu, the shortcut and Welcome's new and open buttons all come here.
 5. **`openRecent(path)`.** `void projectActions.openRecent(path)`, ungated (the table's row).
-6. **`openSettings(opener: HTMLElement | null)`.** If allowed, `modal = settings`. StatusBar's
+6. **`openSettings(opener: HTMLElement | null)`.** If `can('settings')`, `modal = settings`. StatusBar's
    button passes itself; the menu passes `activeElement()`. App's `activeElement` is
    `document.activeElement instanceof HTMLElement ? document.activeElement : null`, today's check.
-7. **`openInstruments(opener: HTMLButtonElement)`.** If allowed, `modal = { kind:
+7. **`openInstruments(opener: HTMLButtonElement)`.** If `can('instruments')`, `modal = { kind:
    'instruments', root: snapshot.project.root, selection: session.instrumentSelection(),
    opener }`.
 8. **`close(kind, applied = false): FocusTarget`**, where `FocusTarget = 'editor' |
    HTMLElement | null`. If `modal?.kind !== kind`, returns null and does nothing. Otherwise
    `modal = null` and returns: settings → its opener; instruments → `'editor'` if applied, else
-   its opener; export → null (ExportAudio restores focus itself). App keeps today's two close
-   handlers, each reading the target from `close`:
+   its opener; export → null (ExportAudio restores focus itself in its unmount cleanup, to the
+   element focused before it opened, which runs after `close('export')` has returned null). The
+   mismatch null is unreachable today: InstrumentBrowser calls `onclose` only from its own
+   buttons and Escape while mounted, and its `onclose(true)` after an apply is guarded by
+   `mounted`, so a browser unmounted by the root-change drop never calls it. App keeps today's
+   two close handlers, each reading the target from `close`:
    - settings: `await tick()`, then focus the opener if `isConnected`;
    - instruments: `void tick().then(...)`, then `app.focusEditor()` for `'editor'`, else
      `opener?.focus()`;
@@ -237,7 +254,8 @@ shutdown side; the rows are the place to change if the user decides).
 
     The store's `quitting` changes with the local value.
 11. **`destroy()`.** Calls the stop if `start` ran, and releases the `session.store`
-    subscription. Idempotent. It does not dispose an export controller.
+    subscription. Idempotent: a second call does nothing and throws nothing. It does not dispose
+    an export controller.
 
 ### Subscriptions
 
@@ -246,23 +264,34 @@ The `session.store` subscription does two things after updating the snapshot:
 - **Instruments drop.** If the modal is instruments and its `root` is not
   `snapshot.project?.root`, `modal = null`, with no focus move (today's effect :62-64).
 - **Export Audio sync.** `exportAvailable = ready && project !== null && active !== null`.
-  Once the menu is attached, the shell sends it on attach and then whenever the value differs
-  from the last one sent, with `.catch(console.error)`. Before the menu attaches nothing is
-  sent. `ready` changing also re-evaluates it (it is set before the attach, so it sends
-  nothing by itself).
+  Before the menu attaches nothing is sent. A store change, `ready` changing and the attach
+  each call a private `scheduleSync()`, which queues one `queueMicrotask` if none is pending.
+  The microtask clears the pending flag and, if the menu is attached and `exportAvailable`
+  differs from `lastSent`, records `lastSent = exportAvailable` and then calls
+  `menu.setExportAvailable(lastSent).catch(console.error)`.
 
-  Today's `$effect` is batched to the next flush; the subscription is synchronous. A flip and
-  back inside one flush could now send two calls where today it sends none. The native item
-  ends in the same state, so nothing is visible.
+  This matches today's `$effect`, which Svelte flushes in a microtask: a flip and back inside
+  one task compares equal at the flush and sends nothing, so call counts stay identical.
+  `lastSent` starts `undefined`, so the first microtask after the attach always sends, `false`
+  included (today the effect runs once when `nativeMenuReady` turns true, whatever the value).
+  `lastSent` is recorded before the send, so a rejected send is logged and not retried, as
+  today's effect does not retry.
 
 ### App.svelte after the move
 
 - Creates `projectActions` as today, then `const shell = createShell({ session, projectActions,
   exportApi, quit: quitPort, menu: menuPort, activeElement })`.
-- Renders from `$shell`: `ready={$shell.ready}` on Welcome; the three dialogs from
-  `$shell.modal?.kind`; the instruments render guard `root === $store.project?.root` stays.
+- Binds `const shellStore = shell.store` and renders from `$shellStore`: `ready={$shellStore.ready}`
+  on Welcome. For the dialogs it adds `const modal = $derived($shellStore.modal)` and renders
+  `{#if modal?.kind === 'settings'}`, `'instruments'` and `'export'` blocks, so svelte-check
+  narrows the plain identifier `modal` to read `modal.song`, `modal.root` and the rest (a store
+  read like `$shellStore.modal` is not narrowed across the block). The instruments render guard
+  stays: `{#if modal?.kind === 'instruments' && modal.root === $store.project?.root}`.
 - `onMount`: `startHelp`, `const stopShell = shell.start()`; cleanup: `stopShell()`,
-  `stopHelp()`, `projectActions.destroy()`.
+  `stopHelp()`, `projectActions.destroy()`. Today's cleanup sets `destroyed`, stops help,
+  destroys the project actions and only then unlistens; `stopShell()` first moves the stopped
+  flag and the unlistens ahead of the other two. That is intentional (nothing can be handled
+  between them, and none of the three reads another) and invisible.
 - `onDestroy` and `import.meta.hot?.dispose`: `shell.destroy()`, then `app.destroy()`.
 - Removed: `projectsReady`, `nativeMenuReady`, `quitting`, `settings`, `instruments`,
   `exportDialog`, `exportAvailable`, the two effects, `actionBlocked`, `runProjectAction`,
@@ -274,8 +303,12 @@ The `session.store` subscription does two things after updating the snapshot:
 New `tests/shell.test.ts`. Existing tests (`export-dialog`, `session`, `project-actions`,
 `app`) are unchanged.
 
-**Harness.** A real session as `control-handler.test.ts:56-65` builds it (happy-dom,
-`fakeProjectApi`, `stubRuntime`, `isTauri: () => true`); `createProjectActions` over a mock
+**Harness.** A real session constructed as `control-handler.test.ts:54-63` does it (happy-dom,
+`fakeProjectApi`, `stubRuntime`, `isTauri: () => true`, `attachView`), but **without** its
+`await session.init()` at `:64`: `init` registers the close hook only once
+(`closeHookRegistered`), so a harness that called it first would leave `shell.start()`'s
+`init(canCloseWindow)` without a hook carrying the predicate. Only `shell.start()` calls `init`.
+`createProjectActions` over a mock
 `ProjectSession` (as `project-actions.test.ts`) so calls are observable; a mock `ExportApi` (as
 `export-dialog.test.ts:35-42`) with a held `start`; the fake ports.
 
@@ -309,20 +342,47 @@ Cases:
    handed it to `init`.
 8. **The gate table.** For every action, a base gate where it is allowed (or the closest one
    for `instruments`), then each of quitting, modal, busy, not ready, no project, no active,
-   naming flipped alone, against the table above. Plus the verbs: each action through its verb
-   with each modal kind open (settings, instruments, export) is refused or acts per its row.
+   naming flipped alone, against the table above. Stated explicitly: `openRecent` is allowed
+   in every gate state, and `settings` is allowed while not ready. Plus the verbs: each action
+   through its verb with each modal kind open (settings, instruments, export) is refused or
+   acts per its row.
 9. **stop() before the listeners resolve unregisters them.** Hold `menu.listen`, stop,
    release: `menu.unlisten` logged, `quit.listen` never called. Same with `quit.listen` held:
-   `quit.unlisten` logged. Stop before `init` resolves: no listen at all, `ready` stays false.
-   An emitted Quit after stop is not handled.
+   `quit.unlisten` logged. An emitted Quit after stop is not handled. Stop before `init`
+   resolves uses a stub `ShellSession` (the `Pick` type: a writable store with `available:
+   true`, an `init` that returns a held deferred, the other three members unused): stop, then
+   release `init`: no listen at all, `ready` stays false. The stub, not a hold in
+   `fakeProjectApi`, because the real session's `init` awaits several fake calls and the case
+   only needs `init` itself held.
 10. **Instruments modal dropped on root change.** Open instruments, open another project: the
     modal is null. A store change with the same root keeps it.
 11. **close** returns the opener for settings, `'editor'` or the opener for instruments, null
     for export and for a kind that is not open (and leaves the open modal alone).
 12. **openInstruments with another modal open** does nothing (see Decisions).
+13. **Shortcuts.** `shortcut('openProject')` calls `run('openProject')` when allowed and
+    nothing when blocked (quitting, a modal), returning false both times.
+    `shortcut('newSong')` is true only with a project open and no NewProject naming; busy and
+    not ready do not block it.
+14. **The menu's settings opener** is what `activeElement()` returns at the menu event (an
+    element, then null); the shell does not read the DOM itself. App's `activeElement` keeps
+    today's `instanceof HTMLElement` check.
+15. **`quitting` is observable synchronously.** Right after calling `onQuit(1)` (not awaited)
+    with the unsaved prompt held, `shell.quitting` and the store's `quitting` are true; after
+    the prompt answers and the reply settles, both are false.
+16. **start ordering.** With the ports' log and a `ready` read inside the fake `menu.listen`:
+    `ready` is true when `menu.listen` is called, and `menu.listen` is logged (and resolved)
+    before `quit.listen`.
+17. **double destroy** is safe: a second `destroy()` throws nothing, logs no second unlisten,
+    and a later store change sends nothing.
 
-`tests/ipc-adapters.test.ts` gains one test: `quitPort` and `menuPort` call exactly the four
-existing functions (`toBe` identity, or one call each through the mocked core).
+`tests/ipc-adapters.test.ts` gains one test that the ports call through to the adapters (not
+identity). It dynamic-imports `shell-ports.ts` after the file's existing `mockTauriCore` and
+`mockTauriModule('@tauri-apps/api/event', …)` mocks, then asserts: `quitPort.reply(3, true)`
+records `{ cmd: 'app_quit_reply', args: { id: 3, approved: true } }`;
+`menuPort.setExportAvailable(true)` records `export_audio_set_available` with `{ available:
+true }`; `quitPort.listen` and `menuPort.listen` register through the mocked `listen` (the
+unlisten each returns bumps the file's `unlistened` counter). The "only X calls Tauri" rule for
+the shell has no test of its own; the stage's `rg` validations are its only guard.
 
 ## What must not change
 
@@ -360,9 +420,12 @@ The manual smoke list in the stage file checks the visible half on a real build.
 
 - **One modal slot.** Today `instruments`, `settings` and `exportDialog` are three variables.
   Settings and export are gated on the other two. Instruments is not gated, but its button is in
-  `SongList`, and every dialog (Settings, InstrumentBrowser, ExportAudio, NewProject) opens with
-  `showModal()`, which makes the rest of the page inert. So two dialogs are never open at once
-  today. In the shell `openInstruments` does nothing while another modal is open, rather than
+  `SongList`, and each of the three dialogs calls `showModal()` in its `onMount`
+  (`Settings.svelte:26`, `InstrumentBrowser.svelte:66`, `ExportAudio.svelte:85`), which makes
+  the rest of the page inert. So two dialogs are never open at once today. NewProject also
+  opens with `showModal()` (`NewProject.svelte:25`), but it is not in the slot: it follows
+  `projectActions.folder`, and today `actionBlocked` does not read it (only the `newSong`
+  shortcut checks naming), so it stays outside the slot and outside `modal` in the gate. In the shell `openInstruments` does nothing while another modal is open, rather than
   replacing it (replacing an export modal would orphan a running controller). Unreachable, so
   not visible; pinned by test 12.
 - **Focus on a disconnected opener.** Kept per kind in App exactly as today (settings checks

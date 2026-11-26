@@ -35,6 +35,9 @@ second stage deletes. See the proposal's "Rejected".
   `export/api.ts` and `export/controller.ts` are not edited.
 - **"Only X calls Tauri" holds.** `shell-ports.ts` imports the four existing adapter functions
   and calls nothing else. `shell.ts` imports Tauri types only through `import type`.
+- **Only `shell.start()` calls `session.init`.** `init` registers the window-close hook once,
+  so the test harness builds the real session without calling `init` (unlike
+  `control-handler.test.ts:64`), or `start()`'s `canCloseWindow` would never reach the hook.
 - **Replace tests, don't layer them.** The existing `export-dialog`, `session`,
   `project-actions` and `app` tests stay unchanged; the new behaviour is tested in
   `tests/shell.test.ts`.

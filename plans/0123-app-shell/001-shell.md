@@ -23,8 +23,8 @@ spec; this file is the order of work.
 | `src/lib/shell.ts` | new: `createShell`, `Shell`, `ShellState`, `Modal`, `FocusTarget`, `ShellAction`, `Gate`, `allowed`, `QuitPort`, `MenuPort`, `ShellSession` |
 | `src/lib/shell-ports.ts` | new: `quitPort`, `menuPort` over the four existing adapter functions |
 | `tests/helpers/fake-shell-ports.ts` | new: `fakeShellPorts()` |
-| `tests/shell.test.ts` | new: the twelve cases |
-| `tests/ipc-adapters.test.ts` | one test: the Tauri ports are the existing functions |
+| `tests/shell.test.ts` | new: the seventeen cases |
+| `tests/ipc-adapters.test.ts` | one test: the Tauri ports call through to the existing adapters |
 | `src/App.svelte` | moved onto the shell |
 | `AGENTS.md` | layout line for the shell and its ports; the "Application Quit" line names the shell |
 | `GLOSSARY.md` | "App shell" under "App boundary" |
@@ -33,23 +33,32 @@ spec; this file is the order of work.
 
 1. **Ports and the fake first.** Write the `QuitPort` and `MenuPort` types in `shell.ts`,
    `shell-ports.ts`, and `fake-shell-ports.ts` with its log, emitters, holds and `replyFails`
-   (proposal, "Tests"). Add the `ipc-adapters.test.ts` case.
+   (proposal, "Tests"). Add the `ipc-adapters.test.ts` case: dynamic-import `shell-ports.ts`
+   after the file's existing mocks and assert the calls go through (`app_quit_reply` with `{ id:
+   3, approved: true }`, `export_audio_set_available`, both listens through the mocked `listen`),
+   not identity.
 2. **`allowed` and its table test (case 8, the pure half).** Write the gate exactly as the
    proposal's table, with the comment that the row differences are deliberate and filed for
    review (#152 may change them; the comment names no task id, only that they are today's
    behaviour on purpose). Test every action against a base gate with each condition flipped
-   alone.
+   alone. Inside `createShell` the verbs call the private `const can = (a) => allowed(a,
+   gate())`; `allowed` itself always takes the gate.
 3. **The store, the modal verbs and `close`.** `openSettings`, `openInstruments`, `menu`'s
    export branch, `close`, the instruments drop in the `session.store` subscription. Cases
    10, 11, 12 and the verb half of 8.
 4. **`canCloseWindow` and `onQuit`.** Copy `onAppQuit` (`App.svelte:113-133`) line for line
-   onto the ports, with the store updated alongside the local `quitting`. Cases 1-5 and 7.
+   onto the ports, with the store updated alongside the local `quitting`. Cases 1-5, 7 and 15.
 5. **`start`, the menu sync and `destroy`.** Copy the `onMount` chain (`App.svelte:136-167`)
-   without help and without `projectActions.destroy`. The sync sends on attach, then on change.
-   Cases 6 and 9.
+   without help and without `projectActions.destroy`. `start` is the only `session.init` call;
+   the test harness builds the session without calling `init` (proposal, "Tests"). The sync is
+   batched with `queueMicrotask`, with `lastSent` starting `undefined` and recorded before the
+   send; every field is initialised before the `session.store` subscription. Cases 6, 9, 16
+   and 17.
 6. **Move `App.svelte`.** As the proposal's "App.svelte after the move": build the shell,
-   render from `$shell`, keep the two close handlers' tick and focus code, call
-   `shell.shortcut` from `onKeydown` after the `preventDefault` and `stopPropagation`, route
+   bind `const shellStore = shell.store` and render from `$shellStore` (dialogs through `const
+   modal = $derived($shellStore.modal)`), keep the two close handlers' tick and focus code, call
+   `shell.shortcut` from `onKeydown` after the `preventDefault` and `stopPropagation` (cases 13
+   and 14 cover the shortcut and menu-opener halves in the shell), route
    Welcome's `onnew`, `onopen` and `onrecent` and StatusBar's `onsettings` and SongList's
    `oninstruments` through the shell. Delete every variable, effect and function the proposal
    lists as removed. `rg 'actionBlocked|projectsReady|nativeMenuReady|onAppQuit' src` is empty
@@ -69,7 +78,7 @@ spec; this file is the order of work.
      ```md
      **App shell**
 
-     What the window does around the editor: which one dialog is open (settings, the
+     What the window does around the editor: which one modal is open (settings, the
      instrument browser, export), whether a Quit is being decided, and whether a menu item,
      shortcut or welcome button acts now. An item that cannot act is ignored, not disabled;
      only Export Audio is greyed out, until a song is open.
@@ -81,7 +90,7 @@ spec; this file is the order of work.
 
 ## Tests
 
-The twelve cases in the proposal's "Tests", in `tests/shell.test.ts`, plus the
+The seventeen cases in the proposal's "Tests", in `tests/shell.test.ts`, plus the
 `ipc-adapters.test.ts` port test. Every case states its expected log or state, not just "no
 throw". No existing test changes.
 
@@ -91,7 +100,8 @@ throw". No existing test changes.
 - `git diff --stat f7861f5 -- src-tauri crates src/lib/app.ts src/lib/play-arbiter.ts
   src/components src/lib/project src/lib/export src/lib/app-quit.ts` is empty.
 - `rg -n "app-quit|onProjectMenu|setExportMenuAvailable" src` shows only the defining modules
-  and `src/lib/shell-ports.ts`.
+  and `src/lib/shell-ports.ts`. These `rg` checks are the only guard of the "only X calls Tauri"
+  rule for the shell; no test checks it.
 - `rg -n "@tauri-apps" src/lib/shell.ts` is empty, and `shell.ts`'s imports from
   `project/api.ts` are `import type`.
 
