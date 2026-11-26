@@ -1,5 +1,5 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test';
 
 GlobalRegistrator.register();
 afterAll(() => GlobalRegistrator.unregister());
@@ -30,6 +30,22 @@ const result = {
   files: [{ role: 'single', path: audio.path, godotLoopOffset: null }],
   warnings: [],
 } satisfies ExportResult;
+
+/** Every setup() of the current test, torn down after it. */
+const harnesses: {
+  shell: { destroy(): void };
+  projectActions: { destroy(): void };
+  view: { destroy(): void };
+}[] = [];
+afterEach(async () => {
+  for (const h of harnesses.splice(0)) {
+    h.shell.destroy();
+    h.projectActions.destroy();
+    h.view.destroy();
+  }
+  // Let any sync microtask a destroyed shell had queued run (it sends nothing once stopped).
+  await flush();
+});
 
 /** A real session (not yet initialised: only `shell.start()` calls `init`), the fake ports. */
 function setup(opts: { tauri?: boolean } = {}) {
@@ -86,7 +102,7 @@ function setup(opts: { tauri?: boolean } = {}) {
     if (modal?.kind !== 'export') throw new Error('export did not open');
     return modal.controller;
   };
-  return {
+  const h = {
     api,
     fake,
     session,
@@ -102,6 +118,8 @@ function setup(opts: { tauri?: boolean } = {}) {
     openExport,
     focus: (el: HTMLElement | null) => void (focused = el),
   };
+  harnesses.push(h);
+  return h;
 }
 
 /** Started, the last project open with its song active, both listeners attached. */
@@ -467,7 +485,7 @@ describe('modals', () => {
     const opener = button();
     h.shell.openInstruments(opener);
     const open = h.st().modal;
-    expect(open).toMatchObject({ kind: 'instruments', root: '/p', opener });
+    expect(open).toMatchObject({ kind: 'instruments', root: '/p', restore: opener });
     h.type('x');
     await flush();
     expect(h.st().modal).toBe(open);
@@ -477,6 +495,22 @@ describe('modals', () => {
     await flush();
     expect(get(h.session.store).project?.root).toBe('/q');
     expect(h.st().modal).toBeNull();
+  });
+
+  test('10: an applied instruments close focuses the editor even after a root change dropped it', async () => {
+    const h = await started();
+    h.shell.openInstruments(button());
+    h.fake.confirm.push('discard');
+    await h.session.openRecent('/q');
+    await flush();
+    expect(h.st().modal).toBeNull();
+    expect(h.shell.close('instruments', true)).toBe('editor');
+    expect(h.shell.close('instruments')).toBeNull();
+    expect(h.st().modal).toBeNull();
+
+    h.shell.openSettings(null);
+    expect(h.shell.close('instruments', true)).toBe('editor');
+    expect(h.st().modal?.kind).toBe('settings');
   });
 
   test('11: close returns where focus goes, and ignores a kind that is not open', async () => {
@@ -523,11 +557,11 @@ describe('modals', () => {
     const el = button();
     h.focus(el);
     h.ports.emitMenu('settings');
-    expect(h.st().modal).toEqual({ kind: 'settings', opener: el, restore: el });
+    expect(h.st().modal).toEqual({ kind: 'settings', restore: el });
     h.shell.close('settings');
     h.focus(null);
     h.ports.emitMenu('settings');
-    expect(h.st().modal).toEqual({ kind: 'settings', opener: null, restore: null });
+    expect(h.st().modal).toEqual({ kind: 'settings', restore: null });
   });
 });
 

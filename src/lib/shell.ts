@@ -50,12 +50,11 @@ type ShellProjectActions = Pick<
  * where focus goes when it closes without applying (export restores focus itself on unmount).
  */
 export type Modal =
-  | { kind: 'settings'; opener: HTMLElement | null; restore: HTMLElement | null }
+  | { kind: 'settings'; restore: HTMLElement | null }
   | {
       kind: 'instruments';
       root: string;
       selection: ReturnType<Session['instrumentSelection']>;
-      opener: HTMLButtonElement;
       restore: HTMLButtonElement;
     }
   | {
@@ -97,9 +96,12 @@ export interface Gate {
 
 /**
  * Whether `action` acts now. The rows differ on purpose: each keeps the preconditions its caller
- * had before the shell existed (project actions drop a busy call themselves, `openRecent` and the
- * instrument browser were never gated, the newSong shortcut ignores busy and ready). Whether they
- * should agree is an open decision; this table is the one place to change them.
+ * had before the shell existed (project actions drop a busy call themselves, `openRecent` was
+ * never gated, the newSong shortcut ignores busy and ready). One row is new: `instruments` adds
+ * `!g.modal`. It is unreachable today (every dialog uses `showModal`, so the instruments button
+ * cannot be clicked under one), and it keeps the one modal slot from orphaning an export
+ * controller. Whether the rows should agree is an open decision; this table is the one place to
+ * change them.
  */
 export function allowed(action: ShellAction, g: Gate): boolean {
   switch (action) {
@@ -132,7 +134,10 @@ export interface Shell {
   openRecent(path: string): void;
   openSettings(opener: HTMLElement | null): void;
   openInstruments(opener: HTMLButtonElement): void;
-  /** Closes `kind` if it is the open dialog and says where focus goes; null otherwise. */
+  /**
+   * Closes `kind` if it is the open dialog and says where focus goes; null otherwise, except that
+   * an applied instruments close is always 'editor'.
+   */
   close(kind: Modal['kind'], applied?: boolean): FocusTarget;
   canCloseWindow(): boolean;
   onQuit(id: number): Promise<void>;
@@ -217,7 +222,7 @@ export function createShell(deps: {
   }
 
   function openSettings(opener: HTMLElement | null) {
-    if (can('settings')) setModal({ kind: 'settings', opener, restore: opener });
+    if (can('settings')) setModal({ kind: 'settings', restore: opener });
   }
 
   function openExport() {
@@ -331,14 +336,15 @@ export function createShell(deps: {
         kind: 'instruments',
         root: snapshot.project.root,
         selection: session.instrumentSelection(),
-        opener,
         restore: opener,
       });
     },
 
     close(kind, applied = false) {
       const open = modal;
-      if (open?.kind !== kind) return null;
+      // Applying an instrument always focuses the editor, even when the browser was already
+      // dropped by a root change (as the old closeInstruments(true) did).
+      if (open?.kind !== kind) return kind === 'instruments' && applied ? 'editor' : null;
       setModal(null);
       return applied ? 'editor' : open.restore;
     },
