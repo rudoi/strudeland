@@ -58,18 +58,20 @@ invalidates the gesture. Verify that the destination stays inside the editable s
 - Touching endpoints are available in the monophonic codecs. Try a [scoped event edit](../../src/lib/piano-roll/event-source.ts)
   for an overlap, a cross-bar sustain outside the mini grammar, or an off-slot edge. Use
   the existing event entry's `until` field for the resolved end and preserve event identity
-  and controls. Check exact behavior through repeats and query partitions. When the scope or
-  entry limits prevent the requested interval, leave the source intact and explain the constraint.
+  and relative gate semantics. Check exact behavior through repeats and query partitions.
+  The duration invariant applies to the whole interval shown by the piano roll. Clip,
+  explicit sound duration, and partial masks retain the existing event-edit scaling rules.
+  When scope, source meter context, or entry limits prevent an exact edit, keep the source
+  intact and explain the constraint.
 
 ### Shared definitions
 
-Keep occurrence edits local through the existing scope resolver. In an explicit definition
-edit, the selected anchor determines the proposed interval. Verify its effect at each
-known written use, accounting for that use's meter and phase. A shared edit can proceed when
-the same logical interval preserves the note's musical duration in every affected use.
-For divergent or unresolved uses, the proposed default is to explain the scope and offer
-the occurrence edit. A definition-wide event wrapper needs the same check. Preserve the
-existing shared-definition navigation and disclosure.
+Keep occurrence edits local through the existing scope resolver. The selected anchor
+determines the proposed interval. Verify each placement of the edited expression, including
+repetitions within a section. A definition edit can proceed when the same logical interval
+preserves the note's musical duration and fits at every written use. A definition-wide event
+wrapper needs the same check. When placements diverge or cannot be proved, show the reason
+and point to the specific occurrence in In song. Keep the existing shared-definition controls.
 
 ## Dependencies and evidence
 
@@ -97,13 +99,13 @@ existing shared-definition navigation and disclosure.
   reveal, retained focus and meter anchor, and undo/redo in one step. Save, reopen, and
   re-evaluate a direct edit and a scoped fallback.
 
-## Open questions
+## Decisions from refinement
 
-- Should an explicit shared-definition edit offer an override when another use would get a
-  different duration? The proposed default keeps each affected use's duration and offers an
-  occurrence edit when that outcome cannot be proved.
-- Should a continuous drag cross a roll page boundary? The proposed first pass covers bars
-  on the current page, with existing navigation for reaching other pages.
+- Keep duration preservation mandatory for a shared move. In song can edit a particular
+  written occurrence with its own inspected identity.
+- Move between bars on the current roll page. Use existing navigation to reach other pages.
+- Verify semantic placements using stricter evidence than the section names used by the ruler.
+  The [implementation contract](contract.md) defines accepted placement and fallback cases.
 
 Recommended complexity is medium. The gesture, source codecs, scoped fallback, and tests
 share one interval contract. Keep singletonization and a light loss check before sequencing.
