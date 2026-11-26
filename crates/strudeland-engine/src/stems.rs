@@ -8,7 +8,8 @@ use crate::job::{EngineJob, JobError, Value, orbit_number};
 use crate::js::number_to_string;
 use crate::orbit::{Orbit, sum_stereo};
 use crate::panner::{Stereo, pan_to_target_value};
-use crate::render::{Engine, Slot, zeroed};
+use crate::render::{Engine, zeroed};
+use crate::render_core::Slot;
 use crate::voice::{VoiceOutput, sound_name};
 use crate::{QUANTUM, Rendered};
 
@@ -262,8 +263,8 @@ impl StemCapture {
             voices.clear();
         }
         for (i, slot) in slots.iter().enumerate() {
-            if let Some(group) = self.value_stem[slot.value] {
-                self.voices[slot.orbit].push((i, group));
+            if let Some(group) = self.value_stem[slot.value()] {
+                self.voices[slot.orbit()].push((i, group));
             }
         }
     }

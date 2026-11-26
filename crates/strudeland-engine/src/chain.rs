@@ -41,7 +41,7 @@ use crate::lfo::{self, Lfo, LfoProps, ShapeInput, get_lfo};
 use crate::orbit::{Input, sum_stereo};
 use crate::panner::{Stereo, StereoPanner};
 use crate::param::{Param, ParamInputs};
-use crate::reverb::{IrCache, Reverb};
+use crate::reverb::Reverb;
 use crate::shaper::{Coarse, Crush, Distort, Shape, Shaper, ShaperKind};
 use crate::transient::{Transient, TransientNode};
 use crate::voice::{GainNode, VoiceError, create_filter, filter_envelope, hap_error, idl_float};
@@ -1439,7 +1439,7 @@ impl LocalDelay {
 
 /// A chain entry's local reverb (superdough.mjs:906-938), when `room > 0`: a new convolver per
 /// voice, `createReverb(roomsize, roomfade, roomlp, roomdim)` (its IR request is settled at the
-/// end of the pause through the run's [`IrCache`]), `wetReverb = gainNode(room)` and `dryReverb
+/// end of the pause through the run's `IrCache`), `wetReverb = gainNode(room)` and `dryReverb
 /// = gainNode(dry ?? 1)`; the same dry and wet sum as the local delay.
 #[derive(Debug, Clone)]
 pub struct LocalReverb {
@@ -1468,11 +1468,6 @@ impl LocalReverb {
             dry,
             tail,
         })
-    }
-
-    /// Settles the reverb's pending IR request (the end of its pause) through the run's cache.
-    pub fn settle(&mut self, seed: i32, cache: &mut IrCache) {
-        self.reverb.settle_cached(seed, cache);
     }
 
     /// One quantum in place: the convolver on the chain's tail, its (stereo) return through the
@@ -1532,6 +1527,7 @@ mod tests {
     use crate::panner::{pan_to_target_value, pan_with_sample_accurate_values};
     use crate::param::Param;
     use crate::periodic::WaveTables;
+    use crate::reverb::IrCache;
     use crate::shaper::Distort;
     use crate::voice::{StartInfo, Voice, VoiceOutput, scale};
     use crate::worklet;
@@ -3589,7 +3585,10 @@ mod tests {
             &mut NoiseCache::new(0),
             &mut orbit,
         )?;
-        v.settle_local_reverbs(0, &mut IrCache::new());
+        let mut cache = IrCache::new();
+        for (_, r) in v.local_reverbs_mut() {
+            r.settle_cached(0, &mut cache);
+        }
         Ok(v)
     }
 

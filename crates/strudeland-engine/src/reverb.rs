@@ -2412,7 +2412,7 @@ mod tests {
         orbit
             .get_reverb(Some(&num(0.05)), None, None, None)
             .unwrap();
-        assert!(orbit.settle_reverb(0, &mut cache));
+        assert!(orbit.reverb_mut().unwrap().settle_cached(0, &mut cache));
         let mut local = reverb(num(0.05), None);
         local.settle_cached(0, &mut cache);
         assert_eq!(cache.generated(), 1);

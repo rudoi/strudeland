@@ -1800,40 +1800,25 @@ impl Voice {
         }
     }
 
-    /// The end of the voice's pause (`settleIR`): each local reverb's pending IR request lands,
-    /// in chain order, through the run's IR cache (audio seed `seed`).
-    pub fn settle_local_reverbs(&mut self, seed: i32, cache: &mut crate::reverb::IrCache) {
-        for s in &mut self.stages {
-            if let Stage::LocalReverb(r) = s {
-                r.settle(seed, cache);
-            }
-        }
-    }
-
-    /// Takes every local reverb's pending IR request, in chain order: `(stage index, request
-    /// number, plan)`, for IRs built elsewhere ([`Self::apply_local_reverb`] lands them).
-    pub fn take_local_reverb_requests(&mut self) -> Vec<(usize, u64, crate::reverb::IrPlan)> {
-        let mut out = Vec::new();
-        for (i, s) in self.stages.iter_mut().enumerate() {
-            if let Stage::LocalReverb(r) = s
-                && let Some((request, plan)) = r.reverb.take_pending()
-            {
-                out.push((i, request, plan));
-            }
-        }
-        out
-    }
-
-    /// Lands a convolver built for request `request` of the local reverb at stage `stage` (a
-    /// stage that is not a local reverb is ignored; the newest request wins).
-    pub fn apply_local_reverb(
+    /// Each local reverb with its stage index, in chain order (for settling its IR requests).
+    pub fn local_reverbs_mut(
         &mut self,
-        stage: usize,
-        request: u64,
-        convolver: impl FnOnce() -> crate::reverb::Convolver,
-    ) {
-        if let Some(Stage::LocalReverb(r)) = self.stages.get_mut(stage) {
-            r.reverb.apply(request, convolver);
+    ) -> impl Iterator<Item = (usize, &mut crate::reverb::Reverb)> + '_ {
+        self.stages
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(i, s)| match s {
+                Stage::LocalReverb(r) => Some((i, &mut r.reverb)),
+                _ => None,
+            })
+    }
+
+    /// The local reverb at stage `stage`; `None` when the stage is out of range or is not a
+    /// local reverb.
+    pub fn local_reverb_mut(&mut self, stage: usize) -> Option<&mut crate::reverb::Reverb> {
+        match self.stages.get_mut(stage) {
+            Some(Stage::LocalReverb(r)) => Some(&mut r.reverb),
+            _ => None,
         }
     }
 
@@ -3491,7 +3476,12 @@ mod tests {
         assert_eq!(orbit.reverb().unwrap().latest(), 2);
         // The IR waits for the pause to settle.
         assert!(orbit.reverb().unwrap().ir().is_none());
-        assert!(orbit.settle_reverb(0, &mut crate::reverb::IrCache::new()));
+        assert!(
+            orbit
+                .reverb_mut()
+                .unwrap()
+                .settle_cached(0, &mut crate::reverb::IrCache::new())
+        );
         assert_eq!(orbit.reverb().unwrap().ir().unwrap()[0].len(), 13230);
     }
 

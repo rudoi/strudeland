@@ -15,10 +15,9 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use crate::bus::BusGraph;
 use crate::controls::signature_of_with_bus;
 use crate::job::{OrbitSpec, ValueMap};
-use crate::noise::NoiseCache;
 use crate::orbit::OrbitBank;
-use crate::render::{Core, ScheduleArgs};
-use crate::reverb::{Convolver, IrCache, IrKey, IrPlan, normalization_scale};
+use crate::render_core::{Core, IrSettler, IrTarget, ScheduleArgs, SyncSettler};
+use crate::reverb::{Convolver, IrCache, IrKey, IrPlan, Reverb, normalization_scale};
 use crate::{QUANTUM, SAMPLE_RATE_F64 as SR};
 
 /// At most this many core render errors become [`LiveEvent::Error`]s per
@@ -102,15 +101,6 @@ pub fn build_ir(req: IrRequest) -> IrBuilt {
     }
 }
 
-/// Which reverb an IR request belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Target {
-    /// An orbit's reverb (its index in the bank).
-    Orbit(usize),
-    /// A voice's local reverb: the voice's sequence number and the stage index in its chain.
-    Local { seq: u64, stage: usize },
-}
-
 /// The IR worker's channels and the requests in flight.
 struct IrLink {
     requests: Sender<IrRequest>,
@@ -118,8 +108,87 @@ struct IrLink {
     /// Keys sent and not yet built, with the id of the request that carries each.
     in_flight: HashMap<IrKey, u64>,
     /// Reverbs waiting for a key: target, request number, key.
-    waiting: Vec<(Target, u64, IrKey)>,
+    waiting: Vec<(IrTarget, u64, IrKey)>,
     next_id: u64,
+}
+
+impl IrLink {
+    /// Lands every built IR: applied to each reverb waiting for its key (the newest request of
+    /// a reverb wins; an older result that arrives later is ignored), then cached.
+    fn poll(&mut self, core: &mut Core) {
+        loop {
+            let b = match self.built.try_recv() {
+                Ok(b) => b,
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+            };
+            if self.in_flight.get(&b.key) == Some(&b.id) {
+                self.in_flight.remove(&b.key);
+            }
+            self.waiting.retain(|(target, request, key)| {
+                if *key != b.key {
+                    return true;
+                }
+                core.land_ir(*target, *request, || b.convolver.fresh_live());
+                false
+            });
+            core.cache_ir(b.key, b.convolver);
+        }
+    }
+}
+
+/// Settles through the IR worker: a cache hit applies now (a `fresh_live` clone), a miss is
+/// sent (once per key in flight) and waits; once a send fails the link is dropped and every
+/// later miss of this settle is built in place with `build_ir` (`Convolver::new_live`).
+struct WorkerSettler<'a> {
+    link: Option<&'a mut IrLink>,
+}
+
+impl IrSettler for WorkerSettler<'_> {
+    fn settle(&mut self, target: IrTarget, reverb: &mut Reverb, seed: i32, cache: &mut IrCache) {
+        let Some((request, plan)) = reverb.take_pending() else {
+            return;
+        };
+        let key = plan.key(seed);
+        if let Some(c) = cache.get(&key) {
+            reverb.apply(request, || c);
+            return;
+        }
+        let req = match self.link.as_deref_mut() {
+            None => IrRequest {
+                id: 0,
+                key,
+                plan,
+                seed,
+            },
+            Some(link) => {
+                if !link.in_flight.contains_key(&key) {
+                    let id = link.next_id;
+                    link.next_id += 1;
+                    let sent = link.requests.send(IrRequest {
+                        id,
+                        key: key.clone(),
+                        plan,
+                        seed,
+                    });
+                    if let Err(e) = sent {
+                        self.link = None;
+                        return build_in_place(reverb, request, e.0, cache);
+                    }
+                    link.in_flight.insert(key.clone(), id);
+                }
+                link.waiting.push((target, request, key));
+                return;
+            }
+        };
+        build_in_place(reverb, request, req, cache);
+    }
+}
+
+/// A miss built on this thread after the IR worker disconnects.
+fn build_in_place(reverb: &mut Reverb, request: u64, req: IrRequest, cache: &mut IrCache) {
+    let built = build_ir(req);
+    reverb.apply(request, || built.convolver.fresh_live());
+    cache.insert(built.key, built.convolver);
 }
 
 /// An unsupported value's sound and keys (`signature_of`'s result).
@@ -164,12 +233,7 @@ impl LiveEngine {
     /// cache (an orbit reverb keeps its IR until its next request). The same seed again is a
     /// no-op (every evaluate re-sends it).
     pub fn set_seed(&mut self, seed: i32) {
-        if seed == self.core.seed {
-            return;
-        }
-        self.core.seed = seed;
-        self.core.noise = NoiseCache::new(seed);
-        self.core.ir_cache = IrCache::new();
+        self.core.set_seed(seed);
     }
 
     /// Adds value `index` (0, 1, 2, ... in order; anything else is an error event and ignored)
@@ -187,7 +251,7 @@ impl LiveEngine {
         self.core.add_value(&value);
         self.values.push(value);
         if let Some(o) = orbit {
-            self.core.orbits.create(&o);
+            self.core.create_orbit(&o);
         }
     }
 
@@ -207,7 +271,7 @@ impl LiveEngine {
             hap.frame,
             hap.t_sec
         );
-        let generation = self.core.bus_graph.cycle_generation();
+        let generation = self.core.bus_graph().cycle_generation();
         if generation != self.decided_generation {
             // A later value closed a bus cycle: its readers are unsupported from now on.
             self.decided.clear();
@@ -215,7 +279,7 @@ impl LiveEngine {
         }
         let key = (hap.value, hap.cps.to_bits());
         let decided = self.decided.entry(key).or_insert_with(|| {
-            let cyclic = self.core.bus_graph.cyclic_readers()[v];
+            let cyclic = self.core.bus_graph().cyclic_readers()[v];
             signature_of_with_bus(&self.values[v], cyclic, hap.cps)
         });
         if let Some(signature) = decided {
@@ -232,13 +296,13 @@ impl LiveEngine {
             return;
         }
         self.counters.haps += 1;
-        let now = self.core.frame as f64 / SR;
+        let now = self.core.frame() as f64 / SR;
         let mut t = hap.t_sec;
         if t < now {
             self.counters.late_haps += 1;
             t = now;
         }
-        let now_frame = self.core.frame;
+        let now_frame = self.core.frame();
         self.core.schedule(ScheduleArgs {
             value: &self.values[v],
             value_index: v,
@@ -253,16 +317,28 @@ impl LiveEngine {
 
     /// The render head: the next frame [`Self::render_quantum`] renders.
     pub fn now_frame(&self) -> u64 {
-        self.core.frame
+        self.core.frame()
     }
 
     /// Renders the next 128 frames into `out`, interleaved `L R`: built IRs land first, then the
     /// pending reverb requests are settled (synchronously) or sent to the worker.
     pub fn render_quantum(&mut self, out: &mut [f32; 2 * QUANTUM]) {
         self.poll_ir();
-        self.settle_reverbs();
+        if !self.options.sync_ir
+            && let Some(link) = self.ir.as_mut()
+        {
+            let mut settler = WorkerSettler { link: Some(link) };
+            self.core.settle_reverbs(&mut settler);
+            let dropped = settler.link.is_none();
+            if dropped {
+                self.ir = None;
+            }
+        } else {
+            self.core.settle_reverbs(&mut SyncSettler);
+        }
         self.core.step();
-        let (l, r) = (&self.core.mix[0], &self.core.mix[1]);
+        let mix = self.core.mix();
+        let (l, r) = (&mix[0], &mix[1]);
         for i in 0..QUANTUM {
             out[2 * i] = l[i];
             out[2 * i + 1] = r[i];
@@ -272,9 +348,7 @@ impl LiveEngine {
     /// Drops every voice (effect tails on the orbits ring out); values, orbits, the IR cache,
     /// requests in flight and the counters stay.
     pub fn stop(&mut self) {
-        self.core.slots.clear();
-        self.core.outputs.clear();
-        self.core.orbit_of.clear();
+        self.core.stop_voices();
     }
 
     /// Drains the events, then up to 32 of the core's render errors (the rest are dropped).
@@ -282,8 +356,7 @@ impl LiveEngine {
         let mut out = std::mem::take(&mut self.events);
         out.extend(
             self.core
-                .errors
-                .drain(..)
+                .drain_errors()
                 .take(MAX_ERRORS_PER_TAKE)
                 .map(|e| LiveEvent::Error { message: e.message }),
         );
@@ -306,8 +379,8 @@ impl LiveEngine {
         });
     }
 
-    /// Lands every built IR: cached, then applied to each reverb waiting for its key (the
-    /// newest request of a reverb wins; an older result that arrives later is ignored).
+    /// Lands every built IR: applied to each reverb waiting for its key (the newest request of
+    /// a reverb wins; an older result that arrives later is ignored), then cached.
     pub fn poll_ir(&mut self) {
         if self.options.sync_ir {
             return;
@@ -315,140 +388,16 @@ impl LiveEngine {
         let Some(link) = &mut self.ir else {
             return;
         };
-        loop {
-            let b = match link.built.try_recv() {
-                Ok(b) => b,
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            };
-            if link.in_flight.get(&b.key) == Some(&b.id) {
-                link.in_flight.remove(&b.key);
-            }
-            let core = &mut self.core;
-            link.waiting.retain(|(target, request, key)| {
-                if *key != b.key {
-                    return true;
-                }
-                apply(core, *target, *request, || b.convolver.fresh_live());
-                false
-            });
-            core.ir_cache.insert(b.key, b.convolver);
-        }
-    }
-
-    /// Step (2) of a quantum: the pending requests of the orbit reverbs and the new voices'
-    /// local reverbs, settled as offline does at the end of a pause, or sent to the worker.
-    fn settle_reverbs(&mut self) {
-        let asynchronous = !self.options.sync_ir && self.ir.is_some();
-        let core = &mut self.core;
-        if !asynchronous {
-            core.orbits.settle(core.seed, &mut core.ir_cache);
-            for slot in core.slots.iter_mut().filter(|s| s.unsettled) {
-                slot.unsettled = false;
-                slot.voice
-                    .settle_local_reverbs(core.seed, &mut core.ir_cache);
-            }
-            return;
-        }
-        let mut requests: Vec<(Target, u64, IrPlan)> = Vec::new();
-        for (k, o) in core.orbits.orbits_mut().iter_mut().enumerate() {
-            if let Some((request, plan)) = o.take_reverb_request() {
-                requests.push((Target::Orbit(k), request, plan));
-            }
-        }
-        for slot in core.slots.iter_mut().filter(|s| s.unsettled) {
-            slot.unsettled = false;
-            for (stage, request, plan) in slot.voice.take_local_reverb_requests() {
-                let target = Target::Local {
-                    seq: slot.seq,
-                    stage,
-                };
-                requests.push((target, request, plan));
-            }
-        }
-        for (target, request, plan) in requests {
-            self.request_ir(target, request, plan);
-        }
-    }
-
-    /// One reverb request in async mode: a cache hit applies now, else the reverb waits for
-    /// the key, which is sent unless already in flight. A worker that is gone settles the
-    /// request synchronously and drops the link.
-    fn request_ir(&mut self, target: Target, request: u64, plan: IrPlan) {
-        let seed = self.core.seed;
-        let key = plan.key(seed);
-        if let Some(c) = self.core.ir_cache.get(&key) {
-            apply(&mut self.core, target, request, || c);
-            return;
-        }
-        let Some(link) = &mut self.ir else {
-            return self.build_now(
-                target,
-                request,
-                IrRequest {
-                    id: 0,
-                    key,
-                    plan,
-                    seed,
-                },
-            );
-        };
-        if !link.in_flight.contains_key(&key) {
-            let id = link.next_id;
-            link.next_id += 1;
-            let sent = link.requests.send(IrRequest {
-                id,
-                key: key.clone(),
-                plan,
-                seed,
-            });
-            if let Err(e) = sent {
-                self.ir = None;
-                return self.build_now(target, request, e.0);
-            }
-            link.in_flight.insert(key.clone(), id);
-        }
-        link.waiting.push((target, request, key));
-    }
-
-    /// Builds a cache miss on this thread after the IR worker disconnects.
-    fn build_now(&mut self, target: Target, request: u64, ir: IrRequest) {
-        let built = build_ir(ir);
-        apply(&mut self.core, target, request, || {
-            built.convolver.fresh_live()
-        });
-        self.core.ir_cache.insert(built.key, built.convolver);
-    }
-}
-
-/// Applies a built convolver to its target (a voice that has ended is skipped).
-fn apply(core: &mut Core, target: Target, request: u64, convolver: impl FnOnce() -> Convolver) {
-    match target {
-        Target::Orbit(k) => {
-            if let Some(o) = core.orbits.orbits_mut().get_mut(k) {
-                o.apply_reverb(request, convolver);
-            }
-        }
-        Target::Local { seq, stage } => {
-            if let Some(slot) = core.slots.iter_mut().find(|s| s.seq == seq) {
-                slot.voice.apply_local_reverb(stage, request, convolver);
-            }
-        }
+        link.poll(&mut self.core);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::job::Value;
+    use crate::render_core::tests::{first_nonzero, value_map};
     use serde_json::json;
     use std::sync::mpsc;
-
-    fn value_map(v: serde_json::Value) -> ValueMap {
-        match Value::from_json(v).unwrap() {
-            Value::Obj(m) => m,
-            other => panic!("{other:?}"),
-        }
-    }
 
     fn orbit1() -> Option<OrbitSpec> {
         Some(OrbitSpec {
@@ -478,10 +427,6 @@ mod tests {
             left.extend(buf.iter().step_by(2));
         }
         left
-    }
-
-    fn first_nonzero(x: &[f32]) -> Option<usize> {
-        x.iter().position(|s| *s != 0.0)
     }
 
     fn sine() -> ValueMap {
@@ -539,7 +484,7 @@ mod tests {
         e.add_value(2, sine(), spec(3.0));
         // Created even for an unsupported value.
         e.add_value(3, value_map(json!({ "s": "bd" })), spec(2.0));
-        let numbers: Vec<f64> = e.core.orbits.orbits().iter().map(|o| o.orbit()).collect();
+        let numbers: Vec<f64> = e.core.orbits().orbits().iter().map(|o| o.orbit()).collect();
         assert_eq!(numbers, [3.0, 1.0, 2.0]);
     }
 
@@ -682,7 +627,7 @@ mod tests {
             value_map(json!({ "s": "one", "attack": 0, "sustain": 1, "dry": 0, "bus": "A" })),
             None,
         );
-        assert_eq!(e.core.bus_graph.level_of_value(0), 2);
+        assert_eq!(e.core.bus_graph().level_of_value(0), 2);
         let t = e.now_frame() as f64 / SR;
         e.schedule(hap(t, 0.1, 1, 0.5));
         e.schedule(hap(t, 0.1, 2, 0.5));
@@ -711,19 +656,6 @@ mod tests {
     }
 
     #[test]
-    fn set_seed_to_the_same_seed_keeps_the_caches() {
-        let mut e = LiveEngine::with_options(0, LiveOptions { sync_ir: true });
-        e.add_value(0, room(), orbit1());
-        e.schedule(hap(0.0, 0.02, 0, 0.5));
-        render(&mut e, 1);
-        assert_eq!(e.core.ir_cache.len(), 1);
-        e.set_seed(0);
-        assert_eq!(e.core.ir_cache.len(), 1, "the same seed keeps the IR cache");
-        e.set_seed(5);
-        assert_eq!(e.core.ir_cache.len(), 0, "another seed clears it");
-    }
-
-    #[test]
     fn stop_drops_the_voices_and_keeps_the_values() {
         let mut e = LiveEngine::new(0);
         e.add_value(0, sine(), orbit1());
@@ -737,19 +669,6 @@ mod tests {
         e.schedule(hap(t, 0.1, 1, 0.5));
         assert!(render(&mut e, 4).iter().any(|x| *x != 0.0));
         assert_eq!(e.counters().haps, 2);
-    }
-
-    #[test]
-    fn stop_keeps_an_orbit_reverb_tail() {
-        let mut e = LiveEngine::new(0);
-        e.add_value(0, value_map(json!({ "s": "sine", "room": 0.8 })), orbit1());
-        e.schedule(hap(0.0, 0.05, 0, 0.5));
-        render(&mut e, 4);
-        e.stop();
-        assert!(
-            render(&mut e, 20).iter().any(|x| *x != 0.0),
-            "the tail rings"
-        );
     }
 
     fn room() -> ValueMap {
@@ -813,15 +732,14 @@ mod tests {
         render(&mut e, 1);
         built_tx.send(older).unwrap();
         render(&mut e, 1);
-        let orbit = &e.core.orbits.orbits()[0];
-        let r = orbit.reverb().unwrap();
+        let r = e.core.target_reverb_mut(IrTarget::Orbit(0)).unwrap();
         assert_eq!(r.applied(), 2);
         assert_eq!(r.convolver().unwrap().length(), newer_len);
         assert_eq!(newer_len, (2.0f64 * 1.5 * SR).round() as usize);
 
         e.schedule(hap(e.now_frame() as f64 / SR, 0.02, 0, 0.5));
         render(&mut e, 1);
-        let r = e.core.orbits.orbits()[0].reverb().unwrap();
+        let r = e.core.target_reverb_mut(IrTarget::Orbit(0)).unwrap();
         assert_eq!(
             r.applied(),
             3,
@@ -842,12 +760,33 @@ mod tests {
         let mut e = LiveEngine::new(0);
         e.attach_ir_worker(req_tx, built_rx);
         e.add_value(0, room(), orbit1());
+        // A local reverb whose roomsize differs from the orbit's: its key misses the IR the
+        // orbit's request just built, so it is built in place too.
+        e.add_value(
+            1,
+            value_map(json!({ "s": "sine", "FX": [{ "room": 0.8, "roomsize": 0.3 }] })),
+            None,
+        );
         e.schedule(hap(0.0, 0.02, 0, 0.5));
+        e.schedule(hap(0.0, 0.02, 1, 0.5));
+        render(&mut e, 1);
+        assert!(e.ir.is_none(), "the link is dropped");
+        let slot = e.core.slots().iter().find(|s| s.value() == 1).unwrap();
+        let stage = slot
+            .voice()
+            .stages()
+            .iter()
+            .position(|s| matches!(s, crate::chain::Stage::LocalReverb(_)))
+            .unwrap();
+        let local = IrTarget::Local {
+            seq: slot.seq(),
+            stage,
+        };
+        assert_eq!(e.core.target_reverb_mut(local).unwrap().applied(), 1);
         assert!(
             after_dry(&mut e).iter().any(|x| *x != 0.0),
             "built in place"
         );
-        assert!(e.ir.is_none(), "the link is dropped");
     }
 
     #[test]
@@ -874,25 +813,27 @@ mod tests {
         e.add_value(0, local, orbit1());
         e.schedule(hap(0.0, 0.5, 0, 0.5));
         render(&mut e, 1);
-        let applied = |e: &LiveEngine| {
-            e.core.slots[0]
-                .voice
+        let applied = |e: &mut LiveEngine| {
+            let stage = e.core.slots()[0]
+                .voice()
                 .stages()
                 .iter()
-                .find_map(|s| match s {
-                    crate::chain::Stage::LocalReverb(r) => Some(r.reverb.applied()),
-                    _ => None,
-                })
+                .position(|s| matches!(s, crate::chain::Stage::LocalReverb(_)))
+                .unwrap();
+            let seq = e.core.slots()[0].seq();
+            e.core
+                .target_reverb_mut(IrTarget::Local { seq, stage })
                 .unwrap()
+                .applied()
         };
-        assert_eq!(applied(&e), 0, "waiting for the worker");
+        assert_eq!(applied(&mut e), 0, "waiting for the worker");
         let reqs: Vec<IrRequest> = req_rx.try_iter().collect();
         assert_eq!(reqs.len(), 1);
         for r in reqs {
             built_tx.send(build_ir(r)).unwrap();
         }
         render(&mut e, 20);
-        assert_eq!(applied(&e), 1, "landed on the voice");
+        assert_eq!(applied(&mut e), 1, "landed on the voice");
         assert!(e.ir.as_ref().unwrap().waiting.is_empty());
         assert!(e.take_events().is_empty());
     }

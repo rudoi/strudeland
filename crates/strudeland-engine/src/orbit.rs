@@ -30,9 +30,9 @@
 //! processed first each quantum: the sends of its voices (in voice order, after the feedback),
 //! then its return, which is added to the summing node before any voice.
 //!
-//! The orbit's reverb (`Reverb`, created by the first hap with `room > 0`, `getReverb`) keeps
-//! its stored settings and IR requests; each pause is settled after its haps are scheduled
-//! ([`OrbitBank::settle`]), generating the newest request's IR and building a new convolver for
+//! The orbit's reverb (`Reverb`, created by the first hap with `room > 0`, `getReverb`) keeps its
+//! stored settings and IR requests; each pause is settled after its haps are scheduled (the render
+//! core's `settle_reverbs`), generating the newest request's IR and building a new convolver for
 //! it. Each quantum its room sends (in voice order, each scaled by its level) are summed into the
 //! convolver's input (mono when every send is mono), and its return joins the summing node.
 //!
@@ -65,7 +65,7 @@ use crate::jsmath;
 use crate::modulate::OrbitParam;
 use crate::panner::{Stereo, StereoPanner};
 use crate::param::{Param, ParamError, ParamInputs, idl_float};
-use crate::reverb::{Convolver, IrCache, IrError, IrPlan, Reverb};
+use crate::reverb::{IrError, Reverb};
 use crate::stems::StemCapture;
 use crate::voice::{GainNode, VoiceOutput};
 
@@ -472,24 +472,9 @@ impl Orbit {
         self.reverb.as_ref()
     }
 
-    /// Settles the reverb's IR requests of the pause (audio seed `seed`) through the run's IR
-    /// cache; returns whether its IR changed.
-    pub fn settle_reverb(&mut self, seed: i32, cache: &mut IrCache) -> bool {
-        self.reverb
-            .as_mut()
-            .is_some_and(|r| r.settle_cached(seed, cache))
-    }
-
-    /// Takes the reverb's pending IR request (number and plan), for an IR built elsewhere.
-    pub fn take_reverb_request(&mut self) -> Option<(u64, IrPlan)> {
-        self.reverb.as_mut().and_then(Reverb::take_pending)
-    }
-
-    /// Lands a convolver built for the reverb's request `request` (newest request wins).
-    pub fn apply_reverb(&mut self, request: u64, convolver: impl FnOnce() -> Convolver) -> bool {
-        self.reverb
-            .as_mut()
-            .is_some_and(|r| r.apply(request, convolver))
+    /// The orbit's reverb, once created, for settling its IR requests.
+    pub(crate) fn reverb_mut(&mut self) -> Option<&mut Reverb> {
+        self.reverb.as_mut()
     }
 
     /// The effect returns in summing order (creation order).
@@ -707,14 +692,6 @@ impl OrbitBank {
         &mut self.orbits
     }
 
-    /// The end of a pause (`settleIR`, before the context resumes): every orbit applies the IR
-    /// of its newest request (audio seed `seed`), through the run's IR cache.
-    pub fn settle(&mut self, seed: i32, cache: &mut IrCache) {
-        for o in &mut self.orbits {
-            o.settle_reverb(seed, cache);
-        }
-    }
-
     /// The destination channel count.
     pub fn count(&self) -> usize {
         self.count
@@ -838,6 +815,7 @@ impl OrbitBank {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reverb::IrCache;
     use serde_json::json;
 
     fn spec(orbit: f64, channels: &[i64]) -> OrbitSpec {
@@ -1341,6 +1319,16 @@ mod tests {
         assert!(o.delay().is_some());
     }
 
+    /// Settles every orbit's reverb in bank order through one fresh IR cache.
+    fn settle_bank(bank: &mut OrbitBank) {
+        let mut cache = IrCache::new();
+        for o in bank.orbits_mut() {
+            if let Some(r) = o.reverb_mut() {
+                r.settle_cached(0, &mut cache);
+            }
+        }
+    }
+
     #[test]
     fn each_orbit_keeps_its_own_reverb_and_the_bank_settles_them() {
         use crate::job::Value;
@@ -1365,8 +1353,8 @@ mod tests {
             .get_reverb(Some(&size), None, Some(&zero), None)
             .unwrap();
         assert_eq!(bank.orbits()[1].reverb().unwrap().latest(), 1);
-        assert!(!bank.orbits_mut()[0].settle_reverb(0, &mut IrCache::new()));
-        bank.settle(0, &mut IrCache::new());
+        assert!(bank.orbits_mut()[0].reverb_mut().is_none());
+        settle_bank(&mut bank);
         assert!(bank.orbits()[0].reverb().is_none());
         let r = bank.orbits()[1].reverb().unwrap();
         assert_eq!((r.applied(), r.ir().unwrap()[1].len()), (1, 662));
@@ -1376,7 +1364,7 @@ mod tests {
                 .get_reverb(Some(&zero), None, None, None)
                 .is_err()
         );
-        bank.settle(0, &mut IrCache::new());
+        settle_bank(&mut bank);
         let r = bank.orbits()[1].reverb().unwrap();
         assert_eq!(
             (r.latest(), r.applied(), r.ir().unwrap()[0].len()),
@@ -1401,7 +1389,11 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(o.settle_reverb(0, &mut IrCache::new()));
+        assert!(
+            o.reverb_mut()
+                .unwrap()
+                .settle_cached(0, &mut IrCache::new())
+        );
         assert_eq!(o.reverb().unwrap().ir().unwrap()[0].len(), 1);
     }
 

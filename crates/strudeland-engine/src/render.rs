@@ -5,24 +5,18 @@
 //! quanta. The frame conversions here are the only place the engine turns seconds into frames
 //! (`OfflineAudioContext::suspendContext`'s quantization and `TimeToSampleFrame`).
 
-use crate::bus::{BusBank, BusGraph};
-use crate::controls::{parse_voice_params, prepare_value, unsupported_signatures_in};
-use crate::job::{EngineJob, ErrorKind, JobError, RenderError, ValueMap, bar_of};
-use crate::js::{Occurrence, voice_seed};
-use crate::noise::NoiseCache;
-use crate::orbit::{DuckControls, OrbitBank};
-use crate::periodic::WaveTables;
-use crate::reverb::IrCache;
+use crate::Rendered;
+use crate::bus::BusGraph;
+use crate::controls::unsupported_signatures_in;
+use crate::job::{EngineJob, ErrorKind, JobError, RenderError, bar_of};
+use crate::orbit::OrbitBank;
+use crate::render_core::{Core, HapTag, ScheduleArgs, SyncSettler};
 use crate::stems::{StemCapture, StemLayout};
-use crate::voice::{StartInfo, Voice, VoiceOutput, sound_name};
-use crate::{QUANTUM, Rendered};
 
 use crate::QUANTUM_U64 as Q;
 use crate::SAMPLE_RATE_F64 as SR;
 /// A hap later than the pause time by more than this is reported (`renderOffline`'s rule).
 const LATE_EPSILON: f64 = 1e-6;
-/// The render page keeps the first 300 characters of a captured message (`classifyError`).
-const MAX_LOG_CHARS: usize = 300;
 
 /// `RoundUpToMultiple(frame, 128)` (saturating at the top of the range).
 pub fn round_up_128(frame: u64) -> u64 {
@@ -47,350 +41,6 @@ pub fn frame_for_param_event(t: f64) -> u64 {
 /// zero), then up. Scheduled sources start on, and stop before, this frame.
 pub fn frame_for_buffer_start(t: f64) -> u64 {
     ((t * SR * 1024.0).round() / 1024.0).ceil() as u64
-}
-
-/// Superdough's log for a duck target with no orbit (`errorLogger` of the error "duck target orbit
-/// ${target} does not exist" with origin `superdough`, superdoughoutput.mjs:219), as the render page
-/// captures it.
-fn missing_duck_target(target: &str) -> String {
-    format!("[superdough] error: duck target orbit {target} does not exist")
-}
-
-/// What a voice's messages are prefixed with (`hap <t>s <s>: `), formatted only on error.
-struct HapTag {
-    bar: Option<i64>,
-    t: f64,
-    s: String,
-}
-
-impl HapTag {
-    /// The tag of a hap of `value` at `t` in bar `bar`.
-    fn new(bar: Option<i64>, t: f64, value: &crate::job::ValueMap) -> HapTag {
-        HapTag {
-            bar,
-            t,
-            s: sound_name(value.get("s")),
-        }
-    }
-
-    fn message(&self, detail: &str) -> String {
-        format!("hap {:.3}s {}: {detail}", self.t, self.s)
-    }
-
-    /// The render error `detail` of this hap: its message, of kind `kind`, in its bar.
-    fn error(&self, kind: ErrorKind, detail: &str) -> RenderError {
-        RenderError::new(kind, self.message(detail), self.bar)
-    }
-}
-
-/// A live voice and what the driver keeps with it.
-pub(crate) struct Slot {
-    pub(crate) voice: Voice,
-    /// Its bar and the parts of its messages' prefix.
-    tag: HapTag,
-    /// The index of its orbit in `orbits`.
-    pub(crate) orbit: usize,
-    /// Its value's index: its bus level is read from the graph each quantum (voices render level
-    /// by level, and a graph that grows can move a value's level).
-    pub(crate) value: usize,
-    /// Its creation sequence number (bus feeders sum in this order).
-    pub(crate) seq: u64,
-    /// Whether its local reverbs' IR requests are still to be settled (set at build; the
-    /// streaming driver clears it when it settles or sends them; offline settles each pause's
-    /// new voices by position).
-    pub(crate) unsettled: bool,
-}
-
-/// Keeps the items of `v` whose flag in `keep` (same order) is set, in one in-place pass.
-fn retain_flagged<T>(v: &mut Vec<T>, keep: &[bool]) {
-    let mut flags = keep.iter();
-    v.retain(|_| flags.next().copied().unwrap_or(true));
-}
-
-/// One hap for [`Core::schedule`]: its (mutated-before) value and timing. `t` is already clamped
-/// to the render head; the late test is the driver's.
-pub(crate) struct ScheduleArgs<'v> {
-    pub(crate) value: &'v ValueMap,
-    /// The value's index (its bus level).
-    pub(crate) value_index: usize,
-    /// Start in seconds from frame 0, at or after `now_frame`.
-    pub(crate) t: f64,
-    pub(crate) duration: f64,
-    /// Absolute layout cycle of the onset.
-    pub(crate) cycle: f64,
-    pub(crate) phase_sec: Option<f64>,
-    /// The hap's cycles per second (`delaysync`, tremolo sync, the modulators).
-    pub(crate) cps: f64,
-    /// The frame the hap is scheduled at (the render head).
-    pub(crate) now_frame: u64,
-}
-
-/// The render core shared by the offline [`Engine`] and a streaming driver: the voices, buses,
-/// orbits and caches, scheduled hap by hap and rendered a quantum at a time into `mix`.
-pub(crate) struct Core {
-    /// The audio seed (voice seeds, noise, reverb IRs).
-    pub(crate) seed: i32,
-    /// The live voices in creation order.
-    pub(crate) slots: Vec<Slot>,
-    /// Per voice (same order): its output of the quantum being rendered.
-    pub(crate) outputs: Vec<VoiceOutput>,
-    /// Per voice (same order): its orbit, refreshed each quantum for the orbit bank.
-    pub(crate) orbit_of: Vec<usize>,
-    /// The next voice's sequence number.
-    pub(crate) next_seq: u64,
-    /// The bus graph (levels; a cyclic job is refused before rendering).
-    pub(crate) bus_graph: BusGraph,
-    /// The buses, one quantum's feeders at a time.
-    pub(crate) buses: BusBank,
-    /// The orbits and the channel merger.
-    pub(crate) orbits: OrbitBank,
-    /// The periodic-wave tables of this run (built-ins on first use, custom waves cached).
-    pub(crate) tables: WaveTables,
-    /// The noise buffers of this run (white, pink and brown on first use, for the seed).
-    pub(crate) noise: NoiseCache,
-    /// The reverb IRs generated in this run (orbit and local reverbs share equal ones).
-    pub(crate) ir_cache: IrCache,
-    /// `voiceSeed`'s state across the whole run (the page sets the audio seed once per render).
-    pub(crate) occurrence: Occurrence,
-    /// Every voice seed computed, in call order (tests observe `occurrence` through it).
-    #[cfg(test)]
-    pub(crate) seeds: Vec<u32>,
-    /// The next frame to render (always a multiple of the quantum).
-    pub(crate) frame: u64,
-    /// Whether a non-finite mix sample was already reported.
-    pub(crate) mix_overflowed: bool,
-    pub(crate) errors: Vec<RenderError>,
-    /// The last quantum's mix, one buffer per destination channel (`orbits.count()`).
-    pub(crate) mix: Vec<[f32; QUANTUM]>,
-    /// Per voice of the quantum being rendered: whether it is still alive after it.
-    pub(crate) alive: Vec<bool>,
-}
-
-impl Core {
-    pub(crate) fn new(seed: i32, bus_graph: BusGraph, orbits: OrbitBank) -> Core {
-        let buses = BusBank::new(&bus_graph);
-        Core {
-            seed,
-            slots: Vec::new(),
-            outputs: Vec::new(),
-            orbit_of: Vec::new(),
-            next_seq: 0,
-            bus_graph,
-            buses,
-            mix: vec![[0.0f32; QUANTUM]; orbits.count()],
-            orbits,
-            tables: WaveTables::new(),
-            noise: NoiseCache::new(seed),
-            ir_cache: IrCache::new(),
-            occurrence: Occurrence::new(),
-            #[cfg(test)]
-            seeds: Vec::new(),
-            frame: 0,
-            mix_overflowed: false,
-            errors: Vec::new(),
-            alive: Vec::new(),
-        }
-    }
-
-    /// Appends one value to the bus graph (recomputing the levels; a voice already playing
-    /// moves to its value's new level from the next quantum) and grows the bus bank to match.
-    /// Returns the value's index. The streaming driver's entry point: offline builds the whole
-    /// graph up front with `BusGraph::from_job`.
-    pub(crate) fn add_value(&mut self, map: &ValueMap) -> usize {
-        let index = self.bus_graph.push_value(map);
-        self.buses.grow(self.bus_graph.keys());
-        index
-    }
-
-    /// Schedules one hap: the duck, superdough's mutation, the voice seed, the voice build.
-    pub(crate) fn schedule(&mut self, p: ScheduleArgs<'_>) {
-        let ScheduleArgs {
-            value,
-            value_index,
-            t,
-            duration,
-            cycle,
-            phase_sec,
-            cps,
-            now_frame,
-        } = p;
-        let bar = Some(bar_of(cycle));
-        // `audioController.duck` runs after `getOrbit` (the hap's own orbit must exist; a
-        // missing one is reported below, as before) and before the silence return, so silence
-        // markers duck too. Ducks run in job order, never sorted: a later call with an earlier
-        // `t` cancels what earlier calls scheduled after it. A throw is the hap's error and the
-        // hap builds no voice; what the duck scheduled before it stays. A target orbit that does
-        // not exist is superdough's error log (no bar, kind `other`, the render page's text),
-        // reported once per distinct message as the harness dedupes them.
-        if let Some(controls) = DuckControls::of(value)
-            && self.orbits.find(value).is_ok()
-        {
-            let mut missing = Vec::new();
-            let ducked = self.orbits.duck(&controls, t, now_frame, &mut missing);
-            for target in missing {
-                self.push_log(missing_duck_target(&target));
-            }
-            if let Err(e) = ducked {
-                let tag = HapTag::new(bar, t, value);
-                self.errors.push(tag.error(ErrorKind::Hap, &e.to_string()));
-                return;
-            }
-        }
-        // Superdough's mutation (`duration`, the silence return, the `bank` rewrite), then
-        // `voiceSeed` on the mutated value: a silence marker returns before it, so it does not
-        // advance `occurrence`.
-        let Some(value) = prepare_value(value, duration) else {
-            return;
-        };
-        let seed = voice_seed(cycle, &value, self.seed, &mut self.occurrence);
-        #[cfg(test)]
-        self.seeds.push(seed);
-        // The tag of the mutated value (its `s` carries the `bank` prefix).
-        let tag = HapTag::new(bar, t, &value);
-        let orbit = match self.orbits.find(&value) {
-            Ok(k) => k,
-            Err(detail) => {
-                self.errors.push(tag.error(ErrorKind::Hap, &detail));
-                return;
-            }
-        };
-        let built = parse_voice_params(&value, duration, cps)
-            .map_err(Into::into)
-            .and_then(|params| {
-                Voice::build(
-                    &params,
-                    seed,
-                    StartInfo {
-                        t,
-                        hap_duration: duration,
-                        now_frame,
-                        cycle,
-                        phase_sec: phase_sec.unwrap_or_else(|| cycle / cps),
-                        cps,
-                    },
-                    &mut self.tables,
-                    &mut self.noise,
-                    &mut self.orbits.orbits_mut()[orbit],
-                    &self.buses,
-                )
-            });
-        match built {
-            Ok((mut v, late)) => {
-                // Superdough's error logs of the modulators it skipped (kind `other`, no bar,
-                // once per distinct message as the harness dedupes them).
-                for msg in v.take_logs() {
-                    self.push_log(msg);
-                }
-                // A build that threw after a send was connected keeps the voice playing into
-                // its sends (unconnected to the summing node) and reports the error; a throw in
-                // the modulator loop keeps the voice and the modulators before it.
-                if let Some(e) = late {
-                    self.errors.push(tag.error(e.kind, &e.detail));
-                }
-                self.slots.push(Slot {
-                    voice: v,
-                    tag,
-                    orbit,
-                    value: value_index,
-                    seq: self.next_seq,
-                    unsettled: true,
-                });
-                self.next_seq += 1;
-            }
-            Err(e) => self.errors.push(tag.error(e.kind, &e.detail)),
-        }
-    }
-
-    /// Reports one of superdough's error logs as the render page captures it: kind `other`, no
-    /// bar, the text cut to the page's 300 characters, once per distinct message.
-    fn push_log(&mut self, msg: String) {
-        let msg: String = msg.chars().take(MAX_LOG_CHARS).collect();
-        if !self
-            .errors
-            .iter()
-            .any(|e| e.kind == ErrorKind::Other && e.message == msg)
-        {
-            self.errors
-                .push(RenderError::new(ErrorKind::Other, msg, None));
-        }
-    }
-
-    /// Renders the quantum at `frame` into `mix` and advances `frame`. The voices render level
-    /// by level (level 0 first, in creation order within a level, each value's level read from
-    /// the graph as the quantum starts), each voice's bus send added to the bank right after it,
-    /// so a bus is complete before its first reader; then the orbits sum the voices in vector
-    /// order. Without buses there is one level: the voices render in vector order.
-    pub(crate) fn step(&mut self) {
-        self.step_with_stems(None);
-    }
-
-    fn step_with_stems(&mut self, mut capture: Option<&mut StemCapture>) {
-        let q = self.frame;
-        let n_voices = self.slots.len();
-        if self.outputs.len() < n_voices {
-            self.outputs.resize_with(n_voices, VoiceOutput::new);
-        }
-        self.alive.clear();
-        self.alive.resize(n_voices, true);
-        self.buses.begin_quantum();
-        for level in 0..=self.bus_graph.max_level() {
-            for (i, slot) in self.slots.iter_mut().enumerate() {
-                if self.bus_graph.level_of_value(slot.value) != level {
-                    continue;
-                }
-                let v = &mut slot.voice;
-                self.alive[i] = v.process(q, &mut self.outputs[i], &mut self.buses);
-                for detail in v.take_errors() {
-                    self.errors.push(slot.tag.error(ErrorKind::Hap, &detail));
-                }
-                if v.failed() {
-                    let detail = "non-finite output (Chromium renders NaN or Infinity)";
-                    self.errors.push(slot.tag.error(ErrorKind::Hap, detail));
-                }
-                if let Some((bus, send)) = &self.outputs[i].sends.bus {
-                    self.buses.add_send(*bus, slot.seq, send);
-                }
-            }
-        }
-        self.orbit_of.clear();
-        self.orbit_of.extend(self.slots.iter().map(|s| s.orbit));
-        self.mix.resize(self.orbits.count(), [0.0; QUANTUM]);
-        if let Some(c) = capture.as_deref_mut() {
-            c.begin(&self.slots);
-        }
-        self.orbits.process_with_stems(
-            q,
-            &self.outputs[..n_voices],
-            &self.orbit_of,
-            &mut self.mix,
-            capture,
-        );
-        // A voice renders its last quantum into the mix, then is freed (order kept).
-        if self.alive.contains(&false) {
-            retain_flagged(&mut self.slots, &self.alive);
-        }
-        // Deviation: a mix that overflows the float range is written as silence and
-        // reported once (Chromium writes the infinities).
-        if self
-            .mix
-            .iter()
-            .flat_map(|c| c.iter())
-            .any(|x| !x.is_finite())
-        {
-            for c in self.mix.iter_mut() {
-                for x in c.iter_mut().filter(|x| !x.is_finite()) {
-                    *x = 0.0;
-                }
-            }
-            if !self.mix_overflowed {
-                self.mix_overflowed = true;
-                let msg = format!("non-finite mix at frame {q} (Chromium writes it)");
-                self.errors
-                    .push(RenderError::new(ErrorKind::Other, msg, None));
-            }
-        }
-        self.frame += Q;
-    }
 }
 
 /// The offline driver for one job: the job's pause loop over a [`Core`], copying each quantum's
@@ -444,28 +94,34 @@ impl<'a> Engine<'a> {
 
     pub(crate) fn run_observing_overflow(mut self) -> (Rendered, bool) {
         let job = self.job;
-        let unsupported = unsupported_signatures_in(job, &self.core.bus_graph);
-        if !unsupported.is_empty() {
-            self.core.errors = unsupported
+        let unsupported = unsupported_signatures_in(job, self.core.bus_graph());
+        let played = unsupported.is_empty();
+        if played {
+            self.play();
+        }
+        let Engine {
+            mut channels,
+            core,
+            capture,
+            ..
+        } = self;
+        // Nothing has rendered on the unsupported path, so the overflow flag is still false.
+        let (errors, overflowed) = if played {
+            core.finish()
+        } else {
+            let errors = unsupported
                 .into_iter()
                 .map(|u| {
                     let msg = format!("s={} keys={}", u.s, u.keys.join(","));
                     RenderError::new(ErrorKind::Unsupported, msg, Some(u.first_bar))
                 })
                 .collect();
-        } else {
-            self.play();
+            (errors, false)
+        };
+        if let Some(capture) = capture {
+            channels.extend(capture.channels);
         }
-        if let Some(capture) = self.capture {
-            self.channels.extend(capture.channels);
-        }
-        (
-            Rendered {
-                channels: self.channels,
-                errors: self.core.errors,
-            },
-            self.core.mix_overflowed,
-        )
+        (Rendered { channels, errors }, overflowed)
     }
 
     /// The pause loop: render to each pause frame, schedule its haps, settle the IRs; then
@@ -475,19 +131,13 @@ impl<'a> Engine<'a> {
         for pause in &job.pauses {
             let pause_frame = frame_for_pause(pause.suspend_sec);
             self.render_to(pause_frame);
-            let first_new = self.core.slots.len();
             for hap in &pause.haps {
                 self.schedule(hap, pause_frame);
             }
             // `settleIR()` before the context resumes: each orbit's newest IR request lands, then
-            // the local reverbs of this pause's voices in creation order (voices built earlier
-            // have nothing pending), all through the run's IR cache.
-            let core = &mut self.core;
-            core.orbits.settle(core.seed, &mut core.ir_cache);
-            for slot in &mut core.slots[first_new..] {
-                slot.voice
-                    .settle_local_reverbs(core.seed, &mut core.ir_cache);
-            }
+            // the local reverbs of the voices not yet settled (this pause's), in creation order,
+            // all through the run's IR cache.
+            self.core.settle_reverbs(&mut SyncSettler);
         }
         self.render_to(job.frames);
     }
@@ -506,7 +156,7 @@ impl<'a> Engine<'a> {
             if now - t > LATE_EPSILON {
                 let detail = format!("scheduled late (now {now:.6})");
                 let tag = HapTag::new(Some(bar_of(hap.cycle)), t, value);
-                self.core.errors.push(tag.error(ErrorKind::Hap, &detail));
+                self.core.push_error(tag.error(ErrorKind::Hap, &detail));
             }
             t = now;
         }
@@ -526,12 +176,12 @@ impl<'a> Engine<'a> {
     fn render_to(&mut self, target: u64) {
         let end = round_up_128(target.min(self.job.frames));
         let frames = self.job.frames;
-        while self.core.frame < end {
-            let q = self.core.frame;
+        while self.core.frame() < end {
+            let q = self.core.frame();
             self.core.step_with_stems(self.capture.as_mut());
             let n = (frames.saturating_sub(q)).min(Q) as usize;
             let start = q as usize;
-            for (ch, m) in self.channels.iter_mut().zip(self.core.mix.iter()) {
+            for (ch, m) in self.channels.iter_mut().zip(self.core.mix().iter()) {
                 if let Some(dst) = ch.get_mut(start..start + n) {
                     dst.copy_from_slice(&m[..n]);
                 }
@@ -543,17 +193,10 @@ impl<'a> Engine<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::js::voice_seed;
     use crate::render as render_job;
+    use crate::render_core::tests::{first_nonzero, value_map};
     use serde_json::json;
-
-    #[test]
-    fn retain_flagged_keeps_the_flagged_items_in_order() {
-        let mut v = vec![1, 2, 3, 4, 5];
-        retain_flagged(&mut v, &[true, false, true, false, true]);
-        assert_eq!(v, [1, 3, 5]);
-        retain_flagged(&mut v, &[false, false, false]);
-        assert!(v.is_empty());
-    }
 
     fn job(v: serde_json::Value) -> EngineJob {
         EngineJob::from_json(&v.to_string()).unwrap()
@@ -574,10 +217,6 @@ mod tests {
 
     fn hap(t: f64, dur: f64, cycle: f64, v: u32) -> serde_json::Value {
         json!({ "t": t, "duration": dur, "cycle": cycle, "v": v, "event": 0 })
-    }
-
-    fn first_nonzero(x: &[f32]) -> Option<usize> {
-        x.iter().position(|s| *s != 0.0)
     }
 
     #[test]
@@ -813,9 +452,9 @@ mod tests {
         ));
         let mut e = Engine::new(&j).unwrap();
         e.play();
-        assert!(e.core.errors.is_empty(), "{:?}", e.core.errors);
-        assert_eq!(e.core.ir_cache.generated(), 1);
-        assert_eq!(e.core.ir_cache.len(), 1);
+        assert!(e.core.errors().is_empty(), "{:?}", e.core.errors());
+        assert_eq!(e.core.ir_cache().generated(), 1);
+        assert_eq!(e.core.ir_cache().len(), 1);
         let ch = &e.channels[0];
         assert!(ch[11025..11025 + 128].iter().any(|x| *x != 0.0));
         let solo = job(base(
@@ -899,16 +538,16 @@ mod tests {
         ));
         let mut e = Engine::new(&j).unwrap();
         e.schedule(&j.pauses[0].haps[0], 0);
-        assert_eq!(e.core.slots.len(), 1);
+        assert_eq!(e.core.slots().len(), 1);
         // Stop at 0.1 + 0.01 + 0.01 = 0.12 s = frame 5292; the quantum at 5376 is the first silent one.
         e.render_to(5376);
         assert_eq!(
-            e.core.slots.len(),
+            e.core.slots().len(),
             1,
             "not freed before a full silent quantum"
         );
         e.render_to(5376 + 128);
-        assert_eq!(e.core.slots.len(), 0, "freed after it");
+        assert_eq!(e.core.slots().len(), 0, "freed after it");
     }
 
     /// The seeds the driver computes for a job's haps, in call order.
@@ -920,7 +559,7 @@ mod tests {
                 e.schedule(h, f);
             }
         }
-        e.core.seeds
+        e.core.seeds().to_vec()
     }
 
     /// `voice_seed` over explicit post-mutation maps, one fresh `Occurrence` for the list.
@@ -1087,8 +726,8 @@ mod tests {
             2147483647,
             &[(0.25, json!({ "s": "sine", "note": 69, "duration": 0.05 }))],
         );
-        assert_eq!(e.core.slots[0].voice.seed(), want[0]);
-        assert_eq!(e.core.seeds, want);
+        assert_eq!(e.core.slots()[0].voice().seed(), want[0]);
+        assert_eq!(e.core.seeds(), want);
     }
 
     #[test]
@@ -1104,7 +743,7 @@ mod tests {
             let mut e = Engine::new(&j).unwrap();
             e.schedule(&j.pauses[0].haps[0], 0);
             e.schedule(&j.pauses[0].haps[1], 0);
-            assert!(e.core.noise.is_cached(crate::noise::NoiseKind::White));
+            assert!(e.core.noise().is_cached(crate::noise::NoiseKind::White));
             render_job(&j).unwrap().channels[0].clone()
         };
         let a = render_seed(0);
@@ -1327,7 +966,7 @@ mod tests {
         let mut e = Engine::new(&j).unwrap();
         e.play();
         assert!(
-            e.core.orbits.orbits()[0].djf().is_some(),
+            e.core.orbits().orbits()[0].djf().is_some(),
             "the slot never leaves"
         );
         // Unfiltered, the 90-note sine would swing the right channel by about +-0.24 around
@@ -1364,7 +1003,7 @@ mod tests {
         assert!(l[4410..8820].iter().any(|x| *x != 0.0), "the echo");
         let mut e = Engine::new(&j).unwrap();
         e.play();
-        assert!(e.core.orbits.orbits()[0].djf().is_none(), "no slot");
+        assert!(e.core.orbits().orbits()[0].djf().is_none(), "no slot");
     }
 
     #[test]
@@ -1387,21 +1026,21 @@ mod tests {
             e.schedule(h, 0);
         }
         // Before the pause settles: two requests, no IR.
-        let r = e.core.orbits.orbits()[0].reverb().unwrap();
+        let r = e.core.orbits().orbits()[0].reverb().unwrap();
         assert_eq!((r.latest(), r.applied(), r.ir().is_none()), (2, 0, true));
-        e.core.orbits.settle(j.seed, &mut e.core.ir_cache);
-        let r = e.core.orbits.orbits()[0].reverb().unwrap();
+        e.core.settle_reverbs(&mut SyncSettler);
+        let r = e.core.orbits().orbits()[0].reverb().unwrap();
         assert_eq!(r.applied(), 2, "the newest request of the pause");
         assert_eq!(r.ir().unwrap()[0].len(), 1323);
         // The whole run: in the second pause roomsize 0.03 (with the default lowpass, roomlp
         // being undefined) and then 0.01 (roomlp 0) are requested; the last one lands.
         let mut e = Engine::new(&j).unwrap();
         e.play();
-        let r = e.core.orbits.orbits()[0].reverb().unwrap();
+        let r = e.core.orbits().orbits()[0].reverb().unwrap();
         assert_eq!((r.latest(), r.applied()), (4, 4));
         assert_eq!(r.settings().duration, crate::job::Value::Num(0.01));
         assert_eq!(r.ir().unwrap()[0].len(), 662);
-        assert!(e.core.errors.is_empty(), "{:?}", e.core.errors);
+        assert!(e.core.errors().is_empty(), "{:?}", e.core.errors());
         // The room sends play through the convolver: the render differs from the dry one from
         // the first frame of sound, and rings on after the dry notes end.
         let dry = j
@@ -1504,7 +1143,7 @@ mod tests {
         );
         let mut e = Engine::new(&j).unwrap();
         e.play();
-        let rv = e.core.orbits.orbits()[0].reverb().unwrap();
+        let rv = e.core.orbits().orbits()[0].reverb().unwrap();
         assert_eq!((rv.latest(), rv.applied()), (3, 1), "the first IR is kept");
         assert!(matches!(rv.settings().duration, crate::job::Value::Num(x) if x.is_nan()));
     }
@@ -1530,7 +1169,7 @@ mod tests {
     }
 
     fn duck_curve_points(e: &Engine<'_>, k: usize) -> Vec<(f64, f64)> {
-        e.core.orbits.orbits()[k]
+        e.core.orbits().orbits()[k]
             .duck_curve()
             .map(|c| c.points.iter().map(|p| (p.time, p.value)).collect())
             .unwrap_or_default()
@@ -1581,16 +1220,16 @@ mod tests {
         );
         let e = scheduled(&j);
         assert_eq!(duck_curve_points(&e, 1).len(), 3, "ducked");
-        assert_eq!(e.core.slots.len(), 1, "only the sine");
+        assert_eq!(e.core.slots().len(), 1, "only the sine");
         assert_eq!(
-            e.core.seeds,
+            e.core.seeds(),
             expected_seeds(
                 0,
                 &[(0.0, json!({ "s": "sine", "orbit": 2, "duration": 0.05 }))]
             ),
             "the marker does not advance occurrence"
         );
-        assert!(e.core.errors.is_empty(), "{:?}", e.core.errors);
+        assert!(e.core.errors().is_empty(), "{:?}", e.core.errors());
     }
 
     #[test]
@@ -1606,7 +1245,7 @@ mod tests {
             ]),
         );
         let e = scheduled(&j);
-        let g = e.core.orbits.orbits()[1].output_gain();
+        let g = e.core.orbits().orbits()[1].output_gain();
         let kinds: Vec<_> = g.events().iter().map(|e| (e.kind, e.time)).collect();
         use crate::param::RampKind::*;
         assert_eq!(
@@ -1634,7 +1273,7 @@ mod tests {
             ]),
         );
         let e = scheduled(&j);
-        let n = e.core.orbits.orbits()[1].output_gain().events().len();
+        let n = e.core.orbits().orbits()[1].output_gain().events().len();
         assert_eq!(n, 5, "set, both falls and both recoveries");
     }
 
@@ -1647,12 +1286,14 @@ mod tests {
             json!([{ "s": "sine", "orbit": 5, "duckorbit": 2 }]),
         );
         let e = scheduled(&j);
-        assert!(e.core.orbits.orbits()[1].duck_curve().is_none());
-        assert_eq!(e.core.errors.len(), 1);
+        assert!(e.core.orbits().orbits()[1].duck_curve().is_none());
+        assert_eq!(e.core.errors().len(), 1);
         assert!(
-            e.core.errors[0].message.contains("orbit 5 not in the job"),
+            e.core.errors()[0]
+                .message
+                .contains("orbit 5 not in the job"),
             "{:?}",
-            e.core.errors
+            e.core.errors()
         );
     }
 
@@ -1667,25 +1308,25 @@ mod tests {
             ]),
         );
         let e = scheduled(&j);
-        assert!(e.core.slots.is_empty(), "neither hap builds a voice");
-        assert_eq!(e.core.errors.len(), 2, "{:?}", e.core.errors);
-        assert!(e.core.errors.iter().all(|x| x.kind == ErrorKind::Hap));
+        assert!(e.core.slots().is_empty(), "neither hap builds a voice");
+        assert_eq!(e.core.errors().len(), 2, "{:?}", e.core.errors());
+        assert!(e.core.errors().iter().all(|x| x.kind == ErrorKind::Hap));
         assert!(
-            e.core.errors[0]
+            e.core.errors()[0]
                 .message
                 .contains("float value is non-finite"),
             "{}",
-            e.core.errors[0].message
+            e.core.errors()[0].message
         );
         assert!(
-            e.core.errors[1]
+            e.core.errors()[1]
                 .message
                 .contains("double value is non-finite"),
             "{}",
-            e.core.errors[1].message
+            e.core.errors()[1].message
         );
         // The second hap's first ramp stays scheduled: set, fall.
-        assert_eq!(e.core.orbits.orbits()[1].output_gain().events().len(), 2);
+        assert_eq!(e.core.orbits().orbits()[1].output_gain().events().len(), 2);
         assert!(
             duck_curve_points(&e, 1).is_empty(),
             "the curve's points are unchanged"
@@ -1739,10 +1380,10 @@ mod tests {
             json!([{ "s": "sine", "duckorbit": [7, 2], "duckdepth": [0.5, -1] }]),
         );
         let e = scheduled(&j);
-        assert_eq!(e.core.errors.len(), 2, "{:?}", e.core.errors);
-        assert_eq!(e.core.errors[0], other("7"));
-        assert_eq!(e.core.errors[1].kind, ErrorKind::Hap);
-        assert!(e.core.slots.is_empty());
+        assert_eq!(e.core.errors().len(), 2, "{:?}", e.core.errors());
+        assert_eq!(e.core.errors()[0], other("7"));
+        assert_eq!(e.core.errors()[1].kind, ErrorKind::Hap);
+        assert!(e.core.slots().is_empty());
     }
 
     fn lfos(configs: serde_json::Value) -> serde_json::Value {
@@ -1858,7 +1499,7 @@ mod tests {
             ]
         }));
         let e = Engine::new(&j).unwrap();
-        assert_eq!(e.core.bus_graph.max_level(), 0);
+        assert_eq!(e.core.bus_graph().max_level(), 0);
         let r = render_job(&j).unwrap();
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert!(r.channels.iter().flatten().any(|&sample| sample != 0.0));
@@ -1871,7 +1512,7 @@ mod tests {
             .values
             .push(value_map(json!({ "s": "bus", "n": 1 })));
         assert_eq!(
-            Engine::new(&with_bus).unwrap().core.bus_graph.max_level(),
+            Engine::new(&with_bus).unwrap().core.bus_graph().max_level(),
             1
         );
         let with_bus = render_job(&with_bus).unwrap();
@@ -1907,9 +1548,9 @@ mod tests {
             ]),
         ));
         let mut e = Engine::new(&j).unwrap();
-        assert_eq!(e.core.bus_graph.max_level(), 1);
+        assert_eq!(e.core.bus_graph().max_level(), 1);
         e.play();
-        assert!(e.core.errors.is_empty(), "{:?}", e.core.errors);
+        assert!(e.core.errors().is_empty(), "{:?}", e.core.errors());
         // The writer's one * 0.3 * gain stage 0.8, then the reader's gain stage 0.8 (every
         // envelope, post and busgain is 1).
         let want = (0.3f32 * 0.8f32) * 0.8f32;
@@ -1951,12 +1592,12 @@ mod tests {
             ]),
         ));
         let mut e = Engine::new(&j).unwrap();
-        assert_eq!(e.core.bus_graph.max_level(), 2);
+        assert_eq!(e.core.bus_graph().max_level(), 2);
         e.play();
-        assert!(e.core.errors.is_empty(), "{:?}", e.core.errors);
+        assert!(e.core.errors().is_empty(), "{:?}", e.core.errors());
         let want = ((0.3f32 * 0.8f32) * 0.8f32) * 0.8f32;
         assert_eq!(e.channels[0][1000], want, "three gain stages, no latency");
-        assert!(e.core.slots.is_empty());
+        assert!(e.core.slots().is_empty());
         // While they play the levels and sequence numbers follow the voices.
         let mut e = Engine::new(&j).unwrap();
         e.schedule(&j.pauses[0].haps[0], 0);
@@ -1964,120 +1605,13 @@ mod tests {
         e.schedule(&j.pauses[0].haps[2], 0);
         let levels: Vec<u32> = e
             .core
-            .slots
+            .slots()
             .iter()
-            .map(|s| e.core.bus_graph.level_of_value(s.value))
+            .map(|s| e.core.bus_graph().level_of_value(s.value()))
             .collect();
-        let seqs: Vec<u64> = e.core.slots.iter().map(|s| s.seq).collect();
+        let seqs: Vec<u64> = e.core.slots().iter().map(|s| s.seq()).collect();
         assert_eq!(levels, [2, 1, 0]);
         assert_eq!(seqs, [0, 1, 2]);
-    }
-
-    fn value_map(v: serde_json::Value) -> ValueMap {
-        match crate::job::Value::from_json(v).unwrap() {
-            crate::job::Value::Obj(m) => m,
-            other => panic!("{other:?}"),
-        }
-    }
-
-    /// A core with no values on a stereo destination with orbit 1 created on demand.
-    fn bare_core(seed: i32) -> Core {
-        let mut orbits = OrbitBank::empty(2);
-        orbits.create(&crate::job::OrbitSpec {
-            orbit: 1.0,
-            channels: vec![0, 1],
-        });
-        Core::new(seed, BusGraph::default(), orbits)
-    }
-
-    /// Renders `quanta` quanta, the left channel of each mix appended.
-    fn steps(core: &mut Core, quanta: usize) -> Vec<f32> {
-        let mut out = Vec::new();
-        for _ in 0..quanta {
-            core.step();
-            out.extend_from_slice(&core.mix[0]);
-        }
-        out
-    }
-
-    fn args(value: &ValueMap, index: usize, t: f64, duration: f64, cps: f64) -> ScheduleArgs<'_> {
-        ScheduleArgs {
-            value,
-            value_index: index,
-            t,
-            duration,
-            cycle: 0.0,
-            phase_sec: None,
-            cps,
-            now_frame: 0,
-        }
-    }
-
-    #[test]
-    fn cps_is_per_hap() {
-        // One value with a synced delay (`delaysync` 1/4 cycle): the echo lands at 0.25 s at
-        // cps 1 and at 0.5 s at cps 0.5.
-        let value = value_map(json!({ "s": "sine", "delay": 0.5, "delaysync": 0.25 }));
-        let echo = |cps: f64| {
-            let mut core = bare_core(0);
-            assert_eq!(core.add_value(&value), 0);
-            core.schedule(args(&value, 0, 0.0, 0.05, cps));
-            assert!(core.errors.is_empty(), "{:?}", core.errors);
-            let out = steps(&mut core, 200);
-            // The first sound after the dry note's tail (well before 0.2 s).
-            let from = (0.2 * SR) as usize;
-            from + first_nonzero(&out[from..]).unwrap()
-        };
-        let (fast, slow) = (echo(1.0), echo(0.5));
-        assert!((11025..11025 + 256).contains(&fast), "{fast}");
-        assert!((22050..22050 + 256).contains(&slow), "{slow}");
-    }
-
-    #[test]
-    fn a_growing_graph_moves_a_playing_voice_to_its_new_level() {
-        // A reader of bus B (level 1 alone), then a reader of A feeding B and a feeder of A:
-        // the first reader moves to level 2 and renders after its feeders from the next quantum,
-        // exactly as with the whole graph known up front.
-        let values = [
-            value_map(json!({ "s": "bus", "n": "B" })),
-            value_map(json!({ "s": "bus", "n": "A", "dry": 0, "bus": "B" })),
-            value_map(json!({ "s": "one", "attack": 0, "sustain": 1, "dry": 0, "bus": "A" })),
-        ];
-        let late = 1280.0 / SR;
-        let mut grown = bare_core(0);
-        grown.add_value(&values[0]);
-        assert_eq!(grown.bus_graph.level_of_value(0), 1);
-        grown.schedule(args(&values[0], 0, 0.0, 0.3, 0.5));
-        let mut a = steps(&mut grown, 10);
-        grown.add_value(&values[1]);
-        grown.add_value(&values[2]);
-        assert_eq!(grown.bus_graph.level_of_value(0), 2);
-        assert_eq!(grown.buses.index_of("A"), Some(1));
-        for (k, v) in values.iter().enumerate().skip(1) {
-            grown.schedule(ScheduleArgs {
-                now_frame: 1280,
-                ..args(v, k, late, 0.1, 0.5)
-            });
-        }
-        a.extend(steps(&mut grown, 40));
-        let mut known = bare_core(0);
-        for v in &values {
-            known.add_value(v);
-        }
-        known.schedule(args(&values[0], 0, 0.0, 0.3, 0.5));
-        let mut b = steps(&mut known, 10);
-        for (k, v) in values.iter().enumerate().skip(1) {
-            known.schedule(ScheduleArgs {
-                now_frame: 1280,
-                ..args(v, k, late, 0.1, 0.5)
-            });
-        }
-        b.extend(steps(&mut known, 40));
-        assert!(grown.errors.is_empty(), "{:?}", grown.errors);
-        assert!(a.iter().all(|x| x.is_finite()));
-        assert!(a[1280..].iter().any(|x| *x != 0.0), "the chain sounds");
-        let bits = |x: &[f32]| x.iter().map(|s| s.to_bits()).collect::<Vec<_>>();
-        assert_eq!(bits(&a), bits(&b));
     }
 
     #[test]
