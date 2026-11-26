@@ -1,7 +1,7 @@
 # 0123 implementation entry point
 
 - **Branch:** `llm/andrew/strudeland/0123-app-shell`.
-- **Plan:** [the proposal](../0123-app-shell.md). It is the contract: the module, the ports, the
+- **Plan:** [the proposal](proposal.md). It is the contract: the module, the ports, the
   state, the gate table, every verb, the tests, the rejected options and the decisions.
 - **Base:** `f7861f5` (`origin/main`). Diff against it, never against a local `main` that may be
   stale.
@@ -15,7 +15,7 @@
 
 One stage, one commit:
 
-1. [001-shell.md](001-shell.md): the shell module, its ports, the Tauri adapter, the fake, the
+1. [001-shell.md](proposal.md): the shell module, its ports, the Tauri adapter, the fake, the
    gate table, the modal state, `onQuit`, `canCloseWindow`, `start` with the menu sync and the
    instruments drop, the tests, `App.svelte` moved onto it, and the docs.
 

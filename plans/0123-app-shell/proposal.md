@@ -20,7 +20,7 @@ reproduce today's state (two dialogs open at once) is unreachable today; see Dec
 
 ## Background
 
-The [re-verification](0123-app-shell/reverify.md) has the evidence, with file and line at
+The [re-verification](reverify.md) has the evidence, with file and line at
 `f7861f5`, and the behaviour that must stay identical. In short:
 
 - `App.svelte` (330 lines) holds four pieces of modal state (`newSongOpen`, `instruments`,
