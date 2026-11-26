@@ -42,6 +42,7 @@ block2 = "0.6.2"
 objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
 
 [dev-dependencies]
+strudeland-ctl = { path = "../crates/strudeland-ctl", features = ["wire-fixtures"] }
 tokio = { version = "1.54.1", features = ["test-util"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]

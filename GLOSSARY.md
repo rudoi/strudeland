@@ -143,3 +143,11 @@ _Avoid_: the project changed (the message, not the condition), sentinel
 The generated `src/lib/ipc/bindings.ts`: every command's name and argument keys, every event
 name and every command error kind, read from the Rust source by `bun run ipc:build`.
 _Avoid_: IPC types (the payload types stay hand-written), protocol (the control socket's)
+
+**Wire example**
+
+One committed JSON example of a control method (`crates/strudeland-ctl/tests/wire/`): params
+both sides accept, named results, and the state-independent refusals with their exact code
+and message. Rust, the webview handler, the CLI and the app test against the same examples.
+_Avoid_: fixture (any test input), golden (the render harness's), schema (nothing is
+generated from them)

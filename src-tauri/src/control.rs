@@ -800,6 +800,7 @@ mod tests {
     use serde_json::json;
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
+    use strudeland_ctl::wire_fixtures;
 
     type Respond = Box<dyn Fn(&str, &Value) -> ReplyPayload + Send + Sync>;
 
@@ -932,6 +933,25 @@ mod tests {
         r.error.as_ref().expect("an error response").code
     }
 
+    /// The method's wire-example refusals that the app answers itself.
+    fn app_answered(method: Method) -> Vec<wire_fixtures::Invalid> {
+        wire_fixtures::invalid(method)
+            .into_iter()
+            .filter(|e| e.answered_by == "app")
+            .collect()
+    }
+
+    #[test]
+    fn every_app_answered_refusal_has_a_test_here() {
+        for method in Method::ALL {
+            let app = app_answered(method);
+            assert!(
+                app.is_empty() || matches!(method, Method::Screenshot | Method::ProjectOpen),
+                "{method} has app-answered refusals with no control.rs test: {app:?}"
+            );
+        }
+    }
+
     async fn wait_for_requests(emitter: &FakeEmitter, n: usize) {
         while emitter.requests().len() < n {
             tokio::task::yield_now().await;
@@ -969,14 +989,23 @@ mod tests {
         let emitter =
             FakeEmitter::answering(&bridge, |_, params| ReplyPayload::Result(params.clone()));
         let snapshotter = FakeSnapshotter::default();
+        let refusals = app_answered(Method::ProjectOpen);
+        let [refusal] = refusals.as_slice() else {
+            panic!("expected one app-answered project.open refusal: {refusals:?}");
+        };
         let response = handle_line(
             &bridge,
             &emitter,
             &snapshotter,
-            &line(1, "project.open", json!({"path": "relative"})),
+            &line(1, "project.open", refusal.params.clone()),
         )
         .await;
-        assert_eq!(err_code(&response), codes::INVALID_PARAMS);
+        assert_eq!(
+            response.error,
+            Some(RpcError::new(refusal.code, refusal.message.clone())),
+            "{}",
+            refusal.name
+        );
         assert!(emitter.requests().is_empty());
         let path = std::env::temp_dir().join("Music project");
         let response = handle_line(
@@ -1056,25 +1085,19 @@ mod tests {
         let d = dir.path().display().to_string();
         let missing = dir.path().join("missing");
         let root = dir.path().ancestors().last().unwrap().display().to_string();
-        let cases = [
-            (json!([]), "invalid params: expected an object".to_string()),
-            (json!("x"), "invalid params: expected an object".to_string()),
-            (
-                json!({"path": "/tmp/a.png", "size": 2}),
-                "invalid params: unknown parameter 'size'".to_string(),
-            ),
-            (
-                json!({"path": 3}),
-                "invalid params: 'path' must be a string".to_string(),
-            ),
-            (
-                json!({"path": null}),
-                "invalid params: 'path' must be a string".to_string(),
-            ),
-            (
-                json!({"path": "shot.png"}),
-                "invalid params: 'path' must be absolute, got shot.png".to_string(),
-            ),
+        let examples = wire_fixtures::invalid(Method::Screenshot);
+        assert!(
+            !examples.is_empty(),
+            "the screenshot example lists refusals"
+        );
+        for e in &examples {
+            assert_eq!(e.answered_by, "app", "{}", e.name);
+        }
+        let from_examples = examples
+            .into_iter()
+            .map(|e| (e.params, RpcError::new(e.code, e.message)));
+        let invalid = |m: String| RpcError::new(codes::INVALID_PARAMS, m);
+        let inline = [
             (
                 json!({"path": missing.join("shot.png")}),
                 format!(
@@ -1094,14 +1117,15 @@ mod tests {
         fs::write(dir.path().join("file"), "").unwrap();
         let file = dir.path().join("file");
         let under_file = file.join("shot.png");
-        let cases = cases.into_iter().chain([(
+        let inline = inline.into_iter().chain([(
             json!({"path": under_file}),
             format!(
                 "invalid params: the directory {} does not exist",
                 file.display()
             ),
         )]);
-        for (params, message) in cases {
+        let cases = from_examples.chain(inline.map(|(params, m)| (params, invalid(m))));
+        for (params, expected) in cases {
             let r = handle_line(
                 &bridge,
                 &emitter,
@@ -1109,11 +1133,7 @@ mod tests {
                 &line(1, "screenshot", params.clone()),
             )
             .await;
-            assert_eq!(
-                r.error,
-                Some(RpcError::new(codes::INVALID_PARAMS, message)),
-                "{params}"
-            );
+            assert_eq!(r.error, Some(expected), "{params}");
         }
         assert!(snap.paths().is_empty(), "the snapshotter is not called");
     }
