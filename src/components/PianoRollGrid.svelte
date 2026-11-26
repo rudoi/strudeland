@@ -19,13 +19,19 @@
     type GridBar,
     type PitchRange,
   } from '../lib/piano-roll/grid';
-  import { projectRollEdit, sameRollPosition } from '../lib/piano-roll/feedback';
+  import {
+    projectNoteEdit,
+    sameRollPosition,
+    sharesMoveIdentity,
+  } from '../lib/piano-roll/feedback';
+  import { resolveRollMove, type RollMoveTime } from '../lib/piano-roll/move';
   import type { RollBar, RollEdit, RollNote } from '../lib/piano-roll/types';
   import Button from './ui/Button.svelte';
 
   let {
     notes,
     bars,
+    moveTime,
     editable,
     insertable,
     gestureKey,
@@ -33,6 +39,7 @@
     gridSteps,
     isFlashing,
     oncancel,
+    onmoveoutside,
     playhead,
     onedit,
     onaudition,
@@ -40,6 +47,7 @@
   }: {
     notes: readonly RollNote[];
     bars: readonly RollBar[];
+    moveTime: RollMoveTime;
     editable: boolean;
     insertable: boolean;
     gestureKey: string;
@@ -47,6 +55,7 @@
     gridSteps?: number;
     isFlashing: (note: RollNote) => boolean;
     oncancel: () => void;
+    onmoveoutside: () => void;
     playhead?: number;
     onedit: (edit: RollEdit) => boolean;
     onaudition: (pitch: number, note?: RollNote) => void;
@@ -70,6 +79,7 @@
   interface Gesture {
     pointer: number;
     note: RollNote;
+    moveFragments: ReadonlyMap<string, RollNote>;
     key: string;
     range: PitchRange;
     x: number;
@@ -82,7 +92,7 @@
     lastX: number;
     lastY: number;
     free: boolean;
-    edit?: Exclude<RollEdit, { kind: 'insert' }>;
+    edit?: Exclude<RollEdit, { kind: 'insert' }> | null;
   }
 
   let gesture = $state.raw<Gesture>();
@@ -177,6 +187,9 @@
     gesture = {
       pointer: event.pointerId,
       note,
+      moveFragments: new Map(
+        notes.filter((part) => sharesMoveIdentity(part, note)).map((part) => [part.id, part]),
+      ),
       key: gestureKey,
       range: pitchRange,
       x: event.clientX,
@@ -203,13 +216,10 @@
     const lastBar = bar === geometry.bars.at(-1);
     const upper = !resize && lastBar ? 1 - 1 / steps : 1;
     const snapped = snapGrid(bar, offset, steps, upper);
-    const point = shiftRollEdge(resize ? note.end : note.start, anchor, snapped);
+    if (!resize) return resolveRollMove(note, anchor, snapped, moveTime);
+    const point = shiftRollEdge(note.end, anchor, snapped);
     const value = cycleNumber(point);
-    if (resize)
-      return value > start && value !== end
-        ? { kind: 'resize', id: note.id, end: point }
-        : undefined;
-    return value >= 0 && value !== start ? { kind: 'move', id: note.id, start: point } : undefined;
+    return value > start && value !== end ? { kind: 'resize', id: note.id, end: point } : undefined;
   }
 
   function updateGesture(current: Gesture): Gesture {
@@ -297,7 +307,8 @@
           lastY: event.clientY,
           free: event.altKey,
         });
-        if (edit && onedit(edit)) {
+        if (edit === null) onmoveoutside();
+        else if (edit && onedit(edit)) {
           void restoreNoteFocus(event.currentTarget as HTMLButtonElement, current.note, edit);
         }
       }
@@ -332,7 +343,7 @@
       return;
     }
     if (!editable || event.metaKey || event.ctrlKey || event.altKey) return;
-    let edit: Exclude<RollEdit, { kind: 'insert' }> | undefined;
+    let edit: Exclude<RollEdit, { kind: 'insert' }> | null | undefined;
     if (note.pitchEditable && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       const pitch = keyPitch(note.pitch + (event.key === 'ArrowUp' ? 1 : -1));
       if (pitch !== note.pitch) edit = { kind: 'pitch', id: note.id, pitch };
@@ -343,7 +354,6 @@
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         const resize = event.shiftKey;
         const delta = event.key === 'ArrowRight' ? 1 : -1;
-        const original = resize ? note.end : note.start;
         const anchor = shownEdge(note, resize);
         const edge = cycleNumber(anchor);
         const bar =
@@ -356,16 +366,21 @@
             step < 0 && previous
               ? gridPoint(previous, stepsInBar(previous) - 1, stepsInBar(previous))
               : gridPoint(bar, step, stepsInBar(bar));
-          const point = shiftRollEdge(original, anchor, snapped);
-          const value = cycleNumber(point);
-          if (resize && value > cycleNumber(note.start) && cycleNumber(snapped) <= windowEnd)
-            edit = { kind: 'resize', id: note.id, end: point };
-          if (!resize && value >= 0 && cycleNumber(snapped) < windowEnd)
-            edit = { kind: 'move', id: note.id, start: point };
+          const snappedCycle = cycleNumber(snapped);
+          if (resize && snappedCycle <= windowEnd) {
+            const point = shiftRollEdge(note.end, anchor, snapped);
+            if (cycleNumber(point) > cycleNumber(note.start))
+              edit = { kind: 'resize', id: note.id, end: point };
+          } else if (!resize && snappedCycle >= windowStart && snappedCycle < windowEnd) {
+            edit = resolveRollMove(note, anchor, snapped, moveTime);
+          }
         }
       }
     }
-    if (edit) {
+    if (edit === null) {
+      event.preventDefault();
+      onmoveoutside();
+    } else if (edit) {
       event.preventDefault();
       if (onedit(edit)) void restoreNoteFocus(event.currentTarget as HTMLButtonElement, note, edit);
     }
@@ -379,7 +394,7 @@
     await tick();
     const focused = document.activeElement;
     if ((focused !== document.body && focused !== button) || !surface) return;
-    const destination = projectRollEdit([previous], edit, false).edited[0];
+    const destination = projectNoteEdit(previous, edit);
     const next = destination
       ? (visible.find((note) => note.id === previous.id && sameRollPosition(note, destination)) ??
         visible.find((note) => isFlashing(note) && sameRollPosition(note, destination)) ??
@@ -477,20 +492,15 @@
     return { left: timePercent(start), width: timePercent(end) - timePercent(start) };
   }
 
-  const ghost = $derived.by(() => {
-    const note = gesture?.note;
-    const edit = gesture?.edit;
-    if (!note || !edit) return;
-    const start = edit.kind === 'move' ? cycleNumber(edit.start) : cycleNumber(note.start);
-    const end =
-      edit.kind === 'resize'
-        ? cycleNumber(edit.end)
-        : start + (cycleNumber(note.end) - cycleNumber(note.start));
-    return {
-      pitch: edit.kind === 'pitch' ? edit.pitch : note.pitch,
-      left: timePercent(start),
-      width: timePercent(end) - timePercent(start),
-    };
+  const ghosts = $derived.by(() => {
+    if (!gesture?.edit) return [];
+    const { edit, moveFragments, note } = gesture;
+    const parts = edit.kind === 'move' ? moveFragments.values() : [note];
+    return Array.from(parts).flatMap((part) => {
+      const projected = projectNoteEdit(part, edit, { from: windowStart, to: windowEnd });
+      if (!projected) return [];
+      return [{ id: part.id, pitch: projected.pitch, ...markerPosition(projected) }];
+    });
   });
 
   const cursorPosition = $derived.by(() => {
@@ -673,7 +683,10 @@
               class:linked={selected === note.id ||
                 (origin !== undefined && origin === selectedSource)}
               class:source-match={note.sourceMatch}
-              class:pending={gesture?.axis !== undefined && gesture?.note.id === note.id}
+              class:pending={gesture?.axis !== undefined &&
+                (gesture.edit?.kind === 'move'
+                  ? gesture.moveFragments.has(note.id)
+                  : gesture.note.id === note.id)}
               style:left={mark.left + '%'}
               style:width={mark.width + '%'}
               style:top={laneY(note.pitch) + 2 + track * height + 'px'}
@@ -701,7 +714,7 @@
               {/if}
             </button>
           {/each}
-          {#if ghost}
+          {#each ghosts as ghost (ghost.id)}
             <div
               class="ghost"
               style:left={ghost.left + '%'}
@@ -714,7 +727,7 @@
             >
               {pitchLabel(ghost.pitch)}
             </div>
-          {/if}
+          {/each}
           {#if playheadVisible && playhead !== undefined}
             <div class="head" style:left={timePercent(playhead) + '%'} aria-hidden="true"></div>
           {/if}

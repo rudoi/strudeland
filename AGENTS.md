@@ -96,7 +96,11 @@ the V8 download the host brings.
 - Piano roll (`src/lib/piano-roll/`) resolves caret, selections and aliases in `source.ts`.
   The direct codecs are `phrase.ts` and `authored-grid.ts`. The latter shares row decoding with
   `src/lib/strudel/note-grid.ts`. `event-source.ts` writes scoped edits for evaluated notes.
-  `src/lib/strudel/event-edits.ts` applies them to logical-time haps before clock mapping.
+  For cross-bar moves, `move.ts` resolves exact quarter-note spans and checks section repetitions.
+  `source.ts` proves written placements before committing. See the
+  [cross-bar move contract](plans/0110-cross-bar-piano-roll-moves/contract.md) for placement and
+  source-meter rules.
+  `src/lib/strudel/event-edits.ts` applies scoped edits to logical-time haps before clock mapping.
   The session commits, reveals and marks changed ranges in one editor transaction. See the
   [editor](plans/0111-caret-driven-piano-roll/editor-experience.md),
   [grid](plans/0111-caret-driven-piano-roll/authored-grids.md) and

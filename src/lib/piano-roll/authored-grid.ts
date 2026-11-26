@@ -432,9 +432,9 @@ export function planGridEdit(
       ? slotAt(edit.start, score.width)
       : original!.start;
   const end =
-    edit.kind === 'resize' || edit.kind === 'insert'
+    edit.kind === 'move' || edit.kind === 'resize' || edit.kind === 'insert'
       ? slotAt(edit.end, score.width)
-      : start + original!.end - original!.start;
+      : original!.end;
   if (
     !Number.isSafeInteger(start) ||
     !Number.isSafeInteger(end) ||

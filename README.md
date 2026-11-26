@@ -108,6 +108,11 @@ edge to resize. With a note focused, use the arrow keys for pitch and timing, Sh
 horizontal arrows for length, and Delete to remove it. Supported authored phrases and grids
 also accept new notes in empty cells.
 
+Dragging or nudging a note between visible bars keeps its duration in quarter notes, even
+when the time signature changes. The destination grid sets where the note starts. To move
+one occurrence when a shared rewrite would change the duration at another use, open **In song**.
+Generated moves require a verifiable source meter.
+
 On drop, the editor writes the change, scrolls to it, and briefly highlights the code and the
 edited notes. The roll keeps focus for the next edit. An edit is one undo step. Simple phrases
 and recognized note grids change in place. For a transformed or generated note, the first drag

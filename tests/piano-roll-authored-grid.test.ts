@@ -154,7 +154,7 @@ test('consumer proof checks operators, binding flow, widths, plain strings and s
 
 test('grid source moves and resizes across rows, retains trivia, and releases holds into silence', () => {
   const code = "const line=noteGrid([ 'c4:0.30   _  ~ ~', // row 1\n  '~ ~  ~ _', ]);";
-  const gesture = { kind: 'move', id: 'grid-0', start: '3/4' } as const;
+  const gesture = { kind: 'move', id: 'grid-0', start: '3/4', end: '5/4' } as const;
   const owner = target(code, 'c4:')!;
   const patches = planRollEdit(code, owner.expression, gesture)!;
   expect(patches.find(({ reveal }) => reveal)?.insert).toBe('c4:0.30');
@@ -179,6 +179,33 @@ test('grid source moves and resizes across rows, retains trivia, and releases ho
   );
 });
 
+test('moves both edges to new slots across meters, retains the suffix and recomputes adjacent glides', () => {
+  const score = ['E4:0.30 _ _ ~ G4:1.25 _ ~ ~', '~ ~ ~ ~ ~ ~ ~ ~', '~ ~ ~ ~ ~ ~ ~ ~'];
+  const code = `const line = noteGrid([${score.map((row) => `'${row}'`).join(', ')}]);`;
+  // Three slots in 4/4 and four slots in 6/8 both last one and a half quarter notes.
+  const changed = edited(code, 'E4:0.30', {
+    kind: 'move',
+    id: 'grid-0',
+    start: '7/4',
+    end: '9/4',
+  });
+  const newScore = ['~ _ _ ~ G4:1.25 _ ~ ~', '~ ~ ~ ~ ~ ~ E4:0.30 _', '_ _ ~ ~ ~ ~ ~ ~'];
+  expect(changed).toBe(`const line = noteGrid([${newScore.map((row) => `'${row}'`).join(', ')}]);`);
+  expect(inspect(noteGrid(newScore))).toEqual([
+    { start: '1/2', end: '3/4', value: { note: 'G4', penv: 0.55, pattack: 1.25 } },
+    { start: '7/4', end: '9/4', value: { note: 'E4', penv: -3, pattack: 0.3 } },
+  ]);
+  const owner = target(changed, 'E4:0.30')!;
+  const backward = { kind: 'move', id: 'grid-14', start: '0', end: '3/8' } as const;
+  const patches = planRollEdit(changed, owner.expression, backward)!;
+  expect(patches[0]).toMatchObject({ insert: 'E4:0.30', reveal: true });
+  const restored = edited(changed, 'E4:0.30', backward);
+  expect(target(restored, 'E4:0.30')?.phrase?.notes).toMatchObject([
+    { pitch: 64, start: '0', end: '3/8', glideBend: 0.55 },
+    { pitch: 67, start: '1/2', end: '3/4', glideBend: 3 },
+  ]);
+});
+
 test('src preserves exact suffix, accidental style and carry-in, routes collisions and off-slot moves to fallback', () => {
   const code = "const rows = [ 'Bb4:0.20   _', '_ A4:0' ]; const a=noteGrid(rows);";
   expect(edited(code, '_ A4', { kind: 'pitch', id: 'grid-0', pitch: 61 })).toBe(
@@ -187,8 +214,17 @@ test('src preserves exact suffix, accidental style and carry-in, routes collisio
   const owner = target(code, '_ A4')!;
   expect(owner.gridRow).toBe(1);
   expect(owner.phrase?.notes[0].end).toBe('3/2');
-  for (const start of ['1/2', '1/3', '2']) {
-    expect(planRollEdit(code, owner.expression, { kind: 'move', id: 'grid-0', start })).toBeNull();
+  for (const [start, end] of [
+    ['1/2', '2'],
+    ['1/3', '1'],
+    ['1/2', '4/3'],
+    ['1/2', '5/2'],
+    ['1/2', '1/0'],
+    ['1/2', '1/2'],
+  ]) {
+    expect(
+      planRollEdit(code, owner.expression, { kind: 'move', id: 'grid-0', start, end }),
+    ).toBeNull();
   }
   for (const broken of ['c4:NaN', 'c4:2:3', 'c4:-0.2', '128', '_abc']) {
     expect(() => decodeNoteGrid(['~ ' + broken])).toThrow('row 1, slot 2');
