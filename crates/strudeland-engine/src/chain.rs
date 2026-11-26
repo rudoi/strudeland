@@ -20,12 +20,12 @@
 //! and cascades it through the nodes after it), which the ladder and the transient act on.
 //!
 //! FX chains (`value.FX`, superdough.mjs:611-938): every entry of `FX = [...value.FX, value]` gets
-//! its own stage list in the voice's flat list ([`build_entry`] per [`FxKey`], the main entry
-//! last), and a chain entry (not the main one) ends with its local delay ([`LocalDelay`]) and
-//! local reverb ([`LocalReverb`]): `tail -> dry gain(dry ?? 1)` and `tail -> effect -> wet
-//! gain(level)`, both summed into a 2-channel `sum` (the voice is stereo from there). Their tails
-//! render the quantum holding `endWithRelease` and are cut from the next one (with
-//! `FXrelease > release` the release gain is 0 there, so the cut is exact).
+//! its own stage list in the voice's flat list ([`build_stage`] per planned [`StageSpec`], grouped
+//! by [`FxKey`], the main entry last), and a chain entry (not the main one) ends with its local
+//! delay ([`LocalDelay`]) and local reverb ([`LocalReverb`]): `tail -> dry gain(dry ?? 1)` and
+//! `tail -> effect -> wet gain(level)`, both summed into a 2-channel `sum` (the voice is stereo
+//! from there). Their tails render the quantum holding `endWithRelease` and are cut from the next
+//! one (with `FXrelease > release` the release gain is 0 there, so the cut is exact).
 
 use crate::QUANTUM;
 use crate::biquad::{Biquad, BiquadInputs, FilterKind};
@@ -648,6 +648,7 @@ pub enum StageKind {
     LocalReverb,
 }
 
+#[cfg(test)]
 impl StageKind {
     /// The kind of a built stage.
     pub fn of(stage: &Stage) -> StageKind {
@@ -674,15 +675,76 @@ impl StageKind {
     }
 }
 
-/// A voice's `nodes` tracker in superdough's insertion order (`Object.keys` order: a later write
-/// of a key replaces its list in place), together with the plan it describes: the source kind,
-/// the kind of every stage of the flat stage list and which FM modulators are noise.
-/// [`NodeTable::plan`] is the only constructor; the modulator loop adds `lfo_<id>`/`env_<id>`.
+/// One planned stage of a voice: what [`build_stage`] builds at this position of the chain.
+/// Owned (keys and kinds only); the values are read from the `VoiceParams` at build time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageSpec {
+    /// `Gain(0.3)` after a synth source (not behind a worklet synth or the bus sound).
+    SynthGain,
+    /// `envGain` with the amp (or bus) envelope.
+    EnvGain,
+    Transient(FxKey),
+    /// The entry's gain stage, `Gain(gain * velocity)`.
+    EntryGain(FxKey),
+    /// One filter copy: a biquad (two specs for a 24 dB filter) or a ladder.
+    Filter {
+        entry: FxKey,
+        kind: FilterKind,
+        ladder: bool,
+    },
+    Vowel(FxKey),
+    Coarse(FxKey),
+    Crush(FxKey),
+    Shape(FxKey),
+    Distort(FxKey),
+    Tremolo(FxKey),
+    Compressor(FxKey),
+    Pan(FxKey),
+    Phaser(FxKey),
+    LocalDelay(FxKey),
+    LocalReverb(FxKey),
+    /// The `FXrelease` gain.
+    Release,
+    /// `post`, `Gain(postgain)`.
+    Post,
+}
+
+impl StageSpec {
+    /// The kind of stage this spec builds.
+    pub fn kind(self) -> StageKind {
+        match self {
+            StageSpec::SynthGain
+            | StageSpec::EnvGain
+            | StageSpec::EntryGain(_)
+            | StageSpec::Post => StageKind::Gain,
+            StageSpec::Filter { ladder: true, .. } => StageKind::Ladder,
+            StageSpec::Filter { ladder: false, .. } => StageKind::Biquad,
+            StageSpec::Transient(_) => StageKind::Transient,
+            StageSpec::Vowel(_) => StageKind::Vowel,
+            StageSpec::Coarse(_) => StageKind::Coarse,
+            StageSpec::Crush(_) => StageKind::Crush,
+            StageSpec::Shape(_) => StageKind::Shape,
+            StageSpec::Distort(_) => StageKind::Distort,
+            StageSpec::Tremolo(_) => StageKind::Tremolo,
+            StageSpec::Compressor(_) => StageKind::Compressor,
+            StageSpec::Pan(_) => StageKind::Panner,
+            StageSpec::Phaser(_) => StageKind::Phaser,
+            StageSpec::LocalDelay(_) => StageKind::LocalDelay,
+            StageSpec::LocalReverb(_) => StageKind::LocalReverb,
+            StageSpec::Release => StageKind::Release,
+        }
+    }
+}
+
+/// The plan of a voice: its source kind, the stage specs `Voice::build` walks, which FM
+/// modulators are noise, and superdough's `nodes` tracker in insertion order (`Object.keys`
+/// order: a later write of a key replaces its list in place). [`NodeTable::plan`] is the only
+/// constructor besides [`NodeTable::empty`]; the modulator loop adds `lfo_<id>`/`env_<id>`.
 #[derive(Debug, Clone)]
 pub struct NodeTable {
     entries: Vec<(FxKey, String, NodeList)>,
     source: SourceKind,
-    stages: Vec<StageKind>,
+    specs: Vec<StageSpec>,
     /// Per FM modulator position, whether it plays noise (no `frequency` param).
     fm_noise: Vec<bool>,
 }
@@ -750,12 +812,12 @@ impl NodeTable {
 
     /// The kind of stage `id` of the plan.
     pub fn stage(&self, id: StageId) -> Option<StageKind> {
-        self.stages.get(id.0).copied()
+        self.specs.get(id.0).map(|s| s.kind())
     }
 
-    /// The kinds of the planned stages in chain order.
-    pub fn stages(&self) -> &[StageKind] {
-        &self.stages
+    /// The planned stages in chain order (stage `id` is `specs()[id.0]`).
+    pub fn specs(&self) -> &[StageSpec] {
+        &self.specs
     }
 
     /// Whether FM modulator `pos` plays noise.
@@ -764,9 +826,9 @@ impl NodeTable {
     }
 
     /// Appends a planned stage and returns its id.
-    fn stage_id(&mut self, kind: StageKind) -> StageId {
-        self.stages.push(kind);
-        StageId(self.stages.len() - 1)
+    fn stage_id(&mut self, spec: StageSpec) -> StageId {
+        self.specs.push(spec);
+        StageId(self.specs.len() - 1)
     }
 
     /// Registers a single-node entry `nodes[key][name] = [node]`.
@@ -788,7 +850,7 @@ impl NodeTable {
         NodeTable {
             entries: Vec::new(),
             source,
-            stages: Vec::new(),
+            specs: Vec::new(),
             fm_noise: Vec::new(),
         }
     }
@@ -798,9 +860,8 @@ impl NodeTable {
     /// pulse; `vib`, `vib_gain` and the FM matrix's `fm_<i>`/`fm_<i>_gain`, the vibrato before
     /// the FM for an oscillator and after it for the worklet synths), every FX entry's stages in
     /// order ([`plan_entry`]: the chain entries, then main), then `post`, `delay`, `delay_mix`,
-    /// `room`, `room_mix` and `djf`. The stage list it names is exactly the one `Voice::build`
-    /// makes: `Gain(0.3)` (not behind a worklet synth or the bus sound), `envGain`, the entries,
-    /// the `FXrelease` gain, `post`.
+    /// `room`, `room_mix` and `djf`. The stage list `Voice::build` walks: `Gain(0.3)` (not behind
+    /// a worklet synth or the bus sound), `envGain`, the entries, the `FXrelease` gain, `post`.
     /// A pure function of the controls, so the build and `unsupported_signatures` agree.
     pub fn plan(params: &VoiceParams, source: SourceKind) -> NodeTable {
         let main = FxKey::Main;
@@ -838,16 +899,16 @@ impl NodeTable {
             source,
             SourceKind::Supersaw | SourceKind::Pulse | SourceKind::Bus
         ) {
-            t.stage_id(StageKind::Gain); // Gain(0.3)
+            t.stage_id(StageSpec::SynthGain);
         }
-        t.stage_id(StageKind::Gain); // envGain
+        t.stage_id(StageSpec::EnvGain);
         for (key, entry) in params.entries() {
             plan_entry(key, entry, params.ftype_24db, &mut t);
         }
         if params.fx_release.is_some_and(|r| r > params.release_raw) {
-            t.stage_id(StageKind::Release);
+            t.stage_id(StageSpec::Release);
         }
-        let post = t.stage_id(StageKind::Gain);
+        let post = t.stage_id(StageSpec::Post);
         t.one(main, "post", Node::Stage(post));
         let m = &params.main;
         if delay_applies(m) {
@@ -913,32 +974,34 @@ fn plan_fm(params: &VoiceParams, t: &mut NodeTable) {
 /// and `distort` worklets, the tremolo (`tremolo`, `tremolo_gain`), the compressor, the panner
 /// and the phaser (`phaser`, `phaser_lfo`), and for a chain entry (not `Main`) the local delay
 /// (`delay` and its wet gain `delay_mix`) and reverb (`room`, `room_mix`). `ftype_24db` is the
-/// hap's (the doubling reads `value.ftype`). [`build_entry`] builds exactly these stages.
+/// hap's (the doubling reads `value.ftype`).
 pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut NodeTable) {
     if params.transient.is_some() {
-        let id = t.stage_id(StageKind::Transient);
+        let id = t.stage_id(StageSpec::Transient(key));
         t.set(key, "transient", NodeList::NotArray(Node::Stage(id)));
     }
-    let id = t.stage_id(StageKind::Gain);
+    let id = t.stage_id(StageSpec::EntryGain(key));
     t.one(key, "gain", Node::Stage(id));
     let filters = [
-        (&params.lowpass, "lpf"),
-        (&params.highpass, "hpf"),
-        (&params.bandpass, "bpf"),
+        (&params.lowpass, FilterKind::Lowpass, "lpf"),
+        (&params.highpass, FilterKind::Highpass, "hpf"),
+        (&params.bandpass, FilterKind::Bandpass, "bpf"),
     ];
-    for (filter, name) in filters {
+    for (filter, kind, name) in filters {
         let Some(f) = filter else {
             continue;
         };
         let lfo_name = format!("{name}_lfo");
         let has_lfo = filter_lfo_props(f, &EntryTimes::PLAN).is_some();
-        let (kind, copies) = if params.ftype_ladder {
-            (StageKind::Ladder, 1)
-        } else {
-            (StageKind::Biquad, if ftype_24db { 2 } else { 1 })
+        let ladder = params.ftype_ladder;
+        let copies = if !ladder && ftype_24db { 2 } else { 1 };
+        let spec = StageSpec::Filter {
+            entry: key,
+            kind,
+            ladder,
         };
         for k in 0..copies {
-            let id = t.stage_id(kind);
+            let id = t.stage_id(spec);
             let lfo = has_lfo.then_some(Node::StageLfo(id));
             if k == 0 {
                 t.one(key, name, Node::Stage(id));
@@ -950,37 +1013,37 @@ pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut No
         }
     }
     if params.vowel.is_some() {
-        let id = t.stage_id(StageKind::Vowel);
+        let id = t.stage_id(StageSpec::Vowel(key));
         let filters = (0..5).map(|n| Some(Node::VowelFilter(id, n))).collect();
         t.set(key, "vowel", NodeList::Array(filters));
     }
     let shapers = [
-        (params.coarse.is_some(), StageKind::Coarse, "coarse"),
-        (params.crush.is_some(), StageKind::Crush, "crush"),
-        (params.shape.is_some(), StageKind::Shape, "shape"),
-        (params.distort.is_some(), StageKind::Distort, "distort"),
+        (params.coarse.is_some(), StageSpec::Coarse(key), "coarse"),
+        (params.crush.is_some(), StageSpec::Crush(key), "crush"),
+        (params.shape.is_some(), StageSpec::Shape(key), "shape"),
+        (params.distort.is_some(), StageSpec::Distort(key), "distort"),
     ];
-    for (present, kind, name) in shapers {
+    for (present, spec, name) in shapers {
         if present {
-            let id = t.stage_id(kind);
+            let id = t.stage_id(spec);
             t.one(key, name, Node::Stage(id));
         }
     }
     if params.tremolo.is_some() {
-        let id = t.stage_id(StageKind::Tremolo);
+        let id = t.stage_id(StageSpec::Tremolo(key));
         t.one(key, "tremolo", Node::StageLfo(id));
         t.one(key, "tremolo_gain", Node::Stage(id));
     }
     if params.compressor.is_some() {
-        let id = t.stage_id(StageKind::Compressor);
+        let id = t.stage_id(StageSpec::Compressor(key));
         t.one(key, "compressor", Node::Stage(id));
     }
     if params.pan.is_some() {
-        let id = t.stage_id(StageKind::Panner);
+        let id = t.stage_id(StageSpec::Pan(key));
         t.one(key, "pan", Node::Stage(id));
     }
     if params.phaser.is_some() {
-        let id = t.stage_id(StageKind::Phaser);
+        let id = t.stage_id(StageSpec::Phaser(key));
         t.one(key, "phaser", Node::Stage(id));
         t.one(key, "phaser_lfo", Node::StageLfo(id));
     }
@@ -988,12 +1051,12 @@ pub fn plan_entry(key: FxKey, params: &EntryParams, ftype_24db: bool, t: &mut No
         return;
     }
     if delay_applies(params) {
-        let id = t.stage_id(StageKind::LocalDelay);
+        let id = t.stage_id(StageSpec::LocalDelay(key));
         t.one(key, "delay", Node::Stage(id));
         t.one(key, "delay_mix", Node::StageWet(id));
     }
     if params.room > 0.0 {
-        let id = t.stage_id(StageKind::LocalReverb);
+        let id = t.stage_id(StageSpec::LocalReverb(key));
         t.one(key, "room", Node::Stage(id));
         t.one(key, "room_mix", Node::StageWet(id));
     }
@@ -1011,12 +1074,6 @@ pub fn delay_applies(e: &EntryParams) -> bool {
 /// in turn).
 pub fn downmix_terms(ch: &[[f32; QUANTUM]; 2]) -> [[f32; QUANTUM]; 2] {
     ch.map(|c| c.map(|x| 0.5 * x))
-}
-
-/// Pushes `stage` and returns its id.
-pub fn push_stage(stages: &mut Vec<Stage>, stage: Stage) -> StageId {
-    stages.push(stage);
-    StageId(stages.len() - 1)
 }
 
 /// When an FX entry's voice plays: what its time-dependent nodes are built from.
@@ -1159,27 +1216,21 @@ fn push_filter_lfo(
     }
 }
 
-/// Pushes a shaper worklet.
-fn push_shaper(kind: ShaperKind, stages: &mut Vec<Stage>) {
-    push_stage(stages, Stage::Shaper(Shaper::new(kind)));
-}
-
-/// The stages of FX entry `key`, built (and each throwing) in superdough's order, exactly the
-/// stages [`plan_entry`] names: the `transient` worklet when `transient` is defined, the gain
-/// stage `Gain(gain * velocity)`, the lowpass, highpass and bandpass biquads (two copies each for
-/// a 24 dB filter, `ftype_24db` being the hap's; one ladder each for the entry's
-/// `ftype('ladder')`), each with its filter LFO when one is built (the LFOs go to `lfos`), the
-/// vowel, the `coarse`, `crush`, `shape` and `distort` worklets when their control is defined,
-/// the tremolo, the compressor, the panner when `pan` is defined, the phaser, then for a chain
-/// entry the local delay and the local reverb.
-pub fn build_entry(
-    key: FxKey,
-    params: &EntryParams,
-    ftype_24db: bool,
-    times: EntryTimes,
-    stages: &mut Vec<Stage>,
+/// Builds the stage `spec` names (each throwing as superdough does), reading its values from
+/// `params` (the entry's through `params.entry(key)`, planned present): the `transient` worklet,
+/// the gain stage `Gain(gain * velocity)`, one copy of a lowpass, highpass or bandpass filter (a
+/// biquad, or a ladder for the entry's `ftype('ladder')`) with its filter LFO when one is built,
+/// the vowel, the `coarse`, `crush`, `shape` and `distort` worklets, the tremolo, the compressor,
+/// the panner, the phaser, a chain entry's local delay and local reverb, the `FXrelease` gain and
+/// `post`. A filter's or the phaser's LFO goes to `lfos`, connected to stage `id`. Not for the
+/// head specs (`SynthGain`, `EnvGain`), which `Voice::build` builds with the source's envelope.
+pub(crate) fn build_stage(
+    spec: StageSpec,
+    id: StageId,
+    params: &VoiceParams,
+    times: &EntryTimes,
     lfos: &mut Vec<ParamLfo>,
-) -> Result<(), VoiceError> {
+) -> Result<Stage, VoiceError> {
     let EntryTimes {
         begin,
         hold_end,
@@ -1188,136 +1239,165 @@ pub fn build_entry(
         cycle,
         cps,
         phase_sec,
-    } = times;
-    if let Some(attack) = params.transient {
-        // Right after the amp envelope: its input goes with the source (the gains pass the
-        // disabling on).
-        let node = TransientNode::new(Transient::new(
-            Some(attack),
-            params.transsustain,
-            begin,
-            end_with_release,
-        ));
-        push_stage(stages, Stage::Transient(Box::new(node)));
-    }
-    let gain = idl_float(gain_stage(params), "gain")?;
-    push_stage(stages, Stage::Gain(GainNode::constant(gain)));
-    let filters = [
-        (FilterKind::Lowpass, &params.lowpass),
-        (FilterKind::Highpass, &params.highpass),
-        (FilterKind::Bandpass, &params.bandpass),
-    ];
-    for (kind, filter) in filters {
-        if let Some(f) = filter {
-            if params.ftype_ladder {
+    } = *times;
+    let entry = |key: FxKey| params.entry(key).expect("planned");
+    Ok(match spec {
+        StageSpec::SynthGain | StageSpec::EnvGain => unreachable!("Voice::build builds the head"),
+        StageSpec::Transient(key) => {
+            let e = entry(key);
+            let attack = e.transient.expect("planned");
+            // Right after the amp envelope: its input goes with the source (the gains pass the
+            // disabling on).
+            let node = TransientNode::new(Transient::new(
+                Some(attack),
+                e.transsustain,
+                begin,
+                end_with_release,
+            ));
+            Stage::Transient(Box::new(node))
+        }
+        StageSpec::EntryGain(key) => {
+            let gain = idl_float(gain_stage(entry(key)), "gain")?;
+            Stage::Gain(GainNode::constant(gain))
+        }
+        StageSpec::Filter {
+            entry: key,
+            kind,
+            ladder,
+        } => {
+            let e = entry(key);
+            let f = filter_of(e, kind).expect("planned");
+            if ladder {
                 // `createFilter` with `model === 'ladder'`: the same lowpass processor in every
                 // slot, one per slot (`'ladder'` is never `'24db'`).
-                let l = build_ladder(f, params, begin, hold_end, now)?;
-                let lfo = filter_lfo(f, &times)?;
-                let id = push_stage(stages, Stage::Ladder(Box::new(LadderNode::new(l))));
+                let l = build_ladder(f, e, begin, hold_end, now)?;
+                let lfo = filter_lfo(f, times)?;
                 push_filter_lfo((id, ParamSlot::LADDER_FREQUENCY), lfo, lfos);
-                continue;
-            }
-            let copies = if ftype_24db { 2 } else { 1 };
-            for _ in 0..copies {
-                let b = create_filter(kind, f, params.fanchor, begin, hold_end, now)?;
-                let lfo = filter_lfo(f, &times)?;
-                let id = push_stage(stages, Stage::Biquad(b));
+                Stage::Ladder(Box::new(LadderNode::new(l)))
+            } else {
+                let b = create_filter(kind, f, e.fanchor, begin, hold_end, now)?;
+                let lfo = filter_lfo(f, times)?;
                 push_filter_lfo((id, ParamSlot::BIQUAD_FREQUENCY), lfo, lfos);
+                Stage::Biquad(b)
             }
         }
-    }
-    if let Some(letter) = &params.vowel {
-        // `ac.createVowelFilter(fx.vowel)`: an unknown letter throws here.
-        let v = Vowel::new(letter, now).map_err(hap_error)?;
-        push_stage(stages, Stage::Vowel(Box::new(v)));
-    }
-    if let Some(v) = params.coarse {
-        let mut c = Coarse::new();
-        set_worklet_value(&mut c.coarse, v, now)?;
-        push_shaper(ShaperKind::Coarse(c), stages);
-    }
-    if let Some(v) = params.crush {
-        let mut c = Crush::new();
-        set_worklet_value(&mut c.crush, v, now)?;
-        push_shaper(ShaperKind::Crush(c), stages);
-    }
-    if let Some(v) = params.shape {
-        let mut s = Shape::new();
-        set_worklet_value(&mut s.shape, v, now)?;
-        set_worklet_value(&mut s.postgain, params.shapevol, now)?;
-        push_shaper(ShaperKind::Shape(s), stages);
-    }
-    if let Some(v) = params.distort {
-        // `distorttype = getDefaultValue('distorttype')` (0) when undefined.
-        let algorithm = params.distorttype.clone().unwrap_or(Value::Num(0.0));
-        let mut d = Distort::new(&algorithm);
-        set_worklet_value(&mut d.distort, v, now)?;
-        set_worklet_value(&mut d.postgain, params.distortvol, now)?;
-        push_shaper(ShaperKind::Distort(Box::new(d)), stages);
-    }
-    if let Some(tr) = &params.tremolo {
-        // `new GainNode(ac, { gain: Math.max(1 - tremolodepth, 0) })` (a non-finite gain throws),
-        // then `getLfo` (each `.value =` may throw).
-        let mut gain = GainNode::new(Param::gain(1.0));
-        gain.gain
-            .set_initial_value(jsmath::max(1.0 - tr.depth, 0.0), "gain")?;
-        let props = LfoProps {
-            skew: Some(tr.skew),
-            frequency: Some(tr.frequency),
-            depth: Some(tr.depth),
-            time: Some(if tr.synced { cycle / cps } else { phase_sec }),
-            dcoffset: Some(0.0),
-            shape: tr.shape.as_ref().map(ShapeInput::from_value),
-            phaseoffset: tr.phase,
-            min: Some(0.0),
-            max: Some(1.0),
-            curve: Some(1.5),
-            begin: Some(begin),
-            end: Some(end_with_release),
-        };
-        let lfo = get_lfo(&props, now)?;
-        push_stage(
-            stages,
+        StageSpec::Vowel(key) => {
+            let letter = entry(key).vowel.as_ref().expect("planned");
+            // `ac.createVowelFilter(fx.vowel)`: an unknown letter throws here.
+            let v = Vowel::new(letter, now).map_err(hap_error)?;
+            Stage::Vowel(Box::new(v))
+        }
+        StageSpec::Coarse(key) => {
+            let v = entry(key).coarse.expect("planned");
+            let mut c = Coarse::new();
+            set_worklet_value(&mut c.coarse, v, now)?;
+            Stage::Shaper(Shaper::new(ShaperKind::Coarse(c)))
+        }
+        StageSpec::Crush(key) => {
+            let v = entry(key).crush.expect("planned");
+            let mut c = Crush::new();
+            set_worklet_value(&mut c.crush, v, now)?;
+            Stage::Shaper(Shaper::new(ShaperKind::Crush(c)))
+        }
+        StageSpec::Shape(key) => {
+            let e = entry(key);
+            let v = e.shape.expect("planned");
+            let mut s = Shape::new();
+            set_worklet_value(&mut s.shape, v, now)?;
+            set_worklet_value(&mut s.postgain, e.shapevol, now)?;
+            Stage::Shaper(Shaper::new(ShaperKind::Shape(s)))
+        }
+        StageSpec::Distort(key) => {
+            let e = entry(key);
+            let v = e.distort.expect("planned");
+            // `distorttype = getDefaultValue('distorttype')` (0) when undefined.
+            let algorithm = e.distorttype.clone().unwrap_or(Value::Num(0.0));
+            let mut d = Distort::new(&algorithm);
+            set_worklet_value(&mut d.distort, v, now)?;
+            set_worklet_value(&mut d.postgain, e.distortvol, now)?;
+            Stage::Shaper(Shaper::new(ShaperKind::Distort(Box::new(d))))
+        }
+        StageSpec::Tremolo(key) => {
+            let tr = entry(key).tremolo.as_ref().expect("planned");
+            // `new GainNode(ac, { gain: Math.max(1 - tremolodepth, 0) })` (a non-finite gain
+            // throws), then `getLfo` (each `.value =` may throw).
+            let mut gain = GainNode::new(Param::gain(1.0));
+            gain.gain
+                .set_initial_value(jsmath::max(1.0 - tr.depth, 0.0), "gain")?;
+            let props = LfoProps {
+                skew: Some(tr.skew),
+                frequency: Some(tr.frequency),
+                depth: Some(tr.depth),
+                time: Some(if tr.synced { cycle / cps } else { phase_sec }),
+                dcoffset: Some(0.0),
+                shape: tr.shape.as_ref().map(ShapeInput::from_value),
+                phaseoffset: tr.phase,
+                min: Some(0.0),
+                max: Some(1.0),
+                curve: Some(1.5),
+                begin: Some(begin),
+                end: Some(end_with_release),
+            };
+            let lfo = get_lfo(&props, now)?;
             Stage::Tremolo(Box::new(Tremolo {
                 lfo,
                 gain,
                 inputs: ParamInputs::NONE,
-            })),
-        );
+            }))
+        }
+        StageSpec::Compressor(key) => {
+            let c = entry(key).compressor.as_ref().expect("planned");
+            // `getCompressor`: each `.value =` may throw (a non-finite value).
+            let node = Compressor::new(c, now)?;
+            Stage::Compressor(Box::new(node))
+        }
+        StageSpec::Pan(key) => {
+            let pan = entry(key).pan.expect("planned");
+            let mut p = StereoPanner::new();
+            p.pan.set_value(idl_float(2.0 * pan - 1.0, "pan")?, now)?;
+            Stage::Panner(p)
+        }
+        StageSpec::Phaser(key) => {
+            let ph = entry(key).phaser.as_ref().expect("planned");
+            let (notch, lfo) = build_phaser(ph, begin, end_with_release, now)?;
+            lfos.push(ParamLfo {
+                stage: id,
+                slot: ParamSlot::BIQUAD_DETUNE,
+                lfo,
+            });
+            Stage::Phaser(notch)
+        }
+        StageSpec::LocalDelay(key) => {
+            let d = LocalDelay::new(entry(key), TailCut::at(end_with_release), now)?;
+            Stage::LocalDelay(Box::new(d))
+        }
+        StageSpec::LocalReverb(key) => {
+            let r = LocalReverb::new(entry(key), TailCut::at(end_with_release), now)?;
+            Stage::LocalReverb(Box::new(r))
+        }
+        // The release gain when `FXrelease > release` (superdough.mjs:941-946, after the FX loop,
+        // main entry only): `gainNode(1)`, `setValueAtTime(1, end + release)`, then a linear ramp
+        // to 0 at `endWithRelease`.
+        StageSpec::Release => {
+            let mut g = GainNode::new(Param::gain(1.0));
+            g.gain.set_value(1.0, now)?;
+            g.gain
+                .set_value_at_time(1.0, hold_end + params.release_raw, now)?;
+            g.gain.linear_ramp_to(0.0, end_with_release, now)?;
+            Stage::Release(g)
+        }
+        StageSpec::Post => Stage::Gain(GainNode::constant(idl_float(params.postgain, "gain")?)),
+    })
+}
+
+/// The filter of `e` in slot `kind` (`Notch` is the phaser's, never a filter slot).
+fn filter_of(e: &EntryParams, kind: FilterKind) -> Option<&FilterParams> {
+    match kind {
+        FilterKind::Lowpass => e.lowpass.as_ref(),
+        FilterKind::Highpass => e.highpass.as_ref(),
+        FilterKind::Bandpass => e.bandpass.as_ref(),
+        FilterKind::Notch => None,
     }
-    if let Some(c) = &params.compressor {
-        // `getCompressor`: each `.value =` may throw (a non-finite value).
-        let node = Compressor::new(c, now)?;
-        push_stage(stages, Stage::Compressor(Box::new(node)));
-    }
-    if let Some(pan) = params.pan {
-        let mut p = StereoPanner::new();
-        p.pan.set_value(idl_float(2.0 * pan - 1.0, "pan")?, now)?;
-        push_stage(stages, Stage::Panner(p));
-    }
-    if let Some(ph) = &params.phaser {
-        let (notch, lfo) = build_phaser(ph, begin, end_with_release, now)?;
-        let id = push_stage(stages, Stage::Phaser(notch));
-        lfos.push(ParamLfo {
-            stage: id,
-            slot: ParamSlot::BIQUAD_DETUNE,
-            lfo,
-        });
-    }
-    if key == FxKey::Main {
-        return Ok(());
-    }
-    let tail = TailCut::at(end_with_release);
-    if delay_applies(params) {
-        let d = LocalDelay::new(params, tail, now)?;
-        push_stage(stages, Stage::LocalDelay(Box::new(d)));
-    }
-    if params.room > 0.0 {
-        let r = LocalReverb::new(params, tail, now)?;
-        push_stage(stages, Stage::LocalReverb(Box::new(r)));
-    }
-    Ok(())
 }
 
 /// When a local delay or reverb is cut: it renders
@@ -2118,16 +2198,8 @@ mod tests {
         let err = |v: serde_json::Value| {
             let map: ValueMap = serde_json::from_value(v).unwrap();
             let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-            let mut stages = Vec::new();
-            let e = build_entry(
-                FxKey::Main,
-                &params.main,
-                params.ftype_24db,
-                TIMES,
-                &mut stages,
-                &mut Vec::new(),
-            )
-            .unwrap_err();
+            let (stages, _, _, r) = walk_entry(&params, TIMES);
+            let e = r.unwrap_err();
             (e, stages.len())
         };
         // Each `.value =` of a non-finite (or float-overflowing) value throws a TypeError, after
@@ -2157,16 +2229,8 @@ mod tests {
         let map: ValueMap =
             serde_json::from_value(json!({ "transient": "x", "transsustain": null })).unwrap();
         let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-        let mut stages = Vec::new();
-        build_entry(
-            FxKey::Main,
-            &params.main,
-            params.ftype_24db,
-            TIMES,
-            &mut stages,
-            &mut Vec::new(),
-        )
-        .unwrap();
+        let (stages, _, _, r) = walk_entry(&params, TIMES);
+        r.unwrap();
         assert!(matches!(stages[0], Stage::Transient(_)));
     }
 
@@ -2207,16 +2271,8 @@ mod tests {
         // begin 0.0 (quantum 0 gated), end_with_release 0.11 s (frame 4851), input gone at 5376.
         let map: ValueMap = serde_json::from_value(json!({ "transient": 0.5 })).unwrap();
         let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-        let mut stages = Vec::new();
-        build_entry(
-            FxKey::Main,
-            &params.main,
-            params.ftype_24db,
-            TIMES,
-            &mut stages,
-            &mut Vec::new(),
-        )
-        .unwrap();
+        let (mut stages, _, _, r) = walk_entry(&params, TIMES);
+        r.unwrap();
         let mut t = stages.remove(0);
         // The source stops at frame 5292: the input is gone from 5376.
         let gone = SourceEnd::Scheduled(Some(5292)).disabled_from();
@@ -2487,17 +2543,8 @@ mod tests {
         let err = |v: serde_json::Value| {
             let map: ValueMap = serde_json::from_value(v).unwrap();
             let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-            let mut stages = Vec::new();
-            let table = NodeTable::entry_plan(FxKey::Main, &params);
-            let e = build_entry(
-                FxKey::Main,
-                &params.main,
-                params.ftype_24db,
-                TIMES,
-                &mut stages,
-                &mut Vec::new(),
-            )
-            .unwrap_err();
+            let (stages, table, _, r) = walk_entry(&params, TIMES);
+            let e = r.unwrap_err();
             (
                 e.detail,
                 stages.len(),
@@ -2558,26 +2605,96 @@ mod tests {
         cps: 2.0,
     };
 
+    /// Walks the main entry of `params`, planned alone (`NodeTable::entry_plan(FxKey::Main, ..)`),
+    /// through `build_stage`: the stages built before the first throw, the table, the LFOs, and
+    /// the throw.
+    fn walk_entry(
+        params: &VoiceParams,
+        times: EntryTimes,
+    ) -> (Vec<Stage>, NodeTable, Vec<ParamLfo>, Result<(), VoiceError>) {
+        let table = NodeTable::entry_plan(FxKey::Main, params);
+        let (mut stages, mut lfos) = (Vec::new(), Vec::new());
+        let mut result = Ok(());
+        for &spec in table.specs() {
+            match build_stage(spec, StageId(stages.len()), params, &times, &mut lfos) {
+                Ok(stage) => stages.push(stage),
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+        }
+        (stages, table, lfos, result)
+    }
+
     #[test]
-    fn build_entry_errors_leave_the_earlier_stages() {
-        let map: ValueMap =
-            serde_json::from_value(json!({ "cutoff": 100, "resonance": "x" })).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-        let mut stages = Vec::new();
-        let table = NodeTable::entry_plan(FxKey::Main, &params);
-        let e = build_entry(
-            FxKey::Main,
-            &params.main,
-            params.ftype_24db,
-            TIMES,
-            &mut stages,
-            &mut Vec::new(),
-        )
-        .unwrap_err();
-        assert!(e.detail.contains('Q'), "{}", e.detail);
-        // The gain stage was built before the lowpass threw; the plan names both whatever the
-        // build does (the modulator loop never runs after a build throw).
-        assert_eq!(stages.len(), 1);
+    fn the_walk_throws_at_the_first_planned_site() {
+        let walk = |v: &serde_json::Value| {
+            let map: ValueMap = serde_json::from_value(v.clone()).unwrap();
+            let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
+            let (stages, table, _, r) = walk_entry(&params, TIMES);
+            (stages.len(), table, r)
+        };
+        let base = json!({
+            "transient": 0.5, "cutoff": 500, "vowel": "a", "coarse": 2, "crush": 4, "shape": 0.3,
+            "distort": 0.5, "tremolo": 2, "compressor": -10, "pan": 0.3, "phaserrate": 2
+        });
+        let m = FxKey::Main;
+        let (built, table, r) = walk(&base);
+        assert_eq!(
+            table.specs(),
+            [
+                StageSpec::Transient(m),
+                StageSpec::EntryGain(m),
+                StageSpec::Filter {
+                    entry: m,
+                    kind: FilterKind::Lowpass,
+                    ladder: false
+                },
+                StageSpec::Vowel(m),
+                StageSpec::Coarse(m),
+                StageSpec::Crush(m),
+                StageSpec::Shape(m),
+                StageSpec::Distort(m),
+                StageSpec::Tremolo(m),
+                StageSpec::Compressor(m),
+                StageSpec::Pan(m),
+                StageSpec::Phaser(m),
+            ]
+        );
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!(built, 12);
+        for (key, value, text, before) in [
+            ("velocity", json!("x"), "gain is not a finite", 1),
+            ("resonance", json!("x"), "Q is not a finite", 2),
+            // The filter LFO, after its biquad.
+            ("lprate", json!("x"), "'value' on 'AudioParam'", 2),
+            ("vowel", json!("zz"), "unknown vowel zz", 3),
+            ("coarse", json!("x"), "value is not a finite", 4),
+            ("shapevol", json!("x"), "value is not a finite", 6),
+            ("distortvol", json!("x"), "value is not a finite", 7),
+            ("tremolodepth", json!("x"), "'gain' on 'AudioParam'", 8),
+            (
+                "compressor",
+                json!({ "$num": "NaN" }),
+                "'value' on 'AudioParam'",
+                9,
+            ),
+            ("pan", json!("x"), "pan is not a finite", 10),
+            ("phaserrate", json!("x"), "'value' on 'AudioParam'", 11),
+        ] {
+            let mut v = base.clone();
+            v[key] = value;
+            let (built, _, r) = walk(&v);
+            let e = r.expect_err(key);
+            assert!(e.detail.contains(text), "{key}: {}", e.detail);
+            assert_eq!(built, before, "{key}: built before the throw");
+        }
+        // The plan names the stages whatever the build does (the modulator loop never runs
+        // after a build throw): the gain stage, then the lowpass that throws.
+        let (built, table, r) = walk(&json!({ "cutoff": 100, "resonance": "x" }));
+        assert!(r.is_err());
+        assert_eq!(built, 1);
         assert_eq!(
             table.get(FxKey::Main, "gain"),
             Some(&NodeList::Array(vec![Some(Node::Stage(StageId(0)))]))
@@ -2586,35 +2703,15 @@ mod tests {
             table.get(FxKey::Main, "lpf"),
             Some(&NodeList::Array(vec![Some(Node::Stage(StageId(1)))]))
         );
-        // A non-finite gain throws first.
-        let map: ValueMap = serde_json::from_value(json!({ "velocity": "x", "pan": "x" })).unwrap();
-        let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-        let mut stages = Vec::new();
-        let e = build_entry(
-            FxKey::Main,
-            &params.main,
-            params.ftype_24db,
-            TIMES,
-            &mut stages,
-            &mut Vec::new(),
-        )
-        .unwrap_err();
-        assert!(e.detail.contains("gain"), "{}", e.detail);
-        assert!(stages.is_empty());
-        // Under another key the entries go there.
+    }
+
+    #[test]
+    fn entry_plan_registers_under_its_key() {
         let map: ValueMap = serde_json::from_value(json!({ "pan": 0.5 })).unwrap();
         let params = parse_voice_params(&map, 0.1, 0.5).unwrap();
-        let mut stages = Vec::new();
         let table = NodeTable::entry_plan(FxKey::Index(1), &params);
-        build_entry(
-            FxKey::Main,
-            &params.main,
-            params.ftype_24db,
-            TIMES,
-            &mut stages,
-            &mut Vec::new(),
-        )
-        .unwrap();
+        let (stages, _, _, r) = walk_entry(&params, TIMES);
+        r.unwrap();
         assert_eq!(stages.len(), 2);
         assert_eq!(table.get(FxKey::Main, "pan"), None);
         assert_eq!(
@@ -2623,7 +2720,63 @@ mod tests {
         );
     }
 
-    /// `build_entry` on `v` (cps 2, cycle 1.5: `time = 0.75`, begin 0.25, hold end 0.5, end with
+    #[test]
+    fn stage_spec_kinds() {
+        let m = FxKey::Main;
+        let filter = |ladder| StageSpec::Filter {
+            entry: m,
+            kind: FilterKind::Lowpass,
+            ladder,
+        };
+        // Exhaustive: a new variant fails to compile until it is listed here and in `all`.
+        let expected = |s: StageSpec| match s {
+            StageSpec::SynthGain => StageKind::Gain,
+            StageSpec::EnvGain => StageKind::Gain,
+            StageSpec::Transient(_) => StageKind::Transient,
+            StageSpec::EntryGain(_) => StageKind::Gain,
+            StageSpec::Filter { ladder: true, .. } => StageKind::Ladder,
+            StageSpec::Filter { ladder: false, .. } => StageKind::Biquad,
+            StageSpec::Vowel(_) => StageKind::Vowel,
+            StageSpec::Coarse(_) => StageKind::Coarse,
+            StageSpec::Crush(_) => StageKind::Crush,
+            StageSpec::Shape(_) => StageKind::Shape,
+            StageSpec::Distort(_) => StageKind::Distort,
+            StageSpec::Tremolo(_) => StageKind::Tremolo,
+            StageSpec::Compressor(_) => StageKind::Compressor,
+            StageSpec::Pan(_) => StageKind::Panner,
+            StageSpec::Phaser(_) => StageKind::Phaser,
+            StageSpec::LocalDelay(_) => StageKind::LocalDelay,
+            StageSpec::LocalReverb(_) => StageKind::LocalReverb,
+            StageSpec::Release => StageKind::Release,
+            StageSpec::Post => StageKind::Gain,
+        };
+        let all = [
+            StageSpec::SynthGain,
+            StageSpec::EnvGain,
+            StageSpec::Transient(m),
+            StageSpec::EntryGain(m),
+            filter(true),
+            filter(false),
+            StageSpec::Vowel(m),
+            StageSpec::Coarse(m),
+            StageSpec::Crush(m),
+            StageSpec::Shape(m),
+            StageSpec::Distort(m),
+            StageSpec::Tremolo(m),
+            StageSpec::Compressor(m),
+            StageSpec::Pan(m),
+            StageSpec::Phaser(m),
+            StageSpec::LocalDelay(m),
+            StageSpec::LocalReverb(m),
+            StageSpec::Release,
+            StageSpec::Post,
+        ];
+        for s in all {
+            assert_eq!(s.kind(), expected(s), "{s:?}");
+        }
+    }
+
+    /// `walk_entry` on `v` (cps 2, cycle 1.5: `time = 0.75`, begin 0.25, hold end 0.5, end with
     /// release 0.51, scheduled at frame 128).
     fn built(v: serde_json::Value) -> Result<(Vec<Stage>, NodeTable, Vec<ParamLfo>), VoiceError> {
         let map: ValueMap = serde_json::from_value(v).unwrap();
@@ -2637,16 +2790,8 @@ mod tests {
             phase_sec: 0.75,
             cps: 2.0,
         };
-        let (mut stages, mut lfos) = (Vec::new(), Vec::new());
-        let table = NodeTable::entry_plan(FxKey::Main, &params);
-        build_entry(
-            FxKey::Main,
-            &params.main,
-            params.ftype_24db,
-            times,
-            &mut stages,
-            &mut lfos,
-        )?;
+        let (stages, table, lfos, r) = walk_entry(&params, times);
+        r?;
         Ok((stages, table, lfos))
     }
 
@@ -2767,17 +2912,8 @@ mod tests {
         ] {
             let map: ValueMap = serde_json::from_value(v.clone()).unwrap();
             let params = parse_voice_params(&map, 0.25, 2.0).unwrap();
-            let mut stages = Vec::new();
-            let table = NodeTable::entry_plan(FxKey::Main, &params);
-            let e = build_entry(
-                FxKey::Main,
-                &params.main,
-                params.ftype_24db,
-                TIMES,
-                &mut stages,
-                &mut Vec::new(),
-            )
-            .unwrap_err();
+            let (stages, table, _, r) = walk_entry(&params, TIMES);
+            let e = r.unwrap_err();
             assert!(e.detail.contains("TypeError"), "{v}: {}", e.detail);
             assert_eq!(stages.len(), 2, "{v}: gain and crush built");
             assert!(table.get(FxKey::Main, "tremolo").is_some(), "planned");
@@ -3054,21 +3190,87 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_names_the_built_stages() {
-        // `Voice::build` checks it (a debug assertion); these voices cover every stage kind and
-        // every source kind.
+    fn the_plan_lists_every_source_and_stage() {
+        // These voices cover every stage kind and every source kind, and a chain entry's local
+        // delay and reverb.
+        use StageSpec::*;
+        let m = FxKey::Main;
+        let x0 = FxKey::Index(0);
+        let f = |entry, kind, ladder| Filter {
+            entry,
+            kind,
+            ladder,
+        };
+        let (lp, hp, bp) = (
+            FilterKind::Lowpass,
+            FilterKind::Highpass,
+            FilterKind::Bandpass,
+        );
         let cases = [
-            json!({ "s": "sawtooth", "transient": 0.5, "cutoff": 500, "lprate": 2, "hcutoff": 100,
-                    "bandf": 800, "ftype": "24db", "vowel": "a", "coarse": 2, "crush": 4,
-                    "shape": 0.3, "distort": 0.2, "tremolo": 3, "compressor": -10, "pan": 0.2,
-                    "phaserrate": 2, "FXrelease": 0.5 }),
-            json!({ "s": "supersaw", "cutoff": 500, "ftype": "ladder", "lpdepth": 0.5 }),
-            json!({ "s": "pulse", "pwsweep": 0.2, "vib": 3, "fmi": 1 }),
-            json!({ "s": "one" }),
-            json!({ "s": "white", "delay": 0.5, "room": 0.3, "djf": 0.2 }),
-            json!({ "s": "bus", "n": 1 }),
+            (
+                json!({ "s": "sawtooth", "transient": 0.5, "cutoff": 500, "lprate": 2, "hcutoff": 100,
+                        "bandf": 800, "ftype": "24db", "vowel": "a", "coarse": 2, "crush": 4,
+                        "shape": 0.3, "distort": 0.2, "tremolo": 3, "compressor": -10, "pan": 0.2,
+                        "phaserrate": 2, "FXrelease": 0.5 }),
+                vec![
+                    SynthGain,
+                    EnvGain,
+                    Transient(m),
+                    EntryGain(m),
+                    f(m, lp, false),
+                    f(m, lp, false),
+                    f(m, hp, false),
+                    f(m, hp, false),
+                    f(m, bp, false),
+                    f(m, bp, false),
+                    Vowel(m),
+                    Coarse(m),
+                    Crush(m),
+                    Shape(m),
+                    Distort(m),
+                    Tremolo(m),
+                    Compressor(m),
+                    Pan(m),
+                    Phaser(m),
+                    Release,
+                    Post,
+                ],
+            ),
+            (
+                json!({ "s": "supersaw", "cutoff": 500, "ftype": "ladder", "lpdepth": 0.5 }),
+                vec![EnvGain, EntryGain(m), f(m, lp, true), Post],
+            ),
+            (
+                json!({ "s": "pulse", "pwsweep": 0.2, "vib": 3, "fmi": 1 }),
+                vec![EnvGain, EntryGain(m), Post],
+            ),
+            (
+                json!({ "s": "one" }),
+                vec![SynthGain, EnvGain, EntryGain(m), Post],
+            ),
+            (
+                json!({ "s": "white", "delay": 0.5, "room": 0.3, "djf": 0.2 }),
+                vec![SynthGain, EnvGain, EntryGain(m), Post],
+            ),
+            (
+                json!({ "s": "bus", "n": 1 }),
+                vec![EnvGain, EntryGain(m), Post],
+            ),
+            (
+                json!({ "s": "sine", "FX": [{ "delay": 0.5, "delaytime": 0.2,
+                        "delayfeedback": 0.3, "room": 0.3 }] }),
+                vec![
+                    SynthGain,
+                    EnvGain,
+                    EntryGain(x0),
+                    LocalDelay(x0),
+                    LocalReverb(x0),
+                    EntryGain(m),
+                    Post,
+                ],
+            ),
         ];
-        for v in cases {
+        for (v, specs) in cases {
             let p =
                 parse_voice_params(&serde_json::from_value(v.clone()).unwrap(), 0.2, 0.5).unwrap();
             let mut orbit = Orbit::new(
@@ -3097,8 +3299,29 @@ mod tests {
             )
             .unwrap();
             assert!(late.is_none(), "{v}");
-            let built: Vec<StageKind> = voice.stages().iter().map(StageKind::of).collect();
-            assert_eq!(voice.node_table().stages(), built.as_slice(), "{v}");
+            let planned = voice.node_table().specs();
+            assert_eq!(planned, specs.as_slice(), "{v}");
+            // A `build_stage` arm that returns the wrong stage fails here.
+            assert!(
+                voice
+                    .stages()
+                    .iter()
+                    .map(StageKind::of)
+                    .eq(planned.iter().map(|s| s.kind())),
+                "{v}: the built stages are the planned kinds"
+            );
+            // The head split `Voice::build` relies on.
+            let head = planned.iter().position(|s| *s == EnvGain).unwrap() + 1;
+            assert!(
+                matches!(&planned[..head], [EnvGain] | [SynthGain, EnvGain]),
+                "{v}"
+            );
+            assert!(
+                !planned[head..]
+                    .iter()
+                    .any(|s| matches!(s, SynthGain | EnvGain)),
+                "{v}"
+            );
             let kind = SourceKind::of(&crate::voice::sound_name(p.s.as_ref())).unwrap();
             assert_eq!(voice.node_table().source(), kind, "{v}");
         }
@@ -3243,17 +3466,8 @@ mod tests {
         ] {
             let map: ValueMap = serde_json::from_value(v.clone()).unwrap();
             let params = parse_voice_params(&map, 0.25, 2.0).unwrap();
-            let mut stages = Vec::new();
-            let table = NodeTable::entry_plan(FxKey::Main, &params);
-            let e = build_entry(
-                FxKey::Main,
-                &params.main,
-                params.ftype_24db,
-                TIMES,
-                &mut stages,
-                &mut Vec::new(),
-            )
-            .unwrap_err();
+            let (stages, table, _, r) = walk_entry(&params, TIMES);
+            let e = r.unwrap_err();
             assert!(e.detail.contains("non-finite"), "{v}: {}", e.detail);
             assert_eq!(kinds(&stages), ["gain", "crush"], "{v}");
             assert!(table.get(FxKey::Main, "compressor").is_some(), "planned");
@@ -3278,17 +3492,8 @@ mod tests {
         ] {
             let map: ValueMap = serde_json::from_value(v.clone()).unwrap();
             let params = parse_voice_params(&map, 0.25, 2.0).unwrap();
-            let mut stages = Vec::new();
-            let table = NodeTable::entry_plan(FxKey::Main, &params);
-            let e = build_entry(
-                FxKey::Main,
-                &params.main,
-                params.ftype_24db,
-                TIMES,
-                &mut stages,
-                &mut Vec::new(),
-            )
-            .unwrap_err();
+            let (stages, table, _, r) = walk_entry(&params, TIMES);
+            let e = r.unwrap_err();
             assert_eq!(e.kind, crate::job::ErrorKind::Hap);
             assert_eq!(e.detail, msg);
             assert_eq!(kinds(&stages), ["gain", "biquad"], "built before the vowel");

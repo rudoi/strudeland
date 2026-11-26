@@ -184,6 +184,14 @@ impl VoiceParams {
             .map(|(n, e)| (FxKey::Index(n), e))
             .chain(std::iter::once((FxKey::Main, &self.main)))
     }
+
+    /// The FX entry `key` (`Main` is the hap's own), `None` past the chain.
+    pub fn entry(&self, key: FxKey) -> Option<&EntryParams> {
+        match key {
+            FxKey::Main => Some(&self.main),
+            FxKey::Index(n) => self.fx.get(n),
+        }
+    }
 }
 
 /// What superdough reads per FX entry (superdough.mjs:612-938 and the modulator loop): the
@@ -956,6 +964,19 @@ mod tests {
             params(json!({ "FX": [{ "FX": [{ "gain": 2 }] }] })).fx[0].gain,
             None
         );
+    }
+
+    #[test]
+    fn entry_finds_each_planned_entry() {
+        let p = params(json!({
+            "s": "sine", "gain": 0.3,
+            "FX": [{ "cutoff": 500 }, { "gain": 1 }]
+        }));
+        assert_eq!(p.entries().count(), 3);
+        for (k, e) in p.entries() {
+            assert!(std::ptr::eq(p.entry(k).unwrap(), e), "{k:?}");
+        }
+        assert!(p.entry(FxKey::Index(2)).is_none());
     }
 
     #[test]

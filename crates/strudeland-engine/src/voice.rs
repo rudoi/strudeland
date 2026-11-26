@@ -33,8 +33,8 @@ use crate::biquad::{Biquad, FilterKind};
 use crate::bus::BusBank;
 use crate::chain::{
     DEFAULT_SOUND, EntryTimes, MAX_PARAM_SLOTS, Node, NodeTable, ParamLfo, ParamRef, ParamSlot,
-    SourceEnd, SourceKind, Stage, StageId, StageInputs, StageKind, Teardown, VoiceBus, build_entry,
-    delay_applies, input_connected, push_stage, set_worklet_value,
+    SourceEnd, SourceKind, Stage, StageId, StageInputs, StageSpec, Teardown, VoiceBus, build_stage,
+    delay_applies, input_connected, set_worklet_value,
 };
 use crate::coerce::{js_max, js_min, js_to_string};
 use crate::job::{ErrorKind, Value};
@@ -901,11 +901,11 @@ pub struct Voice {
     #[cfg(test)]
     start_frame: u64,
     stop_frame: u64,
-    /// The chain in order: `Gain(0.3)`, `envGain` (`gainNode(1)`, then `getParamADSR` on its
-    /// gain), the stages of each FX entry ([`build_entry`]: the gain stage, the filters, the
-    /// vowel, the shapers, the tremolo, the compressor, the panner, the phaser, and a chain
-    /// entry's local delay and reverb), the chain entries first and the main entry last, the
-    /// `FXrelease` gain, then `post` (`new GainNode(ac, { gain: postgain })`).
+    /// The built stages, one per planned `StageSpec`, in plan order: `Gain(0.3)`, `envGain`
+    /// (`gainNode(1)`, then `getParamADSR` on its gain), the stages of each FX entry (the gain
+    /// stage, the filters, the vowel, the shapers, the tremolo, the compressor, the panner, the
+    /// phaser, and a chain entry's local delay and reverb), the chain entries first and the main
+    /// entry last, the `FXrelease` gain, then `post` (`new GainNode(ac, { gain: postgain })`).
     stages: Vec<Stage>,
     /// The delay and reverb sends from `post`.
     sends: Sends,
@@ -1465,6 +1465,7 @@ impl Voice {
         let send_bus = params.bus.as_deref().map(bus_index).transpose()?;
         let not_found = || hap_error(format!("sound {s} not found"));
         let kind = SourceKind::of(&s).ok_or_else(not_found)?;
+        let node_table = NodeTable::plan(params, kind);
         let is_bus = kind == SourceKind::Bus;
         let adsr = get_adsr_values(
             [params.attack, params.decay, params.sustain, params.release],
@@ -1519,15 +1520,26 @@ impl Voice {
         // to `envGain`, whose envelope peaks at their own level.
         // The bus sound connects straight to its `envGain` (`gainNode(0)`, linear ADSR to 1).
         let mut stages = Vec::new();
-        if worklet_peak.is_none() && !is_bus {
-            stages.push(Stage::Gain(GainNode::constant(SYNTH_GAIN)));
+        let head = node_table
+            .specs()
+            .iter()
+            .position(|s| *s == StageSpec::EnvGain)
+            .expect("planned")
+            + 1;
+        for spec in &node_table.specs()[..head] {
+            match spec {
+                StageSpec::SynthGain => stages.push(Stage::Gain(GainNode::constant(SYNTH_GAIN))),
+                StageSpec::EnvGain => {
+                    let envelope = if is_bus {
+                        bus_envelope(adsr, t, hold_end, now)?
+                    } else {
+                        amp_envelope(adsr, t, hold_end, worklet_peak.unwrap_or(1.0), now)?
+                    };
+                    stages.push(Stage::Gain(GainNode::new(envelope)));
+                }
+                _ => unreachable!("the plan starts with the head"),
+            }
         }
-        let envelope = if is_bus {
-            bus_envelope(adsr, t, hold_end, now)?
-        } else {
-            amp_envelope(adsr, t, hold_end, worklet_peak.unwrap_or(1.0), now)?
-        };
-        stages.push(Stage::Gain(GainNode::new(envelope)));
         // The pulse's `pw_lfo` after `envGain`'s envelope (synth.mjs:346-350); the node table
         // holds `[undefined]` without one.
         if let Source::Worklet(w) = &mut source
@@ -1571,32 +1583,13 @@ impl Voice {
             phase_sec: start.phase_sec,
             cps: start.cps,
         };
+        // The entries' stages, then the `FXrelease` gain and `post`, one per planned spec (so a
+        // stage's id is its index).
         let mut param_lfos = Vec::new();
-        for (key, entry) in params.entries() {
-            build_entry(
-                key,
-                entry,
-                params.ftype_24db,
-                times,
-                &mut stages,
-                &mut param_lfos,
-            )?;
+        for &spec in &node_table.specs()[head..] {
+            let stage = build_stage(spec, StageId(stages.len()), params, &times, &mut param_lfos)?;
+            stages.push(stage);
         }
-        // The release gain when `FXrelease > release` (superdough.mjs:941-946, after the FX loop,
-        // main entry only): `gainNode(1)`, `setValueAtTime(1, end + release)`, then a linear ramp
-        // to 0 at `endWithRelease`.
-        if let Some(fx_release) = params.fx_release
-            && fx_release > params.release_raw
-        {
-            let mut g = GainNode::new(Param::gain(1.0));
-            g.gain.set_value(1.0, now)?;
-            g.gain
-                .set_value_at_time(1.0, hold_end + params.release_raw, now)?;
-            g.gain.linear_ramp_to(0.0, times.end_with_release, now)?;
-            push_stage(&mut stages, Stage::Release(g));
-        }
-        let postgain = idl_float(params.postgain, "gain")?;
-        push_stage(&mut stages, Stage::Gain(GainNode::constant(postgain)));
         let mut sends = Sends::default();
         // The sends, then `orbitBus.getDjf(djf, t)` when `djf != null` (superdough.mjs:986-989),
         // then `dry`: a throw from any of them after a send was connected is a late error.
@@ -1623,16 +1616,6 @@ impl Voice {
             .iter()
             .fold(source_channels, |n, s| s.channels_out(n));
         let teardown = Teardown::new(source_end, stages.len());
-        // The node table is the plan of exactly these nodes.
-        let node_table = NodeTable::plan(params, kind);
-        debug_assert!(
-            node_table
-                .stages()
-                .iter()
-                .copied()
-                .eq(stages.iter().map(StageKind::of)),
-            "the plan names the built stages"
-        );
         #[cfg(test)]
         let start_frame = crate::render::frame_for_buffer_start(t);
         let mut voice = Voice {
