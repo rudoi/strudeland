@@ -69,7 +69,8 @@ that builds `ALL`.
    - **A `describe('wire examples')` block:**
      - **accepted:** one test per webview method's `params` entry. Run it in a fresh `setup()`,
        and pass if `h.handle` resolves, or rejects with a `ControlError` whose code is not
-       `ErrorCode.INVALID_PARAMS`.
+       `ErrorCode.INVALID_PARAMS`. Its value is catching a params example that the webview
+       wrongly refuses: Rust's round trip alone would let one through.
      - **refused:** one test per `invalid` entry whose effective `answeredBy` is `webview`. Run
        it in `setup()`, `setup({ last: null })` and `evaluated()`. Each must give exactly
        `{ code, message }` (via `h.fail`), leave `h.doc()` as before the call, and leave
@@ -78,7 +79,9 @@ that builds `ALL`.
        `EVENTS_LIMIT_MAX === wireLimits.eventsLimitMax`.
    - **Delete what the block replaces:**
      - the `describe('invalid params')` table and the "params are checked before the project"
-       test. Keep "an empty code string is allowed".
+       test. Keep "an empty code string is allowed". Keep the table's `null` row (`eval`,
+       `null` → "expected an object") as a handler-only hand test: `parse_request` turns `null`
+       params into `{}` (`frame.rs:147-149`), so it has no wire example.
      - `events`' `bad` table and "params are checked before anything was evaluated". "The
        largest limit is accepted" stays, with `{ limit: wireLimits.eventsLimitMax }`.
      - the state-independent asserts inside the per-method params tests, each of which now has
@@ -105,7 +108,9 @@ that builds `ALL`.
 
      | Method | Result | Test |
      |---|---|---|
-     | `state` | `full` | `:1175`, with `h.rt.patch({ seed: 7 })` before the call, so `seed` and `loopThrough` are present |
+     | `state` | `full` | `:1175`, with `h.rt.patch({ seed: 7 })` before the call, so `seed` is present |
+     | `state` | `full` | `:1199` ("engine and live come through"), for `live`'s nested shape |
+     | `state` | `full` | `:1217` (levels), after the first `setLevels`, for `levels`' shape |
      | `code.get` | `example` | `:178` |
      | `code.set` | `evaluated` | an auto-eval test where `evaluated` is non-null (`:413`) |
      | `eval` and `play` | `ok` | `:522` |
@@ -118,6 +123,14 @@ that builds `ALL`.
      | `save` | `one` | `:1594` |
      | `project.open` | the only result | `:1693` |
      | `instrument.apply` | `example` | `:1796` |
+
+     In `:1175` the harness has started playback (`stubRuntime({ audio: 'running', live: true
+     })` and the evaluate), so `playing` and `playhead` (with `songBar` and `section`) are
+     non-null. `loopThrough` comes from the test's `arm({ loop: 'intro', through: 'body' })`,
+     not from the seed patch. `live` and `levels` are null there, hence the two extra rows. The
+     check skips a key where either side is `null`, so `evalError`, `metaError`,
+     `outputError` and `conflict` are checked by key presence only; their non-null values are
+     checked by the Rust round trip.
 
      If a test's result lacks a key the example has (or the reverse), that is a real drift
      between the handler and Rust: report it. Do not edit the example to match.
@@ -133,19 +146,22 @@ that builds `ALL`.
    }
    ```
 
-   Invoke it inside `pub mod codes` with the 17 rows and their doc comments unchanged. The
+   Define and invoke it inside `pub mod codes`, so `ALL` stays at `codes::ALL`, with the 17
+   rows and their doc comments unchanged. The
    module doc becomes "The error codes of the control protocol. `src/lib/control/protocol.ts`
    mirrors them; the wire examples' `errors.json` is the cross-check." The "keep one
    `pub const` per line" sentence goes. `codes::X` paths and values are unchanged, so
-   `tests/wire.rs` stays green.
+   `tests/wire.rs` stays green. From here `errors.json`'s values are pinned against
+   `codes::ALL` only, which the macro builds from the same rows as the consts. That is
+   acceptable: there is no second Rust list left to disagree.
 
 ## Tests
 
 - New: the `wire examples` block, the `expectWireShape` cases and the limits pin.
 - Replaced: the regex tests, the two invalid tables, the two "checked before" tests and the moved
   per-method asserts. Every assertion they made is now an example entry with the same text.
-- Kept: every state-dependent refusal, every behaviour test, and the `replyTo` test (it checks the
-  reply envelope, not params).
+- Kept: every state-dependent refusal, every behaviour test, the `null` params row as a
+  handler-only test, and the `replyTo` test (it checks the reply envelope, not params).
 
 ## Validation
 

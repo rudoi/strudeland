@@ -25,7 +25,8 @@ at `3a189da`. In short:
 
 - **The typed table has one caller.** `Rpc` (`methods.rs:90-94`) and its 16 marker impls are
   used only by `Client::call::<M>`, which only its own tests call. The CLI calls
-  `Transport::call(Method, Value)` at 16 sites and repeats `Client::call`'s
+  `Transport::call(Method, Value)` through its `call<T>` at 16 call sites (17 marker uses, since
+  `eval_like` serves both `eval` and `play`) and repeats `Client::call`'s
   `"invalid {method} result: {e}"` text in its own `call<T>` (`run.rs:158-166`).
 - **Shapes are cross-checked by regex, and only partly.** `tests/control-protocol.test.ts` scrapes
   the error codes from `protocol.rs`, so `protocol.rs:12` asks for one const per line. It scrapes
@@ -66,7 +67,7 @@ In:
    - `control-handler.test.ts` runs every webview example through the real handler.
    - `handler.ts` exports its two limits, and a test pins them to `limits.json`.
 4. **CLI typed calls** (stage 003):
-   - `call::<M>` and `report::<M>` replace `call<T>`, `report<T>` and `params()`, at all 16 sites.
+   - `call::<M>` and `report::<M>` replace `call<T>`, `report<T>` and `params()`, at all 16 call sites.
    - `cli.rs`'s range uses `EVENTS_LIMIT_MAX`. A test pins the help text and `SKILL.md` to both
      limits.
    - `run.rs`, `e2e.rs` and `instrument_mcp.rs` take their replies from the examples.
@@ -211,6 +212,10 @@ These rules hold for every file:
   - The values are the ones the CLI's tests print (`songs/main.js`, "Main Theme"), because those
     tests read the results.
 - **`invalid`** is a list of state-independent shape refusals with their exact current texts.
+  - Each entry is what the handler (or the app) returns for the params as sent. Absent and `null`
+    params never get that far: `parse_request` (`frame.rs:147-149`) turns them into `{}`. So no
+    entry has top-level `null` params; a non-object refusal uses `[]`, `"x"` or a number. The
+    handler's own `null` case stays a handler-only hand test.
   - "State-independent" means the handler gives the same `{ code, message }` with a project open,
     with no project, and after an evaluate. Stage 002's test runs each entry in all three, so it
     is checked, not assumed.
@@ -279,8 +284,11 @@ pub const LIMITS: &str;
 - **Other crates turn it on only as a dev-dependency:**
   `strudeland-ctl = { path = "…", features = ["wire-fixtures"] }` under `[dev-dependencies]` of
   `strudeland-cli` and `strudeland-app`. This is the pattern `strudeland-transcribe`'s `eval`
-  feature uses with the CLI. With resolver 3, a dev-dependency's features are not unified into
-  the normal build, so the shipped CLI and app do not carry the examples.
+  feature uses with the CLI. Under resolver 3 (resolver 2 semantics for features), a
+  dev-dependency's features are not unified into builds that don't compile test targets
+  (`cargo build`, `cargo install`, `app:bundle`), so the shipped CLI and app do not carry the
+  examples. `cargo test --workspace` and `cargo clippy --all-targets` do unify them, which is
+  what lets the tests read them.
 - **The `any(test, …)` makes the module available to ctl's own unit tests** (`methods.rs`'s kept
   behaviour tests read `minimal` from it). ctl's integration test `tests/wire.rs` reads the
   directory with `std::fs` instead, so it also catches an extra file.
@@ -340,8 +348,14 @@ pub const LIMITS: &str;
     - `events[].value` is a free map, so the check does not descend into it.
 
     One call goes into each webview method's existing happy-path test, against a non-empty
-    result. `state`'s check runs in the audition-range test (`:1175`) with
-    `h.rt.patch({ seed: 7 })` added, so the optional `seed` and `loopThrough` keys are present.
+    result. `state`'s check runs in the audition-range test (`:1175`). Its harness starts
+    playback (`stubRuntime({ audio: 'running', live: true })` and the evaluate), and its
+    `setPosition` and `arm({ loop, through })` give non-null `playing`, `playhead` (with
+    `songBar` and `section`) and `loopThrough`. `h.rt.patch({ seed: 7 })` is added so the
+    optional `seed` key is present. `live` and `levels` are null there, so two more calls check
+    their nested shapes: in "engine and live come through" (`:1199`) and in the levels test
+    (`:1217`) after its first `setLevels`. The shape check skips a key where either side is
+    `null`.
   - **Limits:** `handler.ts` exports `EVENTS_LIMIT` and `EVENTS_LIMIT_MAX`, and the test asserts
     both against `wireLimits`. "The largest limit is accepted" uses `wireLimits.eventsLimitMax`.
 
@@ -364,7 +378,7 @@ fn eval_like<M: Rpc<Params = SongParams, Result = EvalOutcome>>(
   object-safe, so `&mut dyn Transport` and the `NoTransport` and `Fake` fakes are unchanged.
   `call::<M>` serializes the params with `.expect("params serialize")` (as `params()` did),
   calls `transport.call(M::METHOD, …)`, and decodes through `decode_result::<M>(&raw)`.
-- **All 16 sites use it:**
+- **All 16 call sites use it** (17 marker uses):
   - `report::<ctl::Ping>`, `StateCall`, `Stop`, `EventsCall`, `ScreenshotCall`, `SongNewCall`,
     `SongSwitchCall`, `SongRenameCall`, `SongDeleteCall`, `SaveCall`, `ProjectOpenCall` and
     `CodeSet` (12 sites);
@@ -466,6 +480,11 @@ both.
   an integer (`bpm`, `cps` and `beat` in examples). `same()` compares numbers as `f64`. Its own
   unit cases are: `120` equals `120.0`, `1` does not equal `2`, `{}` does not equal `{"a":1}`,
   and `[1]` does not equal `[1,1]`.
+- **The numeric leniency also hides an int/float type change.** A `u32` field turned `f64`
+  still writes `10` back as `10.0`, and `same()` calls that equal. Keep the integer params
+  (`limit`, `bars.from`/`to`, `instrument.apply`'s `from`/`to`) as `u32` in Rust, so their
+  examples keep round-tripping through an integer type; changing one of those types is a wire
+  change, reviewed as one, not something the examples catch.
 - **Example values against the CLI's human output.** The CLI tests assert exact text, so the
   examples take the values those tests print. Where two tests print different replies,
   `events.json` holds both (`stale`, `truncated`). `e2e.rs`'s state test is the one expectation
@@ -475,7 +494,9 @@ both.
 - **Feature leakage.** If `wire-fixtures` reached a normal dependency, the examples would ship in
   the binary. It is only ever a dev-dependency feature. Stages 003 and 004 check
   `cargo tree -p strudeland-cli -e normal,features -i strudeland-ctl` (and the same for
-  `strudeland-app`), whose output must not contain `wire-fixtures`. The CLI binary that
+  `strudeland-app`), whose output must not contain `wire-fixtures`. As a fallback,
+  `cargo tree -p strudeland-cli -e normal -f '{p} {f}' | grep wire-fixtures` (and the same for
+  `strudeland-app`) prints nothing. The CLI binary that
   `e2e.rs` runs is built with the test feature set and carries the examples as dead data, which
   is harmless.
 - **An example that only one side accepts.** If the webview accepted a params example that serde

@@ -20,8 +20,8 @@ examples. Every output, flag and exit code stays as it is.
 
 - `crates/strudeland-cli/Cargo.toml`: under `[dev-dependencies]`,
   `strudeland-ctl = { path = "../strudeland-ctl", features = ["wire-fixtures"] }`.
-- `crates/strudeland-cli/src/run.rs`: the typed `call`, `report` and `eval_like`; the 14 sites in
-  this file; the `state_json` and `events_json` readers.
+- `crates/strudeland-cli/src/run.rs`: the typed `call`, `report` and `eval_like`; the 15 call sites in
+  this file (12 `report`s, the one in `eval_like`, `code get` and `offline_project`); the `state_json` and `events_json` readers.
 - `crates/strudeland-cli/src/run/instruments.rs`: the `instrument.apply` site and its imports.
 - `crates/strudeland-cli/src/cli.rs`: the `--limit` range, the range test and the limits test.
 - `crates/strudeland-cli/tests/e2e.rs`: the state and events replies.
@@ -49,7 +49,8 @@ examples. Every output, flag and exit code stays as it is.
    marker you prefer) as paths, so they cannot be confused with `Command::Ping`,
    `Command::Play` and `Command::Stop`. Drop the `serde::de::DeserializeOwned` import if nothing
    uses it.
-2. **The 16 sites:**
+2. **The 16 call sites** (15 in `run.rs`, one in `instruments.rs`; 17 marker uses, because
+   `eval_like` serves both `EvalCall` and `Play`):
 
    | Site | Becomes |
    |---|---|
@@ -108,12 +109,19 @@ examples. Every output, flag and exit code stays as it is.
    - **`instrument_mcp.rs`:** the reply at `:217` becomes `result(Method::InstrumentApply,
      "example")`. The assert at `:225-228` compares against the same value; either keep the
      literal or reuse the fixture value.
+   - **Imports in `e2e.rs` and `instrument_mcp.rs`.** Their readers sit in `#[cfg(unix)]` tests.
+     An ungated `use strudeland_ctl::{Method, wire_fixtures};` is unused on Windows and fails
+     `cargo clippy --all-targets -- -D warnings` there (`.github/workflows/native.yml`). Gate the
+     import with `#[cfg(unix)]`, as both files already do for their other unix-only imports, or
+     import inside the tests. macOS clippy cannot catch this: check it by reading.
 
    Run each of these tests before step 4 and after, and confirm that the asserted strings are the
    ones written above. That is the check that the example values match what the tests print.
 5. **Feature leakage check:**
    `cargo tree -p strudeland-cli -e normal,features -i strudeland-ctl` prints no
-   `wire-fixtures`. With the dev edges included (`-e all`) it does.
+   `wire-fixtures`. With the dev edges included (`-e all`) it does. As a fallback that does not
+   depend on reading the inverted tree,
+   `cargo tree -p strudeland-cli -e normal -f '{p} {f}' | grep wire-fixtures` prints nothing.
 
 ## Tests
 

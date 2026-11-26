@@ -19,7 +19,7 @@ The stages run in order. Each one is one commit, green with every gate below.
 2. [002-ts-readers.md](002-ts-readers.md): `tests/helpers/wire-examples.ts`, the protocol and
    handler tests reading the examples, the deleted regex scrapes, and the `codes` macro.
 3. [003-cli-typed.md](003-cli-typed.md): the CLI's typed `call::<M>` and `report::<M>` at all 16
-   sites, `EVENTS_LIMIT_MAX` in `cli.rs`, the help and `SKILL.md` limits test, and the CLI tests
+   call sites, `EVENTS_LIMIT_MAX` in `cli.rs`, the help and `SKILL.md` limits test, and the CLI tests
    reading the examples.
 4. [004-app-readers.md](004-app-readers.md): `control.rs`'s refusal tests reading the examples,
    and the AGENTS.md and GLOSSARY.md updates.
@@ -63,8 +63,15 @@ The stages run in order. Each one is one commit, green with every gate below.
     cargo fmt --all --check > "$S/0120-<stage>-fmt.log" 2>&1; echo "exit $?" >> "$S/0120-<stage>-fmt.log"
     ```
 
+  - After the gates, `git diff -- crates/strudeland-ctl/tests/wire/` is empty: the examples are
+    committed as `bun run format` leaves them. Prettier keeps `1.0` as written but rewrites
+    `1.50` as `1.5`, so read any diff it made there for a changed value before staging it.
   - `cargo test --workspace` needs `cmake`, a C compiler and the V8 download the host brings. The
     first build takes minutes.
+  - The gates run on macOS, so clippy there cannot see an import that is unused only on Windows,
+    where `#[cfg(unix)]` tests are compiled out (`.github/workflows/native.yml` runs clippy with
+    `-D warnings`). Reason about `cfg(unix)` by reading: an import used only by unix-gated tests
+    is gated the same way.
 - **`bun test` stays browser-free and Tauri-free.** The TS readers use `node:fs` only.
 - **The examples are hand-written and prettier-formatted.** Run `bun run format` after editing
   any file under `crates/strudeland-ctl/tests/wire/`. Do not add them to `.prettierignore`.

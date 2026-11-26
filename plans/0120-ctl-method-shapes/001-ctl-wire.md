@@ -75,12 +75,14 @@ crate changes yet.
    /// `M`'s typed result from a raw `result`; `CallError::Protocol("invalid {method} result: {e}")`
    /// when it does not match. The one place that text is built.
    pub fn decode_result<M: Rpc>(result: &serde_json::Value) -> Result<M::Result, CallError> {
-       M::Result::deserialize(result)
+       <M::Result as serde::Deserialize>::deserialize(result)
            .map_err(|e| CallError::Protocol(format!("invalid {} result: {e}", M::METHOD.as_str())))
    }
    ```
 
-   `Client::call` becomes `let result = self.call_raw(…)?; decode_result::<M>(&result)`.
+   The fully qualified call names the trait, so nothing depends on which traits are in scope
+   (`M::Result` is also `Serialize`). `Client::call` becomes
+   `let result = self.call_raw(…)?; decode_result::<M>(&result)`.
    Re-export it from `lib.rs`: `pub use client::{CallError, Client, decode_result};`.
 6. **The examples.** Write the 18 files under `crates/strudeland-ctl/tests/wire/` to the
    proposal's schema. The contents per file:
@@ -118,8 +120,11 @@ crate changes yet.
    - **`eval.json`:**
      - params `{}` and `{ "song": "b" }`;
      - results `ok` and `failed`: `methods.rs:1239` and `:1228`'s values;
-     - invalid: `null` → "expected an object"; `{ "song": 3 }` → "'song' must be a non-empty
+     - invalid: `[]` → "expected an object"; `{ "song": 3 }` → "'song' must be a non-empty
        string".
+     - No `null` entry. `parse_request` (`frame.rs:147-149`) turns absent or `null` params into
+       `{}` before anything answers, so `null` never reaches the handler over the wire.
+       `control-handler.test.ts`'s `null` row stays a handler-only hand test (stage 002).
    - **`play.json`:** the same params and results as `eval.json`. Invalid: `{ "song": "" }` →
      "'song' must be a non-empty string".
    - **`stop.json`:** params `{}`. Result `{ "wasPlaying": true }`. Invalid: `{ "now": true }` →
@@ -190,9 +195,14 @@ crate changes yet.
    - **`errors.json`:** every `codes` const by name.
    - **`limits.json`:** `{ "eventsLimitDefault": 2000, "eventsLimitMax": 100000 }`.
 
+   No entry anywhere has top-level `null` params, for the reason given under `eval.json`. A
+   nested `null` (`screenshot`'s `{ "path": null }`) is sent as written.
+
    Copy each message from the code (`handler.ts`, `control.rs`), never from memory. Stage 002's
    TS test and stage 004's Rust test run every entry against the real handler. A wrong text fails
-   there, but it costs less to get it right now. Run `bun run format`.
+   there, but it costs less to get it right now. Run `bun run format`, then check that
+   `git diff -- crates/strudeland-ctl/tests/wire/` shows no changed value: prettier keeps `1.0`
+   as written but rewrites `1.50` as `1.5`.
 7. **`wire_fixtures.rs`**, to the proposal's interface:
 
    ```rust

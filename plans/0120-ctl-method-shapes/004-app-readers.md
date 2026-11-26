@@ -38,10 +38,16 @@ and gets a Layout line. GLOSSARY.md gains "Wire example".
    - The response must equal `RpcError::new(entry.code, entry.message)`, which is now the whole
      error and not only the code, and nothing is emitted.
    - The forwarded absolute-path half is unchanged.
-3. **One guard** in the same test module: every `invalid` entry of every method that has
+3. **No example paths in forwarding tests.** Don't feed `/p`, `/empty`, `/tmp/…` or any other
+   example path to a Rust test that calls `handle_line` and expects the request to be forwarded
+   (or the screenshot taken). On Windows `Path::is_absolute` is false for them, so `control.rs`
+   would refuse them (`:301`, `:382`) and the test would fail on the native workflow. The
+   forwarded half keeps `std::env::temp_dir()`. Only the refusal entries above are read from
+   the examples.
+4. **One guard** in the same test module: every `invalid` entry of every method that has
    `answered_by == "app"` belongs to `screenshot` or `project.open`. A new app-answered refusal
    then needs a Rust test here.
-4. **AGENTS.md, Rules.** Replace the control-socket bullet's first sentences (`:347-350`) with:
+5. **AGENTS.md, Rules.** Replace the control-socket bullet's first sentences (`:347-350`) with:
 
    > - Only `src/lib/control/api.ts` calls Tauri for the control socket. `strudeland-ctl` owns the
    >   method table (`Method`, one `Rpc` marker per method), the error codes and the `events`
@@ -59,13 +65,13 @@ and gets a Layout line. GLOSSARY.md gains "Wire example".
 
    Keep the rest of the bullet. `rg -n 'cross-check|regex' AGENTS.md` must show no stale
    mention of reading Rust source from a test for the control protocol.
-5. **AGENTS.md, Layout.** Extend the `crates/strudeland-ctl/` entry (`:158`) with:
+6. **AGENTS.md, Layout.** Extend the `crates/strudeland-ctl/` entry (`:158`) with:
 
    > `tests/wire/` the golden wire examples (hand-written, prettier-formatted), read by
    > `tests/wire.rs`, the TS control tests (`tests/helpers/wire-examples.ts`) and, through the
    > dev-only `wire-fixtures` feature, the CLI's and the app's tests.
 
-6. **GLOSSARY.md, App boundary.** Add after "IPC bindings":
+7. **GLOSSARY.md, App boundary.** Add after "IPC bindings":
 
    > **Wire example**
    >
@@ -75,8 +81,9 @@ and gets a Layout line. GLOSSARY.md gains "Wire example".
    > _Avoid_: fixture (any test input), golden (the render harness's), schema (nothing is
    > generated from them)
 
-7. **Feature leakage check:** `cargo tree -p strudeland-app -e normal,features -i strudeland-ctl`
-   prints no `wire-fixtures`.
+8. **Feature leakage check:** `cargo tree -p strudeland-app -e normal,features -i strudeland-ctl`
+   prints no `wire-fixtures`, and the fallback
+   `cargo tree -p strudeland-app -e normal -f '{p} {f}' | grep wire-fixtures` prints nothing.
 
 ## Tests
 
@@ -89,7 +96,7 @@ and gets a Layout line. GLOSSARY.md gains "Wire example".
 ## Validation
 
 - The gates in [000-prompt.md](000-prompt.md), logged as `0120-004-*`.
-- The `cargo tree` check in step 7, and stage 003's for `strudeland-cli` again.
+- The `cargo tree` check in step 8, and stage 003's for `strudeland-cli` again.
 - A last check over the branch: `git diff main --stat -- crates/strudeland-cli/skill/SKILL.md
   src/lib/control/protocol.ts` is empty, and `git diff main -- src/lib/control/handler.ts`
   shows only the two `export`s.
