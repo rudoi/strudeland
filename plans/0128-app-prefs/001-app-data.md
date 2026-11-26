@@ -20,11 +20,13 @@ changes. The only new output is the stderr warning for a bad `prefs.json` or `re
 - Edited:
   - `crates/strudeland-project/src/{lib.rs,error.rs,prefs.rs,recents.rs,instruments.rs}`;
   - `src-tauri/src/{project.rs,lib.rs,command_error.rs}`;
+  - `src-tauri/src/recording.rs`, one test call only (step 8);
   - `AGENTS.md`.
 - Untouched (besides the shared list):
   - `crates/strudeland-record/`;
   - `src/`;
-  - `src-tauri/src/recording.rs` and `src-tauri/src/recording/`;
+  - `src-tauri/src/recording.rs` except its `open_project` test call, and
+    `src-tauri/src/recording/`;
   - `src-tauri/src/instruments.rs`.
 
 ## Steps
@@ -38,7 +40,8 @@ changes. The only new output is the stderr warning for a bad `prefs.json` or `re
    - `recents.rs`: touching `/p/a` then `/p/b` and saving writes exactly
      `"{\n  \"schema\": 1,\n  \"projects\": [\n    \"/p/b\",\n    \"/p/a\"\n  ]\n}\n"`.
 
-   Run `cargo test -p strudeland-project prefs:: recents::`. Both must pass on unchanged code.
+   Run `cargo test -p strudeland-project -- prefs:: recents::` (cargo takes one positional
+   filter; several go after `--`). Both must pass on unchanged code.
    From here on, their expected literals do not change in this stage. Only the calls around them
    do (`&AppData` in place of a path).
 2. **`error.rs`**: add `NoDataDir` with `#[error("cannot locate the user data directory")]`.
@@ -52,9 +55,10 @@ changes. The only new output is the stderr warning for a bad `prefs.json` or `re
    - `pub(crate) fn load` and `pub(crate) fn save`.
 
    `load` follows the policy table row by row:
-   - `fs::read_to_string`. `NotFound` gives the default with no problem. Any other error gives
+   - `fs::read` (bytes, not `read_to_string`, as `read_prefs` does today, so invalid UTF-8 stays
+     a parse problem). `NotFound` gives the default with no problem. Any other error gives
      `cannot read {file.display()}: {e}`;
-   - `serde_json::from_str::<OnDisk<T>>`. An error gives `ignoring {file.display()}: {e}`;
+   - `serde_json::from_slice::<OnDisk<T>>`. An error gives `ignoring {file.display()}: {e}`;
    - a schema mismatch gives `ignoring {file.display()}: schema must be {schema}`.
 
    `save` is today's `Prefs::save` body, generic:
@@ -122,7 +126,13 @@ changes. The only new output is the stderr warning for a bad `prefs.json` or `re
    - in the tests, `Env` gains `fn app_data(&self) -> AppData { AppData::at(self.tmp.path().join("data")) }`,
      and every `&env.recents()` passed to a function becomes `&env.app_data()`. `env.recents()`
      stays `tmp/data/recent.json`, built as `self.app_data().dir().join(RECENTS_FILE)`, for the
-     file assertions. `recent_entries` uses `Recents::load(&self.app_data()).value`.
+     file assertions. `recent_entries` uses `Recents::load(&self.app_data()).value`;
+   - `src-tauri/src/recording.rs:962-963`, the test
+     `opening_a_project_repairs_it_in_the_background`, calls
+     `crate::project::open_project(&rig.projects, &recents, …)`. Pass
+     `&AppData::at(rig.tmp.path())` instead (add `AppData` to the test module's
+     `strudeland_project` import, `:589`) and drop its `recents` local (the file is still
+     `rig.tmp/recent.json`). This is the only `recording.rs` edit in this stage.
 9. **`src-tauri/src/lib.rs`**: `.manage(project::AppDataState::locate())` after
    `.manage(project::ProjectState::default())`.
 10. **`AGENTS.md:159-160`**: the `strudeland-project` bullet says it owns the app data dir and
@@ -166,6 +176,9 @@ changes. The only new output is the stderr warning for a bad `prefs.json` or `re
     `open_each_skips_entries_that_do_not_open`, `list_returns_names_and_drops_dead_entries`,
     `recent_project_serialises_camel_case` and `save_reports_an_unwritable_parent`, each over
     `AppData::at(...)`;
+  - `list_returns_names_and_drops_dead_entries`' last line (`Recents::list` of a missing file)
+    uses its own empty dir, `Recents::list(&AppData::at(tmp.path().join("missing"))).value`, so
+    it still lists nothing;
   - `touch_and_save_ignores_a_failed_write` uses `AppData::at(blocker)`, so the file is
     `blocker/recent.json`;
   - `corrupt_file_loads_empty` keeps only `{"schema":1}` and `{"schema":1,"projects":[1]}`, each
@@ -179,19 +192,22 @@ changes. The only new output is the stderr warning for a bad `prefs.json` or `re
 - **`src-tauri`:** the `project.rs` tests pass with only the `Env` adapter edits, and
   `command_error.rs` gains its `NoDataDir` row.
 - **Targeted while working:**
-  - `cargo test -p strudeland-project app_data:: prefs:: recents:: instruments::`;
-  - `cargo test -p strudeland-app --lib project:: command_error::`.
+  - `cargo test -p strudeland-project -- app_data:: prefs:: recents:: instruments::`;
+  - `cargo test -p strudeland-app --lib -- project:: command_error:: recording::tests::opening_a_project`.
 
 ## Validation
 
 Run the gates in [000-prompt.md](000-prompt.md) with `N=001`. Also:
 
 ```sh
-git diff --stat 8c13c8c -- crates/strudeland-record src src-tauri/src/recording.rs \
-  src-tauri/src/recording src-tauri/src/instruments.rs > "$S/0128-001-own-untouched.log"; echo "exit $?" >> "$S/0128-001-own-untouched.log"
+git diff --stat 8c13c8c -- crates/strudeland-record src src-tauri/src/recording \
+  src-tauri/src/instruments.rs > "$S/0128-001-own-untouched.log"; echo "exit $?" >> "$S/0128-001-own-untouched.log"
+git diff 8c13c8c -- src-tauri/src/recording.rs > "$S/0128-001-recording-rs.log"; echo "exit $?" >> "$S/0128-001-recording-rs.log"
 ```
 
 - `own-untouched.log` lists no files.
+- `recording-rs.log` shows only the `open_project` call in
+  `opening_a_project_repairs_it_in_the_background` (and its dropped `recents` local).
 - The step 1 byte tests are the byte check. Say in your report that they passed on unchanged
   code before the refactor.
 

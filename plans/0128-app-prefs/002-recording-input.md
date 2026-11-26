@@ -94,9 +94,12 @@ an argument, and a failed save still only logs.
 
    The frozen `prefs_text` keeps calling `r.prefs()`. The adapter method keeps the name
    `write_prefs`, because frozen flows call `s.write_prefs(...)`.
-9. **`AGENTS.md:310`**: "(device prefs in `recording.json` in the app data dir)" becomes "(the
-   saved input is `strudeland-project`'s `RecordingInput`, `recording.json` in the app data
-   dir)". Add `recording.json` to the stage 001 `strudeland-project` bullet's document list.
+9. **`AGENTS.md`**:
+   - `:310`: "(device prefs in `recording.json` in the app data dir)" becomes "(the saved input
+     is `strudeland-project`'s `RecordingInput`, `recording.json` in the app data dir)";
+   - `:305`: the takes bullet's "the device prefs file" becomes "the input selection over the
+     saved `RecordingInput`", since the file now belongs to `strudeland-project`;
+   - add `recording.json` to the stage 001 `strudeland-project` bullet's document list.
 
 ## Tests
 
@@ -137,7 +140,7 @@ Run the gates in [000-prompt.md](000-prompt.md) with `N=002`. Also:
 git diff --stat HEAD -- src src-tauri/src/project.rs crates/strudeland-project/src/prefs.rs \
   crates/strudeland-project/src/recents.rs crates/strudeland-project/src/app_data.rs \
   > "$S/0128-002-own-untouched.log"; echo "exit $?" >> "$S/0128-002-own-untouched.log"
-git grep -n 'recording.json' -- crates src-tauri > "$S/0128-002-names.log"; echo "exit $?" >> "$S/0128-002-names.log"
+git grep -nF '"recording.json"' -- crates src-tauri > "$S/0128-002-names.log"; echo "exit $?" >> "$S/0128-002-names.log"
 ```
 
 - `own-untouched.log` lists no files. It diffs against the stage 001 commit (`HEAD` before you

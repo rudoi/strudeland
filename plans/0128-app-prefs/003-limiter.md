@@ -28,8 +28,9 @@ The visible changes are exactly the accepted ones (proposal, Goal):
   - `src/lib/prefs/{api.ts,store.ts}`;
   - `src/lib/app.ts`;
   - `src/components/StatusBar.svelte`;
-  - `src/lib/strudel/runtime.ts` (doc comments only);
-  - `tests/{prefs,app,runtime-levels}.test.ts`;
+  - `src/lib/strudel/runtime.ts`, `src/lib/audio/rust.ts` and `tests/helpers/fake-runtime.ts`
+    (doc comments only);
+  - `tests/{prefs,app,runtime-levels,ipc-adapters}.test.ts`;
   - `AGENTS.md`.
 - Deleted: `src/lib/audio/limiter-pref.ts`.
 - Untouched (besides the shared list):
@@ -54,7 +55,10 @@ The visible changes are exactly the accepted ones (proposal, Goal):
      - `edited(key: keyof Prefs): boolean` ("Whether this session set `key`; a value the user
        chose before the load wins over a migration");
    - every setter's type becomes `Promise<boolean>`, and its doc changes from "Never rejects."
-     to "Resolves whether the save landed; never rejects.";
+     to "Resolves whether the save landed; never rejects.". The callers that `void` the promise
+     are unaffected, but `app.toggleVim` is not: it returns `prefs.setVim(...)` as its
+     `Promise<void>` (`app.ts:71,256-259`, `StatusBar.svelte:41`), and a `Promise<boolean>` does
+     not assign to it. Step 5 changes its body;
    - in `set`: the queued step returns `true` after `api.set` resolved and `false` in the
      `catch`. Without an api it resolves `false`. `chain` stays a `Promise<void>` derived from
      it, so the queue order is unchanged;
@@ -70,7 +74,10 @@ The visible changes are exactly the accepted ones (proposal, Goal):
    - read: `try { value = storage()?.getItem(KEY) ?? null } catch { return }`;
    - `null` returns at once;
    - a value other than `'1'`/`'0'` returns and leaves the key;
-   - if `prefs.edited('limiter')`, remove the key and return;
+   - if `prefs.edited('limiter')` (the user toggled before the load), remove the key only
+     `if (await prefs.setLimiter(prefs.limiter()))`, and return. This saves an identical object
+     once more, so a toggle whose own save failed cannot lose the stored value: the key stays
+     for the next launch;
    - otherwise `if (await prefs.setLimiter(value === '1'))`, remove the key;
    - every `removeItem` is wrapped in `try`, with `console.error('could not remove the old
      limiter preference', e)` and never a throw.
@@ -81,12 +88,16 @@ The visible changes are exactly the accepted ones (proposal, Goal):
    - delete the `limiter-pref` import (`:30`), `limiter: loadLimiter()` (`:116`), `savedLimiter`
      and the two limiter lines in the runtime subscriber (`:119-125`). The subscriber keeps
      `scopeClock.setRunning(s.started)`;
-   - the prefs subscriber (`:198-204`) takes `{ vim, auditionNotes, limiter }` and adds
+   - the prefs subscriber (`:199-205`) takes `{ vim, auditionNotes, limiter }` and adds
      `if (limiter !== get(runtime.store).limiter) runtime.setLimiter(limiter);`. Import `get`
      from `svelte/store` if it is not already imported;
    - after `const ready = prefs.load();`:
      `if (prefsApi) void ready.then(() => migrateLimiter(prefs, () => globalThis.localStorage));`.
-     `ready` is unchanged. Nothing waits on the migration.
+     `ready` is unchanged. Nothing waits on the migration;
+   - `toggleVim` (`:256-259`) becomes
+     `async toggleVim() { const saved = prefs.setVim(!prefs.vim()); view?.focus(); await saved; }`.
+     The focus still happens before the save settles, and `toggleVim(): Promise<void>` in `App`
+     (`:71`) and `StatusBar.svelte:41` stay as they are.
 6. **`StatusBar.svelte`**: `onlimiter={prefs.setLimiter}`. `limiter={$rt.limiter}` and
    `available` stay.
 7. **`runtime.ts`**: doc comments only.
@@ -94,6 +105,9 @@ The visible changes are exactly the accepted ones (proposal, Goal):
      backends)."
    - `setLimiter` (`:224`): "Applies the limiter to both backends. The app calls it from prefs."
    - The `limiter` option (`:241`): "The initial applied limiter (default off)."
+   - Optional, the same wording elsewhere: `tests/helpers/fake-runtime.ts:27` ("The runtime's
+     initial limiter preference." becomes "The runtime's initial applied limiter.") and
+     `src/lib/audio/rust.ts:126` ("The limiter preference; …" becomes "The applied limiter; …").
 8. **Delete** `src/lib/audio/limiter-pref.ts`.
 9. **`AGENTS.md`**:
    - `:86-88`: drop "and `limiter-pref.ts` (the stored preference)", so the sentence ends at
@@ -112,13 +126,32 @@ The visible changes are exactly the accepted ones (proposal, Goal):
   - new: `{"schema":1,"limiter":true}` loads `limiter` alone;
   - `defaults_are_off` asserts `!limiter`.
 - **`tests/prefs.test.ts`:**
-  - the default literal (`:26-31`) and the saved-object literals (`:44-47`, `:81`, `:107`,
-    `:121-124`) gain `limiter: false`;
+  - every whole-`Prefs`/`PrefsState` `toEqual` literal gains `limiter: false`: `:26-31`,
+    `:43-48`, `:81`, `:107`, `:120-125`, `:131`, `:133-138`, `:149`, `:161`, `:179`,
+    `:199-204`, `:208-209`, `:228-233`, `:256-258`, `:260-265` and `:278`. The `fakePrefsApi`
+    arguments (`:37`, `:184-189`) are partial and may stay;
   - new: `setLimiter(true)` updates `limiter()` and the store at once and saves
     `{ ...loaded, limiter: true }`;
   - new: `edited` is false at start, true for the key after its setter, and false for other keys;
   - new: a setter resolves `true` after a good save and `false` with `failSet`, and without an
-    api (`createPrefs(null)`) it resolves `false`.
+    api (`createPrefs(null)`) it resolves `false`;
+  - new `describe('limiter migration')`, here rather than in `app.test.ts` because it needs no
+    DOM. It calls `migrateLimiter` directly with `createPrefs(fakePrefsApi())`, after
+    `await prefs.load()`, and a fake storage `{ getItem, removeItem }` over a `Map`:
+    - `'1'` → `limiter()` true, saved, key removed;
+    - `'0'` over a loaded `limiter: true` → false, saved, key removed;
+    - absent → no save, nothing removed;
+    - `'yes'` → no save, key left;
+    - `getItem` throws → no save, no throw;
+    - `storage()` itself throws → the same;
+    - `failSet` → `limiter()` true for the session, `store.error` is `'write failed'`, key kept;
+    - toggle first (`setLimiter(false)` before `load` resolves) with `'1'` stored → the saved
+      value is `false`, there are exactly two saves (the toggle's and the migration's identical
+      one), and the key is removed;
+    - toggle first with `'1'` stored and `failSet` → `limiter()` is the toggled `false`,
+      `store.error` is `'write failed'`, no save landed, and the key is kept;
+    - `removeItem` throws after a good save → saved, no throw, `console.error` called (spy).
+- **`tests/ipc-adapters.test.ts`:** the `prefs` literal at `:48` gains `limiter: false`.
 - **`tests/app.test.ts`:**
   - the literal at `:939` gains `limiter: false`;
   - new, in the prefs `describe`: with `withPrefs({ limiter: true })`, the runtime limiter is
@@ -128,21 +161,11 @@ The visible changes are exactly the accepted ones (proposal, Goal):
     `limiter: true`;
   - new: a `setVim` toggle leaves the runtime limiter value and sends no limiter change. Spy on
     `app.runtime.setLimiter` and assert no call;
-  - new `describe('limiter migration')`, calling `migrateLimiter` directly with
-    `createPrefs(fakePrefsApi())`, after `await prefs.load()`, and a fake storage
-    `{ getItem, removeItem }` over a `Map`:
-    - `'1'` → `limiter()` true, saved, key removed;
-    - `'0'` over a loaded `limiter: true` → false, saved, key removed;
-    - absent → no save, nothing removed;
-    - `'yes'` → no save, key left;
-    - `getItem` throws → no save, no throw;
-    - `storage()` itself throws → the same;
-    - `failSet` → `limiter()` true for the session, `store.error` is `'write failed'`, key kept;
-    - toggle first (`setLimiter(false)` before `load` resolves) with `'1'` stored → the saved
-      value is `false`, there is exactly one save, and the key is removed;
-    - `removeItem` throws after a good save → saved, no throw, `console.error` called (spy).
-  - new wiring tests with a stubbed global `localStorage`, using the `Object.defineProperty`
-    and restore pattern moved here from `runtime-levels.test.ts:120-126`:
+  - two `createApp` wiring tests over happy-dom's `localStorage`. `GlobalRegistrator`
+    (`app.test.ts:4`) installs a real one shared by every test in the file, so seed it with
+    `localStorage.setItem('strudeland.limiter', '1')` and call `localStorage.clear()` in an
+    `afterEach`. Do not move the `Object.defineProperty` stub from `runtime-levels.test.ts`
+    unless happy-dom's descriptor is `configurable`:
     - `createApp(..., prefsApi)` with `'1'` stored: after `await app.ready` and `await flush()`,
       the runtime limiter is `true` and the key is gone;
     - `createApp(..., null)` (no prefs api) with `'1'` stored: after `await app.ready`, the key
@@ -167,7 +190,8 @@ git diff --stat HEAD -- crates/strudeland-record src-tauri src/components/ui \
   > "$S/0128-003-own-untouched.log"; echo "exit $?" >> "$S/0128-003-own-untouched.log"
 ```
 
-- `storage.log` lists `src/lib/prefs/migrate.ts` only.
+- `storage.log` lists `src/lib/prefs/migrate.ts` and the comment at `src/lib/editor/setup.ts:14`
+  ("we never read or write @strudel/codemirror's localStorage atom"), nothing else.
 - `gone.log` lists nothing and ends `exit 1` (no match), which is the pass here.
 - `own-untouched.log` lists no files. It diffs against the stage 002 commit.
 - The ipc log is clean: `bindings.ts` is unchanged.

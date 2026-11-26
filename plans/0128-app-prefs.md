@@ -55,9 +55,9 @@ three lookups, the identifier tests and the data-safety reasoning. In short:
 - The app transcript `src-tauri/src/recording/transcript.rs` pins the `recording.json` text
   byte for byte. Its `prefs` flow has four `"prefs file"` steps. Its frozen region (`:414-1207`)
   and its expected block (`:1209-8146`) never change to absorb a difference.
-- `InstrumentLibrary::open_default` (`instruments.rs:441-453`) canonicalizes `dirs::data_dir()`,
-  creates `com.rudoi.strudeland` and then `instruments` through `checked_directory` and
-  `create_directory` (`mkdirat` on Unix). If there is no data dir, it fails with
+- `InstrumentLibrary::open_default` (`instruments.rs:441-453`, doc comment at `:440`)
+  canonicalizes `dirs::data_dir()`, creates `com.rudoi.strudeland` and then `instruments`
+  through `checked_directory` and `create_directory` (`mkdirat` on Unix). If there is no data dir, it fails with
   `instrument "instruments": cannot locate user data directory`. The CLI
   (`crates/strudeland-cli/src/run.rs:220`, `run/mcp.rs:92`) and the app
   (`src-tauri/src/instruments.rs:17,38,64`) call it.
@@ -172,10 +172,13 @@ pub(crate) fn save<T: Serialize>(file: &Path, schema: u32, value: &T) -> Result<
 |---|---|---|
 | missing (`NotFound`) | `T::default()` | `None` |
 | unreadable (any other read error, including a directory in its place) | `T::default()` | `cannot read <path>: <io error>` |
-| not JSON, wrong shape, missing `schema` | `T::default()` | `ignoring <path>: <serde error>` |
+| not JSON (including invalid UTF-8), wrong shape, missing `schema` | `T::default()` | `ignoring <path>: <serde error>` |
 | `schema` is not the document's | `T::default()` | `ignoring <path>: schema must be <n>` |
 | valid | parsed value | `None` |
 
+- `load` reads with `fs::read` and parses with `serde_json::from_slice`, as `read_prefs` does
+  today, so an invalid-UTF-8 `recording.json` keeps its `ignoring <path>: <serde error>` text
+  instead of becoming a `cannot read` I/O error.
 - `load` never writes, renames or deletes. The bad file stays until something saves over it. A
   later save still replaces it, as today: `touch_and_save` after a corrupt `recent.json`,
   `prefs_set` after a corrupt `prefs.json`, an arm with arguments after a corrupt
@@ -310,19 +313,23 @@ TS:
   - `limiter(): boolean` and `setLimiter(on): Promise<boolean>`;
   - `edited(key: keyof Prefs): boolean`, true once this session called that key's setter;
   - every setter now resolves to whether its save landed: `true` after `api.set` resolved,
-    `false` after it failed or when there is no api. It still never rejects. Existing callers
-    `void` the promise and are unaffected.
+    `false` after it failed or when there is no api. It still never rejects. The callers that
+    `void` the promise are unaffected. `app.toggleVim` returns `prefs.setVim(...)` as its
+    `Promise<void>` (`app.ts:71,256-259`, `StatusBar.svelte:41`), which a `Promise<boolean>`
+    does not satisfy, so it becomes
+    `async toggleVim() { const saved = prefs.setVim(!prefs.vim()); view?.focus(); await saved; }`
+    and both `Promise<void>` signatures stay.
 - `src/components/StatusBar.svelte`: `onlimiter={prefs.setLimiter}`. The meter still shows
   `$rt.limiter`.
 - `src/lib/app.ts`:
   - delete the `limiter-pref` import, `limiter: loadLimiter()`, `savedLimiter` and the limiter
     lines of the runtime subscriber, which keeps only the scope clock;
-  - the existing `prefs.store.subscribe` (`app.ts:198-204`) gains
+  - the existing `prefs.store.subscribe` (`app.ts:199-205`) gains
     `if (limiter !== get(runtime.store).limiter) runtime.setLimiter(limiter)`. The guard keeps
     other pref changes from sending a `playback_limiter` each time;
   - after `const ready = prefs.load()`, when `prefsApi` is non-null:
-    `void ready.then(() => migrateLimiter(prefs, () => localStorage))`. `ready` itself is
-    unchanged.
+    `void ready.then(() => migrateLimiter(prefs, () => globalThis.localStorage))`. `ready`
+    itself is unchanged.
 - `src/lib/strudel/runtime.ts`: no code change. The doc comments on `limiter` and `setLimiter`
   say it is the applied value, set by the app from prefs. The `limiter` option stays because
   `runtime-levels.test.ts` uses it.
@@ -343,7 +350,8 @@ export async function migrateLimiter(
 | `storage()` or `getItem` throws, or there is no storage | untouched | untouched |
 | key absent | untouched | absent |
 | key is neither `'1'` nor `'0'` (read as off today, and off is the default) | untouched | left |
-| `prefs.edited('limiter')`: the user toggled before the load | untouched (the user's value wins) | removed |
+| `prefs.edited('limiter')` (the user toggled before the load), and `await prefs.setLimiter(prefs.limiter())` resolves `true` | the user's value wins, saved again (an identical object) | removed |
+| `prefs.edited('limiter')`, and that save fails | the user's value for this session, "prefs: …" notice | kept, so the next launch retries |
 | `'1'` / `'0'`, `setLimiter(v)` resolves `true` | `limiter = v`, saved | removed |
 | `'1'` / `'0'`, the save fails | `limiter = v` for this session, "prefs: …" notice | kept, so the next launch retries |
 | `removeItem` throws | as above | left; `console.error`, never thrown |
@@ -400,7 +408,10 @@ the new owner.
     creates `…/instruments` and lists no entries.
   - `src-tauri/src/project.rs`: `Env` builds `AppData::at(tmp/data)`, and `env.recents()` stays
     the file path `tmp/data/recent.json`, so every assertion keeps its text.
-    `command_error.rs`'s table test gains the `NoDataDir` row.
+    `command_error.rs`'s table test gains the `NoDataDir` row. The one `recording.rs` edit in
+    this stage is the `open_project` call in its test
+    `opening_a_project_repairs_it_in_the_background` (`:962-963`), which passes
+    `&AppData::at(rig.tmp.path())`.
   - **Characterize first.** Write the two per-document byte tests against today's `prefs.rs`
     and `recents.rs` before any other edit. They must pass unchanged on `8c13c8c`'s code. After
     that their literals never change in this stage.
@@ -439,18 +450,19 @@ the new owner.
     - `setLimiter` and `limiter()`;
     - `edited`;
     - a setter resolves `true` after a good save and `false` after a failed one;
-    - the default and saved-object literals gain `limiter: false`.
+    - every migration row of the table above, calling `migrateLimiter` directly with
+      `createPrefs(fakePrefsApi(...))` and a fake storage;
+    - every whole-`Prefs`/`PrefsState` `toEqual` literal gains `limiter: false`.
   - `tests/app.test.ts`:
     - a loaded `limiter: true` reaches `runtime` after `ready`;
     - `app.prefs.setLimiter` changes `get(app.runtime.store).limiter` at once and saves;
     - a vim toggle sends no extra limiter call (the guard);
-    - every migration row of the table above, calling `migrateLimiter` directly with
-      `createPrefs(fakePrefsApi(...))` and a fake storage;
-    - one `createApp` wiring test with a stubbed global `localStorage` (`'1'`, the key removed and
-      the runtime limiter on);
-    - one with `prefsApi` null, where the key stays.
+    - two `createApp` wiring tests over happy-dom's real `localStorage` (`setItem` to seed it,
+      `localStorage.clear()` in `afterEach`): `'1'` stored, the key removed and the runtime
+      limiter on; and `prefsApi` null, where the key stays.
 
-    The saved-object literal at `app.test.ts:939` gains `limiter: false`.
+    The saved-object literal at `app.test.ts:939` gains `limiter: false`, and so does the prefs
+    literal at `tests/ipc-adapters.test.ts:48`.
   - `tests/runtime-levels.test.ts`: delete the `limiter-pref` test (`:120-148`), its import (`:5`)
     and the `localStorage` helpers. The runtime limiter tests (`:99-117`) stay.
 
@@ -458,7 +470,8 @@ the new owner.
 
 - **Bytes.** `recent.json` and `recording.json` stay byte-identical for every value. `prefs.json`
   stays byte-identical through stage 002, and stage 003 adds only the `limiter` key.
-- **Values.** Every file that loads today loads the same values. Every file that falls back
+- **Values.** Every file that loads today loads the same values, except the hand-written array
+  form that Risks accepts. Every file that falls back
   today falls back. A file without `channel` is still invalid.
 - **Writes.** They happen at the same points: `prefs_set`, recents `touch_and_save`, `save` only
   after a prune, an arm with an argument. Failures are handled the same way: a `prefs_set` error
@@ -522,6 +535,16 @@ the new owner.
 - **A `removeItem` that throws after a good save** leaves the key, and the next launch migrates
   it again, overriding a toggle made in between. This needs storage that reads but cannot delete.
   It is logged.
+- **Array-form `recent.json` and `recording.json` (accepted).** Today's `RecentsFile` and
+  `PrefsFile` are plain structs, which serde also deserializes from a JSON array
+  (`[1,["/a"]]`, `[1,"x",2]`). `OnDisk` uses `#[serde(flatten)]`, which accepts only a map, so
+  such a file now falls back to the defaults with a problem. No build ever writes the array
+  form (every writer serializes a struct to an object), so only a hand-written file is affected.
+  `prefs.json` already uses `flatten` and is unaffected. This is not a STOP.
+- **The `recording.json` save-failure log text.** A failed `create_dir_all` in `save` is
+  `ProjectError::io(parent, e)`, whose `Display` is `<parent>: <io error>`, where `write_prefs`
+  printed only `<io error>`. So `recording: cannot save <path>: …` gains a `<parent>: ` prefix in
+  that case. This is stderr only, and no test pins it.
 - **Downgrade.** An older build reads a `prefs.json` that has `limiter`, ignores the key, and
   drops it on its next save. The limiter then falls back to the old `localStorage` key if it is
   still there, or to off.

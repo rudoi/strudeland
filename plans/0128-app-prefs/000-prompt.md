@@ -104,7 +104,8 @@ byte test.
   - a saved file's bytes would change for any value. The one exception is stage 003's
     `"limiter"` key in `prefs.json`;
   - a file that loads today would load a different value, or one that falls back today would
-    load;
+    load. The one exception is the array-form `recent.json`/`recording.json` the proposal's
+    Risks accept (no build writes it), which now falls back;
   - any value would be lost: a recents entry, a pref, the saved input, the `localStorage`
     limiter before a confirmed save;
   - `bindings.ts` would change, or a command's name, argument key, result shape or error kind
