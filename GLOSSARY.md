@@ -122,3 +122,24 @@ The continuous opening-and-repeat PCM a loop preset is cut from: the repeat's de
 one loop body, the opening's last 10 ms blended into it, and the true peak measured across the
 handoff and the wrap.
 _Avoid_: arrangement (the written order of patterns), loop layout (layout is the transport's)
+
+## App boundary
+
+**Command error**
+
+What a fallible Tauri command rejects with: a kind from one flat list, such as `projectChanged`,
+`notFound` or `stale`, and the message the user sees. Each webview adapter narrows the kind to
+the ones its feature handles; any other kind is `other`.
+_Avoid_: song error, recording error, playback error (the old per-feature shapes), error string
+
+**Stale root**
+
+A command naming a project `root` that is no longer the open one, because another project was
+opened meanwhile. It fails with kind `projectChanged` and touches nothing.
+_Avoid_: the project changed (the message, not the condition), sentinel
+
+**IPC bindings**
+
+The generated `src/lib/ipc/bindings.ts`: every command's name and argument keys, every event
+name and every command error kind, read from the Rust source by `bun run ipc:build`.
+_Avoid_: IPC types (the payload types stay hand-written), protocol (the control socket's)
