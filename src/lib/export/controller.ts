@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
-import { kindedError } from '../command-error';
 import { errorMessage } from '../errors';
+import { ExportError } from './error';
 import type { SessionState } from '../project/session';
 import type { SongStructure } from '../strudel/structure';
 import type {
@@ -141,12 +141,9 @@ function requestFor(
 }
 
 function failureFrom(error: unknown): Failure {
-  const written = (error as { written?: unknown } | null)?.written;
   return {
-    message: kindedError(error)?.message ?? errorMessage(error),
-    written: Array.isArray(written)
-      ? written.filter((path): path is string => typeof path === 'string')
-      : [],
+    message: errorMessage(error),
+    written: error instanceof ExportError ? error.written : [],
   };
 }
 

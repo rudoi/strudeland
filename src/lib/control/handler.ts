@@ -131,11 +131,11 @@ const songGone = (reason: 'projectChanged' | 'missing' | 'deleted', target: stri
 function fromProjectError(e: unknown, target?: string): unknown {
   if (!(e instanceof ProjectError)) return e;
   switch (e.kind) {
-    case 'songExists':
+    case 'exists':
       return new ControlError(ErrorCode.SONG_EXISTS, e.message);
     case 'invalidName':
       return invalid(e.message);
-    case 'songNotFound':
+    case 'notFound':
       return target === undefined
         ? new ControlError(ErrorCode.NO_SUCH_SONG, e.message)
         : removed(target);

@@ -245,8 +245,20 @@ impl<'a> Prepared<'a> {
 }
 
 /// `10^(gain_db / 20)`; `None` (untouched) for exactly 0 dB.
-fn linear_gain(gain_db: f64) -> Option<f64> {
+pub(crate) fn linear_gain(gain_db: f64) -> Option<f64> {
     (gain_db != 0.0).then(|| 10f64.powf(gain_db / 20.0))
+}
+
+/// `channels` times the static gain `gain_db`, one rounding to f32 per sample; `None` (use
+/// `channels` as they are) for exactly 0 dB.
+pub(crate) fn apply_static_gain(channels: &[Vec<f32>], gain_db: f64) -> Option<Vec<Vec<f32>>> {
+    let gain = linear_gain(gain_db)?;
+    Some(
+        channels
+            .iter()
+            .map(|ch| ch.iter().map(|&x| apply_one(x, gain)).collect())
+            .collect(),
+    )
 }
 
 /// A sample times the static gain, one rounding to f32.

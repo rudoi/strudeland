@@ -3,16 +3,25 @@
 use std::io::Cursor;
 
 use ogg::reading::PacketReader;
-use strudeland_render::encode::mp3::encode_mp3_with_loop;
+use strudeland_render::encode::mp3::{Mp3Flush, encode_mp3};
 use strudeland_render::encode::ogg::encode_ogg_with_loop;
 use strudeland_render::encode::opus::{encode_opus_with_loop, resample_48k, resampled_len};
 use strudeland_render::encode::verify::{decode, decode_opus_trimmed, decoded_true_peak_db};
 use strudeland_render::encode::wav::{encode_wav, encode_wav_with_loop};
-use strudeland_render::encode::{CORRECTION_MARGIN_DB, encode_once};
+use strudeland_render::encode::{CORRECTION_MARGIN_DB, EncodeRequest, encode_once};
 use strudeland_render::level::true_peak_db;
 use strudeland_render::{BitDepth, EncoderOptions, Format, Mp3Mode, RenderError};
 
 const SR: u32 = 44_100;
+
+/// A plain encode: the no-gap MP3 flush and no loop.
+fn once(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    encoder: &EncoderOptions,
+) -> Result<Vec<u8>, RenderError> {
+    encode_once(&EncodeRequest::plain(channels, sample_rate, encoder))
+}
 
 /// A stereo sine: left at `hz`, right at `1.5 * hz`, amplitude `amp`.
 fn sine(frames: usize, hz: f64, amp: f64) -> Vec<Vec<f32>> {
@@ -225,14 +234,14 @@ fn encode_once_dispatches_wav() {
     let input = sine(500, 300.0, 0.5);
     for depth in [BitDepth::B16, BitDepth::B24, BitDepth::F32] {
         assert_eq!(
-            encode_once(&input, SR, &EncoderOptions::Wav { bit_depth: depth }).unwrap(),
+            once(&input, SR, &EncoderOptions::Wav { bit_depth: depth }).unwrap(),
             wav(&input, depth)
         );
     }
 }
 
 fn mp3(input: &[Vec<f32>], mode: Mp3Mode, q: u8) -> Vec<u8> {
-    encode_once(
+    once(
         input,
         SR,
         &EncoderOptions::Mp3 {
@@ -244,7 +253,7 @@ fn mp3(input: &[Vec<f32>], mode: Mp3Mode, q: u8) -> Vec<u8> {
 }
 
 fn ogg(input: &[Vec<f32>], quality: i32) -> Vec<u8> {
-    encode_once(input, SR, &EncoderOptions::Ogg { quality }).unwrap()
+    once(input, SR, &EncoderOptions::Ogg { quality }).unwrap()
 }
 
 #[test]
@@ -270,8 +279,9 @@ fn encode_mp3_preset_preserves_the_gapless_duration_and_loop_tags() {
     let frames = 100_003;
     let input = sine(frames, 440.0, 0.5);
     for (mode, tag) in [(Mp3Mode::Cbr, b"Info"), (Mp3Mode::Vbr, b"Xing")] {
-        let tagged = encode_mp3_with_loop(&input, SR, mode, 6, Some(147..frames as u64)).unwrap();
-        let untagged = encode_mp3_with_loop(&input, SR, mode, 6, None).unwrap();
+        let tagged =
+            encode_mp3(&input, SR, mode, 6, Mp3Flush::Gap, Some(147..frames as u64)).unwrap();
+        let untagged = encode_mp3(&input, SR, mode, 6, Mp3Flush::Gap, None).unwrap();
         let read_size = |bytes: &[u8]| {
             bytes.iter().fold(0usize, |size, &b| {
                 assert!(b < 128);
@@ -303,6 +313,66 @@ fn encode_mp3_preset_preserves_the_gapless_duration_and_loop_tags() {
             assert_eq!(decoded.channels[0].len(), frames);
             assert_eq!(decoded.channels[1].len(), frames);
         }
+    }
+}
+
+#[test]
+fn encode_mp3_flush_is_the_only_difference_between_the_finalizers() {
+    let frames = 100_003;
+    let input = sine(frames, 440.0, 0.5);
+    for mode in [Mp3Mode::Cbr, Mp3Mode::Vbr] {
+        let no_gap = encode_mp3(&input, SR, mode, 6, Mp3Flush::NoGap, None).unwrap();
+        let gap = encode_mp3(&input, SR, mode, 6, Mp3Flush::Gap, None).unwrap();
+        assert_ne!(no_gap, gap, "{mode:?}");
+        let tagged =
+            encode_mp3(&input, SR, mode, 6, Mp3Flush::Gap, Some(147..frames as u64)).unwrap();
+        // The tagged file is the ID3 tag followed by the untagged gap-flushed stream.
+        assert!(tagged.starts_with(b"ID3"), "{mode:?}");
+        assert!(tagged.ends_with(&gap), "{mode:?}");
+        let id3_len = 10
+            + tagged[6..10]
+                .iter()
+                .fold(0usize, |size, &b| size * 128 + usize::from(b));
+        assert_eq!(tagged.len(), id3_len + gap.len(), "{mode:?}");
+    }
+}
+
+#[test]
+fn encode_once_honours_the_flush_only_for_mp3() {
+    let input = sine(10_003, 440.0, 0.5);
+    for encoder in [
+        EncoderOptions::Wav {
+            bit_depth: BitDepth::B24,
+        },
+        EncoderOptions::Ogg { quality: 6 },
+        EncoderOptions::Opus { kbps: 160 },
+    ] {
+        let request = |mp3_flush| EncodeRequest {
+            channels: &input,
+            sample_rate: SR,
+            encoder: &encoder,
+            mp3_flush,
+            loop_range: None,
+        };
+        assert_eq!(
+            encode_once(&request(Mp3Flush::NoGap)).unwrap(),
+            encode_once(&request(Mp3Flush::Gap)).unwrap(),
+            "{encoder:?}"
+        );
+    }
+}
+
+#[test]
+fn encode_mp3_refuses_a_loop_without_the_gap_flush() {
+    let frames = 10_003;
+    let input = sine(frames, 440.0, 0.5);
+    for mode in [Mp3Mode::Cbr, Mp3Mode::Vbr] {
+        let e =
+            encode_mp3(&input, SR, mode, 6, Mp3Flush::NoGap, Some(0..frames as u64)).unwrap_err();
+        assert!(
+            matches!(&e, RenderError::Encode(m) if m == "mp3: loop metadata needs the gap flush"),
+            "{e:?}"
+        );
     }
 }
 
@@ -404,7 +474,7 @@ fn encode_mp3_and_ogg_reject_bad_shapes() {
             EncoderOptions::Ogg { quality: 6 },
         ] {
             assert!(
-                matches!(encode_once(input, SR, &opts), Err(RenderError::Encode(_))),
+                matches!(once(input, SR, &opts), Err(RenderError::Encode(_))),
                 "{opts:?} {input:?}"
             );
         }
@@ -412,12 +482,12 @@ fn encode_mp3_and_ogg_reject_bad_shapes() {
     let input = sine(100, 440.0, 0.5);
     for q in [-2, 11] {
         assert!(matches!(
-            encode_once(&input, SR, &EncoderOptions::Ogg { quality: q }),
+            once(&input, SR, &EncoderOptions::Ogg { quality: q }),
             Err(RenderError::Encode(_))
         ));
     }
     assert!(matches!(
-        encode_once(
+        once(
             &input,
             SR,
             &EncoderOptions::Mp3 {
@@ -428,7 +498,7 @@ fn encode_mp3_and_ogg_reject_bad_shapes() {
         Err(RenderError::Encode(_))
     ));
     assert!(matches!(
-        encode_once(&input, 0, &EncoderOptions::Ogg { quality: 6 }),
+        once(&input, 0, &EncoderOptions::Ogg { quality: 6 }),
         Err(RenderError::Encode(_))
     ));
 }
@@ -469,7 +539,7 @@ fn encode_ogg_empty_and_one_frame() {
 }
 
 fn opus(input: &[Vec<f32>], kbps: u32) -> Vec<u8> {
-    encode_once(input, SR, &EncoderOptions::Opus { kbps }).unwrap()
+    once(input, SR, &EncoderOptions::Opus { kbps }).unwrap()
 }
 
 /// Every packet of an Ogg stream with its page's granule position and end-of-stream flag.
@@ -564,7 +634,7 @@ fn encode_opus_rejects_bad_input() {
     for kbps in [0, 5, 511, u32::MAX] {
         assert!(
             matches!(
-                encode_once(&input, SR, &EncoderOptions::Opus { kbps }),
+                once(&input, SR, &EncoderOptions::Opus { kbps }),
                 Err(RenderError::Encode(_))
             ),
             "{kbps}"
@@ -573,12 +643,12 @@ fn encode_opus_rejects_bad_input() {
     let bad: [Vec<Vec<f32>>; 3] = [vec![], vec![vec![0.0; 4]], vec![vec![0.0; 4], vec![0.0; 5]]];
     for b in &bad {
         assert!(matches!(
-            encode_once(b, SR, &EncoderOptions::Opus { kbps: 160 }),
+            once(b, SR, &EncoderOptions::Opus { kbps: 160 }),
             Err(RenderError::Encode(_))
         ));
     }
     assert!(matches!(
-        encode_once(&input, 0, &EncoderOptions::Opus { kbps: 160 }),
+        once(&input, 0, &EncoderOptions::Opus { kbps: 160 }),
         Err(RenderError::Encode(_))
     ));
 }
@@ -725,41 +795,34 @@ fn encode_decode_errors() {
 
 /// Dense seeded noise (an LCG), `seconds` long at amplitude 0.5.
 fn noise(seconds: usize) -> Vec<Vec<f32>> {
-    let mut state: u32 = 0x5eed_0001;
-    let mut next = move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (f64::from(state) / f64::from(u32::MAX) * 2.0 - 1.0) as f32 * 0.5
-    };
-    let frames = seconds * SR as usize;
-    let l: Vec<f32> = (0..frames).map(|_| next()).collect();
-    let r: Vec<f32> = (0..frames).map(|_| next()).collect();
-    vec![l, r]
+    strudeland_render::testing::lcg_noise(0x5eed_0001, seconds * SR as usize, 0.5)
 }
 
-fn encode_loop(
+/// Finishes `input` as a plain render: the output, the loudness, the progress and the warnings.
+fn finish_plain(
     input: &[Vec<f32>],
     loudness: strudeland_render::Loudness,
     encoder: EncoderOptions,
 ) -> (
-    strudeland_render::encode::Encoded,
+    strudeland_render::RenderOutput,
+    strudeland_render::level::LoudnessSummary,
     Vec<strudeland_render::Progress>,
     Vec<String>,
 ) {
     let events = std::cell::RefCell::new(Vec::new());
-    let mut warnings = Vec::new();
-    let e = strudeland_render::encode::encode(
-        input,
-        SR,
+    let out = strudeland_render::finish(
+        &strudeland_render::testing::audio(input.to_vec(), SR),
         &strudeland_render::OutputOptions { loudness, encoder },
         &|p| events.borrow_mut().push(p),
-        &mut warnings,
     )
     .unwrap();
-    (e, events.into_inner(), warnings)
+    let loudness = out.summary.loudness.clone().unwrap();
+    let warnings = out.summary.warnings.clone();
+    (out, loudness, events.into_inner(), warnings)
 }
 
 #[test]
-fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
+fn finish_corrects_a_lossy_overshoot_within_two_passes() {
     use strudeland_render::Loudness;
     use strudeland_render::level::level;
     let input = noise(3);
@@ -781,12 +844,12 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
         // Leveled to the ceiling, the first encode decodes above it.
         let first = level(&input, SR, &loudness, 0.0, &mut Vec::new()).unwrap();
         assert!(first.summary.output_true_peak_db <= -1.0, "{encoder:?}");
-        let bytes = encode_once(&first.channels, SR, &encoder).unwrap();
+        let bytes = once(&first.channels, SR, &encoder).unwrap();
         let dp = true_peak_db(&decode(encoder.format(), &bytes).unwrap().channels);
         assert!(dp > -1.0, "{encoder:?}: the first pass decodes at {dp}");
 
-        let (e, events, warnings) = encode_loop(&input, loudness, encoder);
-        let n = e.loudness.encodes;
+        let (e, loudness, events, warnings) = finish_plain(&input, loudness, encoder);
+        let n = loudness.encodes;
         assert!((2..=3).contains(&n), "{encoder:?}: {n} encodes");
         assert_eq!(
             events,
@@ -796,12 +859,12 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
             "{encoder:?}"
         );
         assert!(warnings.is_empty(), "{encoder:?}: {warnings:?}");
-        let decoded = e.loudness.decoded_true_peak_db.unwrap();
+        let decoded = loudness.decoded_true_peak_db.unwrap();
         assert!(decoded <= -1.0, "{encoder:?}: decoded at {decoded}");
         // The correction lowered the limiter ceiling and kept the gain.
-        assert_eq!(e.loudness.gain_db, first.summary.gain_db, "{encoder:?}");
+        assert_eq!(loudness.gain_db, first.summary.gain_db, "{encoder:?}");
         assert!(
-            e.loudness.limiter_ceiling_dbtp.unwrap() < -1.0 - CORRECTION_MARGIN_DB,
+            loudness.limiter_ceiling_dbtp.unwrap() < -1.0 - CORRECTION_MARGIN_DB,
             "{encoder:?}"
         );
         // The returned bytes are the last pass's: they decode to the reported peak.
@@ -811,7 +874,7 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
 }
 
 #[test]
-fn encode_loop_reports_but_never_corrects_with_loudness_off() {
+fn finish_reports_but_never_corrects_with_loudness_off() {
     use strudeland_render::Loudness;
     // Loud enough that the decoded file is over -1 dBTP.
     let input: Vec<Vec<f32>> = noise(2)
@@ -825,20 +888,20 @@ fn encode_loop_reports_but_never_corrects_with_loudness_off() {
             vbr_quality: 0,
         },
     ] {
-        let (e, events, warnings) = encode_loop(&input, Loudness::Off, encoder);
-        assert_eq!(e.loudness.encodes, 1, "{encoder:?}");
+        let (e, loudness, events, warnings) = finish_plain(&input, Loudness::Off, encoder);
+        assert_eq!(loudness.encodes, 1, "{encoder:?}");
         assert_eq!(
             events,
             vec![strudeland_render::Progress::Encoded { pass: 1 }]
         );
-        assert_eq!(e.bytes, encode_once(&input, SR, &encoder).unwrap());
-        let decoded = e.loudness.decoded_true_peak_db.unwrap();
+        assert_eq!(e.bytes, once(&input, SR, &encoder).unwrap());
+        let decoded = loudness.decoded_true_peak_db.unwrap();
         assert!(decoded > -1.0, "{encoder:?}: {decoded}");
         assert_eq!(
             decoded,
             true_peak_db(&decode(encoder.format(), &e.bytes).unwrap().channels)
         );
-        assert_eq!(e.loudness.gain_db, 0.0);
+        assert_eq!(loudness.gain_db, 0.0);
         assert!(
             warnings.iter().all(|w| !w.starts_with("lossy encode")),
             "{warnings:?}"

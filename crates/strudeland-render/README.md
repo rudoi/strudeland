@@ -25,9 +25,12 @@ passes and stems share this snapshot. Standalone sources use an empty snapshot.
    `src/lib/render/loudness.ts`), `true_peak` (4x oversampling with the Annex 2 filter),
    `limiter` (a true-peak lookahead limiter, exponential release of 50 ms); `prepare` checks and
    measures the input and works out one static gain to the target, `Prepared::level` applies it
-   and limits at a ceiling (the correction loop prepares once and levels per pass).
-5. **Encode** (`encode/`): `wav`, `mp3`, `ogg`, `opus`, `verify` (the decoders) and the true-peak
-   correction loop. `output` resolves the default path and writes atomically; `summary` is what a
+   and limits at a ceiling (the Limited strategy prepares once and levels per pass).
+5. **Finish** (`finish`): the one finishing loop. Every file cut (`splice` makes the loop
+   splice and its cuts) is leveled, encoded, decoded again and corrected under one of two leveling
+   strategies (see [Finishing and the lossy correction loop](#finishing-and-the-lossy-correction-loop)).
+   **Encode** (`encode/`): `wav`, `mp3`, `ogg`, `opus`, `verify` (the decoders) and
+   `EncodeRequest`, which carries the explicit MP3 flush. `output` resolves the default path and writes atomically; `summary` is what a
    render reports (progress events and the JSON summary); `options` the request and its defaults;
    `bench` the timings behind `strudeland-render bench`.
 
@@ -106,9 +109,9 @@ reported offset for Ogg Vorbis or MP3.
 [Godot audio import settings](https://docs.godotengine.org/en/4.5/tutorials/assets_pipeline/importing_audio_samples.html)
 
 The loop presets share one static gain across the opening and repeat, capped for the true peak
-at the handoff and repeat wrap as well as within the audio.
-If any lossy file exceeds the ceiling after decoding, the correction reduces the shared
-gain and re-encodes the outputs. `--loudness off` bypasses gain and correction.
+at the handoff and repeat wrap as well as within the audio. A lossy overshoot is corrected as
+described in [Finishing and the lossy correction loop](#finishing-and-the-lossy-correction-loop).
+`--loudness off` bypasses gain and correction.
 
 ## Loudness and true peak
 
@@ -121,16 +124,28 @@ tolerance, at 44.1 and 48 kHz.
 Silence (or less than 400 ms, or below the -70 LUFS gate) has no integrated loudness: no gain is
 applied and the render warns.
 
-### The lossy correction loop
+### Finishing and the lossy correction loop
 
-A lossy encoder can push the decoded true peak above the ceiling. With loudness on, the encoded
-file is decoded again (`symphonia` for MP3 and Vorbis, libopus for Opus) and its true peak measured
-over the whole stream. When it is over the ceiling, the limiter's ceiling is lowered by the
-overshoot plus 0.1 dB, the original input is leveled again (the same static gain, so the loudness
-target holds) and encoded again. That happens at most twice; a peak still over the ceiling after
-two corrections is a warning, not an error. Lowering the gain instead would not help a song the
-limiter already holds at the ceiling. With loudness off the decoded peak is reported and never
-corrected. The summary's `limiterCeilingDbtp` is the ceiling of the final pass.
+A lossy encoder can push the decoded true peak above the ceiling. Every render finishes through
+one loop (`finish`) with one of two leveling strategies. With loudness on, each encoded file is
+decoded again (`symphonia` for MP3 and Vorbis, libopus for Opus) and its true peak measured over
+the whole stream. When it is over the ceiling, the strategy corrects by the overshoot plus 0.1 dB
+and the input is encoded again:
+
+- **Limited** (plain renders and one-shots): the static gain to the target, then the true-peak
+  limiter. The limiter's ceiling is lowered and the gain is unchanged, so the loudness target
+  holds. Lowering the gain instead would not help a song the limiter already holds at the ceiling.
+- **Repeat-safe static** (loop presets): one static gain shared by the files, capped for the
+  handoff and wrap, with no limiter. The worst decoded overshoot lowers the shared gain, and
+  every file is re-encoded.
+
+Both strategies correct at most twice; a peak still over the ceiling after two corrections is a
+warning, not an error. With loudness off the decoded peak is reported and never corrected. The
+summary's `limiterCeilingDbtp` is the ceiling of the final pass; a loop preset reports it as
+`null`.
+
+Plain renders end the LAME stream without the gap flush. One-shots and loop files use the gap
+flush, so a gapless decoder recovers the whole span. A check of plain-render MP3 tails is pending.
 
 ## Encoders
 
@@ -147,6 +162,11 @@ Every format is byte-reproducible for the same song, `meta.seed`, options and cr
 engine renders are deterministic, the chunk joiner is sample-exact whatever the worker count, the
 WAV dither generators are seeded per channel, and the Ogg and Opus stream serials are fixed. An
 encoder crate bump can change the bytes (and so tests that pin them).
+
+`tests/golden/finish.json` pins finished bytes, summaries, warnings and progress for every
+finishing path. It is judged on the reference platform (macOS aarch64) and refreshed only after an
+encoder crate bump, with `STRUDELAND_WRITE_FINISH_GOLDEN=1 cargo test -p strudeland-render
+characterization`. `.prettierignore` keeps prettier off it.
 
 ## Building
 

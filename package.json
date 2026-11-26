@@ -36,6 +36,7 @@
     "docs:extract": "bun scripts/extract-strudel-docs.ts",
     "strudel:sync": "bun scripts/strudel-sync.ts",
     "host:build": "bun scripts/host/build.ts",
+    "ipc:build": "bun scripts/ipc/build.ts",
     "host:parity": "bun scripts/render/host-parity.ts",
     "app:bundle": "bun scripts/app-bundle.ts",
     "app:signed": "bun scripts/app-signed.ts",

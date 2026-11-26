@@ -1811,7 +1811,7 @@ describe('createSong', () => {
 
   test('a library error rejects with the ProjectError and its kind', async () => {
     const h = await opened();
-    expect(await rejection(h.session.createSong('a'))).toMatchObject({ kind: 'songExists' });
+    expect(await rejection(h.session.createSong('a'))).toMatchObject({ kind: 'exists' });
   });
 });
 
@@ -1936,7 +1936,7 @@ describe('renameSong', () => {
     const h = await opened();
     const before = h.st();
     expect(await rejection(h.session.renameSong(PA, 'b'))).toMatchObject({
-      kind: 'songExists',
+      kind: 'exists',
       message: 'song songs/b.js already exists',
     });
     expect(await rejection(h.session.renameSong(PA, 'a/b'))).toMatchObject({
@@ -1944,18 +1944,18 @@ describe('renameSong', () => {
     });
     h.fake.files().delete(PC); // gone on disk, no event yet
     expect(await rejection(h.session.renameSong(PC, 'cc'))).toMatchObject({
-      kind: 'songNotFound',
+      kind: 'notFound',
     });
     expect(h.st()).toBe(before);
     expect(h.st().error).toBeNull();
   });
 
-  test('a name held by a song kept only in the editor is songExists, without an API call', async () => {
+  test('a name held by a song kept only in the editor is exists, without an API call', async () => {
     const h = await opened();
     h.fake.files().delete(PA);
     h.fake.emit({ removed: [PA] }); // active: kept as a deleted conflict
     await flush();
-    expect(await rejection(h.session.renameSong(PB, 'a'))).toMatchObject({ kind: 'songExists' });
+    expect(await rejection(h.session.renameSong(PB, 'a'))).toMatchObject({ kind: 'exists' });
     expect(h.fake.calls.some((c) => c.startsWith('rename:'))).toBe(false);
     expect(h.item(PA)?.conflict).toBe('deleted');
   });

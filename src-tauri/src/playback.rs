@@ -25,6 +25,8 @@ use strudeland_live::{Batch, CpalOutput, Event, LiveError, Output, OutputError, 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
+use crate::command_error::{CommandError, CommandErrorKind};
+
 /// Where the forwarder delivers the player's events.
 pub trait EventSink: Send + 'static {
     fn send(&self, event: Event);
@@ -49,54 +51,30 @@ pub struct PlaybackState {
     next_id: AtomicU64,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaybackError {
-    pub kind: PlaybackErrorKind,
-    pub message: String,
-}
-
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum PlaybackErrorKind {
-    Stale,
-    Output,
-    BadBatch,
-    Engine,
-}
-
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StartResult {
     pub session: u64,
 }
 
-impl PlaybackError {
-    fn new(kind: PlaybackErrorKind, message: impl Into<String>) -> Self {
-        PlaybackError {
-            kind,
-            message: message.into(),
-        }
-    }
-
-    fn stale() -> Self {
-        Self::new(PlaybackErrorKind::Stale, "the playback session ended")
-    }
+/// A command naming a session that is no longer the open one.
+fn stale() -> CommandError {
+    CommandError::new(CommandErrorKind::Stale, "the playback session ended")
 }
 
-impl From<LiveError> for PlaybackError {
+impl From<LiveError> for CommandError {
     fn from(error: LiveError) -> Self {
         let kind = match error {
-            LiveError::Output(_) => PlaybackErrorKind::Output,
-            LiveError::Engine(_) => PlaybackErrorKind::Engine,
+            LiveError::Output(_) => CommandErrorKind::Output,
+            LiveError::Engine(_) => CommandErrorKind::Engine,
         };
-        PlaybackError::new(kind, error.to_string())
+        CommandError::new(kind, error.to_string())
     }
 }
 
-impl From<OutputError> for PlaybackError {
+impl From<OutputError> for CommandError {
     fn from(error: OutputError) -> Self {
-        PlaybackError::from(LiveError::from(error))
+        CommandError::from(LiveError::from(error))
     }
 }
 
@@ -135,7 +113,7 @@ pub fn start(
     seed: i32,
     sink: impl EventSink,
     output: impl FnOnce() -> Result<Box<dyn Output>, OutputError>,
-) -> Result<StartResult, PlaybackError> {
+) -> Result<StartResult, CommandError> {
     state.end(None);
     let (player, receiver) = Player::start(output()?, seed)?;
     let forwarder = std::thread::Builder::new()
@@ -146,7 +124,7 @@ pub fn start(
             }
         })
         .map_err(|e| {
-            PlaybackError::new(PlaybackErrorKind::Engine, format!("forwarder thread: {e}"))
+            CommandError::new(CommandErrorKind::Engine, format!("forwarder thread: {e}"))
         })?;
     let id = state.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     // A start racing another start: the later store wins and the earlier session is stopped.
@@ -162,46 +140,46 @@ pub fn start(
 }
 
 /// Queues a batch on the session and returns at once.
-pub fn schedule(state: &PlaybackState, session: u64, batch: Batch) -> Result<(), PlaybackError> {
+pub fn schedule(state: &PlaybackState, session: u64, batch: Batch) -> Result<(), CommandError> {
     let guard = state.lock();
     let current = match &*guard {
         Some(s) if s.id == session => s,
-        _ => return Err(PlaybackError::stale()),
+        _ => return Err(stale()),
     };
     batch
         .validate()
-        .map_err(|m| PlaybackError::new(PlaybackErrorKind::BadBatch, m))?;
+        .map_err(|m| CommandError::new(CommandErrorKind::BadBatch, m))?;
     current.player.schedule(batch);
     Ok(())
 }
 
 /// Stops the session and waits for its threads.
-pub fn stop(state: &PlaybackState, session: u64) -> Result<(), PlaybackError> {
+pub fn stop(state: &PlaybackState, session: u64) -> Result<(), CommandError> {
     if state.end(Some(session)) {
         Ok(())
     } else {
-        Err(PlaybackError::stale())
+        Err(stale())
     }
 }
 
-pub fn set_seed(state: &PlaybackState, session: u64, seed: i32) -> Result<(), PlaybackError> {
+pub fn set_seed(state: &PlaybackState, session: u64, seed: i32) -> Result<(), CommandError> {
     match &*state.lock() {
         Some(s) if s.id == session => {
             s.player.set_seed(seed);
             Ok(())
         }
-        _ => Err(PlaybackError::stale()),
+        _ => Err(stale()),
     }
 }
 
 /// Switches the live safety limiter of the session (a new session starts with it off).
-pub fn set_limiter(state: &PlaybackState, session: u64, on: bool) -> Result<(), PlaybackError> {
+pub fn set_limiter(state: &PlaybackState, session: u64, on: bool) -> Result<(), CommandError> {
     match &*state.lock() {
         Some(s) if s.id == session => {
             s.player.set_limiter(on);
             Ok(())
         }
-        _ => Err(PlaybackError::stale()),
+        _ => Err(stale()),
     }
 }
 
@@ -212,11 +190,11 @@ pub fn end_session(state: &PlaybackState) {
 }
 
 async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, PlaybackError> + Send + 'static,
-) -> Result<T, PlaybackError> {
+    work: impl FnOnce() -> Result<T, CommandError> + Send + 'static,
+) -> Result<T, CommandError> {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| PlaybackError::new(PlaybackErrorKind::Engine, format!("task failed: {e}")))?
+        .map_err(|e| CommandError::new(CommandErrorKind::Engine, format!("task failed: {e}")))?
 }
 
 // The blocking commands take the `AppHandle` and look the state up inside the blocking body: a
@@ -227,7 +205,7 @@ pub async fn playback_start(
     app: AppHandle,
     seed: i32,
     channel: Channel<Event>,
-) -> Result<StartResult, PlaybackError> {
+) -> Result<StartResult, CommandError> {
     blocking(move || {
         start(&app.state::<PlaybackState>(), seed, channel, || {
             CpalOutput::default_output().map(|o| Box::new(o) as Box<dyn Output>)
@@ -242,12 +220,12 @@ pub fn playback_schedule(
     state: State<'_, PlaybackState>,
     session: u64,
     batch: Batch,
-) -> Result<(), PlaybackError> {
+) -> Result<(), CommandError> {
     schedule(&state, session, batch)
 }
 
 #[tauri::command]
-pub async fn playback_stop(app: AppHandle, session: u64) -> Result<(), PlaybackError> {
+pub async fn playback_stop(app: AppHandle, session: u64) -> Result<(), CommandError> {
     blocking(move || stop(&app.state::<PlaybackState>(), session)).await
 }
 
@@ -257,7 +235,7 @@ pub fn playback_seed(
     state: State<'_, PlaybackState>,
     session: u64,
     seed: i32,
-) -> Result<(), PlaybackError> {
+) -> Result<(), CommandError> {
     set_seed(&state, session, seed)
 }
 
@@ -267,7 +245,7 @@ pub fn playback_limiter(
     state: State<'_, PlaybackState>,
     session: u64,
     on: bool,
-) -> Result<(), PlaybackError> {
+) -> Result<(), CommandError> {
     set_limiter(&state, session, on)
 }
 
@@ -324,7 +302,7 @@ mod tests {
         }
     }
 
-    fn kind<T: std::fmt::Debug>(r: Result<T, PlaybackError>) -> PlaybackErrorKind {
+    fn kind<T: std::fmt::Debug>(r: Result<T, CommandError>) -> CommandErrorKind {
         r.expect_err("an error").kind
     }
 
@@ -337,10 +315,10 @@ mod tests {
         assert_eq!(begin(&state, &second), 2);
         assert_eq!(
             kind(schedule(&state, 1, batch(0.1))),
-            PlaybackErrorKind::Stale
+            CommandErrorKind::Stale
         );
-        assert_eq!(kind(stop(&state, 1)), PlaybackErrorKind::Stale);
-        assert_eq!(kind(set_seed(&state, 1, 5)), PlaybackErrorKind::Stale);
+        assert_eq!(kind(stop(&state, 1)), CommandErrorKind::Stale);
+        assert_eq!(kind(set_seed(&state, 1, 5)), CommandErrorKind::Stale);
         // The first forwarder was joined: its sink is not shared with anything still running.
         assert_eq!(Arc::strong_count(&first.0), 1);
         stop(&state, 2).unwrap();
@@ -364,19 +342,19 @@ mod tests {
         let state = PlaybackState::default();
         assert_eq!(
             kind(schedule(&state, 1, batch(0.1))),
-            PlaybackErrorKind::Stale
+            CommandErrorKind::Stale
         );
         let id = begin(&state, &Collect::default());
         assert_eq!(
             kind(schedule(&state, id, batch(-1.0))),
-            PlaybackErrorKind::BadBatch
+            CommandErrorKind::BadBatch
         );
         assert_eq!(
             kind(schedule(&state, id + 1, batch(0.1))),
-            PlaybackErrorKind::Stale
+            CommandErrorKind::Stale
         );
         set_seed(&state, id, 7).unwrap();
-        assert_eq!(kind(set_seed(&state, id + 1, 7)), PlaybackErrorKind::Stale);
+        assert_eq!(kind(set_seed(&state, id + 1, 7)), CommandErrorKind::Stale);
         stop(&state, id).unwrap();
     }
 
@@ -387,10 +365,10 @@ mod tests {
         let id = begin(&state, &sink);
         stop(&state, id).unwrap();
         assert_eq!(Arc::strong_count(&sink.0), 1);
-        assert_eq!(kind(stop(&state, id)), PlaybackErrorKind::Stale);
+        assert_eq!(kind(stop(&state, id)), CommandErrorKind::Stale);
         assert_eq!(
             kind(schedule(&state, id, batch(0.1))),
-            PlaybackErrorKind::Stale
+            CommandErrorKind::Stale
         );
     }
 
@@ -400,7 +378,7 @@ mod tests {
         let id = begin(&state, &Collect::default());
         end_session(&state);
         end_session(&state);
-        assert_eq!(kind(stop(&state, id)), PlaybackErrorKind::Stale);
+        assert_eq!(kind(stop(&state, id)), CommandErrorKind::Stale);
     }
 
     #[test]
@@ -408,7 +386,7 @@ mod tests {
         let state = PlaybackState::default();
         let error =
             start(&state, 0, Collect::default(), || Err(OutputError::NoDevice)).expect_err("fails");
-        assert_eq!(error.kind, PlaybackErrorKind::Output);
+        assert_eq!(error.kind, CommandErrorKind::Output);
         assert_eq!(state.next_id.load(Ordering::SeqCst), 0);
         assert!(state.lock().is_none());
         assert_eq!(begin(&state, &Collect::default()), 1);
@@ -444,12 +422,12 @@ mod tests {
     #[test]
     fn the_limiter_switch_reaches_the_engine_and_refuses_a_stale_session() {
         let state = PlaybackState::default();
-        assert_eq!(kind(set_limiter(&state, 1, true)), PlaybackErrorKind::Stale);
+        assert_eq!(kind(set_limiter(&state, 1, true)), CommandErrorKind::Stale);
         let sink = Collect::default();
         let id = begin(&state, &sink);
         assert_eq!(
             kind(set_limiter(&state, id + 1, true)),
-            PlaybackErrorKind::Stale
+            CommandErrorKind::Stale
         );
         set_limiter(&state, id, true).unwrap();
         // a hap far above the ceiling: the limiter reports its gain reduction
@@ -503,19 +481,11 @@ mod tests {
 
     #[test]
     fn errors_and_results_serialise_to_the_wire_names() {
-        let stale = serde_json::to_string(&PlaybackError::stale()).unwrap();
+        let stale = serde_json::to_string(&stale()).unwrap();
         assert_eq!(
             stale,
             r#"{"kind":"stale","message":"the playback session ended"}"#
         );
-        for (k, name) in [
-            (PlaybackErrorKind::Stale, "stale"),
-            (PlaybackErrorKind::Output, "output"),
-            (PlaybackErrorKind::BadBatch, "badBatch"),
-            (PlaybackErrorKind::Engine, "engine"),
-        ] {
-            assert_eq!(serde_json::to_string(&k).unwrap(), format!("\"{name}\""));
-        }
         let result = serde_json::to_string(&StartResult { session: 1 }).unwrap();
         assert_eq!(result, r#"{"session":1}"#);
     }

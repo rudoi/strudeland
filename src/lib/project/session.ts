@@ -14,8 +14,8 @@ import { sameStructure, type SongStructure } from '../strudel/structure';
 import { readSongHeader, type MetaError } from './song-header';
 import { createSongPlayback, fileStem, titleFrom, type SongPlayback } from './song-playback';
 import { setMetaValue, type MetaPath } from './meta-write';
+import { CommandError } from '../ipc/command-error';
 import {
-  PROJECT_CHANGED,
   ProjectError,
   type ProjectApi,
   type ProjectChange,
@@ -163,7 +163,7 @@ export interface Session {
   /**
    * Rename a song on disk and move its editor state (text, undo history, marks, dirty buffer,
    * conflict) to the new path; `active` and the evaluated song follow. Does not switch to it.
-   * Rejects with the API's `ProjectError` (`songExists`, `invalidName`, `songNotFound`).
+   * Rejects with the API's `ProjectError` (`exists`, `invalidName`, `notFound`).
    */
   renameSong(path: string, stem: string): Promise<RenameOutcome>;
   /**
@@ -473,6 +473,10 @@ function sameState(a: SessionState, b: SessionState): boolean {
   );
 }
 
+/** A rejection for a stale `root`: the project was switched while the command ran. */
+const isProjectChanged = (e: unknown): boolean =>
+  e instanceof CommandError && e.kind === 'projectChanged';
+
 export function createSession(deps: SessionDeps): Session {
   const { api, runtime, createState, isTauri } = deps;
 
@@ -725,7 +729,7 @@ export function createSession(deps: SessionDeps): Session {
     try {
       await api.saveSong(project.root, path, text);
     } catch (e) {
-      if (gen !== generation && errorMessage(e) === PROJECT_CHANGED) return null;
+      if (gen !== generation && isProjectChanged(e)) return null;
       error = errorMessage(e);
       emit();
       return null;
@@ -1161,9 +1165,6 @@ export function createSession(deps: SessionDeps): Session {
     }
   }
 
-  const isProjectChanged = (e: unknown): boolean =>
-    e instanceof ProjectError && e.kind === 'projectChanged';
-
   /** Inside `serial()`. */
   async function renameTask(path: string, stem: string): Promise<RenameOutcome> {
     if (!songs.has(path)) return { ok: false, reason: 'missing' };
@@ -1175,7 +1176,7 @@ export function createSession(deps: SessionDeps): Session {
     // no file there and would rename over the buffer the editor still has.
     const target = `songs/${stem}.js`;
     if (target !== path && songs.has(target)) {
-      throw new ProjectError(`song ${target} already exists`, 'songExists');
+      throw new ProjectError(`song ${target} already exists`, 'exists');
     }
     const gen = generation;
     const { root } = project;
@@ -1222,7 +1223,7 @@ export function createSession(deps: SessionDeps): Session {
         } catch (e) {
           if (gen !== generation || isProjectChanged(e)) return false;
           // Already gone on disk (the watcher's event not yet applied): the goal is met.
-          if (!(e instanceof ProjectError && e.kind === 'songNotFound')) throw e;
+          if (!(e instanceof ProjectError && e.kind === 'notFound')) throw e;
         }
         if (gen !== generation) return false;
         dropSong(path); // before `moving` is released, so a waiting write writes nothing

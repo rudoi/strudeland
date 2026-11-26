@@ -8,7 +8,7 @@
 //!    worker ([`strudeland_engine::render`]).
 //! 4. **Join**: each chunk's lookback head and overlap tail are dropped and the contents are
 //!    copied sample-exactly into the window as the chunks finish ([`join`]).
-//! 5. **Level** and 6. **encode** ([`finish`]).
+//! 5. **Finish**: level, encode, verify and correct each file cut ([`finish`], [`render_export`]).
 //!
 //! Nothing here may panic on data from the song, the plan or a file: the release profile is
 //! `panic = "abort"`.
@@ -19,16 +19,21 @@
 )]
 
 pub mod bench;
+#[cfg(test)]
+mod characterization;
 pub mod encode;
 mod error;
 pub mod export;
+mod finish;
 pub mod join;
 pub mod level;
 mod loop_export;
 mod options;
 pub mod output;
+mod pipeline_audio;
 mod plan;
 mod render;
+mod splice;
 mod stems;
 mod summary;
 #[doc(hidden)]
@@ -36,8 +41,9 @@ pub mod testing;
 
 use std::time::Instant;
 
-use strudeland_engine::{EngineJob, Rendered, StemLayout};
-use strudeland_host::{ChunkWindow, PlannedRender, PlannedWindow, SAMPLE_RATE};
+use strudeland_engine::StemLayout;
+
+use pipeline_audio::{EngineChunks, PlanTiming, render_planned};
 
 pub use error::{ExitClass, RenderError, Unsupported};
 pub use loop_export::{ExportFile, ExportRole, LoopPoints, render_export};
@@ -101,218 +107,45 @@ fn render_audio_for(
         AudioMode::Preset(preset) => Some(preset),
         _ => None,
     };
-    let (mut planned, plan_ms) = plan::plan(code, opts, preset)?;
-    let chunk_count = planned.chunks.len()
-        + planned
-            .export
-            .as_ref()
-            .and_then(|export| export.repeat.as_ref())
-            .map_or(0, |repeat| repeat.chunks.len());
-    progress(Progress::Planned {
-        chunks: chunk_count,
-    });
-    let mut jobs = plan::take_jobs(&mut planned)?;
-    let PlannedRender {
-        window,
-        music_frames,
-        cps,
-        structure,
-        lookback_sec,
-        errors: plan_errors,
-        events,
-        chunks,
-        export,
-    } = planned;
-    let tail_frames = export.as_ref().map_or(0, |export| export.tail_frames);
-    let music_frames =
-        music_frames.unwrap_or_else(|| join::window_frames(window.from_bar, window.to_bar, cps));
-    let loop_start = export.as_ref().and_then(|export| {
-        let bar = export.loop_start_bar?;
-        let frame = export
-            .loop_start_frame
-            .unwrap_or_else(|| join::window_frames(window.from_bar, bar, cps));
-        Some((bar, frame))
-    });
-    let repeat_jobs = jobs.split_off(chunks.len());
-    let chunks: Vec<ChunkWindow> = chunks.into_iter().map(|c| c.plan).collect();
-    let workers = render::workers_for(opts.jobs, chunks.len());
-    let frames = music_frames
-        .checked_add(tail_frames)
-        .ok_or_else(|| RenderError::Render("joined frame count overflows".into()))?;
-    let (stems, channels) = if let AudioMode::Stems(grouping) = mode {
-        let layout = StemLayout::for_jobs(&jobs, grouping.into());
-        let channels = stems::validate_budget(layout.ids().len(), frames, &chunks, workers)?;
-        (Some(layout), channels)
-    } else {
-        (None, 2)
-    };
-
-    let render_started = Instant::now();
-    let Rendered {
-        channels: joined,
-        errors: mut engine_errors,
-    } = render_window(
-        join::Joiner::for_plans_with_tail(
-            &window,
-            cps,
-            &chunks,
-            channels,
-            Some(music_frames),
-            tail_frames,
-        )?,
-        &chunks,
-        jobs,
-        workers,
-        |job| match &stems {
-            Some(layout) => strudeland_engine::render_with_stems(job, layout),
-            None => strudeland_engine::render(job),
-        },
-        &|event| report_chunk(progress, event, 0, chunk_count),
-    )?;
-    let (isolated_body, repeat_workers) =
-        if let Some(repeat) = export.and_then(|export| export.repeat) {
-            let (from_bar, start_frame) = loop_start
-                .ok_or_else(|| RenderError::Render("the isolated body has no loop start".into()))?;
-            let expected = music_frames
-                .checked_sub(start_frame)
-                .ok_or_else(|| RenderError::Render("loop begins past the opening".into()))?;
-            if repeat.music_frames.is_some_and(|frames| frames != expected) {
-                return Err(RenderError::Render(
-                    "isolated body length differs from the opening loop".into(),
-                ));
-            }
-            let body_window = PlannedWindow { from_bar, ..window };
-            let body_chunks: Vec<_> = repeat.chunks.into_iter().map(|chunk| chunk.plan).collect();
-            let repeat_workers = render::workers_for(opts.jobs, body_chunks.len());
-            let body = render_window(
-                join::Joiner::for_plans_with_tail(
-                    &body_window,
-                    cps,
-                    &body_chunks,
-                    2,
-                    Some(expected),
-                    repeat.tail_frames,
-                )?,
-                &body_chunks,
-                repeat_jobs,
-                repeat_workers,
-                strudeland_engine::render,
-                &|event| report_chunk(progress, event, chunks.len(), chunk_count),
-            )?;
-            engine_errors.extend(body.errors);
-            (Some(body.channels), repeat_workers)
-        } else {
-            (None, 0)
-        };
-    let render_ms = ms_since(render_started);
-
-    let summary = Summary {
-        format: None,
-        bytes: None,
-        window,
-        frames,
-        seconds: frames as f64 / f64::from(SAMPLE_RATE),
-        sample_rate: SAMPLE_RATE,
-        chunks: chunk_count,
-        jobs: workers.max(repeat_workers),
-        loudness: None,
-        timings: Timings {
-            plan_ms,
-            render_ms,
-            level_ms: 0.0,
-            encode_ms: 0.0,
-            total_ms: ms_since(started),
-        },
-        warnings: render::warnings(&plan_errors, &engine_errors),
-    };
-    Ok(PipelineAudio {
-        audio: RenderedAudio {
-            channels: joined,
-            music_frames,
-            cps,
-            structure,
-            lookback_sec,
-            chunks,
-            events,
-            plan_errors,
-            summary,
-        },
-        loop_audio: loop_start.map(|(start_bar, start_frame)| LoopAudio {
-            start_bar,
-            start_frame,
-            isolated_body,
-        }),
-        stems,
-    })
+    let (planned, plan_ms) = plan::plan(code, opts, preset)?;
+    render_planned(
+        planned,
+        PlanTiming { started, plan_ms },
+        opts,
+        mode,
+        &EngineChunks,
+        progress,
+    )
 }
 
-fn report_chunk(progress: &dyn Fn(Progress), event: Progress, offset: usize, count: usize) {
-    if let Progress::ChunkRendered { index, .. } = event {
-        progress(Progress::ChunkRendered {
-            index: offset + index,
-            of: count,
-        });
-    }
-}
-
-fn render_window(
-    mut joiner: join::Joiner,
-    chunks: &[ChunkWindow],
-    jobs: Vec<EngineJob>,
-    workers: usize,
-    render: impl Fn(&EngineJob) -> Result<Rendered, strudeland_engine::JobError> + Sync,
-    progress: &dyn Fn(Progress),
-) -> Result<Rendered, RenderError> {
-    let errors = render::render_chunks(jobs, chunks, workers, render, &mut joiner, progress)?;
-    Ok(Rendered {
-        channels: joiner.finish()?,
-        errors,
-    })
-}
-
-/// Steps 5 and 6: level and encode a joined buffer, verifying and correcting a lossy file's
-/// decoded true peak ([`encode::encode`]). Callable several times on one [`RenderedAudio`]. The
-/// summary starts from `audio.summary` and gains the format, size, loudness and timings; level
-/// and encoder warnings follow the render's.
+/// Step 5 (finish): level and encode a joined buffer, verifying and correcting a lossy file's
+/// decoded true peak, through the finishing loop with limited leveling (the static gain, then the
+/// true-peak limiter). Callable several times on one [`RenderedAudio`]. The summary starts from
+/// `audio.summary` and gains the format, size, loudness and timings; level and encoder warnings
+/// follow the render's.
 pub fn finish(
     audio: &RenderedAudio,
     out: &OutputOptions,
     progress: &dyn Fn(Progress),
 ) -> Result<RenderOutput, RenderError> {
-    finish_file(audio, out, progress, false)
-}
-
-fn finish_file(
-    audio: &RenderedAudio,
-    out: &OutputOptions,
-    progress: &dyn Fn(Progress),
-    standalone: bool,
-) -> Result<RenderOutput, RenderError> {
-    let mut summary = audio.summary.clone();
-    let mut warnings = Vec::new();
-    let encode = if standalone {
-        encode::encode_standalone
-    } else {
-        encode::encode
-    };
-    let encoded = encode(
-        &audio.channels,
-        audio.summary.sample_rate,
+    let files = finish::finish_files(
+        finish::Finishing {
+            cuts: vec![splice::FileCut::whole(audio)],
+            summary: audio.summary.clone(),
+            leveling: finish::Leveling::Limited,
+            mp3_flush: encode::Mp3Flush::NoGap,
+        },
         out,
+        &encode::Real,
         progress,
-        &mut warnings,
     )?;
-    summary.format = Some(out.encoder.format());
-    summary.bytes = Some(encoded.bytes.len() as u64);
-    summary.loudness = Some(encoded.loudness);
-    summary.timings.level_ms = encoded.level_ms;
-    summary.timings.encode_ms = encoded.encode_ms;
-    summary.timings.total_ms += encoded.level_ms + encoded.encode_ms;
-    summary.warnings.extend(warnings);
-    Ok(RenderOutput {
-        bytes: encoded.bytes,
-        summary,
-    })
+    let mut files = files.into_iter();
+    match (files.next(), files.next()) {
+        (Some(file), None) => Ok(file.output),
+        _ => Err(RenderError::render(
+            "finishing did not return exactly one file",
+        )),
+    }
 }
 
 fn ms_since(t: Instant) -> f64 {

@@ -23,5 +23,9 @@ crates/strudeland-engine/tests/
 crates/strudeland-host/js/
 # The render crate's generated vectors (bun run render:vectors --write)
 crates/strudeland-render/tests/vectors/
+# The render crate's finishing golden (STRUDELAND_WRITE_FINISH_GOLDEN=1 cargo test -p strudeland-render characterization)
+crates/strudeland-render/tests/golden/
 # The live crate's committed engine job fixture
 crates/strudeland-live/tests/data/
+# The generated IPC bindings (bun run ipc:build)
+src/lib/ipc/bindings.ts

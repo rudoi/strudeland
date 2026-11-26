@@ -30,7 +30,8 @@ use strudeland_record::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::project::{ProjectState, changed_or};
+use crate::command_error::{CommandError, CommandErrorKind};
+use crate::project::ProjectState;
 
 /// `{peak, rms}`, about 30 Hz while armed or recording.
 pub const LEVEL_EVENT: &str = "recording://level";
@@ -53,87 +54,23 @@ const LIMIT: &str = "recording stopped at the length limit";
 
 // --- errors ---
 
-/// The structured rejection of every recording command, and the `error` of a state event.
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordingError {
-    pub kind: RecordingErrorKind,
-    pub message: String,
-}
-
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum RecordingErrorKind {
-    PermissionDenied,
-    NoDevice,
-    DeviceLost,
-    Busy,
-    InvalidName,
-    Exists,
-    NotFound,
-    ProjectChanged,
-    /// Only ever carried by a `recording://state` event.
-    LimitReached,
-    Other,
-}
-
-impl RecordingError {
-    fn new(kind: RecordingErrorKind, message: impl Into<String>) -> RecordingError {
-        RecordingError {
-            kind,
-            message: message.into(),
-        }
-    }
-
-    fn other(message: impl Into<String>) -> RecordingError {
-        RecordingError::new(RecordingErrorKind::Other, message)
-    }
-
-    fn busy(message: &str) -> RecordingError {
-        RecordingError::new(RecordingErrorKind::Busy, message)
-    }
-}
-
-impl From<String> for RecordingError {
-    fn from(message: String) -> Self {
-        let kind = changed_or(
-            &message,
-            RecordingErrorKind::ProjectChanged,
-            RecordingErrorKind::Other,
-        );
-        RecordingError { kind, message }
-    }
-}
-
-impl From<ProjectError> for RecordingError {
-    fn from(e: ProjectError) -> Self {
-        let kind = match e {
-            ProjectError::RecordingExists(_) => RecordingErrorKind::Exists,
-            ProjectError::RecordingNotFound(_) => RecordingErrorKind::NotFound,
-            ProjectError::InvalidRecordingName(_) => RecordingErrorKind::InvalidName,
-            _ => RecordingErrorKind::Other,
-        };
-        RecordingError::new(kind, e.to_string())
-    }
-}
-
-impl From<RecordError> for RecordingError {
+impl From<RecordError> for CommandError {
     fn from(e: RecordError) -> Self {
-        use RecordingErrorKind as K;
+        use CommandErrorKind as K;
         match e {
-            RecordError::NoDevice => RecordingError::new(K::NoDevice, e.to_string()),
-            RecordError::PermissionDenied => RecordingError::new(K::PermissionDenied, DENIED),
+            RecordError::NoDevice => CommandError::new(K::NoDevice, e.to_string()),
+            RecordError::PermissionDenied => CommandError::new(K::PermissionDenied, DENIED),
             // Keep the existing CoreAudio wire classification. On ALSA and WASAPI a busy
             // endpoint is common when another client holds it exclusively.
             #[cfg(target_os = "macos")]
-            RecordError::DeviceBusy => RecordingError::new(K::DeviceLost, e.to_string()),
+            RecordError::DeviceBusy => CommandError::new(K::DeviceLost, e.to_string()),
             #[cfg(not(target_os = "macos"))]
-            RecordError::DeviceBusy => RecordingError::busy(&e.to_string()),
-            RecordError::DeviceLost(_) => RecordingError::new(K::DeviceLost, e.to_string()),
-            RecordError::AlreadyRecording => RecordingError::busy(BUSY),
-            RecordError::NotArmed => RecordingError::other(NOT_ARMED),
-            RecordError::StartTimeout => RecordingError::other(NO_AUDIO),
-            other => RecordingError::other(other.to_string()),
+            RecordError::DeviceBusy => CommandError::busy(e.to_string()),
+            RecordError::DeviceLost(_) => CommandError::new(K::DeviceLost, e.to_string()),
+            RecordError::AlreadyRecording => CommandError::busy(BUSY),
+            RecordError::NotArmed => CommandError::other(NOT_ARMED),
+            RecordError::StartTimeout => CommandError::other(NO_AUDIO),
+            other => CommandError::other(other.to_string()),
         }
     }
 }
@@ -284,7 +221,7 @@ pub struct StateEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stem: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<RecordingError>,
+    pub error: Option<CommandError>,
 }
 
 impl StateEvent {
@@ -301,7 +238,7 @@ impl StateEvent {
         self
     }
 
-    fn error(mut self, error: RecordingError) -> StateEvent {
+    fn error(mut self, error: CommandError) -> StateEvent {
         self.error = Some(error);
         self
     }
@@ -478,12 +415,12 @@ fn ended_by_itself(core: &Core, result: TakeResult) {
         Ended::Cap => core.emit(
             StateEvent::new(RecState::Armed)
                 .stem(stem)
-                .error(RecordingError::new(RecordingErrorKind::LimitReached, LIMIT)),
+                .error(CommandError::new(CommandErrorKind::LimitReached, LIMIT)),
         ),
         // The `Failed` event that follows reports it.
         Ended::DeviceLost(_) => inner.lost_stem = Some(stem),
         Ended::WriteError(message) => core.emit(StateEvent::new(RecState::Armed).stem(stem).error(
-            RecordingError::other(format!("the take could not be written: {message}")),
+            CommandError::other(format!("the take could not be written: {message}")),
         )),
         Ended::User => {}
     }
@@ -684,25 +621,27 @@ fn write_sidecar_or_fallback(
     fields: Option<&StopFields>,
     on_invalid: OnInvalid,
     write: impl Fn(&Sidecar) -> Result<(), ProjectError>,
-) -> Result<(), RecordingError> {
+) -> Result<(), CommandError> {
     match write(&build_sidecar(meta, result, fields)) {
         Err(ProjectError::InvalidSidecar(message)) if fields.is_some() => match on_invalid {
             OnInvalid::WriteFallback => {
                 eprintln!("recording: {message}; writing the fallback sidecar");
-                Ok(write(&build_sidecar(meta, result, None))?)
+                write(&build_sidecar(meta, result, None)).map_err(CommandError::for_memos)
             }
             OnInvalid::KeepExisting => {
                 eprintln!("recording: {message}; keeping the fallback sidecar");
                 Ok(())
             }
         },
-        other => Ok(other?),
+        other => other.map_err(CommandError::for_memos),
     }
 }
 
 /// The listed entry of `stem`.
-fn entry(project: &Project, stem: &str) -> Result<RecordingEntry, RecordingError> {
-    Ok(project.recording_entry(stem)?)
+fn entry(project: &Project, stem: &str) -> Result<RecordingEntry, CommandError> {
+    project
+        .recording_entry(stem)
+        .map_err(CommandError::for_memos)
 }
 
 /// Publishes a finished take's partial as `<stem>.wav` with its sidecar. Webview fields that
@@ -712,7 +651,7 @@ fn publish(
     meta: &TakeMeta,
     result: &TakeResult,
     fields: Option<&StopFields>,
-) -> Result<(), RecordingError> {
+) -> Result<(), CommandError> {
     write_sidecar_or_fallback(meta, result, fields, OnInvalid::WriteFallback, |sidecar| {
         meta.project.finish_recording(&meta.stem, sidecar).map(drop)
     })
@@ -735,7 +674,7 @@ fn publish_fallback(meta: &TakeMeta, result: &TakeResult) -> bool {
 fn complete_ended(
     ended: &mut EndedTake,
     fields: Option<&StopFields>,
-) -> Result<RecordingEntry, RecordingError> {
+) -> Result<RecordingEntry, CommandError> {
     let meta = &ended.meta;
     if !ended.published {
         publish(meta, &ended.result, fields)?;
@@ -755,8 +694,8 @@ fn complete_ended(
 // --- commands, as plain functions ---
 
 /// The open project if it is the one at `root`.
-fn project_for(projects: &ProjectState, root: &str) -> Result<Arc<Project>, RecordingError> {
-    Ok(projects.current_for(root)?)
+fn project_for(projects: &ProjectState, root: &str) -> Result<Arc<Project>, CommandError> {
+    projects.current_for(root)
 }
 
 pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
@@ -798,7 +737,7 @@ pub fn status(core: &Core, prefs_path: &Path) -> RecordingStatus {
 }
 
 /// An exclusive input can refuse a second config query while our own stream is open.
-fn input_devices(core: &Core) -> Result<Vec<DeviceInfo>, RecordingError> {
+fn input_devices(core: &Core) -> Result<Vec<DeviceInfo>, CommandError> {
     let mut list = core.platform.devices()?;
     if let Some(armed) = &core.lock().armed
         && let Some(device) = list
@@ -811,7 +750,7 @@ fn input_devices(core: &Core) -> Result<Vec<DeviceInfo>, RecordingError> {
     Ok(list)
 }
 
-pub fn devices(core: &Core, prefs_path: &Path) -> Result<DevicesResult, RecordingError> {
+pub fn devices(core: &Core, prefs_path: &Path) -> Result<DevicesResult, CommandError> {
     let list = input_devices(core)?;
     let prefs = read_prefs(prefs_path);
     let selected = resolve_selection(&list, &prefs).map(|(d, channel)| InputSelection {
@@ -834,7 +773,7 @@ impl Drop for Requesting<'_> {
 }
 
 /// The permission, asking first when it is not determined. `Busy` while another arm asks.
-fn ensure_permission(core: &Core) -> Result<(), RecordingError> {
+fn ensure_permission(core: &Core) -> Result<(), CommandError> {
     let mut permission = core.platform.permission();
     if permission == Permission::NotDetermined {
         if !core.platform.has_permission_prompt() {
@@ -842,7 +781,7 @@ fn ensure_permission(core: &Core) -> Result<(), RecordingError> {
             return Ok(());
         }
         if core.requesting.swap(true, Ordering::AcqRel) {
-            return Err(RecordingError::busy(PERMISSION_PENDING));
+            return Err(CommandError::busy(PERMISSION_PENDING));
         }
         let _requesting = Requesting(&core.requesting);
         core.platform.request_permission();
@@ -854,7 +793,7 @@ fn ensure_permission(core: &Core) -> Result<(), RecordingError> {
         Permission::Restricted => RESTRICTED,
         Permission::NotDetermined | Permission::Denied => DENIED,
     };
-    let error = RecordingError::new(RecordingErrorKind::PermissionDenied, message);
+    let error = CommandError::new(CommandErrorKind::PermissionDenied, message);
     core.emit(StateEvent::new(RecState::Idle).error(error.clone()));
     Err(error)
 }
@@ -866,12 +805,12 @@ pub fn arm(
     prefs_path: &Path,
     device_id: Option<String>,
     channel: Option<u16>,
-) -> Result<RecordingStatus, RecordingError> {
+) -> Result<RecordingStatus, CommandError> {
     if core.requesting.load(Ordering::Acquire) {
-        return Err(RecordingError::busy(PERMISSION_PENDING));
+        return Err(CommandError::busy(PERMISSION_PENDING));
     }
     if core.lock().take.is_some() {
-        return Err(RecordingError::busy(BUSY));
+        return Err(CommandError::busy(BUSY));
     }
     ensure_permission(core)?;
     let channel_arg = channel;
@@ -882,7 +821,7 @@ pub fn arm(
             let device = list
                 .iter()
                 .find(|d| d.id == id)
-                .ok_or_else(|| RecordingError::from(RecordError::NoDevice))?;
+                .ok_or_else(|| CommandError::from(RecordError::NoDevice))?;
             let channel =
                 channel.unwrap_or(if device.channels == 0 || prefs.channel < device.channels {
                     prefs.channel
@@ -893,12 +832,12 @@ pub fn arm(
         }
         None => {
             let (device, saved) = resolve_selection(&list, &prefs)
-                .ok_or_else(|| RecordingError::from(RecordError::NoDevice))?;
+                .ok_or_else(|| CommandError::from(RecordError::NoDevice))?;
             (device, channel.unwrap_or(saved))
         }
     };
     if device.channels != 0 && channel >= device.channels {
-        return Err(RecordingError::other(format!(
+        return Err(CommandError::other(format!(
             "channel {channel} is out of range for {} channels",
             device.channels
         )));
@@ -906,7 +845,7 @@ pub fn arm(
     {
         let mut inner = core.lock();
         if inner.take.is_some() {
-            return Err(RecordingError::busy(BUSY));
+            return Err(CommandError::busy(BUSY));
         }
         drop_ended(&mut inner);
         let recorder = ensure_recorder(core, &mut inner);
@@ -956,11 +895,11 @@ fn armed_status(core: &Core, prefs_path: &Path) -> RecordingStatus {
 }
 
 /// Closes the stream. `Busy` while a take runs.
-pub fn disarm(core: &Core, prefs_path: &Path) -> Result<RecordingStatus, RecordingError> {
+pub fn disarm(core: &Core, prefs_path: &Path) -> Result<RecordingStatus, CommandError> {
     {
         let mut inner = core.lock();
         if inner.take.is_some() {
-            return Err(RecordingError::busy(BUSY));
+            return Err(CommandError::busy(BUSY));
         }
         drop_ended(&mut inner);
         if let Some(recorder) = &inner.recorder {
@@ -980,17 +919,21 @@ pub fn start(
     root: &str,
     song_stem: Option<&str>,
     fields: StartFields,
-) -> Result<StartResult, RecordingError> {
+) -> Result<StartResult, CommandError> {
     let mut inner = core.lock();
     if inner.take.is_some() {
-        return Err(RecordingError::busy(BUSY));
+        return Err(CommandError::busy(BUSY));
     }
     let (Some(armed), Some(recorder)) = (&inner.armed, &inner.recorder) else {
-        return Err(RecordingError::other(NOT_ARMED));
+        return Err(CommandError::other(NOT_ARMED));
     };
     let project = project_for(projects, root)?;
-    let stem = project.default_recording_stem(song_stem)?;
-    let path = project.recording_partial_path(&stem)?;
+    let stem = project
+        .default_recording_stem(song_stem)
+        .map_err(CommandError::for_memos)?;
+    let path = project
+        .recording_partial_path(&stem)
+        .map_err(CommandError::for_memos)?;
     let created_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -1020,15 +963,15 @@ pub fn start(
 /// A take whose publish fails is kept as an unpublished ended take (the state event carries
 /// the error): another stop retries it, and arm, start, disarm, reload and quit publish it with
 /// the fallback sidecar.
-pub fn stop(core: &Core, fields: Option<StopFields>) -> Result<RecordingEntry, RecordingError> {
+pub fn stop(core: &Core, fields: Option<StopFields>) -> Result<RecordingEntry, CommandError> {
     let mut inner = core.lock();
     if let Some(take) = inner.take.take() {
         let Some(recorder) = &inner.recorder else {
-            return Err(RecordingError::other(NOT_ARMED));
+            return Err(CommandError::other(NOT_ARMED));
         };
         let result = recorder.stop().map_err(|e| {
             eprintln!("recording: stopping {} failed: {e}", take.meta.stem);
-            RecordingError::from(e)
+            CommandError::from(e)
         })?;
         if matches!(result.ended, Ended::DeviceLost(_)) {
             inner.armed = None;
@@ -1040,7 +983,7 @@ pub fn stop(core: &Core, fields: Option<StopFields>) -> Result<RecordingEntry, R
         });
     }
     let Some(mut ended) = inner.ended.take() else {
-        return Err(RecordingError::other(NO_TAKE));
+        return Err(CommandError::other(NO_TAKE));
     };
     let state = if inner.armed.is_some() {
         RecState::Armed
@@ -1064,8 +1007,10 @@ pub fn stop(core: &Core, fields: Option<StopFields>) -> Result<RecordingEntry, R
     }
 }
 
-pub fn list(projects: &ProjectState, root: &str) -> Result<Vec<RecordingEntry>, RecordingError> {
-    Ok(project_for(projects, root)?.recordings()?)
+pub fn list(projects: &ProjectState, root: &str) -> Result<Vec<RecordingEntry>, CommandError> {
+    project_for(projects, root)?
+        .recordings()
+        .map_err(CommandError::for_memos)
 }
 
 pub fn rename(
@@ -1073,16 +1018,22 @@ pub fn rename(
     root: &str,
     stem: &str,
     new_stem: &str,
-) -> Result<String, RecordingError> {
-    Ok(project_for(projects, root)?.rename_recording(stem, new_stem)?)
+) -> Result<String, CommandError> {
+    project_for(projects, root)?
+        .rename_recording(stem, new_stem)
+        .map_err(CommandError::for_memos)
 }
 
-pub fn delete(projects: &ProjectState, root: &str, stem: &str) -> Result<(), RecordingError> {
-    Ok(project_for(projects, root)?.delete_recording(stem)?)
+pub fn delete(projects: &ProjectState, root: &str, stem: &str) -> Result<(), CommandError> {
+    project_for(projects, root)?
+        .delete_recording(stem)
+        .map_err(CommandError::for_memos)
 }
 
-pub fn read(projects: &ProjectState, root: &str, stem: &str) -> Result<Vec<u8>, RecordingError> {
-    Ok(project_for(projects, root)?.read_recording_bytes(stem)?)
+pub fn read(projects: &ProjectState, root: &str, stem: &str) -> Result<Vec<u8>, CommandError> {
+    project_for(projects, root)?
+        .read_recording_bytes(stem)
+        .map_err(CommandError::for_memos)
 }
 
 // --- reload, quit and project open ---
@@ -1297,35 +1248,35 @@ pub fn system_state(app: &AppHandle) -> RecorderState {
 
 // --- Tauri commands ---
 
-fn prefs_path(app: &AppHandle) -> Result<PathBuf, RecordingError> {
+fn prefs_path(app: &AppHandle) -> Result<PathBuf, CommandError> {
     app.path()
         .app_data_dir()
         .map(|d| d.join(PREFS_FILE))
-        .map_err(|e| RecordingError::other(e.to_string()))
+        .map_err(|e| CommandError::other(e.to_string()))
 }
 
 /// Runs `f` on a blocking thread with the app's states.
 async fn blocking<T: Send + 'static>(
     app: AppHandle,
-    f: impl FnOnce(&Arc<Core>, &ProjectState) -> Result<T, RecordingError> + Send + 'static,
-) -> Result<T, RecordingError> {
+    f: impl FnOnce(&Arc<Core>, &ProjectState) -> Result<T, CommandError> + Send + 'static,
+) -> Result<T, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
         let core = Arc::clone(&app.state::<RecorderState>().0);
         let projects = app.state::<ProjectState>();
         f(&core, &projects)
     })
     .await
-    .map_err(|e| RecordingError::other(e.to_string()))?
+    .map_err(|e| CommandError::other(e.to_string()))?
 }
 
 #[tauri::command]
-pub async fn recording_status(app: AppHandle) -> Result<RecordingStatus, RecordingError> {
+pub async fn recording_status(app: AppHandle) -> Result<RecordingStatus, CommandError> {
     let prefs = prefs_path(&app)?;
     blocking(app, move |core, _| Ok(status(core, &prefs))).await
 }
 
 #[tauri::command]
-pub async fn recording_devices(app: AppHandle) -> Result<DevicesResult, RecordingError> {
+pub async fn recording_devices(app: AppHandle) -> Result<DevicesResult, CommandError> {
     let prefs = prefs_path(&app)?;
     blocking(app, move |core, _| devices(core, &prefs)).await
 }
@@ -1335,13 +1286,13 @@ pub async fn recording_arm(
     app: AppHandle,
     device_id: Option<String>,
     channel: Option<u16>,
-) -> Result<RecordingStatus, RecordingError> {
+) -> Result<RecordingStatus, CommandError> {
     let prefs = prefs_path(&app)?;
     blocking(app, move |core, _| arm(core, &prefs, device_id, channel)).await
 }
 
 #[tauri::command]
-pub async fn recording_disarm(app: AppHandle) -> Result<RecordingStatus, RecordingError> {
+pub async fn recording_disarm(app: AppHandle) -> Result<RecordingStatus, CommandError> {
     let prefs = prefs_path(&app)?;
     blocking(app, move |core, _| disarm(core, &prefs)).await
 }
@@ -1352,7 +1303,7 @@ pub async fn recording_start(
     root: String,
     song_stem: Option<String>,
     fields: StartFields,
-) -> Result<StartResult, RecordingError> {
+) -> Result<StartResult, CommandError> {
     blocking(app, move |core, projects| {
         start(core, projects, &root, song_stem.as_deref(), fields)
     })
@@ -1365,7 +1316,7 @@ pub async fn recording_stop(
     app: AppHandle,
     root: Option<String>,
     sidecar: Option<StopFields>,
-) -> Result<RecordingEntry, RecordingError> {
+) -> Result<RecordingEntry, CommandError> {
     let _ = root;
     blocking(app, move |core, _| stop(core, sidecar)).await
 }
@@ -1374,7 +1325,7 @@ pub async fn recording_stop(
 pub async fn recording_list(
     app: AppHandle,
     root: String,
-) -> Result<Vec<RecordingEntry>, RecordingError> {
+) -> Result<Vec<RecordingEntry>, CommandError> {
     blocking(app, move |_, projects| list(projects, &root)).await
 }
 
@@ -1384,7 +1335,7 @@ pub async fn recording_rename(
     root: String,
     stem: String,
     new_stem: String,
-) -> Result<String, RecordingError> {
+) -> Result<String, CommandError> {
     blocking(app, move |_, projects| {
         rename(projects, &root, &stem, &new_stem)
     })
@@ -1396,7 +1347,7 @@ pub async fn recording_delete(
     app: AppHandle,
     root: String,
     stem: String,
-) -> Result<(), RecordingError> {
+) -> Result<(), CommandError> {
     blocking(app, move |_, projects| delete(projects, &root, &stem)).await
 }
 
@@ -1406,7 +1357,7 @@ pub async fn recording_read(
     app: AppHandle,
     root: String,
     stem: String,
-) -> Result<tauri::ipc::Response, RecordingError> {
+) -> Result<tauri::ipc::Response, CommandError> {
     let bytes = blocking(app, move |_, projects| read(projects, &root, &stem)).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
@@ -1420,7 +1371,6 @@ pub async fn host_now_ns() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::PROJECT_CHANGED;
     use std::sync::atomic::AtomicUsize;
     use std::sync::mpsc;
     use std::time::Duration;
@@ -1670,7 +1620,7 @@ mod tests {
             &self,
             handle: &FakeHandle,
             song_stem: Option<&str>,
-        ) -> Result<StartResult, RecordingError> {
+        ) -> Result<StartResult, CommandError> {
             self.start_with(handle, song_stem, start_fields())
         }
 
@@ -1680,7 +1630,7 @@ mod tests {
             handle: &FakeHandle,
             song_stem: Option<&str>,
             fields: StartFields,
-        ) -> Result<StartResult, RecordingError> {
+        ) -> Result<StartResult, CommandError> {
             std::thread::scope(|s| {
                 let started =
                     s.spawn(|| start(&self.core, &self.projects, &self.root, song_stem, fields));
@@ -1714,16 +1664,23 @@ mod tests {
     // --- errors and wire shapes ---
 
     #[test]
-    fn errors_from_strings_and_project_errors() {
-        use RecordingErrorKind as K;
+    fn project_for_is_typed_for_a_stale_root_and_no_project() {
+        use CommandErrorKind as K;
+        let rig = rig();
+        let stale = format!("{}-old", rig.root);
         assert_eq!(
-            RecordingError::from(PROJECT_CHANGED.to_string()).kind,
-            K::ProjectChanged
+            project_for(&rig.projects, &stale).unwrap_err(),
+            CommandError::new(K::ProjectChanged, "the project changed")
         );
         assert_eq!(
-            RecordingError::from("no project is open".to_string()),
-            RecordingError::new(K::Other, "no project is open")
+            project_for(&ProjectState::default(), &rig.root).unwrap_err(),
+            CommandError::new(K::NoProject, "no project is open")
         );
+    }
+
+    #[test]
+    fn project_errors_for_memos() {
+        use CommandErrorKind as K;
         let cases = [
             (
                 ProjectError::RecordingExists("a".into()),
@@ -1748,15 +1705,15 @@ mod tests {
         ];
         for (error, kind, message) in cases {
             assert_eq!(
-                RecordingError::from(error),
-                RecordingError::new(kind, message)
+                CommandError::for_memos(error),
+                CommandError::new(kind, message)
             );
         }
     }
 
     #[test]
     fn errors_from_record_errors() {
-        use RecordingErrorKind as K;
+        use CommandErrorKind as K;
         let cases = [
             (RecordError::NoDevice, K::NoDevice, "no input device"),
             (RecordError::PermissionDenied, K::PermissionDenied, DENIED),
@@ -1785,33 +1742,17 @@ mod tests {
         for (error, kind, message) in cases {
             let label = format!("{error:?}");
             assert_eq!(
-                RecordingError::from(error),
-                RecordingError::new(kind, message),
+                CommandError::from(error),
+                CommandError::new(kind, message),
                 "{label}"
             );
         }
     }
 
     #[test]
-    fn every_error_kind_serializes_camel_case() {
-        use RecordingErrorKind as K;
-        let kinds = [
-            (K::PermissionDenied, "permissionDenied"),
-            (K::NoDevice, "noDevice"),
-            (K::DeviceLost, "deviceLost"),
-            (K::Busy, "busy"),
-            (K::InvalidName, "invalidName"),
-            (K::Exists, "exists"),
-            (K::NotFound, "notFound"),
-            (K::ProjectChanged, "projectChanged"),
-            (K::LimitReached, "limitReached"),
-            (K::Other, "other"),
-        ];
-        for (kind, text) in kinds {
-            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{text}\""));
-        }
+    fn a_busy_take_serializes_as_kind_and_message() {
         assert_eq!(
-            serde_json::to_string(&RecordingError::busy(BUSY)).unwrap(),
+            serde_json::to_string(&CommandError::busy(BUSY)).unwrap(),
             r#"{"kind":"busy","message":"a take is in progress"}"#
         );
     }
@@ -1836,7 +1777,7 @@ mod tests {
         );
         let full = StateEvent::new(RecState::Armed)
             .stem("a-01")
-            .error(RecordingError::new(RecordingErrorKind::LimitReached, LIMIT));
+            .error(CommandError::new(CommandErrorKind::LimitReached, LIMIT));
         assert_eq!(
             serde_json::to_string(&full).unwrap(),
             r#"{"state":"armed","stem":"a-01","error":{"kind":"limitReached","message":"recording stopped at the length limit"}}"#
@@ -1971,7 +1912,7 @@ mod tests {
         let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
         assert_eq!(
             error,
-            RecordingError::new(RecordingErrorKind::PermissionDenied, DENIED)
+            CommandError::new(CommandErrorKind::PermissionDenied, DENIED)
         );
         assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 1);
         rig.no_new_handle();
@@ -1991,7 +1932,7 @@ mod tests {
             let rig = rig();
             *rig.platform.permission.lock().unwrap() = permission;
             let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
-            let expected = RecordingError::new(RecordingErrorKind::PermissionDenied, message);
+            let expected = CommandError::new(CommandErrorKind::PermissionDenied, message);
             assert_eq!(error, expected, "{permission:?}");
             assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 0);
             rig.no_new_handle();
@@ -2016,7 +1957,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(1));
             }
             let second = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
-            assert_eq!(second, RecordingError::busy(PERMISSION_PENDING));
+            assert_eq!(second, CommandError::busy(PERMISSION_PENDING));
             release.send(()).unwrap();
             assert_eq!(first.join().unwrap().unwrap().state, RecState::Armed);
         });
@@ -2031,9 +1972,9 @@ mod tests {
         let rig = rig();
         rig.platform.devices.lock().unwrap().clear();
         let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
-        assert_eq!(error.kind, RecordingErrorKind::NoDevice);
+        assert_eq!(error.kind, CommandErrorKind::NoDevice);
         let error = arm(&rig.core, &rig.prefs(), Some("fake:gone".into()), None).unwrap_err();
-        assert_eq!(error.kind, RecordingErrorKind::NoDevice);
+        assert_eq!(error.kind, CommandErrorKind::NoDevice);
         rig.no_new_handle();
     }
 
@@ -2043,7 +1984,7 @@ mod tests {
         let error = arm(&rig.core, &rig.prefs(), Some("fake:gone".into()), None).unwrap_err();
         assert_eq!(
             error,
-            RecordingError::new(RecordingErrorKind::NoDevice, "no input device")
+            CommandError::new(CommandErrorKind::NoDevice, "no input device")
         );
         assert!(!rig.prefs().exists());
     }
@@ -2059,7 +2000,7 @@ mod tests {
         );
         *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
         let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
-        assert_eq!(error.kind, RecordingErrorKind::PermissionDenied);
+        assert_eq!(error.kind, CommandErrorKind::PermissionDenied);
         assert_eq!(
             status(&rig.core, &rig.prefs()).permission,
             Permission::Denied
@@ -2075,9 +2016,9 @@ mod tests {
         *rig.arm_failure.lock().unwrap() = Some(RecordError::DeviceBusy);
         let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
         #[cfg(target_os = "macos")]
-        assert_eq!(error.kind, RecordingErrorKind::DeviceLost);
+        assert_eq!(error.kind, CommandErrorKind::DeviceLost);
         #[cfg(not(target_os = "macos"))]
-        assert_eq!(error.kind, RecordingErrorKind::Busy);
+        assert_eq!(error.kind, CommandErrorKind::Busy);
         assert_eq!(error.message, "the input device is busy");
         assert_eq!(status(&rig.core, &rig.prefs()).state, RecState::Idle);
         assert!(rig.sink.states().is_empty());
@@ -2102,7 +2043,7 @@ mod tests {
         // Enumeration could not open the USB endpoint. The stream-open error is authoritative.
         *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
         let error = arm(&rig.core, &rig.prefs(), None, None).unwrap_err();
-        assert_eq!(error.kind, RecordingErrorKind::PermissionDenied);
+        assert_eq!(error.kind, CommandErrorKind::PermissionDenied);
         let st = arm(&rig.core, &rig.prefs(), None, None).unwrap();
         assert_eq!(st.device, Some(InputDevice::from(&usb())));
         assert_eq!(st.channel, 2);
@@ -2121,7 +2062,7 @@ mod tests {
         let error = arm(&rig.core, &rig.prefs(), Some("fake:usb".into()), Some(4)).unwrap_err();
         assert_eq!(
             error,
-            RecordingError::other("channel 4 is out of range for 4 channels")
+            CommandError::other("channel 4 is out of range for 4 channels")
         );
         rig.no_new_handle();
     }
@@ -2147,11 +2088,11 @@ mod tests {
         let handle = rig.take();
         assert_eq!(
             arm(&rig.core, &rig.prefs(), None, None).unwrap_err(),
-            RecordingError::busy(BUSY)
+            CommandError::busy(BUSY)
         );
         assert_eq!(
             disarm(&rig.core, &rig.prefs()).unwrap_err(),
-            RecordingError::busy(BUSY)
+            CommandError::busy(BUSY)
         );
         assert!(handle.is_recording());
     }
@@ -2215,7 +2156,7 @@ mod tests {
         let handle = rig.take();
         assert_eq!(
             rig.start(&handle, None).unwrap_err(),
-            RecordingError::busy(BUSY)
+            CommandError::busy(BUSY)
         );
     }
 
@@ -2223,7 +2164,7 @@ mod tests {
     fn start_unarmed_is_other() {
         let rig = rig();
         let error = start(&rig.core, &rig.projects, &rig.root, None, start_fields()).unwrap_err();
-        assert_eq!(error, RecordingError::other(NOT_ARMED));
+        assert_eq!(error, CommandError::other(NOT_ARMED));
         assert!(rig.files().is_empty());
     }
 
@@ -2233,10 +2174,7 @@ mod tests {
         let handle = rig.arm();
         let stale = format!("{}-old", rig.root);
         let error = start(&rig.core, &rig.projects, &stale, None, start_fields()).unwrap_err();
-        assert_eq!(
-            error,
-            RecordingError::new(RecordingErrorKind::ProjectChanged, PROJECT_CHANGED)
-        );
+        assert_eq!(error, CommandError::project_changed());
         assert!(rig.files().is_empty());
         assert!(!handle.is_recording());
         assert_eq!(status(&rig.core, &rig.prefs()).state, RecState::Armed);
@@ -2250,7 +2188,7 @@ mod tests {
         });
         rig.arm();
         let error = start(&rig.core, &rig.projects, &rig.root, None, start_fields()).unwrap_err();
-        assert_eq!(error, RecordingError::other(NO_AUDIO));
+        assert_eq!(error, CommandError::other(NO_AUDIO));
         assert!(rig.files().is_empty());
         assert_eq!(status(&rig.core, &rig.prefs()).state, RecState::Armed);
         assert_eq!(rig.sink.last(), Some(StateEvent::new(RecState::Armed)));
@@ -2363,12 +2301,12 @@ mod tests {
         stop(&rig.core, None).unwrap();
         assert_eq!(
             stop(&rig.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
         let fresh = self::rig();
         assert_eq!(
             stop(&fresh.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
     }
 
@@ -2422,7 +2360,7 @@ mod tests {
         );
         assert_eq!(
             stop(&rig.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
     }
 
@@ -2489,7 +2427,7 @@ mod tests {
             event,
             StateEvent::new(RecState::Armed)
                 .stem("main-01")
-                .error(RecordingError::new(RecordingErrorKind::LimitReached, LIMIT))
+                .error(CommandError::new(CommandErrorKind::LimitReached, LIMIT))
         );
         let entry = rig.project().recordings().unwrap().remove(0);
         assert_eq!(entry.frames, Some(100));
@@ -2508,7 +2446,7 @@ mod tests {
         );
         assert_eq!(
             stop(&rig.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
     }
 
@@ -2522,8 +2460,8 @@ mod tests {
         assert_eq!(event.stem.as_deref(), Some("main-01"));
         assert_eq!(
             event.error.unwrap(),
-            RecordingError::new(
-                RecordingErrorKind::DeviceLost,
+            CommandError::new(
+                CommandErrorKind::DeviceLost,
                 "the input device was lost: unplugged"
             )
         );
@@ -2542,7 +2480,7 @@ mod tests {
         );
         assert_eq!(
             stop(&rig.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
         // The recorder arms again.
         rig.arm();
@@ -2556,7 +2494,7 @@ mod tests {
         let event = rig.sink.wait(|e| e.error.is_some());
         assert_eq!(event.state, RecState::Idle);
         assert_eq!(event.stem, None);
-        assert_eq!(event.error.unwrap().kind, RecordingErrorKind::DeviceLost);
+        assert_eq!(event.error.unwrap().kind, CommandErrorKind::DeviceLost);
     }
 
     #[test]
@@ -2600,7 +2538,7 @@ mod tests {
         rig.arm();
         assert_eq!(
             stop(&rig.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
     }
 
@@ -2624,7 +2562,7 @@ mod tests {
         assert_eq!(status.state, RecState::Idle);
         assert_eq!(
             stop(&rig.core, None).unwrap_err(),
-            RecordingError::other(NO_TAKE)
+            CommandError::other(NO_TAKE)
         );
         // The recorder arms again afterwards.
         rig.arm();
@@ -3041,7 +2979,7 @@ mod tests {
         rig.take();
         stop(&rig.core, None).unwrap();
         let stale = format!("{}-old", rig.root);
-        let changed = RecordingError::new(RecordingErrorKind::ProjectChanged, PROJECT_CHANGED);
+        let changed = CommandError::project_changed();
         assert_eq!(list(&rig.projects, &stale).unwrap_err(), changed);
         assert_eq!(
             rename(&rig.projects, &stale, "main-01", "x").unwrap_err(),
@@ -3057,7 +2995,7 @@ mod tests {
 
     #[test]
     fn library_commands_work_and_map_errors() {
-        use RecordingErrorKind as K;
+        use CommandErrorKind as K;
         let rig = rig();
         let handle = rig.take();
         // A take's partial is never listed.
