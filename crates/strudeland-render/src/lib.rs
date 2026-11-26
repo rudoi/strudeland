@@ -24,6 +24,7 @@ mod characterization;
 pub mod encode;
 mod error;
 pub mod export;
+mod finish;
 pub mod join;
 pub mod level;
 mod loop_export;
@@ -118,48 +119,31 @@ fn render_audio_for(
 }
 
 /// Steps 5 and 6: level and encode a joined buffer, verifying and correcting a lossy file's
-/// decoded true peak ([`encode::encode`]). Callable several times on one [`RenderedAudio`]. The
-/// summary starts from `audio.summary` and gains the format, size, loudness and timings; level
-/// and encoder warnings follow the render's.
+/// decoded true peak, through the finishing loop with limited leveling (the static gain, then the
+/// true-peak limiter). Callable several times on one [`RenderedAudio`]. The summary starts from
+/// `audio.summary` and gains the format, size, loudness and timings; level and encoder warnings
+/// follow the render's.
 pub fn finish(
     audio: &RenderedAudio,
     out: &OutputOptions,
     progress: &dyn Fn(Progress),
 ) -> Result<RenderOutput, RenderError> {
-    finish_file(audio, out, progress, false)
-}
-
-fn finish_file(
-    audio: &RenderedAudio,
-    out: &OutputOptions,
-    progress: &dyn Fn(Progress),
-    standalone: bool,
-) -> Result<RenderOutput, RenderError> {
-    let mut summary = audio.summary.clone();
-    let mut warnings = Vec::new();
-    let encode = if standalone {
-        encode::encode_standalone
-    } else {
-        encode::encode
-    };
-    let encoded = encode(
-        &audio.channels,
-        audio.summary.sample_rate,
+    let files = finish::finish_files(
+        finish::Finishing {
+            cuts: vec![splice::FileCut::whole(audio)],
+            summary: audio.summary.clone(),
+            leveling: finish::Leveling::Limited,
+            mp3_flush: encode::Mp3Flush::NoGap,
+        },
         out,
+        &encode::Real,
         progress,
-        &mut warnings,
     )?;
-    summary.format = Some(out.encoder.format());
-    summary.bytes = Some(encoded.bytes.len() as u64);
-    summary.loudness = Some(encoded.loudness);
-    summary.timings.level_ms = encoded.level_ms;
-    summary.timings.encode_ms = encoded.encode_ms;
-    summary.timings.total_ms += encoded.level_ms + encoded.encode_ms;
-    summary.warnings.extend(warnings);
-    Ok(RenderOutput {
-        bytes: encoded.bytes,
-        summary,
-    })
+    let mut files = files.into_iter();
+    match (files.next(), files.next()) {
+        (Some(file), None) => Ok(file.output),
+        _ => Err(RenderError::Render("finishing returned no file".into())),
+    }
 }
 
 fn ms_since(t: Instant) -> f64 {

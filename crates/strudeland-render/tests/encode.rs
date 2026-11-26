@@ -812,26 +812,27 @@ fn noise(seconds: usize) -> Vec<Vec<f32>> {
     vec![l, r]
 }
 
+/// Finishes `input` as a plain render: the output, the loudness, the progress and the warnings.
 fn encode_loop(
     input: &[Vec<f32>],
     loudness: strudeland_render::Loudness,
     encoder: EncoderOptions,
 ) -> (
-    strudeland_render::encode::Encoded,
+    strudeland_render::RenderOutput,
+    strudeland_render::level::LoudnessSummary,
     Vec<strudeland_render::Progress>,
     Vec<String>,
 ) {
     let events = std::cell::RefCell::new(Vec::new());
-    let mut warnings = Vec::new();
-    let e = strudeland_render::encode::encode(
-        input,
-        SR,
+    let out = strudeland_render::finish(
+        &strudeland_render::testing::audio(input.to_vec(), SR),
         &strudeland_render::OutputOptions { loudness, encoder },
         &|p| events.borrow_mut().push(p),
-        &mut warnings,
     )
     .unwrap();
-    (e, events.into_inner(), warnings)
+    let loudness = out.summary.loudness.clone().unwrap();
+    let warnings = out.summary.warnings.clone();
+    (out, loudness, events.into_inner(), warnings)
 }
 
 #[test]
@@ -861,8 +862,8 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
         let dp = true_peak_db(&decode(encoder.format(), &bytes).unwrap().channels);
         assert!(dp > -1.0, "{encoder:?}: the first pass decodes at {dp}");
 
-        let (e, events, warnings) = encode_loop(&input, loudness, encoder);
-        let n = e.loudness.encodes;
+        let (e, loudness, events, warnings) = encode_loop(&input, loudness, encoder);
+        let n = loudness.encodes;
         assert!((2..=3).contains(&n), "{encoder:?}: {n} encodes");
         assert_eq!(
             events,
@@ -872,12 +873,12 @@ fn encode_loop_corrects_a_lossy_overshoot_within_two_passes() {
             "{encoder:?}"
         );
         assert!(warnings.is_empty(), "{encoder:?}: {warnings:?}");
-        let decoded = e.loudness.decoded_true_peak_db.unwrap();
+        let decoded = loudness.decoded_true_peak_db.unwrap();
         assert!(decoded <= -1.0, "{encoder:?}: decoded at {decoded}");
         // The correction lowered the limiter ceiling and kept the gain.
-        assert_eq!(e.loudness.gain_db, first.summary.gain_db, "{encoder:?}");
+        assert_eq!(loudness.gain_db, first.summary.gain_db, "{encoder:?}");
         assert!(
-            e.loudness.limiter_ceiling_dbtp.unwrap() < -1.0 - CORRECTION_MARGIN_DB,
+            loudness.limiter_ceiling_dbtp.unwrap() < -1.0 - CORRECTION_MARGIN_DB,
             "{encoder:?}"
         );
         // The returned bytes are the last pass's: they decode to the reported peak.
@@ -901,20 +902,20 @@ fn encode_loop_reports_but_never_corrects_with_loudness_off() {
             vbr_quality: 0,
         },
     ] {
-        let (e, events, warnings) = encode_loop(&input, Loudness::Off, encoder);
-        assert_eq!(e.loudness.encodes, 1, "{encoder:?}");
+        let (e, loudness, events, warnings) = encode_loop(&input, Loudness::Off, encoder);
+        assert_eq!(loudness.encodes, 1, "{encoder:?}");
         assert_eq!(
             events,
             vec![strudeland_render::Progress::Encoded { pass: 1 }]
         );
         assert_eq!(e.bytes, once(&input, SR, &encoder).unwrap());
-        let decoded = e.loudness.decoded_true_peak_db.unwrap();
+        let decoded = loudness.decoded_true_peak_db.unwrap();
         assert!(decoded > -1.0, "{encoder:?}: {decoded}");
         assert_eq!(
             decoded,
             true_peak_db(&decode(encoder.format(), &e.bytes).unwrap().channels)
         );
-        assert_eq!(e.loudness.gain_db, 0.0);
+        assert_eq!(loudness.gain_db, 0.0);
         assert!(
             warnings.iter().all(|w| !w.starts_with("lossy encode")),
             "{warnings:?}"
