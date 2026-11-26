@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use strudeland_project::{Project, ProjectError};
+use strudeland_project::ProjectError;
 
 use crate::{ExportPreset, ExportRole, Format, LengthRequest, Progress, RenderError, RenderOutput};
 
@@ -35,21 +35,16 @@ pub fn resolve_format(format: Option<Format>, out: Option<&Path>) -> Result<Form
     }
 }
 
-/// Where a finished render is written: a given path, or a file in a project's `renders/`.
+/// Where a finished render is written: a given path, written as is.
 #[derive(Debug)]
 pub struct OutputTarget {
     path: PathBuf,
-    /// The project whose `renders/` holds `path` (created when the file is written).
-    project: Option<Project>,
 }
 
 impl OutputTarget {
     /// A given path (`--out`): written as is; a missing parent directory is an error.
     pub fn file(path: impl Into<PathBuf>) -> Self {
-        OutputTarget {
-            path: path.into(),
-            project: None,
-        }
+        OutputTarget { path: path.into() }
     }
 
     /// The file the render goes to.
@@ -62,7 +57,7 @@ impl OutputTarget {
 /// short check never replaces the whole song: the slugged section name for `--section`,
 /// `len<N>` for `--length N`, `loops<N>` for `--loops N`, `bars<from>-<to>` for a window; none
 /// for the default clip.
-pub fn render_suffix(length: &LengthRequest) -> Option<String> {
+pub(crate) fn render_suffix(length: &LengthRequest) -> Option<String> {
     match length {
         LengthRequest::Clip { loops: None } => None,
         LengthRequest::Clip { loops: Some(n) } => Some(format!("loops{n}")),
@@ -74,54 +69,8 @@ pub fn render_suffix(length: &LengthRequest) -> Option<String> {
     }
 }
 
-/// Where a render goes: `out` unchanged when given (a relative path is relative to the working
-/// directory); else, for a song in a strudeland project, `renders/<stem>[-<suffix>].<ext>` in
-/// that project ([`render_suffix`] of `length`). Creates nothing (the project's `renders/` is
-/// created by [`write_output`]). A song outside a project needs `out` (a usage error naming
-/// `--out`).
-pub fn resolve_output(
-    out: Option<&Path>,
-    song: &Path,
-    length: &LengthRequest,
-    format: Format,
-) -> Result<OutputTarget, RenderError> {
-    if let Some(out) = out {
-        return Ok(OutputTarget::file(out));
-    }
-    let suffix = render_suffix(length);
-    project_output(song, suffix.as_deref(), format)
-}
-
-/// Resolves a preset destination without creating files. For split exports, `out` supplies
-/// the stem and directory and each role gets its own suffix.
-pub fn resolve_export_output(
-    out: Option<&Path>,
-    song: &Path,
-    length: &LengthRequest,
-    format: Format,
-    preset: ExportPreset,
-    role: ExportRole,
-) -> Result<OutputTarget, RenderError> {
-    let suffix = export_suffix(length, preset, role)?;
-    if let Some(path) = out {
-        if preset != ExportPreset::IntroLoop {
-            return Ok(OutputTarget::file(path));
-        }
-        let mut name = path
-            .file_stem()
-            .ok_or_else(|| RenderError::Usage {
-                flag: "--out",
-                message: "the split export needs a file name for --out".into(),
-            })?
-            .to_os_string();
-        name.push(format!("-{suffix}.{}", format.ext()));
-        return Ok(OutputTarget::file(path.with_file_name(name)));
-    }
-    project_output(song, Some(&suffix), format)
-}
-
 /// The suffix for a preset asset in a default filename. Both the CLI and desktop use this rule.
-pub fn export_suffix(
+pub(crate) fn export_suffix(
     length: &LengthRequest,
     preset: ExportPreset,
     role: ExportRole,
@@ -151,44 +100,16 @@ pub fn export_suffix(
     })
 }
 
-fn project_output(
-    song: &Path,
-    suffix: Option<&str>,
-    format: Format,
-) -> Result<OutputTarget, RenderError> {
-    let Some((project, stem)) = Project::find(song) else {
-        return Err(RenderError::Usage {
-            flag: "--out",
-            message: format!(
-                "--out is required: {} is not in a strudeland project",
-                song.display()
-            ),
-        });
-    };
-    let path = project
-        .render_path(&stem, suffix, format.ext())
-        .map_err(|e| io_error(&project.root().join("renders"), e))?;
-    Ok(OutputTarget {
-        path,
-        project: Some(project),
-    })
-}
-
 /// Writes `out.bytes` to `target` atomically (an existing file is replaced without asking) and
 /// emits `Progress::Written`. Returns the absolute path (the given one if it cannot be made
-/// absolute). For a given path a missing parent directory is an `Io` error and nothing is
-/// created; a project's `renders/` is created when missing.
+/// absolute). A missing parent directory is an `Io` error and nothing is created.
 pub fn write_output(
     out: &RenderOutput,
     target: &OutputTarget,
     progress: &dyn Fn(Progress),
 ) -> Result<PathBuf, RenderError> {
     let path = target.path();
-    match &target.project {
-        Some(project) => project.write_render(path, &out.bytes),
-        None => strudeland_project::atomic_write_bytes(path, &out.bytes),
-    }
-    .map_err(|e| io_error(path, e))?;
+    strudeland_project::atomic_write_bytes(path, &out.bytes).map_err(|e| io_error(path, e))?;
     let written = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     progress(Progress::Written {
         path: written.clone(),
@@ -292,14 +213,6 @@ mod tests {
         assert!(matches!(e, RenderError::Io { .. }));
     }
 
-    fn section(name: &str) -> LengthRequest {
-        LengthRequest::Section { name: name.into() }
-    }
-
-    fn clip() -> LengthRequest {
-        LengthRequest::Clip { loops: None }
-    }
-
     fn usage(r: Result<impl std::fmt::Debug, RenderError>) -> (&'static str, String) {
         match r {
             Err(RenderError::Usage { flag, message }) => (flag, message),
@@ -354,115 +267,5 @@ mod tests {
                 "cannot tell the format from the extension \"flac\" (wav, mp3, ogg or opus); pass --format".into()
             )
         );
-    }
-
-    #[test]
-    fn an_explicit_out_is_returned_unchanged() {
-        let dir = tempfile::tempdir().unwrap();
-        let project = Project::create(&dir.path().join("p"), "p").unwrap();
-        let song = project.root().join("songs/main.js");
-        for out in ["rel/a.mp3", "/abs/b.wav"] {
-            assert_eq!(
-                resolve_output(Some(Path::new(out)), &song, &section("body"), Format::Ogg)
-                    .unwrap()
-                    .path(),
-                Path::new(out)
-            );
-        }
-        // Nothing was created for an explicit path.
-        assert_eq!(
-            std::fs::read_dir(project.root().join("renders"))
-                .unwrap()
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn a_project_song_goes_to_renders() {
-        let dir = tempfile::tempdir().unwrap();
-        let project = Project::create(&dir.path().join("p"), "p").unwrap();
-        let root = project.root().to_path_buf();
-        let song = root.join("songs/main.js");
-        let path = |length: LengthRequest, format| {
-            resolve_output(None, &song, &length, format).map(|t| t.path)
-        };
-        let renders = root.join("renders");
-        for (length, format, name) in [
-            (clip(), Format::Wav, "main.wav"),
-            (section("the drop!"), Format::Opus, "main-the-drop.opus"),
-            // A short check or another loop count never replaces the whole song's file.
-            (
-                LengthRequest::Length { bars: 16 },
-                Format::Wav,
-                "main-len16.wav",
-            ),
-            (
-                LengthRequest::Clip { loops: Some(2) },
-                Format::Ogg,
-                "main-loops2.ogg",
-            ),
-            (
-                LengthRequest::Window {
-                    from_bar: 4,
-                    to_bar: 12,
-                    layout: Layout::Clip,
-                },
-                Format::Wav,
-                "main-bars4-12.wav",
-            ),
-        ] {
-            let want = renders.join(name);
-            assert_eq!(path(length.clone(), format).unwrap(), want, "{length:?}");
-        }
-        // A section name with nothing left after slugging is an error naming the project path.
-        let e = path(section("!!"), Format::Mp3).unwrap_err();
-        assert!(matches!(e, RenderError::Io { .. }), "{e:?}");
-        assert_eq!(
-            e.to_string(),
-            format!(
-                "{}: invalid render name \"!!\"",
-                root.join("renders").display()
-            )
-        );
-    }
-
-    #[test]
-    fn renders_is_created_only_when_the_file_is_written() {
-        let dir = tempfile::tempdir().unwrap();
-        let project = Project::create(&dir.path().join("p"), "p").unwrap();
-        let root = project.root().to_path_buf();
-        std::fs::remove_dir(root.join("renders")).unwrap();
-        let song = root.join("songs/main.js");
-        let target = resolve_output(None, &song, &clip(), Format::Mp3).unwrap();
-        assert_eq!(target.path(), root.join("renders/main.mp3"));
-        assert!(!root.join("renders").exists());
-        let written = write_output(&output(b"mp3"), &target, &|_| {}).unwrap();
-        assert_eq!(written, root.join("renders/main.mp3"));
-        assert_eq!(std::fs::read(&written).unwrap(), b"mp3");
-    }
-
-    #[test]
-    fn a_song_outside_a_project_needs_out() {
-        let dir = tempfile::tempdir().unwrap();
-        // No project.json.
-        let songs = dir.path().join("songs");
-        std::fs::create_dir(&songs).unwrap();
-        let song = songs.join("a.js");
-        std::fs::write(&song, "").unwrap();
-        let loose = dir.path().join("b.js");
-        std::fs::write(&loose, "").unwrap();
-        for song in [song, loose, dir.path().join("missing.js")] {
-            assert_eq!(
-                usage(resolve_output(None, &song, &clip(), Format::Wav)),
-                (
-                    "--out",
-                    format!(
-                        "--out is required: {} is not in a strudeland project",
-                        song.display()
-                    )
-                )
-            );
-        }
     }
 }

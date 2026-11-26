@@ -43,14 +43,9 @@ pub use options::{
     BitDepth, DEFAULT_MAX_JOBS, DEFAULT_TARGET_LUFS, DEFAULT_TRUE_PEAK_DB, EncoderOptions, Format,
     Loudness, Mp3Mode, OnOff, OutputOptions, RenderOptions,
 };
-pub use output::{
-    OutputTarget, resolve_export_output, resolve_format, resolve_output, write_output,
-};
+pub use output::{OutputTarget, resolve_format, write_output};
 pub use render::MAX_WARNINGS;
-pub use stems::{
-    StemExport, StemGrouping, StemTarget, render_stems, resolve_project_stem_output,
-    resolve_stem_output, resolve_stem_output_in,
-};
+pub use stems::{StemExport, StemGrouping, StemTarget};
 pub use strudeland_host::{
     ExportPreset, HostError, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC, timeout_from_secs,
 };

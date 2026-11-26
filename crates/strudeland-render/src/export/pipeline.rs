@@ -42,7 +42,7 @@ pub trait Pipeline {
     }
 }
 
-/// The real pipeline: [`crate::render`], [`crate::render_export`] and [`crate::render_stems`].
+/// The real pipeline: [`crate::render`], [`crate::render_export`] and [`crate::stems::render_stems`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RealPipeline;
 
@@ -74,6 +74,6 @@ impl Pipeline for RealPipeline {
         target: &StemTarget,
         progress: &dyn Fn(Progress),
     ) -> Result<StemExport, RenderError> {
-        crate::render_stems(code, opts, grouping, target, progress)
+        crate::stems::render_stems(code, opts, grouping, target, progress)
     }
 }

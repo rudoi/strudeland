@@ -129,8 +129,8 @@ the V8 download the host brings.
   the `SongError`-returning song commands, and the `prefs_get`/`prefs_set` commands),
   `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events).
   Further crates go in `crates/` and are added to the root `Cargo.toml` workspace.
-- Desktop audio export in `src/lib/export/` and `src-tauri/src/export_audio.rs` uses the shared
-  `strudeland-render` pipeline. The dialog captures the active editor source, previews resolved
+- Desktop audio export in `src/lib/export/` and `src-tauri/src/export_audio.rs` runs
+  `strudeland_render::export` with the create-new replace policy. The dialog captures the active editor source, previews resolved
   output paths, and receives progress over a channel. Only the export API calls Tauri for this
   feature. The native command confirms replacements and atomically publishes new files without
   replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
@@ -249,13 +249,16 @@ the V8 download the host brings.
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
   library: `plan` (host to jobs, refusal of unsupported material), `render` (the worker pool),
   `join` (sample-exact joiner), `level/` (`loudness.rs`, `true_peak.rs`, `limiter.rs`), `encode/`
-  (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `export`
+  (`wav`, `mp3`, `ogg`, `opus`, `verify` decoders, the true-peak correction loop), `loop_export`
   (one-time loop openings, isolated repeats with post-roll folding, and shared static gain),
+  `export/` (the export module both the CLI and the app run: request, destinations, the role
+  table, preview, the replace policies, ordered publish and the partial write, behind the
+  `Pipeline` seam; `testing::FakePipeline` is its fake),
   `stems` (directory and buffer limits, pre-master float WAV sets and manifest), `output`
   (default paths, atomic write), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness
   binary (`render`, `bench`); its README has the formats, defaults and licences, and
   `tests/vectors/` is written by `render:vectors`. `crates/strudeland-cli/src/render.rs` is
-  `strudeland render` (options, progress, summary, exit codes). `scripts/render/batch-render.ts`
+  `strudeland render` (flag rules, the export adapter, progress, summary, exit codes). `scripts/render/batch-render.ts`
   and `loudness-vectors.ts` are the harness side (`--planner batch`, `render:vectors`);
   `crates/strudeland-project` also gives songs their project lookup and `renders/` paths.
   The engine's `stems` module captures orbit, labeled voice and resolved instrument groups

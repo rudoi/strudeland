@@ -68,3 +68,29 @@ _Avoid_: recording (for the act), session
 
 A voice memo that is loading or playing back, with or without song backing.
 _Avoid_: playing memo, memo playback (for the state)
+
+## Audio export
+
+**Export request**
+
+What one export renders: the song, its length request, and either a mix (with an optional
+preset and its output options) or a stem set (with its grouping).
+_Avoid_: render job, export plan
+
+**Destination**
+
+Where an export's files go: an explicit path, a chosen folder, or a project's `renders/`. The
+same destination names a mix's files and a stem set's directory differently.
+_Avoid_: target (one resolved file), output
+
+**Role**
+
+What one file of a mix export is for: `single`, `intro` or `loop`. A preset fixes its roles
+and their order.
+_Avoid_: part, kind
+
+**Stem set**
+
+One directory holding a pre-master reference mix, a float WAV per group and a `stems.json`
+manifest, rendered together and never replaced.
+_Avoid_: stems folder, stem export (the action)

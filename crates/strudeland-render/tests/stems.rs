@@ -7,10 +7,52 @@ use common::{Recorder, options, window};
 use serde_json::Value;
 use strudeland_engine::wav::{DecodedWav, read_f32};
 use strudeland_host::Layout;
+use strudeland_render::export;
 use strudeland_render::{
-    Progress, RenderError, RenderOptions, StemGrouping, render_audio, render_stems,
-    resolve_project_stem_output, resolve_stem_output,
+    Progress, RenderError, RenderOptions, StemExport, StemGrouping, render_audio,
 };
+
+fn request(opts: &RenderOptions, grouping: StemGrouping, song: &Path) -> export::Request {
+    export::Request {
+        song: song.into(),
+        length: opts.length.clone(),
+        kind: export::Kind::Stems { grouping },
+        jobs: opts.jobs,
+        plan_timeout: opts.plan_timeout,
+    }
+}
+
+/// Prepares and runs a stem set into `dir`, forwarding pipeline progress.
+fn stems(
+    code: &str,
+    opts: &RenderOptions,
+    grouping: StemGrouping,
+    dir: &Path,
+    progress: &dyn Fn(Progress),
+) -> Result<StemExport, RenderError> {
+    let prepared = export::prepare(
+        request(opts, grouping, Path::new("song.js")),
+        export::Destination::Explicit(dir.into()),
+    )
+    .map_err(RenderError::from)?;
+    match prepared.run(
+        &mut export::RealPipeline,
+        code,
+        export::ReplacePolicy::Always,
+        None,
+        opts.instruments.clone(),
+        &|e| {
+            if let export::Event::Pipeline(p) = e {
+                progress(p)
+            }
+        },
+    ) {
+        Ok(export::Finished::Stems { export, .. }) => Ok(export),
+        Ok(_) => panic!("expected a stem set"),
+        Err(export::RunError::Failed(e)) => Err(e.into()),
+        Err(export::RunError::PartialWrite(p)) => Err(p.source.into()),
+    }
+}
 
 fn wav(path: &Path) -> DecodedWav {
     read_f32(&fs::read(path).unwrap()).unwrap()
@@ -23,8 +65,7 @@ fn stems_share_the_mixed_clip_grid_across_a_range_wrap() {
     let opts = options(window(10, 14, Layout::Clip));
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path().join("stems");
-    let target = resolve_stem_output(Some(&dir), Path::new("song.js"), &opts.length).unwrap();
-    let result = render_stems(song, &opts, StemGrouping::Orbit, &target, &|_| {}).unwrap();
+    let result = stems(song, &opts, StemGrouping::Orbit, &dir, &|_| {}).unwrap();
     // E, F1, F1, F1 = 4/4 + 4/4 + 4/4 + 3/8 = 13.5 quarter notes.
     assert_eq!(result.summary.frames, 297_675);
     let mix = render_audio(song, &opts, &|_| {}).unwrap();
@@ -52,13 +93,14 @@ stack(lead, bass)
     let reference = render_audio(code, &opts, &|_| {}).unwrap();
     assert!(reference.summary.chunks > 1);
     let run = |opts: &RenderOptions, name| {
-        let target = resolve_stem_output(
-            Some(&temp.path().join(name)),
-            Path::new("song.js"),
-            &opts.length,
+        stems(
+            code,
+            opts,
+            StemGrouping::Voice,
+            &temp.path().join(name),
+            &|_| {},
         )
-        .unwrap();
-        render_stems(code, opts, StemGrouping::Voice, &target, &|_| {}).unwrap()
+        .unwrap()
     };
     let one = run(&opts, "one");
     opts.jobs = Some(2);
@@ -111,17 +153,22 @@ fn a_competing_manifest_leaves_published_files_and_reports_the_conflict() {
     let tmp = tempfile::tempdir().unwrap();
     let directory = tmp.path().join("stems");
     let opts = options(window(0, 1, Layout::Linear));
-    let target = resolve_stem_output(Some(&directory), Path::new("song.js"), &opts.length).unwrap();
     let manifest = directory.join("stems.json");
     let recorder = Recorder::new();
-    let result = render_stems("s('sine')", &opts, StemGrouping::Orbit, &target, &|event| {
-        if let Progress::Written { path } = &event
-            && path.ends_with("mix.wav")
-        {
-            fs::write(&manifest, b"competing file").unwrap();
-        }
-        recorder.record(event);
-    });
+    let result = stems(
+        "s('sine')",
+        &opts,
+        StemGrouping::Orbit,
+        &directory,
+        &|event| {
+            if let Progress::Written { path } = &event
+                && path.ends_with("mix.wav")
+            {
+                fs::write(&manifest, b"competing file").unwrap();
+            }
+            recorder.record(event);
+        },
+    );
     let error = result.expect_err("a competing manifest must prevent completion");
     assert!(
         matches!(&error, RenderError::Io { path, source }
@@ -141,7 +188,13 @@ fn a_competing_manifest_leaves_published_files_and_reports_the_conflict() {
         written,
         [directory.join("mix.wav"), directory.join("stem-001.wav")]
     );
-    assert!(target.check_available().is_err());
+    assert!(
+        export::prepare_previewed(
+            request(&opts, StemGrouping::Orbit, Path::new("song.js")),
+            export::Destination::Explicit(directory.clone())
+        )
+        .is_err()
+    );
 }
 
 #[cfg(unix)]
@@ -151,17 +204,22 @@ fn replacing_the_reserved_directory_cannot_complete_an_incomplete_set() {
     let directory = tmp.path().join("stems");
     let moved = tmp.path().join("moved");
     let opts = options(window(0, 1, Layout::Linear));
-    let target = resolve_stem_output(Some(&directory), Path::new("song.js"), &opts.length).unwrap();
     let recorder = Recorder::new();
-    let result = render_stems("s('sine')", &opts, StemGrouping::Orbit, &target, &|event| {
-        if let Progress::Written { path } = &event
-            && path.ends_with("mix.wav")
-        {
-            fs::rename(&directory, &moved).unwrap();
-            fs::create_dir(&directory).unwrap();
-        }
-        recorder.record(event);
-    });
+    let result = stems(
+        "s('sine')",
+        &opts,
+        StemGrouping::Orbit,
+        &directory,
+        &|event| {
+            if let Progress::Written { path } = &event
+                && path.ends_with("mix.wav")
+            {
+                fs::rename(&directory, &moved).unwrap();
+                fs::create_dir(&directory).unwrap();
+            }
+            recorder.record(event);
+        },
+    );
     assert!(matches!(result, Err(RenderError::Io { path, source })
         if path == directory && source.to_string().contains("reserved render directory changed")));
     assert!(moved.join("mix.wav").is_file());
@@ -182,14 +240,27 @@ fn project_path_is_previewable_and_silence_produces_only_a_mix() {
     let project = strudeland_project::Project::create(&tmp.path().join("project"), "test").unwrap();
     let song = project.root().join("songs/unsaved.js");
     let opts = options(window(0, 1, Layout::Linear));
-    let target = resolve_project_stem_output(&project, &song, &opts.length).unwrap();
-    assert_eq!(
-        target.path(),
-        project.root().join("renders/unsaved-bars0-1-stems")
+    let (prepared, preview) = export::prepare_previewed(
+        request(&opts, StemGrouping::Orbit, &song),
+        export::Destination::project(project.clone()),
+    )
+    .unwrap();
+    let directory = project.root().join("renders/unsaved-bars0-1-stems");
+    assert!(
+        matches!(&preview, export::Preview::Stems { directory: d } if d == &directory),
+        "{preview:?}"
     );
-    target.check_available().unwrap();
-    assert!(!target.path().exists());
-    let output = render_stems("s('~')", &opts, StemGrouping::Orbit, &target, &|_| {}).unwrap();
+    assert!(!directory.exists());
+    let Ok(export::Finished::Stems { export: output, .. }) = prepared.run(
+        &mut export::RealPipeline,
+        "s('~')",
+        export::ReplacePolicy::Always,
+        None,
+        opts.instruments.clone(),
+        &|_| {},
+    ) else {
+        panic!("expected a stem set");
+    };
     assert_eq!(output.files.len(), 2);
     assert!(
         wav(&output.files[0])
