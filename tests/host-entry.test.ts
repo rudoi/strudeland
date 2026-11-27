@@ -242,14 +242,14 @@ test('planRender: includeEvents adds the schedule events', async () => {
   expect(planned.events.map((e: any) => e.note)).toEqual(['c', 'e', 'c', 'e']);
 });
 
-test('planRender: a length error arrives as kind meta with its flag', async () => {
+test('planRender: a length error arrives as kind meta with its problem', async () => {
   const h = host();
   const r = await h.call('planRender', SONG, renderRequest({ kind: 'clip' }));
   expect(r).toEqual({
     ok: false,
     kind: 'meta',
     error: 'this song has no sections; pass --length N to say how many bars to render',
-    flag: '--length',
+    length: { code: 'noSections' },
   });
   expect(h.get('__strudelandRender')).toBeUndefined();
   const section = await host().call(
@@ -257,22 +257,24 @@ test('planRender: a length error arrives as kind meta with its flag', async () =
     SONG,
     renderRequest({ kind: 'section', name: 'a' }),
   );
-  expect([section.kind, section.flag]).toEqual(['meta', '--section']);
+  expect([section.kind, section.length]).toEqual(['meta', { code: 'sectionWithoutSections' }]);
+  // The slot no longer carries the old flag.
+  expect(['flag' in r, 'flag' in section]).toEqual([false, false]);
 });
 
-test('planRender: other failures carry no flag', async () => {
+test('planRender: other failures carry no length problem', async () => {
   const meta = await host().call(
     'planRender',
     'const meta = { bpm: \'x\' };\nnote("c")',
     renderRequest({ kind: 'length', bars: 2 }),
   );
-  expect([meta.ok, meta.kind, 'flag' in meta]).toEqual([false, 'meta', false]);
+  expect([meta.ok, meta.kind, 'length' in meta]).toEqual([false, 'meta', false]);
   const evalErr = await host().call(
     'planRender',
     'note("c").nope()',
     renderRequest({ kind: 'length', bars: 2 }),
   );
-  expect([evalErr.kind, 'flag' in evalErr]).toEqual(['eval', false]);
+  expect([evalErr.kind, 'length' in evalErr]).toEqual(['eval', false]);
 });
 
 test('planRender: a bad request is kind plan', async () => {
@@ -289,7 +291,11 @@ test('planRender: a bad request is kind plan', async () => {
   ];
   for (const [bad, needle] of cases) {
     const r = await host().call('planRender', SONG, bad);
-    expect({ bad, kind: r.kind, flag: r.flag }).toEqual({ bad, kind: 'plan', flag: undefined });
+    expect({ bad, kind: r.kind, length: r.length }).toEqual({
+      bad,
+      kind: 'plan',
+      length: undefined,
+    });
     expect(r.error).toStartWith('bad request: ');
     expect(r.error).toContain(needle);
   }

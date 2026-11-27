@@ -8,8 +8,8 @@ use strudeland_host::HostError;
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     /// Planning failed (any `HostError`, including `MetaFlag` and `Timeout`). Display is the
-    /// host error's text, except a `MetaFlag` prints just its message (no `meta:` prefix): it is
-    /// advice for the user ("pass --length N ...").
+    /// host error's text, except a `MetaFlag` prints just its message, the planner's advice for
+    /// the user, without the `meta:` prefix ("pass --length N ...").
     #[error("{}", plan_text(.0))]
     Plan(#[from] HostError),
     /// Nothing was rendered: the song uses material the engine cannot play (sorted, one line
@@ -59,7 +59,7 @@ impl RenderError {
         RenderError::Render(message.into())
     }
 
-    /// `Usage` for [`RenderError::Usage`] and a planning failure that names a flag
+    /// `Usage` for [`RenderError::Usage`] and a planning failure of the length request
     /// ([`HostError::MetaFlag`]); `Failed` for everything else.
     pub fn exit_class(&self) -> ExitClass {
         match self {
@@ -101,6 +101,7 @@ fn display_unsupported(list: &[Unsupported]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strudeland_host::LengthProblem;
 
     fn unsupported(s: &str, keys: &[&str], bar: i64, section: Option<&str>) -> Unsupported {
         Unsupported {
@@ -126,7 +127,7 @@ mod tests {
             ),
             (
                 RenderError::Plan(HostError::MetaFlag {
-                    flag: "--length".into(),
+                    problem: LengthProblem::NoSections,
                     message: "pass --length N".into(),
                 }),
                 "pass --length N",

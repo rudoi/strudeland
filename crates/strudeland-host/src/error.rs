@@ -1,11 +1,13 @@
 //! The host's error type.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Why a host request failed. `Meta`, `Eval` and `Plan` carry the text of the bundle's result
 /// slot whose `kind` matched (the song's `meta` header, its evaluation, or the query and plan);
-/// `MetaFlag` is a `meta` failure of a render's length request that names the CLI flag at fault
-/// (`--length`, `--section`, `--loops`, `--preset`); `Timeout` is a planning that ran past its deadline;
+/// `MetaFlag` is a `meta` failure of a render's length request: its typed [`LengthProblem`] and the
+/// planner's message ([`LengthProblem::flag`] names the CLI flag at fault: `--length`, `--section`,
+/// `--loops`, `--preset`); `Timeout` is a planning that ran past its deadline;
 /// `Unsettled` is an empty slot after the microtask drain (a promise still pending, for example
 /// an `await` on a timer, which never fires); `Runtime` is everything outside the entry: the
 /// bundle failing to load, an exception thrown outside the entry, a native failure, or a thread
@@ -15,7 +17,10 @@ pub enum HostError {
     #[error("meta: {0}")]
     Meta(String),
     #[error("meta: {message}")]
-    MetaFlag { flag: String, message: String },
+    MetaFlag {
+        problem: LengthProblem,
+        message: String,
+    },
     #[error("eval: {0}")]
     Eval(String),
     #[error("plan: {0}")]
@@ -28,6 +33,73 @@ pub enum HostError {
     Runtime(String),
     #[error("timeout: planning did not finish within {} s", millis_as_secs(*.millis))]
     Timeout { millis: u64 },
+}
+
+/// A render's length request the song cannot satisfy (`LengthProblem` in `job-plan.ts`), as
+/// the bundle's result slot carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "code",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum LengthProblem {
+    /// A loop preset combined with a section, a length or a loop count.
+    PresetWithLength,
+    /// A loop count on a song that marks no loop.
+    LoopsWithoutLoop,
+    /// A loop count the structure refuses, with its message.
+    LoopsInvalid { message: String },
+    /// The whole clip of a song without sections.
+    NoSections,
+    /// A loop count that makes the clip longer than the render limit.
+    LoopsPastLimit {
+        loops: u32,
+        clip_bars: u64,
+        limit: u64,
+    },
+    /// The whole clip, longer than the render limit; `has_loop` when the song marks a loop.
+    ClipPastLimit {
+        clip_bars: u64,
+        limit: u64,
+        has_loop: bool,
+    },
+    /// A section of a song without sections.
+    SectionWithoutSections,
+    /// A section the song does not have, with the song's section names.
+    UnknownSection { name: String, sections: Vec<String> },
+    /// A section (or a single-section loop) that ends past the render limit.
+    SectionPastLimit {
+        name: String,
+        to_bar: u64,
+        limit: u64,
+    },
+    /// A length in bars past the end of the song's clip.
+    LengthPastEnd { bars: u64, clip_bars: u64 },
+    /// A loop preset on a song that marks no loop.
+    PresetWithoutLoop,
+    /// A loop preset whose loop range ends past the render limit.
+    LoopPastLimit { end: u64, limit: u64 },
+}
+
+impl LengthProblem {
+    /// The CLI flag the problem is about (`lengthFlag` in `job-plan.ts`).
+    pub fn flag(&self) -> &'static str {
+        match self {
+            LengthProblem::PresetWithLength
+            | LengthProblem::PresetWithoutLoop
+            | LengthProblem::LoopPastLimit { .. } => "--preset",
+            LengthProblem::LoopsWithoutLoop
+            | LengthProblem::LoopsInvalid { .. }
+            | LengthProblem::LoopsPastLimit { .. } => "--loops",
+            LengthProblem::NoSections
+            | LengthProblem::ClipPastLimit { .. }
+            | LengthProblem::LengthPastEnd { .. } => "--length",
+            LengthProblem::SectionWithoutSections
+            | LengthProblem::UnknownSection { .. }
+            | LengthProblem::SectionPastLimit { .. } => "--section",
+        }
+    }
 }
 
 /// Whole milliseconds as seconds, for `Display`.
@@ -74,7 +146,7 @@ mod tests {
             assert_eq!(err.to_string(), text, "{err:?}");
         }
         let flagged = HostError::MetaFlag {
-            flag: "--length".into(),
+            problem: LengthProblem::NoSections,
             message: "pass --length N".into(),
         };
         assert_eq!(flagged.kind(), "meta");
@@ -99,9 +171,131 @@ mod tests {
         assert!(!HostError::Plan("query before a successful evaluate".into()).is_bad_request());
         assert!(!HostError::Meta("bad request: x".into()).is_bad_request());
         let flagged = HostError::MetaFlag {
-            flag: "--loops".into(),
+            problem: LengthProblem::LoopsWithoutLoop,
             message: "bad request: x".into(),
         };
         assert!(!flagged.is_bad_request());
+    }
+
+    /// One example of each code, as the TS planner writes it, with its flag.
+    fn examples() -> Vec<(&'static str, LengthProblem, &'static str)> {
+        vec![
+            (
+                r#"{"code":"presetWithLength"}"#,
+                LengthProblem::PresetWithLength,
+                "--preset",
+            ),
+            (
+                r#"{"code":"loopsWithoutLoop"}"#,
+                LengthProblem::LoopsWithoutLoop,
+                "--loops",
+            ),
+            (
+                r#"{"code":"loopsInvalid","message":"x"}"#,
+                LengthProblem::LoopsInvalid {
+                    message: "x".into(),
+                },
+                "--loops",
+            ),
+            (
+                r#"{"code":"noSections"}"#,
+                LengthProblem::NoSections,
+                "--length",
+            ),
+            (
+                r#"{"code":"loopsPastLimit","loops":1000,"clipBars":10000002,"limit":100000}"#,
+                LengthProblem::LoopsPastLimit {
+                    loops: 1000,
+                    clip_bars: 10000002,
+                    limit: 100000,
+                },
+                "--loops",
+            ),
+            (
+                r#"{"code":"clipPastLimit","clipBars":110000,"limit":100000,"hasLoop":true}"#,
+                LengthProblem::ClipPastLimit {
+                    clip_bars: 110000,
+                    limit: 100000,
+                    has_loop: true,
+                },
+                "--length",
+            ),
+            (
+                r#"{"code":"sectionWithoutSections"}"#,
+                LengthProblem::SectionWithoutSections,
+                "--section",
+            ),
+            (
+                r#"{"code":"unknownSection","name":"drop","sections":["intro","body","tail"]}"#,
+                LengthProblem::UnknownSection {
+                    name: "drop".into(),
+                    sections: vec!["intro".into(), "body".into(), "tail".into()],
+                },
+                "--section",
+            ),
+            (
+                r#"{"code":"sectionPastLimit","name":"s10","toBar":110000,"limit":100000}"#,
+                LengthProblem::SectionPastLimit {
+                    name: "s10".into(),
+                    to_bar: 110000,
+                    limit: 100000,
+                },
+                "--section",
+            ),
+            (
+                r#"{"code":"lengthPastEnd","bars":9,"clipBars":8}"#,
+                LengthProblem::LengthPastEnd {
+                    bars: 9,
+                    clip_bars: 8,
+                },
+                "--length",
+            ),
+            (
+                r#"{"code":"presetWithoutLoop"}"#,
+                LengthProblem::PresetWithoutLoop,
+                "--preset",
+            ),
+            (
+                r#"{"code":"loopPastLimit","end":110000,"limit":100000}"#,
+                LengthProblem::LoopPastLimit {
+                    end: 110000,
+                    limit: 100000,
+                },
+                "--preset",
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_length_problem_round_trips() {
+        let examples = examples();
+        assert_eq!(examples.len(), 12);
+        for (json, problem, _) in &examples {
+            let read: LengthProblem = serde_json::from_str(json).expect(json);
+            assert_eq!(&read, problem, "{json}");
+            assert_eq!(serde_json::to_string(&read).unwrap(), *json);
+        }
+    }
+
+    #[test]
+    fn every_length_problem_names_its_flag() {
+        for (json, problem, flag) in examples() {
+            assert_eq!(problem.flag(), flag, "{json}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_code_or_a_bad_param_is_rejected() {
+        for json in [
+            r#"{"code":"nope"}"#,
+            r#"{"code":"lengthPastEnd","bars":-1,"clipBars":8}"#,
+            r#"{"code":"lengthPastEnd","bars":9}"#,
+            r#"{"code":"clipPastLimit","clipBars":1.5,"limit":100000,"hasLoop":true}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<LengthProblem>(json).is_err(),
+                "{json}"
+            );
+        }
     }
 }

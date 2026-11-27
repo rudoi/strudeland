@@ -295,7 +295,8 @@ the V8 download the host brings.
   bar it schedules, `sections`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
   builds the `AssembledWindow` for `--planner batch`), `chunks.ts` `renderChunkPlans`. `crates/strudeland-host/` also has
   `plan_render` (the `plan-render` subcommand), the planning timeout (a watchdog thread,
-  `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
+  `HostError::Timeout`) and `HostError::MetaFlag` (a length request the song cannot satisfy: its
+  typed `LengthProblem` and the planner's message). `crates/strudeland-render/` the pipeline as a
   library: `plan` (host to jobs, refusal of unsupported material, its sections named from the
   plan's `sections`; the only V8 caller) and
   `render_planned` (in `pipeline_audio`: a plan to joined audio through an injected chunk renderer),
@@ -306,7 +307,8 @@ the V8 download the host brings.
   `loop_export` (the presets' public types and `finish_export`: one-time loop openings, isolated
   repeats with post-roll folding, and shared static gain),
   `export/` (the export module both the CLI and the app run: request, destinations, the role
-  table, preview, the replace policies, ordered publish and the partial write, behind the
+  table, preview, the replace policies, ordered publish and the partial write, the dialog
+  wording of the planner's length problems (`wording.rs`, `dialog_text`), behind the
   `Pipeline` seam; `testing::FakePipeline` is its fake),
   `stems` (directory and buffer limits, pre-master float WAV sets and manifest), `output`
   (the suffixes, `OutputTarget` and the atomic write; `export/` resolves destinations), `options`, `summary` (progress and the summary), `bench`, and the `strudeland-render` harness

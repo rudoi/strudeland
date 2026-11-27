@@ -22,7 +22,7 @@ mod planned;
 mod request;
 
 pub use engine::v8_version;
-pub use error::HostError;
+pub use error::{HostError, LengthProblem};
 pub use host::Host;
 pub use inspection::{
     InspectedNote, InspectionRequest, InspectionResult, InspectionView, SourceSpan,

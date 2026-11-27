@@ -17,7 +17,8 @@ module state leaks from one song to the next.
   `Host::query(code, from, to, Layout)` (the events of a cycle window as JSON) and
   `Host::eval_script(source)` (a script in a fresh context, without the bundle). `Host` is
   `Send + Sync`; calls on one `Host` are served one at a time. Errors are `HostError`: `Meta`
-  (`MetaFlag`: a `meta` failure of a render's length request that names the flag at fault),
+  (`MetaFlag`: a `meta` failure of a render's length request, with its typed `LengthProblem`
+  and the planner's message),
   `Eval`, `Plan`, `Unsettled` (the song's promises never settled), `Timeout` and `Runtime`.
 - The `strudeland-host` binary, which `render:check --planner host` and `host:parity` run:
 
@@ -61,8 +62,8 @@ project pin IDs to validated instrument definitions. Requests without pins omit 
 The bundle's `planRender` (`src/lib/render/job-plan.ts`):
 
 1. resolves the length request against the song's `meta` (a clip with `loops`, a section, the
-   first N bars, or an explicit window); one the song cannot satisfy is `HostError::MetaFlag` and
-   names the CLI flag (`--length`, `--section`, `--loops`);
+   first N bars, or an explicit window); one the song cannot satisfy is `HostError::MetaFlag`,
+   whose `LengthProblem` names the CLI flag (`--length`, `--section`, `--loops`, `--preset`);
 2. evaluates the song once and selects the schedule for its render window;
 3. cuts that schedule at each chunk's end (the haps with an onset before it, original `index`
    kept) and plans each chunk's engine job (the chunk windows, seam overlap and lookback are the

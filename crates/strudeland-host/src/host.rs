@@ -11,7 +11,7 @@ use strudeland_project::InstrumentSnapshot;
 
 use crate::engine::{self, Arg, Session};
 use crate::inspection::{InspectionRequest, InspectionResult, MAX_ERROR_BYTES, MAX_RESULT_BYTES};
-use crate::{HostError, Layout, PlannedRender, RenderPlanRequest, natives};
+use crate::{HostError, Layout, LengthProblem, PlannedRender, RenderPlanRequest, natives};
 
 /// The worker thread's stack: deep enough for the transpiler on large songs.
 const WORKER_STACK: usize = 64 << 20;
@@ -92,7 +92,7 @@ impl Host {
     /// `request.timeout_sec` bounds the whole call ([`HostError::Timeout`]). An invalid
     /// instrument snapshot or timeout is [`HostError::Plan`] `invalid request: …`; a bad length
     /// request is the bundle's [`HostError::Plan`] `bad request: …`; a length request the song
-    /// cannot satisfy is [`HostError::MetaFlag`] naming the CLI flag.
+    /// cannot satisfy is [`HostError::MetaFlag`] with its [`LengthProblem`].
     pub fn plan_render(
         &self,
         code: &str,
@@ -205,14 +205,14 @@ impl Drop for Host {
 }
 
 /// The bundle's result slot (`globalThis.__strudelandResult`): `{ ok: true, value }` or
-/// `{ ok: false, kind, error, flag? }` (`flag` names the CLI flag of a length error).
+/// `{ ok: false, kind, error, length? }` (`length` is the typed problem of a length error).
 #[derive(Deserialize)]
 struct Slot {
     ok: bool,
     value: Option<String>,
     kind: Option<String>,
     error: Option<String>,
-    flag: Option<String>,
+    length: Option<LengthProblem>,
 }
 
 /// Reads the result slot after the drain: its value, or the error its `kind` names.
@@ -232,11 +232,11 @@ fn read_slot(text: &str) -> Result<String, HostError> {
             ok: false,
             kind: Some(kind),
             error: Some(error),
-            flag,
+            length,
             ..
-        } => Err(match (kind.as_str(), flag) {
-            ("meta", Some(flag)) => HostError::MetaFlag {
-                flag,
+        } => Err(match (kind.as_str(), length) {
+            ("meta", Some(problem)) => HostError::MetaFlag {
+                problem,
                 message: error,
             },
             ("meta", None) => HostError::Meta(error),
@@ -383,21 +383,30 @@ mod tests {
             Err(HostError::Plan("p".into()))
         );
         assert_eq!(
-            read_slot(r#"{"ok":false,"kind":"meta","error":"m","flag":"--length"}"#),
+            read_slot(r#"{"ok":false,"kind":"meta","error":"m","length":{"code":"noSections"}}"#),
             Err(HostError::MetaFlag {
-                flag: "--length".into(),
+                problem: LengthProblem::NoSections,
                 message: "m".into()
             })
         );
-        // Only `meta` carries a flag; on another kind it is ignored.
+        // Only `meta` carries a length problem; on another kind it is ignored.
         assert_eq!(
-            read_slot(r#"{"ok":false,"kind":"plan","error":"p","flag":"--length"}"#),
+            read_slot(r#"{"ok":false,"kind":"plan","error":"p","length":{"code":"noSections"}}"#),
             Err(HostError::Plan("p".into()))
         );
         assert_eq!(
-            read_slot(r#"{"ok":false,"kind":"meta","error":"m","flag":null}"#),
+            read_slot(r#"{"ok":false,"kind":"meta","error":"m","length":null}"#),
             Err(HostError::Meta("m".into()))
         );
+        // A stale bundle's untyped flag reads as the plain meta error.
+        assert_eq!(
+            read_slot(r#"{"ok":false,"kind":"meta","error":"m","flag":"--length"}"#),
+            Err(HostError::Meta("m".into()))
+        );
+        match read_slot(r#"{"ok":false,"kind":"meta","error":"m","length":{"code":"nope"}}"#) {
+            Err(HostError::Runtime(m)) => assert!(m.starts_with("malformed result slot"), "{m}"),
+            other => panic!("expected a malformed slot, got {other:?}"),
+        }
         assert_eq!(read_slot("null"), Err(HostError::Unsettled));
         assert_eq!(read_slot("undefined"), Err(HostError::Unsettled));
     }
@@ -410,7 +419,7 @@ mod tests {
             r#"{"ok":false,"value":"v"}"#,
             r#"{"ok":"yes","value":"v"}"#,
             r#"{"ok":true,"value":3}"#,
-            r#"{"ok":false,"kind":"meta","error":"m","flag":3}"#,
+            r#"{"ok":false,"kind":"meta","error":"m","length":3}"#,
             "3",
             "",
         ] {

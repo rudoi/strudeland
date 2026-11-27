@@ -6,10 +6,12 @@ import { chunkRequest, renderChunkPlans } from '../src/lib/render/chunks';
 import {
   cutSchedule,
   evaluateSong,
+  lengthFlag,
   PlanJobError,
   planRender,
   querySong,
   singleChunkRequest,
+  type LengthProblem,
   type LengthRequest,
   type PlannedRender,
   type PlannedSection,
@@ -631,6 +633,7 @@ describe('planRender length errors', () => {
       { kind: 'clip' },
       '--length',
       'this song has no sections; pass --length N to say how many bars to render',
+      { code: 'noSections' },
     ],
     [
       'section on a song without sections',
@@ -638,6 +641,7 @@ describe('planRender length errors', () => {
       { kind: 'section', name: 'main' },
       '--section',
       'this song has no sections; --section needs meta.sections',
+      { code: 'sectionWithoutSections' },
     ],
     [
       'an unknown section name',
@@ -645,6 +649,7 @@ describe('planRender length errors', () => {
       { kind: 'section', name: 'bridge' },
       '--section',
       "unknown section 'bridge' (sections: intro, main, outro)",
+      { code: 'unknownSection', name: 'bridge', sections: ['intro', 'main', 'outro'] },
     ],
     [
       'a length past the clip',
@@ -652,6 +657,7 @@ describe('planRender length errors', () => {
       { kind: 'length', bars: 25 },
       '--length',
       '--length 25 is past the end of the song (24 bars)',
+      { code: 'lengthPastEnd', bars: 25, clipBars: 24 },
     ],
     [
       'the largest length past a short clip',
@@ -659,6 +665,7 @@ describe('planRender length errors', () => {
       { kind: 'length', bars: 100000 },
       '--length',
       '--length 100000 is past the end of the song (24 bars)',
+      { code: 'lengthPastEnd', bars: 100000, clipBars: 24 },
     ],
     [
       'loops on a song without a loop section',
@@ -666,6 +673,7 @@ describe('planRender length errors', () => {
       { kind: 'clip', loops: 2 },
       '--loops',
       '--loops needs meta.loop or a section with loop: true in meta.sections',
+      { code: 'loopsWithoutLoop' },
     ],
     [
       'loops on a song without sections',
@@ -673,36 +681,39 @@ describe('planRender length errors', () => {
       { kind: 'clip', loops: 2 },
       '--loops',
       '--loops needs meta.loop or a section with loop: true in meta.sections',
+      { code: 'loopsWithoutLoop' },
     ],
-  ] as const)('%s', async (_name, code, length, flag, message) => {
+  ] as const)('%s', async (_name, code, length, flag, message, problem) => {
     const f = fakeRuntime();
     const e = await planError(planRender(f.rt, code, renderReq(length as LengthRequest), []));
     expect(e.kind).toBe('meta');
-    expect(e.flag).toBe(flag);
+    expect(e.problem).toEqual(problem as LengthProblem);
+    expect(lengthFlag(e.problem!)).toBe(flag);
     expect(e.message).toBe(message);
     // Length errors come before anything is queried.
     expect(f.calls.filter((c) => c.startsWith('query'))).toEqual([]);
   });
 
-  test('a header error is the plain meta error, without a flag', async () => {
+  test('a header error is the plain meta error, without a problem', async () => {
     const code = "const meta = { seed: 'a' };\nnote('c')";
     const metaError = headerError(code);
     const f = fakeRuntime();
     const e = await planError(planRender(f.rt, code, renderReq({ kind: 'length', bars: 2 }), []));
     expect(e.kind).toBe('meta');
-    expect(e.flag).toBeUndefined();
-    expect('flag' in e).toBe(false);
+    expect(e.problem).toBeUndefined();
+    expect('problem' in e).toBe(false);
     expect(e.message).toBe(
       `meta: ${metaError.message} (${metaError.line}:${metaError.column + 1})`,
     );
     expect(f.calls).toEqual([]);
   });
 
-  test('a failed evaluate is kind eval, without a flag', async () => {
+  test('a failed evaluate is kind eval, without a problem', async () => {
     const f = fakeRuntime({ evaluateResult: false, evalError: 'ReferenceError: y' });
     const e = await planError(planRender(f.rt, CODE, renderReq({ kind: 'length', bars: 2 }), []));
     expect(e).toMatchObject({ kind: 'eval', message: 'ReferenceError: y' });
-    expect(e.flag).toBeUndefined();
+    expect(e.problem).toBeUndefined();
+    expect('problem' in e).toBe(false);
   });
 
   test('a failing query is kind plan', async () => {
@@ -715,7 +726,8 @@ describe('planRender length errors', () => {
     const f = fakeRuntime({ cps: NaN, query: () => [] });
     const e = await planError(planRender(f.rt, CODE, renderReq({ kind: 'length', bars: 2 }), []));
     expect(e.kind).toBe('plan');
-    expect(e.flag).toBeUndefined();
+    expect(e.problem).toBeUndefined();
+    expect('problem' in e).toBe(false);
   });
 });
 
@@ -815,11 +827,12 @@ describe('planRender request validation', () => {
       { ...ok, length: { kind: 'window', fromBar: 0, toBar: 4, layout: 'loop' } },
       'bad request: unknown layout loop',
     ],
-  ] as const)('%s is kind plan without a flag', async (_name, request, message) => {
+  ] as const)('%s is kind plan without a problem', async (_name, request, message) => {
     const f = fakeRuntime();
     const e = await planError(planRender(f.rt, CODE, request as unknown as RenderPlanRequest, []));
     expect(e.kind).toBe('plan');
-    expect(e.flag).toBeUndefined();
+    expect(e.problem).toBeUndefined();
+    expect('problem' in e).toBe(false);
     expect(e.message).toBe(message);
     expect(f.calls).toEqual([]);
   });
@@ -902,11 +915,12 @@ describe('planRender chunk validation', () => {
       { ...ok, length: win(0, 0) },
       'bad request: length window must be integers with 0 <= fromBar < toBar <= 100000',
     ],
-  ] as const)('%s is kind plan without a flag', async (_name, request, message) => {
+  ] as const)('%s is kind plan without a problem', async (_name, request, message) => {
     const f = fakeRuntime();
     const e = await planError(planRender(f.rt, CODE, request as unknown as RenderPlanRequest, []));
     expect(e.kind).toBe('plan');
-    expect(e.flag).toBeUndefined();
+    expect(e.problem).toBeUndefined();
+    expect('problem' in e).toBe(false);
     expect(e.message).toBe(message);
     expect(f.calls).toEqual([]);
   });
@@ -1159,13 +1173,35 @@ describe('cutSchedule', () => {
   });
 });
 
-describe('PlanJobError flag', () => {
+describe('PlanJobError problem', () => {
   test('is set only when given', () => {
-    const flagged = new PlanJobError('meta', 'm', '--length');
-    expect(flagged.flag).toBe('--length');
-    expect(flagged.kind).toBe('meta');
+    const typed = new PlanJobError('meta', 'm', { code: 'noSections' });
+    expect(typed.problem).toEqual({ code: 'noSections' });
+    expect(typed.kind).toBe('meta');
     const plain = new PlanJobError('meta', 'm');
-    expect('flag' in plain).toBe(false);
+    expect(plain.problem).toBeUndefined();
+    expect('problem' in plain).toBe(false);
+  });
+});
+
+describe('lengthFlag', () => {
+  test('names the flag of every code', () => {
+    const examples: [LengthProblem, ReturnType<typeof lengthFlag>][] = [
+      [{ code: 'presetWithLength' }, '--preset'],
+      [{ code: 'loopsWithoutLoop' }, '--loops'],
+      [{ code: 'loopsInvalid', message: 'x' }, '--loops'],
+      [{ code: 'noSections' }, '--length'],
+      [{ code: 'loopsPastLimit', loops: 1000, clipBars: 10000002, limit: 100000 }, '--loops'],
+      [{ code: 'clipPastLimit', clipBars: 110000, limit: 100000, hasLoop: true }, '--length'],
+      [{ code: 'sectionWithoutSections' }, '--section'],
+      [{ code: 'unknownSection', name: 'drop', sections: ['intro', 'body', 'tail'] }, '--section'],
+      [{ code: 'sectionPastLimit', name: 's10', toBar: 110000, limit: 100000 }, '--section'],
+      [{ code: 'lengthPastEnd', bars: 9, clipBars: 8 }, '--length'],
+      [{ code: 'presetWithoutLoop' }, '--preset'],
+      [{ code: 'loopPastLimit', end: 110000, limit: 100000 }, '--preset'],
+    ];
+    expect(new Set(examples.map(([p]) => p.code)).size).toBe(12);
+    for (const [problem, flag] of examples) expect(lengthFlag(problem)).toBe(flag);
   });
 });
 
@@ -1441,9 +1477,10 @@ describe('planRender follows the evaluated structure', () => {
     );
     expect(e).toMatchObject({
       kind: 'meta',
-      flag: '--length',
+      problem: { code: 'lengthPastEnd', bars: 71, clipBars: 70 },
       message: '--length 71 is past the end of the song (70 bars)',
     });
+    expect(lengthFlag(e.problem!)).toBe('--length');
     // A header without sections whose song registers some has a clip.
     const clip = await planRender(
       fakeRuntime({ structure: evaluated }).rt,
@@ -1473,6 +1510,7 @@ describe('planRender render limit', () => {
       { kind: 'clip' },
       '--length',
       "the song's clip is 110000 bars, past the render limit of 100000 bars; pass --length N or --loops N",
+      { code: 'clipPastLimit', clipBars: 110000, limit: 100000, hasLoop: true },
     ],
     [
       'a clip of meta.loops passes',
@@ -1480,6 +1518,7 @@ describe('planRender render limit', () => {
       { kind: 'clip' },
       '--length',
       "the song's clip is 110000 bars, past the render limit of 100000 bars; pass --length N or --loops N",
+      { code: 'clipPastLimit', clipBars: 110000, limit: 100000, hasLoop: true },
     ],
     [
       'a clip of --loops passes',
@@ -1487,6 +1526,7 @@ describe('planRender render limit', () => {
       { kind: 'clip', loops: 1000 },
       '--loops',
       '--loops 1000 makes the clip 10010000 bars, past the render limit of 100000 bars',
+      { code: 'loopsPastLimit', loops: 1000, clipBars: 10010000, limit: 100000 },
     ],
     [
       'a section ending past the limit',
@@ -1494,11 +1534,14 @@ describe('planRender render limit', () => {
       { kind: 'section', name: 's10' },
       '--section',
       "section 's10' ends at bar 110000, past the render limit of 100000 bars",
+      { code: 'sectionPastLimit', name: 's10', toBar: 110000, limit: 100000 },
     ],
-  ] as const)('%s is a flagged meta error', async (_name, code, length, flag, message) => {
+  ] as const)('%s is a typed meta error', async (_name, code, length, flag, message, problem) => {
     const f = fakeRuntime({ query: () => [] });
     const e = await planError(planRender(f.rt, code, renderReq(length as LengthRequest), []));
-    expect(e).toMatchObject({ kind: 'meta', flag, message });
+    expect(e).toMatchObject({ kind: 'meta', message });
+    expect(e.problem).toEqual(problem as LengthProblem);
+    expect(lengthFlag(e.problem!)).toBe(flag);
     expect(f.calls.filter((c) => c.startsWith('query'))).toEqual([]);
   });
 
@@ -1511,6 +1554,13 @@ describe('planRender render limit', () => {
     expect(e.message).toBe(
       "the song's clip is 110000 bars, past the render limit of 100000 bars; pass --length N",
     );
+    expect(e.problem).toEqual({
+      code: 'clipPastLimit',
+      clipBars: 110000,
+      limit: 100000,
+      hasLoop: false,
+    });
+    expect(lengthFlag(e.problem!)).toBe('--length');
   });
 
   test('a clip and a section ending at the limit are planned', async () => {
@@ -1643,19 +1693,66 @@ describe('loop export windows and decay', () => {
     expect(split.chunks).toHaveLength(1);
   });
 
-  test('length selection conflicts and missing loops are flagged before querying', async () => {
-    for (const length of [
-      clip,
-      { kind: 'length', bars: 1 },
-      { kind: 'section', name: 'count' },
-      { kind: 'clip', loops: 1 },
+  test('length selection conflicts and missing loops are typed before querying', async () => {
+    for (const [length, code] of [
+      [clip, 'presetWithoutLoop'],
+      [{ kind: 'length', bars: 1 }, 'presetWithLength'],
+      [{ kind: 'section', name: 'count' }, 'presetWithLength'],
+      [{ kind: 'clip', loops: 1 }, 'presetWithLength'],
     ] as const) {
       const f = fakeRuntime();
-      expect(await planError(run(f.rt, 'tagged-loop', length))).toMatchObject({
-        kind: 'meta',
-        flag: '--preset',
-      });
+      const e = await planError(run(f.rt, 'tagged-loop', length));
+      expect(e).toMatchObject({ kind: 'meta', problem: { code } });
+      expect(lengthFlag(e.problem!)).toBe('--preset');
       expect(f.queries).toEqual([]);
+    }
+  });
+
+  test('loop preset problems carry their code, flag and exact message', async () => {
+    const eleven = (extra: (i: number) => string, tail = '') =>
+      'const meta = { bpm: 120, sections: [' +
+      Array.from({ length: 11 }, (_, i) => `{ name: 's${i}', bars: 10000${extra(i)} }`).join(', ') +
+      `]${tail} };\nx`;
+    const cases: [string, LengthRequest, LengthProblem, ReturnType<typeof lengthFlag>, string][] = [
+      [
+        SECTIONS_CODE,
+        { kind: 'length', bars: 1 },
+        { code: 'presetWithLength' },
+        '--preset',
+        'loop presets cannot be combined with --section, --length or --loops',
+      ],
+      [
+        CODE,
+        clip,
+        { code: 'presetWithoutLoop' },
+        '--preset',
+        '--preset needs meta.loop or a section with loop: true in meta.sections',
+      ],
+      [
+        eleven(() => '', ", loop: { from: 's9', through: 's10' }"),
+        clip,
+        { code: 'loopPastLimit', end: 110000, limit: 100000 },
+        '--preset',
+        'the loop ends at bar 110000, past the render limit of 100000 bars',
+      ],
+      [
+        eleven((i) => (i === 10 ? ', loop: true' : '')),
+        clip,
+        { code: 'sectionPastLimit', name: 's10', toBar: 110000, limit: 100000 },
+        '--section',
+        "section 's10' ends at bar 110000, past the render limit of 100000 bars",
+      ],
+    ];
+    for (const [code, length, problem, flag, message] of cases) {
+      const f = fakeRuntime({ query: () => [] });
+      const e = await planError(
+        planRender(f.rt, code, renderReq(length, { preset: 'tagged-loop' }), []),
+      );
+      expect(e.kind).toBe('meta');
+      expect(e.problem).toEqual(problem);
+      expect(lengthFlag(e.problem!)).toBe(flag);
+      expect(e.message).toBe(message);
+      expect(f.calls.filter((c) => c.startsWith('query'))).toEqual([]);
     }
   });
 

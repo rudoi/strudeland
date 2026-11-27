@@ -18577,12 +18577,12 @@ Defaulting to 2020, but this will stop working in the future.`);
   // src/lib/render/job-plan.ts
   class PlanJobError extends Error {
     kind;
-    constructor(kind, message, flag) {
+    constructor(kind, message, problem) {
       super(message);
       this.kind = kind;
       this.name = "PlanJobError";
-      if (flag !== undefined)
-        this.flag = flag;
+      if (problem !== undefined)
+        this.problem = problem;
     }
   }
   function asPlanError(body) {
@@ -18659,7 +18659,7 @@ Defaulting to 2020, but this will stop working in the future.`);
         throw badRequest("chunk cannot be combined with a preset");
     }
     if (request.preset !== undefined && request.preset !== "one-shot" && (length.kind !== "clip" || length.loops !== undefined)) {
-      throw new PlanJobError("meta", "loop presets cannot be combined with --section, --length or --loops", "--preset");
+      throw new PlanJobError("meta", "loop presets cannot be combined with --section, --length or --loops", { code: "presetWithLength" });
     }
     switch (length.kind) {
       case "clip":
@@ -18707,13 +18707,14 @@ Defaulting to 2020, but this will stop working in the future.`);
     if (loops === undefined)
       return structure;
     if (authoredLoop(structure) === null) {
-      throw new PlanJobError("meta", "--loops needs meta.loop or a section with loop: true in meta.sections", "--loops");
+      throw new PlanJobError("meta", "--loops needs meta.loop or a section with loop: true in meta.sections", { code: "loopsWithoutLoop" });
     }
     try {
       return withLoops(structure, loops);
     } catch (e) {
-      if (e instanceof StructureError)
-        throw new PlanJobError("meta", e.message, "--loops");
+      if (e instanceof StructureError) {
+        throw new PlanJobError("meta", e.message, { code: "loopsInvalid", message: e.message });
+      }
       throw e;
     }
   }
@@ -18724,30 +18725,34 @@ Defaulting to 2020, but this will stop working in the future.`);
         return { fromBar: length.fromBar, toBar: length.toBar, layout: length.layout };
       case "clip": {
         if (sections.length === 0) {
-          throw new PlanJobError("meta", "this song has no sections; pass --length N to say how many bars to render", "--length");
+          throw new PlanJobError("meta", "this song has no sections; pass --length N to say how many bars to render", { code: "noSections" });
         }
         const { clipBars } = structure;
         if (clipBars > MAX_RENDER_BARS) {
           const limit = `past the render limit of ${MAX_RENDER_BARS} bars`;
           if (length.loops !== undefined) {
-            throw new PlanJobError("meta", `--loops ${length.loops} makes the clip ${clipBars} bars, ${limit}`, "--loops");
+            throw new PlanJobError("meta", `--loops ${length.loops} makes the clip ${clipBars} bars, ${limit}`, { code: "loopsPastLimit", loops: length.loops, clipBars, limit: MAX_RENDER_BARS });
           }
-          const advice = authoredLoop(structure) === null ? "--length N" : "--length N or --loops N";
-          throw new PlanJobError("meta", `the song's clip is ${clipBars} bars, ${limit}; pass ${advice}`, "--length");
+          const hasLoop = authoredLoop(structure) !== null;
+          const advice = hasLoop ? "--length N or --loops N" : "--length N";
+          throw new PlanJobError("meta", `the song's clip is ${clipBars} bars, ${limit}; pass ${advice}`, { code: "clipPastLimit", clipBars, limit: MAX_RENDER_BARS, hasLoop });
         }
         return { fromBar: 0, toBar: clipBars, layout: "clip" };
       }
       case "section": {
         if (sections.length === 0) {
-          throw new PlanJobError("meta", "this song has no sections; --section needs meta.sections", "--section");
+          throw new PlanJobError("meta", "this song has no sections; --section needs meta.sections", {
+            code: "sectionWithoutSections"
+          });
         }
         const section = sections.find((s) => s.name === length.name);
         if (!section) {
-          throw new PlanJobError("meta", `unknown section '${length.name}' (sections: ${sections.map((s) => s.name).join(", ")})`, "--section");
+          const names = sections.map((s) => s.name);
+          throw new PlanJobError("meta", `unknown section '${length.name}' (sections: ${names.join(", ")})`, { code: "unknownSection", name: length.name, sections: names });
         }
         const toBar = section.start + section.bars;
         if (toBar > MAX_RENDER_BARS) {
-          throw new PlanJobError("meta", `section '${section.name}' ends at bar ${toBar}, past the render limit of ${MAX_RENDER_BARS} bars`, "--section");
+          throw new PlanJobError("meta", `section '${section.name}' ends at bar ${toBar}, past the render limit of ${MAX_RENDER_BARS} bars`, { code: "sectionPastLimit", name: section.name, toBar, limit: MAX_RENDER_BARS });
         }
         return { fromBar: section.start, toBar, layout: "linear" };
       }
@@ -18755,7 +18760,7 @@ Defaulting to 2020, but this will stop working in the future.`);
         if (sections.length === 0)
           return { fromBar: 0, toBar: length.bars, layout: "linear" };
         if (length.bars > structure.clipBars) {
-          throw new PlanJobError("meta", `--length ${length.bars} is past the end of the song (${structure.clipBars} bars)`, "--length");
+          throw new PlanJobError("meta", `--length ${length.bars} is past the end of the song (${structure.clipBars} bars)`, { code: "lengthPastEnd", bars: length.bars, clipBars: structure.clipBars });
         }
         return { fromBar: 0, toBar: length.bars, layout: "clip" };
     }
@@ -18766,7 +18771,7 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
     const loop = authoredLoop(structure);
     if (!loop) {
-      throw new PlanJobError("meta", "--preset needs meta.loop or a section with loop: true in meta.sections", "--preset");
+      throw new PlanJobError("meta", "--preset needs meta.loop or a section with loop: true in meta.sections", { code: "presetWithoutLoop" });
     }
     if (loop.first === loop.last) {
       const window3 = resolveWindow({ kind: "section", name: structure.sections[loop.first].name }, structure);
@@ -18775,7 +18780,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       return { window: window3, loopStartBar: loop.start };
     }
     if (loop.end > MAX_RENDER_BARS) {
-      throw new PlanJobError("meta", `the loop ends at bar ${loop.end}, past the render limit of ${MAX_RENDER_BARS} bars`, "--preset");
+      throw new PlanJobError("meta", `the loop ends at bar ${loop.end}, past the render limit of ${MAX_RENDER_BARS} bars`, { code: "loopPastLimit", end: loop.end, limit: MAX_RENDER_BARS });
     }
     const window2 = {
       fromBar: request.preset === "folded-loop" ? loop.start : 0,
@@ -32988,7 +32993,7 @@ Please check with "npm ls @strudel/core".`);
     ok: false,
     kind: e.kind,
     error: e.message,
-    ...e.flag === undefined ? {} : { flag: e.flag }
+    ...e.problem === undefined ? {} : { length: e.problem }
   } : { ok: false, kind: "plan", error: errorMessage(e) };
   function hostRuntime() {
     return createRuntime({

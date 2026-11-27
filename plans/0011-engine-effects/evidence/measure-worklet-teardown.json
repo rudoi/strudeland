@@ -15,7 +15,7 @@
     "sourceSha256": "5f842685bc947636ab36a3c4d91a57591db484d5fb26d03cf32b8936018dbe24",
     "strudelCommit": "0cb6341299229f739b5090be93528bb4f170d855",
     "strudelPatchesSha256": "98b512d8d30817be3604c9e92c70425b1d05bf09d57c2f3aed05a30b23e56ccf",
-    "plannerSha256": "860326f8f6ed525ee13a9fe85f652c645bf75e667f3fc219a818305d9c6ab0db",
+    "plannerSha256": "e44f97d47237b97857fe93aec4a40781c0dcf1536dd5504a852265bd729cfbd9",
     "playwright": "1.64.1",
     "chromium": "156.0.8078.4",
     "platform": "darwin-arm64"
