@@ -6,12 +6,14 @@ export interface Prefs {
   auditionNotes: boolean;
   formatOnSave: boolean;
   pianoRollOpen: boolean;
+  limiter: boolean;
 }
 export const DEFAULT_PREFS: Prefs = {
   vim: false,
   auditionNotes: false,
   formatOnSave: false,
   pianoRollOpen: false,
+  limiter: false,
 };
 
 export interface PrefsApi {

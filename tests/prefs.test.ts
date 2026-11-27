@@ -1,6 +1,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import { get } from 'svelte/store';
-import { createPrefs } from '../src/lib/prefs/store';
+import { migrateLimiter } from '../src/lib/prefs/migrate';
+import { createPrefs, type PrefsStore } from '../src/lib/prefs/store';
 import { fakePrefsApi } from './helpers/fake-prefs-api';
 import { flush } from './helpers/fake-project-api';
 
@@ -28,6 +29,7 @@ describe('prefs store', () => {
       auditionNotes: false,
       formatOnSave: false,
       pianoRollOpen: false,
+      limiter: false,
       error: null,
     });
   });
@@ -45,6 +47,7 @@ describe('prefs store', () => {
       auditionNotes: true,
       formatOnSave: true,
       pianoRollOpen: false,
+      limiter: false,
       error: null,
     });
   });
@@ -78,7 +81,7 @@ describe('prefs store', () => {
     await p.setAuditionNotes(true);
     expect(p.vim()).toBe(true);
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false, limiter: false },
     ]);
   });
 
@@ -104,7 +107,7 @@ describe('prefs store', () => {
       log.mockRestore();
     }
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false, limiter: false },
     ]);
     expect(get(p.store).error).toBeNull();
   });
@@ -122,19 +125,27 @@ describe('prefs store', () => {
       auditionNotes: true,
       formatOnSave: false,
       pianoRollOpen: false,
+      limiter: false,
       error: 'read failed',
     });
 
     api.failGet = false;
     await p.setVim(false);
     expect(api.saved).toEqual([
-      { vim: false, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      {
+        vim: false,
+        auditionNotes: true,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
     ]);
     expect(get(p.store)).toEqual({
       vim: false,
       auditionNotes: true,
       formatOnSave: false,
       pianoRollOpen: false,
+      limiter: false,
       error: null,
     });
   });
@@ -146,7 +157,13 @@ describe('prefs store', () => {
     expect(p.vim()).toBe(true);
     await done;
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+      {
+        vim: true,
+        auditionNotes: false,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
     ]);
   });
 
@@ -158,7 +175,7 @@ describe('prefs store', () => {
     await done;
     expect(p.vim()).toBe(true);
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false, limiter: false },
     ]);
     const reopened = createPrefs(api);
     await reopened.load();
@@ -176,7 +193,13 @@ describe('prefs store', () => {
     await p.setVim(false);
     expect(get(p.store).error).toBeNull();
     expect(api.saved).toEqual([
-      { vim: false, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+      {
+        vim: false,
+        auditionNotes: false,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
     ]);
   });
 
@@ -201,12 +224,25 @@ describe('prefs store', () => {
       auditionNotes: false,
       formatOnSave: false,
       pianoRollOpen: false,
+      limiter: false,
       error: null,
     });
     await Promise.all([vimSave, auditionSave]);
     expect(api.saved).toEqual([
-      { vim: false, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
-      { vim: false, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+      {
+        vim: false,
+        auditionNotes: true,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
+      {
+        vim: false,
+        auditionNotes: false,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
     ]);
   });
 
@@ -230,6 +266,7 @@ describe('prefs store', () => {
       auditionNotes: false,
       formatOnSave: false,
       pianoRollOpen: false,
+      limiter: false,
     });
   });
 
@@ -253,15 +290,22 @@ describe('prefs store', () => {
     gate.resolve();
     await Promise.all([loading, enableFormat, disableVim, disableFormat]);
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: true, formatOnSave: true, pianoRollOpen: false },
-      { vim: false, auditionNotes: true, formatOnSave: true, pianoRollOpen: false },
-      { vim: false, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      { vim: true, auditionNotes: true, formatOnSave: true, pianoRollOpen: false, limiter: false },
+      { vim: false, auditionNotes: true, formatOnSave: true, pianoRollOpen: false, limiter: false },
+      {
+        vim: false,
+        auditionNotes: true,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
     ]);
     expect(get(p.store)).toEqual({
       vim: false,
       auditionNotes: true,
       formatOnSave: false,
       pianoRollOpen: false,
+      limiter: false,
       error: null,
     });
   });
@@ -275,7 +319,204 @@ describe('prefs store', () => {
     const b = p.setAuditionNotes(true);
     await Promise.all([a, b]);
     expect(api.saved).toEqual([
-      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false },
+      { vim: true, auditionNotes: true, formatOnSave: false, pianoRollOpen: false, limiter: false },
     ]);
+  });
+
+  it('sets the limiter and updates the store at once', async () => {
+    const api = fakePrefsApi({ vim: true });
+    const p = createPrefs(api);
+    await p.load();
+    const done = p.setLimiter(true);
+    expect(p.limiter()).toBe(true);
+    expect(get(p.store).limiter).toBe(true);
+    await done;
+    expect(api.saved).toEqual([
+      { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false, limiter: true },
+    ]);
+  });
+
+  it('knows which keys this session set', async () => {
+    const p = createPrefs(fakePrefsApi());
+    expect(p.edited('limiter')).toBe(false);
+    expect(p.edited('vim')).toBe(false);
+    await p.setLimiter(false);
+    expect(p.edited('limiter')).toBe(true);
+    expect(p.edited('vim')).toBe(false);
+    expect(p.edited('auditionNotes')).toBe(false);
+  });
+
+  it('resolves whether the save landed', async () => {
+    const api = fakePrefsApi();
+    const p = createPrefs(api);
+    expect(await p.setVim(true)).toBe(true);
+    api.failSet = true;
+    expect(await p.setAuditionNotes(true)).toBe(false);
+    expect(await p.setLimiter(true)).toBe(false);
+    expect(await createPrefs(null).setLimiter(true)).toBe(false);
+  });
+});
+
+describe('limiter migration', () => {
+  const KEY = 'strudeland.limiter';
+
+  function fakeStorage(value?: string) {
+    const map = new Map<string, string>();
+    if (value !== undefined) map.set(KEY, value);
+    const storage = {
+      map,
+      removed: 0,
+      getItem: (key: string) => map.get(key) ?? null,
+      removeItem: (key: string) => {
+        storage.removed++;
+        map.delete(key);
+      },
+    };
+    return storage;
+  }
+
+  async function loaded(initial: Parameters<typeof fakePrefsApi>[0] = {}) {
+    const api = fakePrefsApi(initial);
+    const prefs = createPrefs(api);
+    await prefs.load();
+    return { api, prefs };
+  }
+
+  it("moves '1' into prefs and removes the key", async () => {
+    const { api, prefs } = await loaded();
+    const storage = fakeStorage('1');
+    await migrateLimiter(prefs, () => storage);
+    expect(prefs.limiter()).toBe(true);
+    expect(api.saved.map((s) => s.limiter)).toEqual([true]);
+    expect(storage.map.has(KEY)).toBe(false);
+  });
+
+  it("moves '0' over a loaded limiter and removes the key", async () => {
+    const { api, prefs } = await loaded({ limiter: true });
+    expect(prefs.limiter()).toBe(true);
+    const storage = fakeStorage('0');
+    await migrateLimiter(prefs, () => storage);
+    expect(prefs.limiter()).toBe(false);
+    expect(api.saved.map((s) => s.limiter)).toEqual([false]);
+    expect(storage.map.has(KEY)).toBe(false);
+  });
+
+  it('does nothing when the key is absent', async () => {
+    const { api, prefs } = await loaded();
+    const storage = fakeStorage();
+    await migrateLimiter(prefs, () => storage);
+    expect(api.saved).toEqual([]);
+    expect(storage.removed).toBe(0);
+  });
+
+  it('leaves a value other than 1 or 0', async () => {
+    const { api, prefs } = await loaded();
+    const storage = fakeStorage('yes');
+    await migrateLimiter(prefs, () => storage);
+    expect(api.saved).toEqual([]);
+    expect(prefs.limiter()).toBe(false);
+    expect(storage.map.get(KEY)).toBe('yes');
+  });
+
+  it('does nothing when getItem throws', async () => {
+    const { api, prefs } = await loaded();
+    const storage = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      removeItem: () => {
+        throw new Error('not reached');
+      },
+    };
+    await migrateLimiter(prefs, () => storage);
+    expect(api.saved).toEqual([]);
+  });
+
+  it('does nothing when the storage accessor throws', async () => {
+    const { api, prefs } = await loaded();
+    await migrateLimiter(prefs, () => {
+      throw new Error('denied');
+    });
+    expect(api.saved).toEqual([]);
+  });
+
+  it('does nothing without storage', async () => {
+    const { api, prefs } = await loaded();
+    await migrateLimiter(prefs, () => undefined);
+    expect(api.saved).toEqual([]);
+  });
+
+  it('keeps the key when the save fails', async () => {
+    const { api, prefs } = await loaded();
+    api.failSet = true;
+    const storage = fakeStorage('1');
+    await migrateLimiter(prefs, () => storage);
+    expect(prefs.limiter()).toBe(true);
+    expect(get(prefs.store).error).toBe('write failed');
+    expect(api.saved).toEqual([]);
+    expect(storage.map.get(KEY)).toBe('1');
+  });
+
+  async function toggledBeforeLoad(): Promise<{
+    api: ReturnType<typeof fakePrefsApi>;
+    prefs: PrefsStore;
+    toggle: Promise<boolean>;
+  }> {
+    const api = fakePrefsApi();
+    const gate = api.deferGet();
+    const prefs = createPrefs(api);
+    const loading = prefs.load();
+    const toggle = prefs.setLimiter(false);
+    gate.resolve();
+    await loading;
+    return { api, prefs, toggle };
+  }
+
+  it('keeps a toggle made before the load and removes the key', async () => {
+    const { api, prefs, toggle } = await toggledBeforeLoad();
+    const storage = fakeStorage('1');
+    await migrateLimiter(prefs, () => storage);
+    await toggle;
+    expect(prefs.limiter()).toBe(false);
+    expect(api.saved.map((s) => s.limiter)).toEqual([false, false]);
+    expect(api.saved[0]).toEqual(api.saved[1]);
+    expect(storage.map.has(KEY)).toBe(false);
+  });
+
+  it('keeps the key when a toggle made before the load fails to save', async () => {
+    const api = fakePrefsApi();
+    api.failSet = true;
+    const gate = api.deferGet();
+    const prefs = createPrefs(api);
+    const loading = prefs.load();
+    const toggle = prefs.setLimiter(false);
+    gate.resolve();
+    await loading;
+    const storage = fakeStorage('1');
+    await migrateLimiter(prefs, () => storage);
+    expect(await toggle).toBe(false);
+    expect(prefs.limiter()).toBe(false);
+    expect(get(prefs.store).error).toBe('write failed');
+    expect(api.saved).toEqual([]);
+    expect(storage.map.get(KEY)).toBe('1');
+  });
+
+  it('logs and does not throw when removeItem throws after a good save', async () => {
+    const { api, prefs } = await loaded();
+    const storage = {
+      getItem: () => '1',
+      removeItem: () => {
+        throw new Error('read only');
+      },
+    };
+    const log = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await migrateLimiter(prefs, () => storage);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls[0][0]).toBe('could not remove the old limiter preference');
+    } finally {
+      log.mockRestore();
+    }
+    expect(api.saved.map((s) => s.limiter)).toEqual([true]);
   });
 });

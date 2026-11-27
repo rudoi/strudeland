@@ -138,7 +138,7 @@ export interface RuntimeState {
   /** Sounds the Rust engine skipped this play, one per signature; cleared at each start. */
   engineWarnings: EngineWarning[];
   activeCode: string | null;
-  /** The master limiter preference (applied to both backends). */
+  /** The applied master limiter (the app sets it from prefs; applied to both backends). */
   limiter: boolean;
   /** Whether the active backend can limit (superdough: once its master worklet is attached). */
   limiterAvailable: boolean;
@@ -221,7 +221,7 @@ export interface Runtime {
    * them), or null until a frame arrives.
    */
   levels(): LevelHoldSnapshot | null;
-  /** Sets the limiter preference and applies it to both backends. */
+  /** Applies the limiter to both backends. The app calls it from prefs. */
   setLimiter(on: boolean): void;
 }
 
@@ -238,7 +238,7 @@ export interface RuntimeOptions {
   /** Test seams for the scheduler clock (also used for the auto-stop check). */
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (id: unknown) => void;
-  /** The initial limiter preference (default off). */
+  /** The initial applied limiter (default off). */
   limiter?: boolean;
 }
 

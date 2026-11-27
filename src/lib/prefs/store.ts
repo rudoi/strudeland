@@ -13,16 +13,22 @@ export interface PrefsStore {
   vim(): boolean;
   auditionNotes(): boolean;
   formatOnSave(): boolean;
+  /** The current value, synchronously. */
+  limiter(): boolean;
+  /** Whether this session set `key`; a value the user chose before the load wins over a migration. */
+  edited(key: keyof Prefs): boolean;
   /** Loads the initial preference snapshot. Never rejects. */
   load(): Promise<void>;
-  /** Never rejects. */
-  setVim(on: boolean): Promise<void>;
-  /** Never rejects. */
-  setAuditionNotes(on: boolean): Promise<void>;
-  /** Never rejects. */
-  setFormatOnSave(on: boolean): Promise<void>;
-  /** Never rejects. */
-  setPianoRollOpen(on: boolean): Promise<void>;
+  /** Resolves whether the save landed; never rejects. */
+  setVim(on: boolean): Promise<boolean>;
+  /** Resolves whether the save landed; never rejects. */
+  setAuditionNotes(on: boolean): Promise<boolean>;
+  /** Resolves whether the save landed; never rejects. */
+  setFormatOnSave(on: boolean): Promise<boolean>;
+  /** Resolves whether the save landed; never rejects. */
+  setPianoRollOpen(on: boolean): Promise<boolean>;
+  /** Resolves whether the save landed; never rejects. */
+  setLimiter(on: boolean): Promise<boolean>;
 }
 
 export function createPrefs(api: PrefsApi | null): PrefsStore {
@@ -46,23 +52,26 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     }));
   }
 
-  function set(key: keyof Prefs, on: boolean): Promise<void> {
+  function set(key: keyof Prefs, on: boolean): Promise<boolean> {
     const snapshot = { ...edits, [key]: on };
     edits = snapshot;
+    let saved: Promise<boolean> = Promise.resolve(false);
     if (api) {
       // Queue each snapshot before notifying subscribers. Wait for untouched fields to load.
-      chain = chain.then(async () => {
+      saved = chain.then(async () => {
         try {
           // A save can join the startup read. Retry if that read fails before writing.
-          const saved = await (initial?.catch(() => loadInitial()) ?? loadInitial());
-          await api.set({ ...saved, ...snapshot });
+          const loaded = await (initial?.catch(() => loadInitial()) ?? loadInitial());
+          await api.set({ ...loaded, ...snapshot });
           state.update((s) => ({ ...s, error: null }));
+          return true;
         } catch (e) {
           state.update((s) => ({ ...s, error: errorMessage(e) }));
+          return false;
         }
       });
+      chain = saved.then(() => {});
     }
-    const saved = chain;
     state.update((s) => ({ ...s, [key]: on }));
     return saved;
   }
@@ -72,6 +81,8 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     vim: () => current.vim,
     auditionNotes: () => current.auditionNotes,
     formatOnSave: () => current.formatOnSave,
+    limiter: () => current.limiter,
+    edited: (key) => key in edits,
     async load() {
       try {
         await loadInitial();
@@ -83,5 +94,6 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     setAuditionNotes: (on) => set('auditionNotes', on),
     setFormatOnSave: (on) => set('formatOnSave', on),
     setPianoRollOpen: (on) => set('pianoRollOpen', on),
+    setLimiter: (on) => set('limiter', on),
   };
 }

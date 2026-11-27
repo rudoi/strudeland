@@ -45,7 +45,13 @@ describe('prefs', () => {
   test('get and set reject with the command message', async () => {
     const api = createTauriPrefsApi();
     await expectMessage(() => api.get(), { kind: 'other', message: 'no data dir' }, 'no data dir');
-    const prefs = { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false };
+    const prefs = {
+      vim: true,
+      auditionNotes: false,
+      formatOnSave: false,
+      pianoRollOpen: false,
+      limiter: false,
+    };
     await expectMessage(() => api.set(prefs), { kind: 'other', message: 'disk' }, 'disk');
     expect(core.calls).toEqual([{ cmd: 'prefs_set', args: { prefs } }]);
   });

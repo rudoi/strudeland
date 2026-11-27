@@ -1,5 +1,5 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, spyOn, test } from 'bun:test';
 
 GlobalRegistrator.register();
 afterAll(() => GlobalRegistrator.unregister());
@@ -936,7 +936,13 @@ describe('vim keybindings', () => {
     await app.prefs.setVim(true);
     expect(get(app.prefs.store).error).toBeNull();
     expect(prefs.saved).toEqual([
-      { vim: true, auditionNotes: false, formatOnSave: false, pianoRollOpen: false },
+      {
+        vim: true,
+        auditionNotes: false,
+        formatOnSave: false,
+        pianoRollOpen: false,
+        limiter: false,
+      },
     ]);
     // Only the user's toggle focuses; a pref change by itself does not.
     expect(focused).toEqual([]);
@@ -960,6 +966,39 @@ describe('vim keybindings', () => {
     app.destroy();
   });
 
+  test('a loaded limiter reaches the runtime once the prefs load', async () => {
+    const { app, gate } = await withPrefs({ limiter: true });
+    await flush();
+    expect(get(app.runtime.store).limiter).toBe(false);
+    gate.resolve();
+    await app.ready;
+    expect(get(app.runtime.store).limiter).toBe(true);
+    app.destroy();
+  });
+
+  test('a limiter toggle reaches the runtime at once and saves', async () => {
+    const { app, prefs, gate } = await withPrefs();
+    gate.resolve();
+    await app.ready;
+    const saved = app.prefs.setLimiter(true);
+    expect(get(app.runtime.store).limiter).toBe(true);
+    expect(await saved).toBe(true);
+    expect(prefs.saved.at(-1)).toMatchObject({ limiter: true });
+    app.destroy();
+  });
+
+  test('a vim toggle sends no limiter change', async () => {
+    const { app, gate } = await withPrefs();
+    gate.resolve();
+    await app.ready;
+    const setLimiter = spyOn(app.runtime, 'setLimiter');
+    await app.toggleVim();
+    expect(get(app.runtime.store).limiter).toBe(false);
+    expect(setLimiter).not.toHaveBeenCalled();
+    setLimiter.mockRestore();
+    app.destroy();
+  });
+
   test('attachView(undefined) sets the mode store to null', async () => {
     const { app, gate } = await withPrefs();
     gate.resolve();
@@ -967,6 +1006,39 @@ describe('vim keybindings', () => {
     expect(get(app.vimMode.store)).toEqual({ mode: 'normal' });
     app.attachView(undefined);
     expect(get(app.vimMode.store)).toBeNull();
+    app.destroy();
+  });
+});
+
+describe('limiter migration wiring', () => {
+  const KEY = 'strudeland.limiter';
+  afterEach(() => localStorage.clear());
+
+  function apiFor() {
+    const { api, fake } = fakeProjectApi({ '/p': { name: 'p', files: { [MAIN]: A } } });
+    fake.last = '/p';
+    return api;
+  }
+
+  test('moves a stored limiter into prefs and removes the key', async () => {
+    localStorage.setItem(KEY, '1');
+    const prefs = fakePrefsApi();
+    const app = createApp(apiFor(), () => true, null, null, prefs);
+    await app.ready;
+    await flush();
+    expect(get(app.runtime.store).limiter).toBe(true);
+    expect(prefs.saved.at(-1)).toMatchObject({ limiter: true });
+    expect(localStorage.getItem(KEY)).toBeNull();
+    app.destroy();
+  });
+
+  test('without a prefs api the key stays and the limiter stays off', async () => {
+    localStorage.setItem(KEY, '1');
+    const app = createApp(apiFor(), () => true, null, null, null);
+    await app.ready;
+    await flush();
+    expect(localStorage.getItem(KEY)).toBe('1');
+    expect(get(app.runtime.store).limiter).toBe(false);
     app.destroy();
   });
 });

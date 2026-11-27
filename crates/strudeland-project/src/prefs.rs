@@ -24,6 +24,8 @@ pub struct Prefs {
     pub format_on_save: bool,
     /// Show the piano roll dock when an editor is open.
     pub piano_roll_open: bool,
+    /// The master safety limiter on the live output.
+    pub limiter: bool,
 }
 
 impl Prefs {
@@ -48,8 +50,8 @@ mod tests {
         tempfile::tempdir().expect("tempdir")
     }
 
-    const ALL_TRUE_TEXT: &str = "{\n  \"schema\": 1,\n  \"vim\": true,\n  \"auditionNotes\": true,\n  \"formatOnSave\": true,\n  \"pianoRollOpen\": true\n}\n";
-    const DEFAULT_TEXT: &str = "{\n  \"schema\": 1,\n  \"vim\": false,\n  \"auditionNotes\": false,\n  \"formatOnSave\": false,\n  \"pianoRollOpen\": false\n}\n";
+    const ALL_TRUE_TEXT: &str = "{\n  \"schema\": 1,\n  \"vim\": true,\n  \"auditionNotes\": true,\n  \"formatOnSave\": true,\n  \"pianoRollOpen\": true,\n  \"limiter\": true\n}\n";
+    const DEFAULT_TEXT: &str = "{\n  \"schema\": 1,\n  \"vim\": false,\n  \"auditionNotes\": false,\n  \"formatOnSave\": false,\n  \"pianoRollOpen\": false,\n  \"limiter\": false\n}\n";
 
     #[test]
     fn saves_exactly_todays_bytes_and_loads_them_back() {
@@ -61,6 +63,7 @@ mod tests {
             audition_notes: true,
             format_on_save: true,
             piano_roll_open: true,
+            limiter: true,
         };
         for (prefs, text) in [(all_true, ALL_TRUE_TEXT), (Prefs::default(), DEFAULT_TEXT)] {
             prefs.save(&app).unwrap();
@@ -77,6 +80,48 @@ mod tests {
         assert!(!Prefs::default().audition_notes);
         assert!(!Prefs::default().format_on_save);
         assert!(!Prefs::default().piano_roll_open);
+        assert!(!Prefs::default().limiter);
+    }
+
+    #[test]
+    fn a_file_without_limiter_loads_it_off() {
+        let dir = tempdir();
+        let app = AppData::at(dir.path());
+        fs::write(
+            dir.path().join(PREFS_FILE),
+            "{\n  \"schema\": 1,\n  \"vim\": true,\n  \"auditionNotes\": true,\n  \"formatOnSave\": true,\n  \"pianoRollOpen\": true\n}\n",
+        )
+        .unwrap();
+        let loaded = Prefs::load(&app);
+        assert_eq!(loaded.problem, None);
+        assert_eq!(
+            loaded.value,
+            Prefs {
+                vim: true,
+                audition_notes: true,
+                format_on_save: true,
+                piano_roll_open: true,
+                limiter: false,
+            }
+        );
+    }
+
+    #[test]
+    fn limiter_loads_alone() {
+        let dir = tempdir();
+        let app = AppData::at(dir.path());
+        fs::write(
+            dir.path().join(PREFS_FILE),
+            r#"{"schema":1,"limiter":true}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            Prefs::load(&app).value,
+            Prefs {
+                limiter: true,
+                ..Prefs::default()
+            }
+        );
     }
 
     #[test]

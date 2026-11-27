@@ -84,8 +84,8 @@ the V8 download the host brings.
   does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the
   master-output analyser behind `readScope`; `playback-api.ts`, the only Tauri caller for live
   playback, and `rust.ts`, the Rust backend over it, tested with `tests/helpers/fake-playback-api.ts`). The master meter and limiter: `master-dsp.ts`
-  (the limiter and level maths), `master-worklet.ts`, `master-tap.ts` (the superdough tap) and
-  `limiter-pref.ts` (the stored preference); `src/lib/levels/levels.ts` (pure: frames, hold, the
+  (the limiter and level maths), `master-worklet.ts` and `master-tap.ts` (the superdough tap);
+  `src/lib/levels/levels.ts` (pure: frames, hold, the
   meter's view model; outside `src/lib/audio/` because the runtime imports it and the host bundle
   must not reach `src/lib/audio/`).
   `src/lib/editor/` CodeMirror setup, visuals and
@@ -136,8 +136,9 @@ the V8 download the host brings.
   for the File menu, keyboard shortcut, and welcome screen),
   `meta-write.ts` (minimal-diff edits of header values), `timeline.ts` (pure helpers for
   `Timeline.svelte`).
-- `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs) and
-  `store.ts` (the prefs store, the one frontend copy of a pref).
+- `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs),
+  `store.ts` (the prefs store, the one frontend copy of a pref) and `migrate.ts` (the one-time
+  move of the old `localStorage` limiter value; the only `localStorage` caller).
 - `src-tauri/` the Rust app crate (`strudeland-app`): `project.rs` (commands, open-project state, and
   the song commands (they reject with a `CommandError`), and the `prefs_get`/`prefs_set` commands),
   `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events),

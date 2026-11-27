@@ -123,7 +123,7 @@ export function createRustBackend(
   let pendingError: Error | null = null;
   const warningListeners = new Set<(w: EngineWarning) => void>();
   const levelListeners = new Set<(f: LevelFrame) => void>();
-  /** The limiter preference; it outlives sessions and is re-sent when one opens. */
+  /** The applied limiter; it outlives sessions and is re-sent when one opens. */
   let limiter = false;
 
   const measure = async (): Promise<number> =>
