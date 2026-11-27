@@ -11,7 +11,7 @@
   before you edit anything.
 - **Background reading:**
   - `AGENTS.md`: the `src/lib/project/` bullet (`:129-138`), and the Rules on styling and
-    contextual help (`:442-451`);
+    contextual help (`:442-450`);
   - `docs/writing-contextual-help.md` (no hint is rewritten; it says why the texts are
     capitalised sentences);
   - `src/components/Timeline.svelte` (whole file, 516 lines);
@@ -67,10 +67,10 @@ L() { log="$S/0133-001-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "
 |---|---|---|
 | 1 | `L format bun run format`, then `L format-clean git diff --exit-code` (run after committing, or after `git add -A`, so it shows only what format rewrote) | exit 0 each: format rewrote nothing that was not committed |
 | 2 | `L lint bun run lint` | exit 0 |
-| 3 | `L check bun run check` | exit 0, and the same svelte-check error and warning counts as the base log `0133-base-check.log` (001 step 1) |
+| 3 | `L check bun run check` | exit 0, and the same svelte-check error and warning counts as the base log `$S/0133-001-base-check.log` (001 step 1) |
 | 4 | `L bun-test bun test` | exit 0. The log shows `tests/timeline.test.ts` (with the new `timelineView` tests), `tests/theme-tokens.test.ts` and `tests/contextual-help.test.ts` passing. `theme-tokens` scans `src/**/*.{svelte,css,ts}`, so `timeline.ts` is in its scope; the moved strings carry no colour, size, radius, z-index or duration literal. `contextual-help` covers `src/lib/help/targets.ts`, which is untouched |
 | 5 | `L literals "$S/0133-literals.sh"` (written in 001 step 1) | exit 0 |
-| 6 | `L markup bun "$S/0133-markup.ts"` (written in 001 step 1) | exit 0 |
+| 6 | `L markup bun "$S/0133-markup.ts"` (written in 001 step 1) | exit 0: the markup and the whole file each equal `b0229a8` with the planned edits |
 | 7 | `L touched git diff --name-only b0229a8 HEAD -- . ":(exclude)plans"` (git sorts by path) | exactly `AGENTS.md`, `src/components/Timeline.svelte`, `src/lib/project/timeline.ts`, `tests/timeline.test.ts` |
 | 8 | `L agents git diff b0229a8 HEAD -- AGENTS.md` | one hunk, inside the `src/lib/project/` bullet's `timeline.ts` entry |
 
@@ -89,7 +89,8 @@ Do not work around them:
 
 - any change to a help or copy string, a class, a `data-*` or `aria-*` attribute, the DOM, the
   focus, pointer or keyboard behaviour, or the rAF loop;
-- a markup difference beyond the two allowed replacements, prettier's reflow of one included;
+- a markup difference beyond the two allowed replacements, prettier's reflow of one included,
+  or a script difference beyond 001 step 4's edits (the whole-file check);
 - a literal count different from what the script expects;
 - an existing test that needs a changed assertion or expected value to pass, or a new test
   whose expected value would have to differ from what today's component computes;

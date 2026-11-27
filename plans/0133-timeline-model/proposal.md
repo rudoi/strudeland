@@ -13,7 +13,8 @@ it through one `$derived` and keeps the markup, the rAF `position` polling, the 
 state, and the commit glue (the outcome-to-message mapping included). Plain-object tests in
 `tests/timeline.test.ts` then cover playing another song, an evaluated structure that differs
 from the header, arming while stopped, the duplicate-name first match, the missing section,
-and both help tables.
+and both help tables, plus no located position, `ending` from `playable` and the stale
+position after a stop.
 
 **No visible change.** The DOM, classes, `data-*` attributes, help hints and their texts,
 copy, focus, pointer and keyboard handling, and the rAF loop stay as they are. The markup
@@ -69,7 +70,9 @@ export interface TimelineViewInput {
 }
 
 export interface TimelineView {
+  /** The playing song is the active one; otherwise there is no playhead or menu. */
   playingActive: boolean;
+  /** A song other than the active one plays. */
   playingOther: boolean;
   /** The evaluated structure while started, else the header. */
   playable: SongStructure | null;
@@ -148,8 +151,10 @@ One: [001-timeline-view.md](001-timeline-view.md). The entry point is
 
 - **A changed string or condition order.** A literal-count script (base against the tree,
   both files) and the tests' exact expected strings catch it.
-- **A markup edit beyond the two attributes.** The markup script rebuilds the expected markup
-  from `b0229a8` with exactly the two replacements and byte-compares.
+- **A markup edit beyond the two attributes, or a stray script edit.** The markup script
+  rebuilds the whole expected `Timeline.svelte` from `b0229a8` with exactly the planned script
+  edits and the two replacements, and byte-compares the markup and then the whole file. A
+  leftover import fails it.
 - **Per-frame recomputation.** The view reruns on every rAF tick, as `pct`, `head` and
   `endingEnabled` already do. Destructured fields are separate deriveds, so markup that reads an
   unchanged primitive does not rerun. `head` is a new object each frame, as today.
