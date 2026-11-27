@@ -1,5 +1,6 @@
-/** Pure helpers behind `Timeline.svelte`: layout, section-item help and input validation. */
+/** Pure helpers behind `Timeline.svelte`: layout, what plays and where, section-item help and input validation. */
 import type { StopTarget } from '../play-arbiter';
+import type { RuntimeState } from '../strudel/runtime';
 import {
   authoredLoop,
   barsProblem,
@@ -12,8 +13,10 @@ import {
   type MeterChange,
   type SongStructure,
 } from '../strudel/structure';
-import type { Located } from '../strudel/transport';
+import { canPlayEnding, type Located } from '../strudel/transport';
 import type { MetaPath } from './meta-write';
+import type { SessionState } from './session';
+import type { PlaybackState } from './song-playback';
 
 /** The ruler of a song with no sections. */
 export const FALLBACK_BARS = 16;
@@ -132,6 +135,105 @@ export function blockPlayhead(
     section: located.section,
     fraction: Math.min(1, Math.max(0, located.localCycle / sec.bars)),
     localCycle: located.localCycle,
+  };
+}
+
+/** What `timelineView` reads: store snapshots and the polled position. */
+export interface TimelineViewInput {
+  /** The edited header (`editableStructure`: none while it has a meta error) and the active song. */
+  session: Pick<SessionState, 'active' | 'structure' | 'metaError'>;
+  /** `started`, and the last successful evaluate's structure. */
+  runtime: Pick<RuntimeState, 'started' | 'structure'>;
+  playback: Pick<PlaybackState, 'playing' | 'transport'>;
+  /** `runtime.position()`, polled by the component; stale after a stop, and every reader is gated. */
+  position: { cycle: number; located: Located | null };
+}
+
+/** What `Timeline.svelte` shows of the playing song. */
+export interface TimelineView {
+  /** The playing song is the active one; otherwise there is no playhead or menu. */
+  playingActive: boolean;
+  /** A song other than the active one plays. */
+  playingOther: boolean;
+  /** The evaluated structure while started, else the header. */
+  playable: SongStructure | null;
+  /** `playable` has a section after its loop. */
+  ending: boolean;
+  endingEnabled: boolean;
+  /** The play-ending hint: why it is disabled, else what it does. */
+  endingHelp: string;
+  /** The stop-looping hint. */
+  stopLoopingHelp: string;
+  /**
+   * The ruler playhead. Without sections the playhead runs over the 16-bar ruler; with them it
+   * sits in the block that plays and spans the blocks only: it follows the blocks' layout, whose
+   * widths are not proportional to bars (min width, gaps), so it would not line up with the
+   * ruler's marks.
+   */
+  pct: number | null;
+  /**
+   * The block playhead: the evaluated section that plays, found by name in the header (the first
+   * match), and null when the header has no section of that name.
+   */
+  head: { section: number; fraction: number; localCycle: number } | null;
+  /**
+   * Shown with the blocks only (none while the header has a meta error). The module disarms on a
+   * meta error, except for the arm of a `start` still waiting on the runtime, so the gate stays.
+   */
+  armedName: string | null;
+  /** The sections of the audition loop, by name; empty without one. */
+  auditionNames: string[];
+}
+
+/** Everything the Timeline shows that depends on what plays, from plain snapshots. */
+export function timelineView(input: TimelineViewInput): TimelineView {
+  const { session, runtime, playback, position } = input;
+  const structure = editableStructure(session);
+  const sections = structure?.sections ?? [];
+  const playingActive = playback.playing !== null && playback.playing.path === session.active;
+  const playingOther = playback.playing !== null && !playingActive;
+  const playable = runtime.started ? runtime.structure : structure;
+  const ending = hasEnding(playable);
+  const pct =
+    playingActive && sections.length === 0 ? playheadPct(runtime.structure, position) : null;
+  const head = (() => {
+    const located = position.located;
+    if (!playingActive || !located) return null;
+    const name = playable?.sections[located.section]?.name;
+    const section = sections.findIndex((item) => item.name === name);
+    return blockPlayhead(structure, { ...located, section });
+  })();
+  const endingEnabled =
+    canPlayEnding(runtime.started, runtime.structure, playback.transport.view, position.located) &&
+    playingActive;
+  const kind = playback.transport.view.kind;
+  const endingHelp = endingEnabled
+    ? 'Finish the loop pass, then play the ending once.'
+    : playingOther
+      ? 'The ending belongs to the song currently playing.'
+      : !runtime.started
+        ? 'Start song playback to reach its defined loop.'
+        : kind === 'release'
+          ? 'The ending is already queued or playing.'
+          : 'Available while the song plays through its defined loop.';
+  const stopLoopingHelp =
+    kind !== 'loop'
+      ? 'There’s no temporary section loop to clear.'
+      : runtime.started
+        ? 'Return to the song’s normal playback at the next available bar line.'
+        : 'Clear the temporary section loop for the next play.';
+  return {
+    playingActive,
+    playingOther,
+    playable,
+    ending,
+    endingEnabled,
+    endingHelp,
+    stopLoopingHelp,
+    pct,
+    head,
+    armedName: structure ? playback.transport.armed : null,
+    auditionNames: playback.transport.loop?.names ?? [],
   };
 }
 
