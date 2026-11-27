@@ -21,7 +21,7 @@ sidecar, so other callers (drum transcription, an app command) can use them on a
 | quantize | `quantize` | onsets and offsets snapped to the `--grid` steps, overlaps cut, collisions dropped, barline crossings reported as tied parts, snap errors and the timing spread |
 | suggest | `suggest` | a `--grid` division the rhythm fits clearly better (onset gaps against whole steps), and a `--shift` the notes share within a step; warnings and `grid.suggested*` only |
 | key | `key` | Krumhansl–Schmuckler over the 24 major and minor keys, with downbeat and final-note bonuses; or `--key` |
-| notation | `notation` | `note("…")` names and `n("…").scale("…")` degrees, one cycle per bar: exactly bars A to B for a bars request (`Options.bars`; none when no notated note falls in them), else from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied parts play as one held note |
+| notation | `notation` | `note("…")` names and `n("…").scale("…")` degrees, one cycle per bar: exactly bars A to B for a bars request (`Options.bars`; none when no notated note is from bar A on), else from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied parts play as one held note |
 | report | `report` | `Transcription` and every serde type (camelCase, nulls kept) |
 
 `eval` is test support, in the library so the tests, the example and other crates share it:

@@ -65,7 +65,7 @@ pub struct Options {
     pub memo_seconds: Option<f64>,
     /// `--bars A-B` as `(A, B)`: memo bars, 1-based and inclusive, `1 <= A <= B`. The
     /// notation then covers exactly bars A to B, rest bars included, whatever bar the samples
-    /// start in; there is no notation when no notated note falls in A to B. `None` notates
+    /// start in; there is no notation when no notated note is from bar A on. `None` notates
     /// from the bar the samples start in (or the pickup bar) to the last bar with a note.
     pub bars: Option<(u32, u32)>,
     /// Fill `Transcription::{frames, onsets}`.

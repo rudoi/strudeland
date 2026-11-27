@@ -334,7 +334,7 @@ the V8 download the host brings.
   `tuning`, `onset`, `segment`, `grid`, `quantize`, `key`, `notation`, `report`, `suggest` (grid
   division and shift suggestions), shared maths in `util`, every threshold in `consts.rs`; `Options.bars`
   (`--bars A-B`) is notated as exactly bars A to B by `notation::window` (no notation when no
-  notated note falls in A to B), other spans from the bar their samples start in; `eval` (the `eval` feature, off by default so the shipped binary lacks it; on in
+  notated note is from bar A on), other spans from the bar their samples start in; `eval` (the `eval` feature, off by default so the shipped binary lacks it; on in
   the crate's unit tests and through `strudeland-cli`'s dev-dependency) the seeded synthetic
   generator, the evaluation cases and the COnP scorer; its
   README has the constants, the evaluation table, the tuning log and the known differences).
