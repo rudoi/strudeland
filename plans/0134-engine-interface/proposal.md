@@ -30,14 +30,15 @@ public-surface listing and literal counts.
 [reverify.md](reverify.md) holds the evidence at `7c6e632`. Its **Decisions** section is
 binding. One finding is new since then and changes the file list:
 
-**Making `orbit` crate-private makes 34 accessors dead outside tests.** `Orbit`'s public
-methods return `Reverb`, `FeedbackDelay`, `Djf` and `Param`, so their accessors counted as
-reachable public API. A probe ran on a copy of the crate in the scratchpad (not a worktree) with
-both modules `pub(crate)`. `cargo clippy --lib` then reported 15 dead-code warnings covering 34
-items in 7 files. Under `--tests`, 31 of them are used by unit tests and 3 are used nowhere:
-`Orbit.channels` (the field and `Orbit::channels()`) and `IrPlan::params()`. The crate already
-has a convention for this case, `#[cfg(test)] pub fn` (e.g. `orbit.rs:600`, `biquad.rs:284-301`,
-`compressor.rs:260`). So the plan marks the 31 items `#[cfg(test)]` and deletes the 3. With
+**Making `capability` and `orbit` crate-private makes 35 items dead outside tests.** `Orbit`'s
+public methods return `Reverb`, `FeedbackDelay`, `Djf` and `Param`, so their accessors counted
+as reachable public API. A probe ran on a copy of the crate in the scratchpad (not a worktree)
+with both modules `pub(crate)`. `cargo clippy --lib` then reported 15 dead-code warnings covering
+35 items in 7 files. Under `--tests`, 32 of them (`signature_of` among them) are used by unit
+tests and 3 are used nowhere: `Orbit.channels` (the field and `Orbit::channels()`) and
+`IrPlan::params()`. The crate already has a convention for this case, `#[cfg(test)] pub fn`
+(e.g. `orbit.rs:600`, `biquad.rs:284-301`, `compressor.rs:260`). So the plan marks the 32 items
+`#[cfg(test)]` and deletes the 3. With
 those edits the probe was clean under `--lib`, `--lib --tests` and
 `--target x86_64-pc-windows-msvc`. Removing `Engine` and `quantum_end_time` from the root adds no
 warning.
@@ -48,9 +49,13 @@ In (one stage, [001-narrow-engine-interface.md](001-narrow-engine-interface.md))
 
 1. `crates/strudeland-engine/src/lib.rs`: the module visibilities, re-exports, `Engine` and
    `quantum_end_time`, and the `Rendered` field and its doc.
-2. `capability.rs`: `signature_of` behind `#[cfg(test)]`.
+2. `capability.rs`: `signature_of` behind `#[cfg(test)]`; the `CHAIN_KEYS` doc's link to the
+   now-private `CHAIN_UNSUPPORTED_KEYS` becomes plain backticks; the unit test helper
+   `sound_render` also asserts that nothing was refused.
 3. The test-only accessors in `delay.rs`, `djf.rs`, `orbit.rs`, `param.rs`, `reverb.rs`,
-   `voice.rs`; the 3 deletions in `orbit.rs` and `reverb.rs`.
+   `voice.rs`; the 3 deletions in `orbit.rs` and `reverb.rs`. `live.rs:2`'s module doc names
+   the offline engine as plain `` `Engine` `` instead of the link ``[`crate::Engine`]``, which
+   would point at a now-private item (a doc-only edit).
 4. `tests/orbit_pairs.rs` moves into `orbit.rs`'s `mod tests` (`include_str!` of the shared
    `tests/helpers/orbit-pairs.json`, as `job.rs:488` already includes `invalid-jobs.json`).
 5. `render.rs` (engine): `run_observing_overflow` fills `unsupported` instead of formatting
@@ -135,7 +140,8 @@ One: [001-narrow-engine-interface.md](001-narrow-engine-interface.md). The entry
 - **"Rendered cleanly" checks get weaker.** Several tests treated `errors.is_empty()` as "the
   job played". A refused job used to fail that check and would now pass it silently. These are
   `fixtures.rs:252,277`, `never_panics.rs:89` (`exercise` returns a count, which callers compare
-  to `Some(0)`), `stems.rs:36-37` and `joiner_identity.rs:89`. Each one also checks
+  to `Some(0)`), `stems.rs:36-37`, `joiner_identity.rs:89` and `capability.rs`'s unit test
+  helper `sound_render` (`:1298-1303`, used by `every_allowed_sound_renders`). Each one also checks
   `unsupported`. `exercise` returns `errors.len() + unsupported.len()`. `micro.rs` and
   `decay_bound.rs` are already guarded by their own `unsupported_signatures` checks.
 - **An unintended pub change.** The rustdoc-JSON listing (nightly, hidden items included)
@@ -143,7 +149,7 @@ One: [001-narrow-engine-interface.md](001-narrow-engine-interface.md). The entry
   `capability` or `orbit`, or be one of the 5 `Engine`/`quantum_end_time` lines. The added
   lines must be exactly the 13 planned ones. The probe measured 121 removed lines and 364 to 256
   in total (255 without the `Rendered` field the probe lacked).
-- **A dead-code set that differs from the probe.** If clippy names any item other than the 34,
+- **A dead-code set that differs from the probe.** If clippy names any item other than the 35,
   STOP.
 
 ## Open questions
@@ -152,6 +158,6 @@ One: [001-narrow-engine-interface.md](001-narrow-engine-interface.md). The entry
    Before, it appeared once, in the engine. A method on `UnsupportedSignature` would leave a
    single copy, but it would add public API and move `render_one`'s formatting into the engine,
    against Decision 2's wording. The plan keeps two copies, both pinned by the literal script.
-2. The 31 `#[cfg(test)]` attributes and 3 deletions in `delay`, `djf`, `param`, `reverb` and
+2. The 32 `#[cfg(test)]` attributes and 3 deletions in `delay`, `djf`, `param`, `reverb` and
    `voice` go beyond the reverify's file list. They follow from `orbit` becoming crate-private.
    The alternative, `#[allow(dead_code)]`, has no precedent in the crate.

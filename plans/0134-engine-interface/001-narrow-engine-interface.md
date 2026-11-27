@@ -18,13 +18,16 @@ Rules).
 
 ## Files
 
-- Edited: the 22 paths in 000-prompt.md's Rules, `tests/orbit_pairs.rs` deleted among them.
+- Edited: the 23 paths in 000-prompt.md's Rules, `tests/orbit_pairs.rs` deleted among them.
 - New, not committed: in `$S`, `0134-ab-jobs.ts`, `0134-ab.sh`, `0134-surface.ts`,
   `0134-surface.sh`, `0134-surface-check.sh`, `0134-surface-added.txt`, `0134-literals.txt`
   and `0134-literals.sh`. The session that wrote this plan already wrote them and checked them
   on the unchanged tree. Their full text is in the appendix; recreate them from it when `$S`
   differs (tabs separate the columns of `0134-literals.txt`), then
   `chmod +x "$S"/0134-*.sh`.
+- `0134-ab.sh` builds the engine binary into the repo's own `target/debug` (a plain
+  `cargo build`), so its base and after runs share the workspace's build cache. The surface
+  listing uses its own `CARGO_TARGET_DIR` under `$S`.
 
 ## Steps
 
@@ -51,8 +54,8 @@ Rules).
      stays.
    - Run `cargo clippy -p strudeland-engine --lib 2>&1 | grep -A3 "never used\|never read"`
      (do not log it as a gate). Since `capability` and `orbit` are crate-private, it must name
-     exactly the 34 items in the table below. The one-line `signature_of` is among them. If
-     the set differs, STOP.
+     exactly the 35 items of step 3: the 32 rows of its table and its 3 deletions. The one-line
+     `signature_of` is among them. If the set differs, STOP.
 
 3. **Test-only accessors.** Put `#[cfg(test)]` directly above each `pub fn` line of the table,
    at its indentation, below its doc comment. The lines are those at `7c6e632`; edit from the
@@ -75,13 +78,19 @@ Rules).
    | `reverb.rs` | 1137, 1142, 1147, 1152, 1163 | `Reverb::settings`, `::latest`, `::applied`, `::pending`, `::convolver` |
    | `voice.rs` | 253 | `VoiceOutput::to_sends` |
 
-   That makes 31 attributes. Delete the 3 items that nothing uses, tests included:
+   That makes 32 attributes. Delete the 3 items that nothing uses, tests included:
    - `orbit.rs`: the field `channels: Vec<i64>,` (`:287`), its initializer
      `channels: spec.channels.clone(),` in `Orbit::new` (`:324`), and the method
      `Orbit::channels` with its doc line (`:576-579`, plus the blank line after it).
      `routes: route(&spec.channels, count)` stays.
    - `reverb.rs`: `IrPlan::params` with its doc line `/// The request's settings.`
      (`:317-320`, plus the blank line after it). The field `params` stays: it is still read.
+
+   Two doc-only edits keep rustdoc from linking to now-private items:
+   - `live.rs:2`: ``[`crate::Engine`]`` becomes plain `` `Engine` `` (rewrap nothing). No
+     other line of `live.rs` changes.
+   - `capability.rs:452`: the `CHAIN_KEYS` doc's ``[`CHAIN_UNSUPPORTED_KEYS`]`` becomes plain
+     `` `CHAIN_UNSUPPORTED_KEYS` ``.
 
    Then `cargo clippy -p strudeland-engine --lib` and the same with `--lib --tests` must
    report no dead code. The integration tests do not compile yet, which is expected.
@@ -111,9 +120,11 @@ Rules).
      `(Rendered { channels, errors, unsupported }, overflowed)`, where `unsupported` is the
      list from `unsupported_signatures_in`, moved unchanged. The comment
      `// Nothing has rendered on the unsupported path, so the overflow flag is still false.`
-     stays. If `RenderError` or `ErrorKind` becomes unused in the non-test code, drop it from
-     the `use crate::job::{…}` line and import it in `mod tests` (`:194`) where a test needs it.
-     `ErrorKind::Hap` at `:159` still uses `ErrorKind`.
+     stays. `RenderError` becomes unused in the non-test code, so `:11` becomes
+     `use crate::job::{EngineJob, ErrorKind, JobError, bar_of};` (`ErrorKind::Hap` at `:159`
+     still uses `ErrorKind`), and `use crate::job::RenderError;` moves into `mod tests`
+     (`:194`), next to the `UnsupportedSignature` import, as a plain `use` (not behind any
+     condition).
    - Engine `render.rs` unit tests:
      - `unsupported_jobs_render_silence_and_only_unsupported_errors` (`:376`) becomes
        `unsupported_jobs_render_silence_and_report_their_signatures`. The silence assertion
@@ -122,7 +133,8 @@ Rules).
      - `a_bus_cycle_is_refused` (`:1639`): `r.errors` is empty, and `r.unsupported` is
        `vec![UnsupportedSignature { s: "bus".into(), keys: vec!["bus-cycle".into()], first_bar: 0 }]`.
        The silence assertion stays.
-     - Import `crate::capability::UnsupportedSignature` in `mod tests`.
+     - Import `crate::capability::UnsupportedSignature` in `mod tests`, next to
+       `use crate::job::RenderError;`.
    - **Engine binary** (`src/bin/strudeland-engine.rs`):
      - `:20-21` become
        `use strudeland_engine::{EngineJob, ErrorKind, RenderError, SAMPLE_RATE, controls_json, render, unsupported_signatures, wav};`
@@ -175,6 +187,10 @@ Rules).
      - `:1262` becomes `let chain_keys = strudeland_engine::CHAIN_KEYS;`.
    - `tests/stems.rs:36-37`: add `assert!(result.unsupported.is_empty(), "{:?}", result.unsupported);`
      and `assert_eq!(result.unsupported, ordinary.unsupported);`.
+   - `src/capability.rs` `sound_render` (`:1298-1303`, the helper of
+     `every_allowed_sound_renders`): after `let out = crate::render(…).unwrap();` add
+     `assert!(out.unsupported.is_empty(), "{:?}", out.unsupported);`, so a refused sound no
+     longer passes as a clean render. Its return value stays.
 
 7. **`strudeland-render`.**
    - `src/plan.rs:7`: `use strudeland_engine::{UnsupportedSignature, unsupported_signatures};`.
@@ -212,7 +228,9 @@ Rules).
        `s: "sine"` with 40 keys `unknowncontrol00`…`unknowncontrol39`. The error text is
        `"render failed: chunk 1: "` + `"unsupported: "` + 300 characters, and those 300
        characters are the first 300 of `s=sine keys=unknowncontrol00,…`. Build the expected
-       string in the test with `chars().take(300)`, not with `EngineRenderError::new`.
+       string in the test as `format!("s=sine keys={}", keys.join(","))` cut with
+       `chars().take(300)`, not with `EngineRenderError::new`. The literal `s={} keys={}` must
+       not appear in the test: the literal table counts it once in this file (`render_one`).
    - `src/pipeline_audio.rs`:
      - `:111-114`: `let Rendered { channels: joined, errors: mut engine_errors, .. } = …`.
      - `render_window` (`:211-214`):
@@ -233,7 +251,8 @@ Rules).
 
 ## Tests
 
-- Changed: the engine's `render.rs` unit tests (renamed
+- Changed: `capability.rs`'s `sound_render` helper (it asserts `unsupported` is empty), the
+  engine's `render.rs` unit tests (renamed
   `unsupported_jobs_render_silence_and_report_their_signatures`, and `a_bus_cycle_is_refused`),
   `fixtures.rs` (`kept_unsupported_fixtures_are_refused_with_their_signatures`, the repeat and
   supported checks), `never_panics.rs` (`exercise`, the bus-cycle assertion), `stems.rs`
@@ -250,10 +269,12 @@ Rules).
 
 - Gate steps 1 to 9 pass (000-prompt.md).
 - `diff -r "$S/0134-ab/base" "$S/0134-ab/after"` is empty, and both summary lines read the same.
-- `surface-check` prints `base 364 lines, after 256, removed 121, added 13`.
+- `surface-check` prints `base 364 lines, after 256, removed 121, added 13`, and
+  `0134-nightly-base.txt` equals `0134-nightly-after.txt`.
 - The literal table has no `FAIL` row.
 - `git diff 7c6e632 -- crates/strudeland-engine/src/{delay,djf,param,voice}.rs` shows only added
   `#[cfg(test)]` lines. Under `reverb.rs` the only other change is the `IrPlan::params` removal.
+  `git diff 7c6e632 -- crates/strudeland-engine/src/live.rs` changes only line 2.
 
 ## Commit message
 
@@ -475,6 +496,10 @@ console.log([...out].sort().join('\n'));
 
 ### `0134-surface.sh`
 
+Run its base and after captures in the same session, so the same nightly writes both listings;
+each run records `cargo +nightly --version` in `$S/0134-nightly-<label>.txt`, and the two files
+must match.
+
 ```sh
 #!/bin/sh
 # Lists strudeland_engine's public surface (nightly rustdoc JSON, hidden items included) into
@@ -482,6 +507,8 @@ console.log([...out].sort().join('\n'));
 S=$(cd "$(dirname "$0")" && pwd)
 label=${1:?usage: 0134-surface.sh <label>}
 cd /Volumes/rudenet/code/strudeland-worktrees/poptart || exit 2
+cargo +nightly --version > "$S/0134-nightly-$label.txt" || exit 2
+cat "$S/0134-nightly-$label.txt" >&2
 CARGO_TARGET_DIR="$S/0134-doc-target" cargo +nightly rustdoc -q -p strudeland-engine --lib -- \
   -Z unstable-options --output-format json --document-hidden-items 2> "$S/0134-rustdoc-$label.log" || exit 2
 bun "$S/0134-surface.ts" "$S/0134-doc-target/doc/strudeland_engine.json" > "$S/0134-surface-$label.txt" || exit 2

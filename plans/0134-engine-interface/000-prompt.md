@@ -31,19 +31,20 @@
   literal script and the existing pinned tests prove it.
 - **Only these files change** (paths under `crates/`):
   - `strudeland-engine/`: `README.md`; `src/` `lib.rs`, `capability.rs`, `delay.rs`, `djf.rs`,
-    `orbit.rs`, `param.rs`, `reverb.rs`, `render.rs`, `voice.rs`,
-    `bin/strudeland-engine.rs`; `tests/` `bin.rs`, `fixtures.rs`, `micro.rs`,
+    `live.rs` (its line-2 module doc only), `orbit.rs`, `param.rs`, `reverb.rs`, `render.rs`,
+    `voice.rs`, `bin/strudeland-engine.rs`; `tests/` `bin.rs`, `fixtures.rs`, `micro.rs`,
     `never_panics.rs`, `stems.rs`, and `orbit_pairs.rs` (deleted);
   - `strudeland-render/`: `src/` `pipeline_audio.rs`, `plan.rs`, `render.rs`; `tests/`
     `decay_bound.rs`, `joiner_identity.rs`.
 
   Everything else is frozen. That includes `job.rs` (`ErrorKind`, `RenderError`, `MAX_MESSAGE`),
-  `live.rs`, `stems.rs` (engine `src/`), the render crate's `error.rs` and `export/`, every
+  every line of `live.rs` but its doc line 2, `stems.rs` (engine `src/`), the render crate's `error.rs` and `export/`, every
   other crate, every TS file, `AGENTS.md` and `SKILL.md`.
 - **Edits outside the plan's list are forbidden.** In the `#[cfg(test)]` files
   (`delay.rs`, `djf.rs`, `param.rs`, `reverb.rs`, `voice.rs`, and the accessor part of
-  `orbit.rs`), the only edits are the `#[cfg(test)]` lines in 001's table and the three
-  deletions it names.
+  `orbit.rs`), the only edits are the 32 `#[cfg(test)]` lines in 001's table and the three
+  deletions it names. The two doc-only edits (`live.rs:2`, `capability.rs:452`) keep rustdoc
+  from linking to now-private items and change no code.
 - **Existing assertions keep their strength.** A test that used `errors` to detect a refused or
   unclean render also checks `unsupported` (001 step 6). No expected text in a test changes,
   except the `render_one` fake's message, which now comes from a signature (001 step 7).
@@ -80,7 +81,7 @@ L() { log="$S/0134-001-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "
 | 6 | `L ab-after "$S/0134-ab.sh" after`, then `L ab-diff diff -r "$S/0134-ab/base" "$S/0134-ab/after"` | both exit 0. `ab-after`'s summary line has the same counts as `ab-base` (001 step 1). `ab-diff` prints nothing |
 | 7 | `L surface-after "$S/0134-surface.sh" after`, then `L surface-check "$S/0134-surface-check.sh"` | both exit 0. `surface-check` prints `removed 121, added 13` and `after 256` |
 | 8 | `L literals "$S/0134-literals.sh"` | exit 0: no `FAIL` row |
-| 9 | `L touched git diff --name-only 7c6e632 HEAD -- . ":(exclude)plans"` | exactly the 22 paths in Rules, sorted by git |
+| 9 | `L touched git diff --name-only 7c6e632 HEAD -- . ":(exclude)plans"` | exactly the 23 paths in Rules, sorted by git |
 
 Notes:
 
@@ -102,8 +103,8 @@ Do not work around them:
 - any change to a text, JSON, exit code or WAV byte, or a DSP edit;
 - a removal from the public surface outside `capability`, `orbit` and the 5 `Engine` or
   `quantum_end_time` lines, or an addition other than the 13 planned lines;
-- clippy dead-code findings other than the 34 items in 001's table, after the two visibility
-  edits (fewer, more or different);
+- clippy dead-code findings other than the 35 items of 001 step 3 (the 32 table rows and the 3
+  deletions), after the two visibility edits (fewer, more or different);
 - a literal count different from its column;
 - an existing test whose expected value must change, except the planned `render_one` fake
   message;
