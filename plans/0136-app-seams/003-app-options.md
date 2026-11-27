@@ -19,7 +19,7 @@ called, not captured. The runtime is still built inside `createApp`, and the exi
 - Edited: `src/lib/app.ts`, `tests/app.test.ts`, `src/components/StatusBar.svelte` (allowed
   markup replacement 3 only).
 - Not edited: `src/App.svelte`. Its `createApp()` (`:25`) type-checks against
-  `createApp(options: AppOptions = {})` and keeps every default (proposal, open question 2).
+  `createApp(options: AppOptions = {})` and keeps every default (proposal, decided question 2).
   `AGENTS.md`: nothing in it describes `createApp`'s parameters (`grep -n createApp AGENTS.md`
   finds nothing), so it stays.
 - Scratch, not committed: `$S/0136-003-tests.ts` (appendix), plus `0136-js.ts` (002's appendix)
@@ -132,7 +132,7 @@ called, not captured. The runtime is still built inside `createApp`, and the exi
          app.destroy();
        });
 
-       test('given backends without rust, none is built, even in Tauri', () => {
+       test('the runtime has no rust backend', () => {
          const { log, superdough } = fakeBackends();
          const app = appWith({ superdough });
          log.length = 0;
@@ -259,7 +259,7 @@ called, not captured. The runtime is still built inside `createApp`, and the exi
 ## Tests
 
 Four new tests in `describe('createApp options')`: the given backends receive the runtime's
-calls; given backends without `rust` build no Rust backend; previews read the given
+calls; given backends without `rust`, the runtime has no rust backend; previews read the given
 superdough's `graph()`; previews call a `prepareAudition` replaced after `createApp` (the
 call-time read). The 58 existing tests keep every assertion; only their `createApp` calls
 change form. No test patches `drainLevels`, and there is no Svelte component harness (reverify

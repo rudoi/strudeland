@@ -47,8 +47,9 @@ Sound does not change (see the proposal, 002).
    ```ts
    /**
     * The superdough backend, with what only it has: the Web Audio graph and the master stage's
-    * latency. Note and instrument previews, the metronome, the output clock and memo playback use
-    * them; previews play here even while the Rust engine plays the song.
+    * latency. The graph feeds previews, the metronome, the output clock and memo playback; the
+    * master latency feeds the take's output delay. Previews play here even while the Rust engine
+    * plays the song.
     */
    export interface SuperdoughBackend extends AudioBackend {
      /**
@@ -66,7 +67,7 @@ Sound does not change (see the proposal, 002).
    The two member doc comments are the ones deleted from `backend.ts`, unchanged. The return
    type on `:53` becomes `SuperdoughBackend`. The returned object (`:62-112`) does not change:
    it already has both members. The `AudioBackend, AudioGraph` type import (`:4`) stays as it
-   is (`numstat` `17	1`).
+   is (`numstat` `18	1`).
 
 4. **`app.ts`.**
    - Delete `:4` (`import type { AudioGraph } from './audio/backend';`): nothing else in the
@@ -97,12 +98,13 @@ Sound does not change (see the proposal, 002).
 
 7. **`AGENTS.md`** (`:84-85`). Replace
    ``does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the``
-   with these three lines:
+   with these four lines:
 
    ```markdown
      does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (`SuperdoughBackend` in
-     `superdough.ts` adds the Web Audio graph and master latency that previews, the metronome and
-     memos use; and `scope-tap.ts`, the
+     `superdough.ts` adds the Web Audio graph and the master latency: the graph feeds previews, the
+     metronome, the output clock and memo playback; the master latency feeds the take's output
+     delay; and `scope-tap.ts`, the
    ```
 
    Change no other line.
@@ -140,7 +142,7 @@ The deleted self-test covered only the removed option.
     `fake-runtime.ts` with 1, `app.ts` with 3;
   - `L numstat git diff --numstat HEAD~1 HEAD`: exactly `0 8` for `backend.ts`, `1 9` for
     `fake-runtime.ts`, `5 6` for `app.ts`, `0 16` for `superdough.test.ts`, and for
-    `superdough.ts` 1 deleted line with the added lines of step 3 (`17	1` as written there;
+    `superdough.ts` 1 deleted line with the added lines of step 3 (`18	1` as written there;
     STOP if the deleted count is not 1). Plus the `AGENTS.md` lines;
   - `L grep-graph git grep -nE "graph\?\.|masterLatencySec\?\.|graph\?\(\)|masterLatencySec\?\(\)" -- src tests`:
     exit 1 (no match left);

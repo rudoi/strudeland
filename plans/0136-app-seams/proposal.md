@@ -59,10 +59,10 @@ Out:
   (`crates/strudeland-host/js/host.inputs.json:108`), so an edit would need `host:build`. The
   doc line reverify (c) suggested for `prepareAudition` goes on `SuperdoughBackend` instead.
 - Making `readScope`, `onLevels`, `setLimiter` or `limiterAvailable` required on
-  `SuperdoughBackend`. The runtime reads them generically; it stays optional (open question 3).
+  `SuperdoughBackend`. The runtime reads them generically; they stay optional (decided question 3).
 - Injecting the runtime into `createApp`, or removing the `runtime.stop` monkeypatches
   (reverify (a): the canvas drawer is the reason, not a backend).
-- Switching the 12 existing `createApp` test calls to fake backends (open question 1).
+- Switching the 12 existing `createApp` test calls to fake backends (decided question 1).
 
 ## Technical design
 
@@ -75,22 +75,31 @@ export interface StatusNoticesInput {
   session: Pick<SessionState, 'error' | 'metaError' | 'notice'>;
   prefs: Pick<PrefsState, 'error'>;
   control: ControlInfo;
+  /** Null until the recording controller is wired: no take notices. */
   recording: RecordingUiState | null;
+  /** Null without memos: no playback notices. */
   player: MemoPlayerState | null;
-  /** Absent: `navigator.platform`, as `recordingNotices` defaults it. */
-  platform?: string;
+  /** Absent: `navigator.platform` (see `memo-ui.ts`). */
+  platform?: Navigator['platform'];
 }
 
 export interface StatusNotice {
+  /** Stable per source, so a changed message updates in place. */
   id: string;
   tone: RecordingNotice['tone']; // 'warning' | 'danger'
   text: string;
+  /** The tooltip; never set with `action`. */
   title?: string;
+  /** The control after the text, rendered with its help by the component. */
   action?: NoticeAction;
 }
 
 export function statusNotices(input: StatusNoticesInput): StatusNotice[];
 ```
+
+`platform` is typed `Navigator['platform']` (a `string`), the type of the value it stands for.
+`Parameters<typeof recordingNotices>[2]` would add a `recordingNotices` to the module and break
+that literal row.
 
 It lives at `src/lib/` next to `play-arbiter.ts` and `shell.ts`, the other modules that
 compose several domains. It follows the extracted helpers' pattern (`engineNotices` in
@@ -116,7 +125,7 @@ The rows, in order, with the conditions as the component tests them today (truth
 | 8b | else `control.status === 'disabled'` | `control-disabled` | warning | `control disabled: {detail ?? ''}` | |
 | 9 | `recordingNotices(recording, player, platform)` | its ids | its tones | its texts | |
 
-Two details keep the DOM byte-identical:
+Two details keep the same elements, attributes and text:
 
 - **The control-in-use title is always set.** Today `title={$cs.path ?? ''}` renders
   `title=""` when the path is null. The function returns `title: ''` then, and every other
@@ -151,8 +160,10 @@ export interface SuperdoughBackend extends AudioBackend {
 export function createSuperdoughBackend(deps: Deps = defaultDeps): SuperdoughBackend;
 ```
 
-The interface's doc comment says previews play on this backend even while the Rust engine plays
-the song (what reverify (c) wanted on `prepareAudition`, which stays untouched). `AudioBackend`
+The interface's doc comment says the graph feeds previews, the metronome, the output clock and
+memo playback, and the master latency feeds the take's output delay (`app.ts:322`); previews
+play here even while the Rust engine plays the song (what reverify (c) wanted on
+`prepareAudition`, which stays untouched). `AudioBackend`
 loses the two members and their doc comments (`backend.ts:50-55`, `:66-67`); `AudioGraph`
 stays there, since every consumer imports it from there. In `app.ts`:
 `superdough.graph?.() ?? null` becomes `superdough.graph()` (`:127`), `createRecording`'s
@@ -272,20 +283,23 @@ Sequential: [000-prompt.md](000-prompt.md) is the entry point, then
 and [003-app-options.md](003-app-options.md), one commit each, the full gate once per stage. 002
 and 003 both edit `app.ts:4-11`, `:90-128` and `:302-322`, so they never run in parallel.
 
-## Open questions
+## Decided questions
 
-1. Reverify (a) gave the reason for `backends` as: "tests then use fake backends and no longer
-   build the real `tauriPlaybackApi`". This plan rewrites the 12 existing calls mechanically,
-   so they keep the real backends, and it adds four new tests that inject fakes. Moving the
-   existing tests to fakes would change what they exercise (the real superdough backend under
-   happy-dom). Should a follow-up do it?
-2. The brief counts "13 test calls". There are 12 in `tests/app.test.ts` (`:69`, `:260`, `:417`,
-   `:440`, `:456`, `:474`, `:513`, `:615`, `:821`, `:1026`, `:1039`, `:1050`); the 13th call is
-   `App.svelte:25`. `createApp()` still type-checks, so `App.svelte` stays untouched. Is that
-   acceptable, or should it spell out `createApp({})`?
-3. `SuperdoughBackend` adds only `graph` and `masterLatencySec`. Should it also make
-   `readScope`, `onLevels`, `setLimiter` and `limiterAvailable` required, as `RustBackend` does
-   for its hooks? Nothing needs it now, and the test fakes would grow.
-4. Nobody starts the app (by rule). The markup proof replaces a visual check. The user may want
-   to look at the status bar by hand before the merge: an eval error, a Claude edit, a
-   recording notice with its action, and "audio suspended".
+These were open when the plan was written; the answers are binding.
+
+1. **The existing app tests keep the real backends.** Reverify (a) gave the reason for
+   `backends` as: "tests then use fake backends and no longer build the real
+   `tauriPlaybackApi`". The 12 existing calls are rewritten mechanically and keep the real
+   superdough backend under happy-dom; four new tests inject fakes. Moving the existing tests
+   to fakes would change what they exercise, and is not part of this plan.
+2. **`App.svelte` stays untouched.** The brief counts "13 test calls". There are 12 in
+   `tests/app.test.ts` (`:69`, `:260`, `:417`, `:440`, `:456`, `:474`, `:513`, `:615`, `:821`,
+   `:1026`, `:1039`, `:1050`); the 13th call is `App.svelte:25`, whose `createApp()` still
+   type-checks against the new signature.
+3. **`SuperdoughBackend`'s other hooks stay optional.** It adds only `graph` and
+   `masterLatencySec`. `readScope`, `onLevels`, `setLimiter` and `limiterAvailable` stay
+   optional, as on `AudioBackend`: nothing needs them required, and the test fakes would grow.
+4. **The PR suggests a manual look at the status bar.** Nobody starts the app (by rule), and
+   the markup proof replaces a visual check. The PR description asks the user to look at the
+   status bar by hand before the merge: an eval error, a Claude edit, a recording notice with
+   its action, and "audio suspended".

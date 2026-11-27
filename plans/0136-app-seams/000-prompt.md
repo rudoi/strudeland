@@ -112,5 +112,8 @@ Never loosen a check, and never re-record an expectation, to absorb a difference
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   ```
 
+- The PR description suggests a manual look at the status bar before the merge (proposal,
+  decided question 4): an eval error, a Claude edit, a recording notice with its action, and
+  "audio suspended".
 - **No scratch worktrees** (`git worktree add`), and no bare `git stash`. To set work aside,
   make a WIP commit. Nothing under `$S` is committed.

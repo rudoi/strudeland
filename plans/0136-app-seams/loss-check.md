@@ -19,7 +19,7 @@ proposal's Out list stays out by design.
 | Brief (c), sound decisions | `graph().destination` is `destinationGain`; null before audio runs and mid-reset; delay from master latency; previews resume superdough while Rust plays; the pinning tests unchanged and passing | 002 (Tests section) |
 | Brief (a), Decisions a1-a2 | One options object with the same defaults and an optional `backends` field; the test calls rewritten; the runtime still built inside; the `runtime.stop` monkeypatches stay | 003 |
 | Decision a2, brief (a) | `prepareAudition` read at call time; `drainLevels` too, since it is the same (no `this`, no arguments) | 003 (new call-time test; markup replacement 3) |
-| Brief (a) | "App.svelte and the 13 test calls updated": 12 test calls change; `App.svelte`'s `createApp()` already matches | 003 (open question 2) |
+| Brief (a) | "App.svelte and the 13 test calls updated": 12 test calls change; `App.svelte`'s `createApp()` already matches | 003 (decided question 2) |
 | Brief | `AGENTS.md` lines | 001 (new `status-notices.ts` bullet), 002 (`src/lib/audio/` sentence), 003 (none: no line describes `createApp`) |
 | Brief | Host-bundle inputs and `PLANNER_FILES` | None touched; `runtime.ts` frozen (proposal, Host bundle) |
 | Brief | Gates logged with exit codes under `$S`: format, lint, check, test, proofs | 000-prompt.md (the full gate) and each stage's Validation |
@@ -30,4 +30,8 @@ Changed from the brief, with reasons:
 - `App.svelte` is not edited (above).
 - `fakeRuntime`'s superdough fake stays an `AudioBackend`. It goes to `createRuntime`, whose
   `backends.superdough` stays `AudioBackend`.
-- The existing app tests keep the real backends; four new tests use fakes (open question 1).
+- The existing app tests keep the real backends; four new tests use fakes (decided question 1).
+- `SuperdoughBackend`'s `readScope`, `onLevels`, `setLimiter` and `limiterAvailable` stay
+  optional (decided question 3).
+- Nobody starts the app; the PR description suggests a manual look at the status bar (decided
+  question 4).

@@ -114,7 +114,8 @@ every source, both either/or pairs, the order, the titles and the ids. Nothing v
      same list with `output-error` first and `control-disabled` in place of
      `control-in-use`). In both, the ids are unique (`new Set(ids).size === ids.length`), only
      `engine:a` and the control notice have a `title` key, and only `limit-reached` and
-     `play-too-long` have an `action` key (`recording-warning` has none).
+     `play-too-long` have an `action` key (`recording-warning` has none), and no notice has
+     both a `title` and an `action` key.
    - **ids are stable per source**: `evalError: 'a'` and `evalError: 'b'` both give id
      `eval-error`; likewise `metaError`, control disabled with two details, and an engine
      warning with and without keys.
@@ -142,8 +143,37 @@ every source, both either/or pairs, the order, the titles and the ids. Nothing v
    import type { RuntimeState } from './strudel/runtime';
    ```
 
-   then `StatusNoticesInput` and `StatusNotice` (proposal, Technical design; doc comments on
-   `recording`, `player`, `platform`, `title` and `action`), then the function:
+   then, after one blank line, `StatusNoticesInput` and `StatusNotice`, exactly:
+
+   ```ts
+   export interface StatusNoticesInput {
+     runtime: Pick<RuntimeState, 'evalError' | 'outputError' | 'tempoOverride' | 'engineWarnings'>;
+     session: Pick<SessionState, 'error' | 'metaError' | 'notice'>;
+     prefs: Pick<PrefsState, 'error'>;
+     control: ControlInfo;
+     /** Null until the recording controller is wired: no take notices. */
+     recording: RecordingUiState | null;
+     /** Null without memos: no playback notices. */
+     player: MemoPlayerState | null;
+     /** Absent: `navigator.platform` (see `memo-ui.ts`). */
+     platform?: Navigator['platform'];
+   }
+
+   export interface StatusNotice {
+     /** Stable per source, so a changed message updates in place. */
+     id: string;
+     tone: RecordingNotice['tone']; // 'warning' | 'danger'
+     text: string;
+     /** The tooltip; never set with `action`. */
+     title?: string;
+     /** The control after the text, rendered with its help by the component. */
+     action?: NoticeAction;
+   }
+   ```
+
+   `platform` is `Navigator['platform']`, not `string` and not
+   `Parameters<typeof recordingNotices>[2]` (that would add a `recordingNotices` to the module
+   and break that literal row). Then, after one blank line, the function:
 
    ```ts
    export function statusNotices(input: StatusNoticesInput): StatusNotice[] {
