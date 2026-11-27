@@ -19,7 +19,7 @@ tauri = { version = "2.12.5", features = [] }
 tauri-plugin-opener = "2.7.2"
 tauri-plugin-dialog = "2.8.4"
 strudeland-project = { path = "../crates/strudeland-project" }
-strudeland-ctl = { path = "../crates/strudeland-ctl" }
+strudeland-ctl = { path = "../crates/strudeland-ctl", features = ["server"] }
 strudeland-record = { path = "../crates/strudeland-record" }
 strudeland-host = { path = "../crates/strudeland-host" }
 strudeland-live = { path = "../crates/strudeland-live" }
