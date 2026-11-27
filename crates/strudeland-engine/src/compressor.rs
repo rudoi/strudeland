@@ -46,7 +46,7 @@ pub const NO_INPUTS: CompressorInputs<'static> = [
 /// `kMeteringReleaseTimeConstant` (only `TailTime` reads it; the metering is not audible).
 const K_METERING_RELEASE_TIME_CONSTANT: f32 = 0.325;
 /// `kPreDelay` (seconds).
-const K_PRE_DELAY: f32 = 0.006;
+pub const K_PRE_DELAY: f32 = 0.006;
 /// `kDefaultPreDelayFrames`.
 const K_DEFAULT_PRE_DELAY_FRAMES: u32 = 256;
 /// `kMaxPreDelayFrames`.

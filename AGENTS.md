@@ -462,7 +462,10 @@ the V8 download the host brings.
   48-tap filter, checked against EBU Tech 3341 (+0.2/-0.4 dB). A lossy file is decoded again and
   its true peak corrected, at most twice and then a warning: a limited render (plain or one-shot)
   lowers its limiter ceiling, and a loop preset lowers the static gain its files share. Never
-  loosen either to absorb a defect. Every encoder's licence file in `crates/strudeland-render/` is
+  loosen either to absorb a defect. The preset post-roll bound is pinned to the engine by
+  `crates/strudeland-render/tests/decay_bound.rs` (constant parity through
+  `strudeland_engine::decay`, and one-shots rendered past the bound); its floors are never
+  loosened to absorb a defect. Every encoder's licence file in `crates/strudeland-render/` is
   checked by `tests/licence.rs`; LAME (LGPL) is statically linked into the AGPL binary, so keep
   the build instructions public. Renders are byte-reproducible (fixed dither and stream serials):
   a test that compares bytes breaks when an encoder crate is bumped.

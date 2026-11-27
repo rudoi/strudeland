@@ -42,6 +42,21 @@ pub(crate) mod vowel;
 pub mod wav;
 pub(crate) mod worklet;
 
+/// The engine constants the export post-roll bound mirrors (`exportFilterTailSec` in
+/// `src/lib/render/schedule.ts` and `exportDecay` in `src/lib/render/lookback.ts`).
+/// `strudeland-render`'s `tests/decay_bound.rs` checks the bound against them.
+/// `FEEDBACK_EXTRA_FRAMES` is also checked by behaviour, not only by that parity: the delay
+/// unit test `each_loop_through_the_feedback_adds_one_quantum` renders the repeats it predicts.
+/// `COMPRESSOR_PRE_DELAY` is the compressor's pre-delay in seconds (264 frames at the engine
+/// rate), which the bound adds to a compressed voice's own need.
+pub mod decay {
+    pub use crate::biquad::{MAX_TAIL_AMPLITUDE, MAX_TAIL_TIME};
+    pub use crate::compressor::K_PRE_DELAY as COMPRESSOR_PRE_DELAY;
+    pub use crate::delay::{FEEDBACK_EXTRA_FRAMES, MAX_DELAY_TIME, MAX_FEEDBACK};
+    pub use crate::reverb::IR_DURATION_FACTOR;
+    pub use crate::vowel::FORMANTS;
+}
+
 pub use capability::{ALLOWED_KEYS, allowed_sounds, controls_json};
 pub use job::{EngineJob, ErrorKind, JobError, OrbitSpec, RenderError, Value, ValueMap};
 /// superdough's `mulberry32`, reused by the render pipeline's dither.

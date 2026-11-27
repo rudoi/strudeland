@@ -75,6 +75,8 @@ pub const DEFAULT_ROOMSIZE: f64 = 2.0;
 pub const DEFAULT_ROOMFADE: f64 = 0.1;
 pub const DEFAULT_ROOMLP: f64 = 15000.0;
 pub const DEFAULT_ROOMDIM: f64 = 1000.0;
+/// `generateReverb`'s `duration * 1.5`: the IR's length in seconds per second of roomsize.
+pub const IR_DURATION_FACTOR: f64 = 1.5;
 /// `createReverb` always asks for a stereo IR.
 pub const IR_CHANNELS: usize = 2;
 /// The engine's limit on the IR length in frames (2^26).
@@ -266,7 +268,7 @@ impl IrPlan {
     /// `generateReverb`'s checks, in its order: the buffer length, then the lowpass's events.
     pub fn new(params: &ReverbParams, sample_rate: f64) -> Result<IrPlan, IrError> {
         let d = js_to_number_full(&params.duration);
-        let total_time = d * 1.5;
+        let total_time = d * IR_DURATION_FACTOR;
         let decay_frames = js_round(d * sample_rate);
         let n = js_round(total_time * sample_rate);
         let fade_frames = js_round(js_to_number_full(&or_zero(&params.fade)) * sample_rate);

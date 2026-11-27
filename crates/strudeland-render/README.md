@@ -115,6 +115,50 @@ at the handoff and repeat wrap as well as within the audio. A lossy overshoot is
 described in [Finishing and the lossy correction loop](#finishing-and-the-lossy-correction-loop).
 `--loudness off` bypasses gain and correction.
 
+### Post-roll bound
+
+The planner (`exportDecay` and `exportFilterTailSec` in `src/lib/render/`) bounds the tail a
+preset renders after the arrangement. It budgets the release, filter ringing (capped at 30 s,
+the engine's biquad tail time), reverb at 1.5 times the roomsize (the IR length), and a delay's
+first tap plus its repeats down to −60 dB (one render quantum per repeat, feedback at most 0.98,
+delay time at most 1 s).
+
+- **The delay cut is intended.** Echoes below −60 dB are dropped from one-shots and are not
+  folded into loops. Going to −90 dB would add about 50 % post-roll to delayed songs. Measured
+  against the −60 dB floor, a gain-1 sawtooth through `delay(1)` keeps 2.4 dB of margin at
+  feedback 0.98 and 0.99 (time 0.1), 1.5 dB at time 1.5 with feedback 0.9, and 8.3 dB at 0.5
+  with 0.5.
+- Filter rings are budgeted to about e^−19, below 24-bit resolution.
+- **Known difference: the DJ filter.** The planner gives `djf` a flat 0.5 s, and the engine's
+  SVF state decays more slowly when its cutoff is low (djf near 0, or just above 0.5). Measured
+  with a gain-1 sawtooth (`note(36).s("sawtooth").gain(1)`; before the bound it peaks at
+  −11.1 dBFS through djf 0.53/0.55 and at −72.1/−54.1 dBFS through 0.03/0.05), the output after
+  the bound peaks at −76.9 dBFS at djf 0.03 and 0.53, staying above −90.3 dBFS for about
+  4.57 s, and at −76.3 dBFS at 0.05 and 0.55, for about 0.44 s. At this source level the tail
+  needs about 5.1 s and 0.94 s. A sine (`s("sine").note(60).gain(1)`) ends at −90.7 dBFS after
+  the bound at all four values. Exports keep the 0.5 s.
+  - At djf 0.03 the tail is cut when the 0.5 s allowance ends, still near its peak: about
+    5 dB below it for the sawtooth (−72.1 to −76.9 dBFS) and 10 dB for the sine (−81.1 to
+    −90.7 dBFS). The leftover scales 1:1 with the source level, so a loud source leaves an
+    audible cut of its sub-10 Hz content. The test pins this relative drop instead of an
+    absolute floor.
+- `tests/decay_bound.rs` pins the bound's constants to the engine's (`strudeland_engine::decay`,
+  12 parity cases read back from host one-shot plans, within one frame, the compressor's
+  pre-delay included) and renders 44 one-shots, one or more per control family (the filter
+  envelopes and built-in LFOs, `FXrelease` and the compressor among them), 5 s past the bound.
+  The floors are judged on the raw engine output, before leveling; a one-shot export is later
+  leveled to −23 LUFS, which moves the leftover with it.
+
+  | Cases | Floor after the bound | Must sound before it |
+  |---|---|---|
+  | most families | 1/32768 (−90.3 dBFS) | 10 dB above the floor |
+  | delay | −60 dB under the case's peak (margins 2.4 dB at feedback 0.98/0.99, 1.5 dB at time 1.5, 8.3 dB at 0.5/0.5) | above −40 dBFS |
+  | djf 0.05, 0.53, 0.55 | −70 dBFS (sawtooth), −84.5 dBFS (sine), about 6 dB above the leftover | 10 dB above the floor |
+  | djf 0.03 | at least 4.0 dB (sawtooth) and 9.0 dB (sine) under the case's peak | above −100 dBFS |
+
+  Delay and reverb cases must also ring past the dry voice's own budget (above −60 dB under its
+  peak) and plan a longer tail than it. The floors are never loosened to absorb a defect.
+
 ## Loudness and true peak
 
 Integrated loudness is BS.1770-4 with the two gates, checked against the TypeScript implementation
