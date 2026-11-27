@@ -1,14 +1,13 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { EditorView } from '@codemirror/view';
 import { get, writable, type Readable, type Writable } from 'svelte/store';
-import type { AudioGraph } from './audio/backend';
 import { createInstrumentPreview } from './audio/instrument-preview';
 import { createMemoPlayer } from './audio/memo-player';
 import { createMetronome } from './audio/metronome';
 import { createOutputClock } from './audio/output-clock';
 import { tauriPlaybackApi } from './audio/playback-api';
 import { createRustBackend } from './audio/rust';
-import { createSuperdoughBackend } from './audio/superdough';
+import { createSuperdoughBackend, type SuperdoughBackend } from './audio/superdough';
 import { createTauriControlApi, type ControlApi } from './control/api';
 import { createControlHandler, replyTo, type ControlHandler } from './control/handler';
 import type { ControlInfo, ControlRequest } from './control/protocol';
@@ -124,7 +123,7 @@ export function createApp(
   let arbiter!: PlayArbiter;
   const auditionsAvailable = () => arbiter.auditionsAvailable();
   const canAudition = () => Boolean(view) && prefs.auditionNotes() && auditionsAvailable();
-  const auditionGraph = () => superdough.graph?.() ?? null;
+  const auditionGraph = () => superdough.graph();
   const player = createNoteAuditionPlayer({ graph: auditionGraph });
   let rollAudition: { automatic: boolean } | null = null;
   function stopPianoRollAudition(): void {
@@ -301,12 +300,12 @@ export function createApp(
  */
 function createRecording(
   recordingApi: RecordingApi,
-  backend: { isRunning(): boolean; graph?(): AudioGraph | null; masterLatencySec?(): number },
+  backend: SuperdoughBackend,
   runtime: Runtime,
   session: Session,
   api: ProjectApi,
 ): { recording: RecordingController; memos: Memos } {
-  const graph = () => backend.graph?.() ?? null;
+  const graph = () => backend.graph();
   const metronome = createMetronome({ graph });
   const { playback } = session;
   const backing = createBackingStarter({ runtime, playback, session, metronome });
@@ -319,7 +318,7 @@ function createRecording(
     outputClock: createOutputClock({ graph }),
     nowMs: () => performance.now(),
     // The master worklet delays everything superdough plays, the backing included.
-    outputDelaySec: () => backend.masterLatencySec?.() ?? 0,
+    outputDelaySec: () => backend.masterLatencySec(),
   });
   const memos = createMemos({
     api: recordingApi,

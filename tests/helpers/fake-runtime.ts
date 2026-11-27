@@ -1,6 +1,6 @@
 /** A runtime on a fake audio backend, with the scheduler clock and timers under the test's control. */
 import { createRuntime, type RuntimeHooks } from '../../src/lib/strudel/runtime';
-import type { AudioBackend, AudioGraph } from '../../src/lib/audio/backend';
+import type { AudioBackend } from '../../src/lib/audio/backend';
 import type { LevelFrame } from '../../src/lib/levels/levels';
 import type { LiveStats } from '../../src/lib/audio/playback-api';
 import type { EngineWarning, RustBackend } from '../../src/lib/audio/rust';
@@ -14,8 +14,6 @@ export function fakeRuntime(
     init?: () => Promise<void>;
     prebake?: () => Promise<void>;
     hooks?: RuntimeHooks;
-    /** The backend's `graph()` (e.g. `fakeAudioGraph().graph`); absent: the backend has none. */
-    graph?: AudioGraph | (() => AudioGraph | null);
     /** Also a fake rust backend (`rb`), on the same fake clock. */
     rust?: boolean;
     /** What the fake rust backend's `resume()` resolves to (default true). */
@@ -75,12 +73,6 @@ export function fakeRuntime(
       b.order.push('output');
     },
   };
-  const graph = opts.graph;
-  if (graph) {
-    // Like the real backend: no graph until audio runs.
-    backend.graph = () =>
-      backend.isRunning() ? (typeof graph === 'function' ? graph() : graph) : null;
-  }
   const rb = {
     running: false,
     calls: [] as any[],

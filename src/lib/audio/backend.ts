@@ -47,12 +47,6 @@ export interface AudioBackend {
   output(hap: Hap, t: number, cps: number, timing?: HapTiming): void | Promise<void>;
   /** Fills `buf` with the latest output samples; false when there is no signal source. */
   readScope?(buf: Float32Array): boolean;
-  /**
-   * The live graph, or null unless audio runs (it never creates the context) or while the output
-   * is being rebuilt. Never throws. Callers call it each time they need a node and never keep the
-   * result: the destination and the context can be replaced.
-   */
-  graph?(): AudioGraph | null;
   /** The engine's latest stats (a stable reference between updates), or null. */
   liveStats?(): LiveStats | null;
   /** Subscribes to skipped-sound warnings; returns the remover. */
@@ -63,8 +57,6 @@ export interface AudioBackend {
   setLimiter?(on: boolean): void;
   /** Whether this backend can limit its output right now. */
   limiterAvailable?(): boolean;
-  /** The delay the master stage adds to what is heard, in seconds (0 when none). */
-  masterLatencySec?(): number;
   /**
    * Ends the session (every scheduled voice stops); the next `resume()` opens a new one. The
    * runtime calls it at every stop and when the backend stops being the active one.

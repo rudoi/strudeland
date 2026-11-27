@@ -81,7 +81,10 @@ the V8 download the host brings.
   offset, snapshotted as one value; no Strudel imports),
   `song.ts` (the `song(meta, parts)` pattern, registered in the eval scope; it follows the live
   transport segments unless a query passes its own in `controls._segments`, as `runtime.query`
-  does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the
+  does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (`SuperdoughBackend` in
+  `superdough.ts` adds the Web Audio graph and the master latency: the graph feeds previews, the
+  metronome, the output clock and memo playback; the master latency feeds the take's output
+  delay; and `scope-tap.ts`, the
   master-output analyser behind `readScope`; `playback-api.ts`, the only Tauri caller for live
   playback, and `rust.ts`, the Rust backend over it, tested with `tests/helpers/fake-playback-api.ts`). The master meter and limiter: `master-dsp.ts`
   (the limiter and level maths), `master-worklet.ts` and `master-tap.ts` (the superdough tap);

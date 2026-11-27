@@ -3,7 +3,6 @@ import type { LevelFrame } from '../src/lib/levels/levels';
 import { createMasterTap, type MasterTapDeps } from '../src/lib/audio/master-tap';
 import { createSuperdoughBackend } from '../src/lib/audio/superdough';
 import { fakeAudioGraph } from './helpers/fake-audio-graph';
-import { fakeRuntime } from './helpers/fake-runtime';
 
 test('superdough backend resume false when suspended', async () => {
   const ctx = { state: 'suspended', currentTime: 1, resume: async () => {} };
@@ -358,20 +357,5 @@ describe('fakeAudioGraph', () => {
     expect(ctx.getOutputTimestamp()).toEqual({ contextTime: 0, performanceTime: 0 });
     f.setOutputTimestamp('missing');
     expect('getOutputTimestamp' in ctx).toBe(false);
-  });
-
-  test('fakeRuntime passes it through as the backend graph(), null until audio runs', async () => {
-    const f = fakeAudioGraph();
-    const { rt, backend } = fakeRuntime({ graph: f.graph });
-    expect(backend.graph!()).toBeNull();
-    await rt.resumeAudio();
-    expect(backend.graph!()).toBe(f.graph);
-    let graph: typeof f.graph | null = null;
-    const lazy = fakeRuntime({ graph: () => graph });
-    await lazy.rt.resumeAudio();
-    expect(lazy.backend.graph!()).toBeNull();
-    graph = f.graph;
-    expect(lazy.backend.graph!()).toBe(f.graph);
-    expect(fakeRuntime().backend.graph).toBeUndefined();
   });
 });
