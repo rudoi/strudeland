@@ -143,6 +143,8 @@ the V8 download the host brings.
 - `src-tauri/` the Rust app crate (`strudeland-app`): `project.rs` (commands, open-project state, and
   the song commands (they reject with a `CommandError`), and the `prefs_get`/`prefs_set` commands),
   `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events),
+  `lifecycle.rs` (what a main-webview reload and the app exit stop, in order, and what they
+  leave alone),
   `command_error.rs` (the Rust `CommandError`, its kind enum and the `ProjectError` table).
   Further crates go in `crates/` and are added to the root `Cargo.toml` workspace.
 - `src/lib/ipc/` the IPC contract: `bindings.ts` (command names and argument keys, event names,

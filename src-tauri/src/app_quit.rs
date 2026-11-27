@@ -82,6 +82,27 @@ impl QuitRequest {
     }
 }
 
+#[cfg(test)]
+impl QuitState {
+    /// Ready with request 0 pending: the webview is asking the user.
+    pub(crate) fn asking(&self) {
+        self.set_ready(true);
+        self.request(|_| Ok(()));
+    }
+
+    /// Ready with exit approved: the export permit is held.
+    pub(crate) fn approved(&self, exports: &ExportState) {
+        self.asking();
+        assert!(self.reply(0, true, exports).unwrap());
+    }
+
+    /// `(ready, pending, holds the exit permit)`.
+    pub(crate) fn view(&self) -> (bool, Option<u32>, bool) {
+        let state = self.lock();
+        (state.ready, state.pending, state.exit_permit.is_some())
+    }
+}
+
 #[tauri::command]
 pub fn app_quit_listen(window: WebviewWindow) -> Result<(), &'static str> {
     if window.label() != "main" {

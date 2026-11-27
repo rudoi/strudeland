@@ -23,7 +23,7 @@ use strudeland_ctl::{
     FrameError, LineReader, MAX_LINE_BYTES, Method, PathError, PingResult, Response, RpcError,
     ScreenshotResult, codes, encode_response, parse_request,
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{
     self as async_io, AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt,
     BufReader,
@@ -166,7 +166,7 @@ impl Bridge {
 
     /// Closes the endpoint (Unix: removes the socket, then releases the lock) and stops the
     /// accept task. A no-op when nothing is served.
-    fn close_server(&self) {
+    pub fn close_server(&self) {
         let Some(server) = lock(&self.server).take() else {
             return;
         };
@@ -250,6 +250,22 @@ impl Bridge {
                 Err(timeout_error(timeout))
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl Bridge {
+    /// Holds an idle server, as `start` leaves a listening bridge.
+    pub(crate) fn serve_idle(&self) {
+        self.set_server(Server {
+            endpoint: Weak::new(),
+            task: tauri::async_runtime::spawn(std::future::pending::<()>()),
+        });
+    }
+
+    /// Whether a server is held (`close_server` takes it).
+    pub(crate) fn serving(&self) -> bool {
+        lock(&self.server).is_some()
     }
 }
 
@@ -557,12 +573,6 @@ fn start_on(
             task,
         });
     }
-}
-
-/// Closes the endpoint on exit (Unix: removes the socket, then releases the lock) and stops the
-/// accept task.
-pub fn shutdown(app: &AppHandle) {
-    app.state::<Arc<Bridge>>().close_server();
 }
 
 struct TauriEmitter(AppHandle);
