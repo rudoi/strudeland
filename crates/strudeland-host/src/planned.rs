@@ -1,7 +1,8 @@
 //! The output of [`Host::plan_render`](crate::Host::plan_render): the serde mirror of
 //! `PlannedRender` in `src/lib/render/job-plan.ts`, which the bundle writes as one ASCII JSON text
 //! in `globalThis.__strudelandRender`. No `deny_unknown_fields`, so a newer bundle field does not
-//! break an older host.
+//! break an older host. `sections` is required because the bundle is compiled in (`bundle.rs`):
+//! a plan without it is malformed rather than unnamed.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,9 @@ pub struct PlannedRender {
     pub music_frames: u64,
     /// The song's structure (with a `loops` override applied).
     pub structure: Structure,
+    /// The section of each layout bar from 0 to the window's end (plus a single chunk's
+    /// overlap), as runs in bar order; a bar in no section is in no run.
+    pub sections: Vec<PlannedSection>,
     /// The longest lookback across the planned passes, in seconds.
     pub lookback_sec: f64,
     /// Captured and selection errors of every chunk, deduplicated.
@@ -66,6 +70,16 @@ pub struct PlannedWindow {
     pub from_bar: u32,
     pub to_bar: u32,
     pub layout: Layout,
+}
+
+/// Layout bars `[from_bar, to_bar)` that play in section `name` (`PlannedSection` in
+/// `job-plan.ts`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedSection {
+    pub from_bar: u32,
+    pub to_bar: u32,
+    pub name: String,
 }
 
 /// One chunk's engine job text and its window. Standard jobs match the render page's plan.
@@ -180,7 +194,7 @@ pub struct Section {
 mod tests {
     use super::*;
 
-    const PLANNED: &str = r#"{"window":{"fromBar":0,"toBar":12,"layout":"clip"},"cps":0.5,"structure":{"bpm":120,"meter":{"num":4,"den":4},"beatsPerBar":4,"cps":0.5,"sections":[{"name":"a","start":0,"bars":4,"loop":false},{"name":"b","start":4,"bars":4,"loop":true}],"loopIndex":1,"loops":2,"totalBars":8,"introEnd":4,"endOfSong":null,"clipBars":12,"clipSeconds":24},"lookbackSec":0.30000000000000004,"errors":[{"kind":"hap","message":"m","bar":3},{"kind":"other","message":"n"}],"musicFrames":1058400,"chunks":[{"json":"{\"schema\":2}","plan":{"c0":0,"c1":12,"lookbackSecUsed":0,"windowStartFrame":0,"contentFrames":1058400,"bufferStartSec":0,"frames":1058400,"fromBar":0,"toBar":12,"lookbackSec":0.30000000000000004}}],"future":1}"#;
+    const PLANNED: &str = r#"{"window":{"fromBar":0,"toBar":12,"layout":"clip"},"cps":0.5,"structure":{"bpm":120,"meter":{"num":4,"den":4},"beatsPerBar":4,"cps":0.5,"sections":[{"name":"a","start":0,"bars":4,"loop":false},{"name":"b","start":4,"bars":4,"loop":true}],"loopIndex":1,"loops":2,"totalBars":8,"introEnd":4,"endOfSong":null,"clipBars":12,"clipSeconds":24},"sections":[{"fromBar":0,"toBar":4,"name":"a"},{"fromBar":4,"toBar":12,"name":"b"}],"lookbackSec":0.30000000000000004,"errors":[{"kind":"hap","message":"m","bar":3},{"kind":"other","message":"n"}],"musicFrames":1058400,"chunks":[{"json":"{\"schema\":2}","plan":{"c0":0,"c1":12,"lookbackSecUsed":0,"windowStartFrame":0,"contentFrames":1058400,"bufferStartSec":0,"frames":1058400,"fromBar":0,"toBar":12,"lookbackSec":0.30000000000000004}}],"future":1}"#;
 
     #[test]
     fn the_bundle_shape_parses_exactly() {
@@ -201,6 +215,21 @@ mod tests {
         assert_eq!(p.structure.loop_index, Some(1));
         assert_eq!(p.structure.end_of_song, None);
         assert_eq!(p.structure.meter, Meter { num: 4, den: 4 });
+        assert_eq!(
+            p.sections,
+            [
+                PlannedSection {
+                    from_bar: 0,
+                    to_bar: 4,
+                    name: "a".into()
+                },
+                PlannedSection {
+                    from_bar: 4,
+                    to_bar: 12,
+                    name: "b".into()
+                },
+            ]
+        );
         assert_eq!(p.errors[0].bar, Some(3));
         assert_eq!(p.errors[1].bar, None);
         assert_eq!(p.events, None);
@@ -222,6 +251,10 @@ mod tests {
             "{text}"
         );
         assert!(text.contains(r#""musicFrames":1058400"#), "{text}");
+        assert!(
+            text.contains(r#""sections":[{"fromBar":0,"toBar":4,"name":"a"},"#),
+            "{text}"
+        );
         assert!(text.contains(r#""contentFrames":1058400"#), "{text}");
         assert!(!text.contains("overlapFrames"), "{text}");
         assert_eq!(serde_json::from_str::<PlannedRender>(&text).unwrap(), p);
@@ -296,6 +329,15 @@ mod tests {
             (r#""chunks":["#, r#""chunkz":["#),
             (r#""musicFrames":1058400,"#, ""),
             (r#""contentFrames":1058400,"#, ""),
+            (
+                r#""sections":[{"fromBar":0,"toBar":4,"name":"a"},{"fromBar":4,"toBar":12,"name":"b"}],"#,
+                "",
+            ),
+            (
+                r#""fromBar":0,"toBar":4,"name":"a""#,
+                r#""fromBar":-1,"toBar":4,"name":"a""#,
+            ),
+            (r#""toBar":4,"name":"a""#, r#""toBar":4,"name":1"#),
         ] {
             let text = PLANNED.replacen(from, to, 1);
             assert_ne!(text, PLANNED, "{from}");

@@ -135,6 +135,7 @@ describe('pageJobInfo', () => {
     musicFrames: plan.contentFrames,
     cps: 0.5,
     structure,
+    sections: [],
     lookbackSec: 0,
     errors,
     chunks,

@@ -15,7 +15,7 @@ import {
   withLoops,
   type SongStructure,
 } from '../strudel/structure';
-import type { Segment } from '../strudel/transport';
+import { locate, type Segment } from '../strudel/transport';
 import {
   SAMPLE_RATE,
   type RenderError,
@@ -247,6 +247,13 @@ export interface ChunkInfo {
   stemPairs: number;
 }
 
+/** Layout bars `[fromBar, toBar)` that play in the section `name`. */
+export interface PlannedSection {
+  fromBar: number;
+  toBar: number;
+  name: string;
+}
+
 interface RenderPass {
   /** `info` is present only for a `chunk` request. */
   chunks: { json: string; plan: ChunkWindowPlan; info?: ChunkInfo }[];
@@ -271,6 +278,12 @@ export interface PlannedRender {
   musicFrames: number;
   cps: number;
   structure: SongStructure;
+  /** The section each layout bar in `[0, c1)` plays in, where `c1` is `window.toBar` plus a
+   *  single chunk's overlap: runs in bar order from `locate` on the segments the schedule query
+   *  used, with a bar in no section in no run. The runs start at bar 0, so they cover the
+   *  lookback before `window.fromBar` and a loop preset's repeat pass. The engine's refusal
+   *  names a first bar's section from them. */
+  sections: PlannedSection[];
   /** `lookbackSeconds(events)` of the full schedule (the 'auto' lookback). */
   lookbackSec: number;
   /** Captured and selection errors of every chunk, deduped, first occurrence kept. */
@@ -519,6 +532,28 @@ function onsetIndex(selected: Selected[], bar: number): number {
   return lo;
 }
 
+/** The runs of `[0, c1)` that `locate` places in one section, merged while the section
+ *  index stays the same on consecutive bars. */
+function sectionRuns(
+  structure: SongStructure,
+  segments: readonly Segment[],
+  c1: number,
+): PlannedSection[] {
+  const runs: PlannedSection[] = [];
+  let open = -1; // the section index of runs.at(-1) when it ends at `bar`, else -1
+  for (let bar = 0; bar < c1; bar++) {
+    const at = locate(bar, structure, segments);
+    if (!at) {
+      open = -1;
+      continue;
+    }
+    if (at.section === open) runs.at(-1)!.toBar = bar + 1;
+    else runs.push({ fromBar: bar, toBar: bar + 1, name: structure.sections[at.section]!.name });
+    open = at.section;
+  }
+  return runs;
+}
+
 /** Onsets from `bar` onward, numbered from the start of this selection. */
 function onsetsFrom(selected: Selected[], bar: number): Selected[] {
   const first = onsetIndex(selected, bar);
@@ -540,7 +575,8 @@ export function cutSchedule(full: ScheduleSelection, c1: number): ScheduleSelect
  * Each chunk's selection is the schedule cut at the chunk's end; loop passes share the selected
  * schedule. A `chunk` request plans exactly one chunk over its window, with the chunk's overlap,
  * lookback ('auto': the schedule's) and mode, and carries its `info`; its job is byte-equal to
- * the matching chunk of a full plan. `captured` is read as each chunk is planned. Throws
+ * the matching chunk of a full plan. It names the section of every layout bar it schedules
+ * (`sections`). `captured` is read as each chunk is planned. Throws
  * `PlanJobError` (length errors are kind 'meta' with a `flag`; a header or evaluation error comes
  * first).
  */
@@ -673,6 +709,7 @@ export async function planRender(
     const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
     const scheduleStart = loopStartBar === fromBar ? fromBar : 0;
     const c1 = toBar + (single?.overlapBars ?? 0);
+    const sections = sectionRuns(structure, segments, c1);
     const full = selectHaps(query(scheduleStart, c1));
     const opening = planPass(full, fromBar, scheduleStart, !separateRepeat && !!request.preset);
     const repeat = separateRepeat
@@ -691,6 +728,7 @@ export async function planRender(
       musicFrames: musicalFrames,
       cps,
       structure,
+      sections,
       lookbackSec,
       errors: dedupeErrors(errors),
       ...(request.includeEvents === true ? { events: opening.events } : {}),

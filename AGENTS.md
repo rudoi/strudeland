@@ -278,11 +278,13 @@ the V8 download the host brings.
   (`host:parity`, pure parts in `src/lib/render/host-parity-lib.ts`).
 - The render pipeline: `src/lib/render/job-plan.ts`
   `planRender` (resolve the length request, evaluate once, query the schedule once, plan every
-  chunk's job, or one chunk for the harness with `chunk`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
+  chunk's job, or one chunk for the harness with `chunk`, and name the section of every layout
+  bar it schedules, `sections`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
   builds the `AssembledWindow` for `--planner batch`), `chunks.ts` `renderChunkPlans`. `crates/strudeland-host/` also has
   `plan_render` (the `plan-render` subcommand), the planning timeout (a watchdog thread,
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
-  library: `plan` (host to jobs, refusal of unsupported material; the only V8 caller) and
+  library: `plan` (host to jobs, refusal of unsupported material, its sections named from the
+  plan's `sections`; the only V8 caller) and
   `render_planned` (in `pipeline_audio`: a plan to joined audio through an injected chunk renderer),
   `render` (the worker pool), `join` (sample-exact joiner), `finish` (the one finishing loop: the
   `Leveling` switch between Limited and RepeatSafeStatic, through the `Codec` seam), `splice` (the

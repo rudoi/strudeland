@@ -10,7 +10,7 @@ use common::{SONG, corpus_song, job, request, single_chunk};
 use strudeland_engine::{EngineJob, Value};
 use strudeland_host::{
     ExportPreset, Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedChunk,
-    PlannedRender, RenderPlanRequest, SingleChunk,
+    PlannedRender, PlannedSection, RenderPlanRequest, SingleChunk,
 };
 
 fn plan_request(length: LengthRequest) -> RenderPlanRequest {
@@ -259,6 +259,33 @@ fn length_requests_resolve_against_the_meta() {
     );
     assert_eq!(planned.structure.clip_bars, 0);
     assert_eq!(planned.errors, vec![]);
+}
+
+#[test]
+fn sections_name_the_layout_bars_of_a_real_plan() {
+    let host = Host::new().unwrap();
+    let song = corpus_song("song-linear.js");
+    let runs = |length: LengthRequest| {
+        host.plan_render(&song, &plan_request(length.clone()))
+            .unwrap_or_else(|e| panic!("{length:?}: {e}"))
+            .sections
+    };
+    let run = |from_bar: u32, to_bar: u32, name: &str| PlannedSection {
+        from_bar,
+        to_bar,
+        name: name.to_string(),
+    };
+    assert_eq!(
+        runs(LengthRequest::Clip { loops: None }),
+        [run(0, 2, "intro"), run(2, 10, "body"), run(10, 12, "tail")]
+    );
+    // The lookback bars before the section's first bar are named too.
+    assert_eq!(
+        runs(LengthRequest::Section {
+            name: "body".into()
+        }),
+        [run(0, 2, "intro"), run(2, 6, "body")]
+    );
 }
 
 #[test]
