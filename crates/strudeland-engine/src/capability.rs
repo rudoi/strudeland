@@ -449,7 +449,7 @@ pub fn allowed_sounds() -> Vec<&'static str> {
 
 /// Keys the engine implements inside an `FX` chain entry (a subset of [`ALLOWED_KEYS`]), sorted:
 /// the keys superdough reads per entry (superdough.mjs:612-938; research `modulation-routing.md`
-/// 4.2) without [`CHAIN_UNSUPPORTED_KEYS`], the lowpass, highpass and bandpass families (their
+/// 4.2) without `CHAIN_UNSUPPORTED_KEYS`, the lowpass, highpass and bandpass families (their
 /// cutoff, Q, envelope and LFO keys, and the maps' `fanchor`, `ftype`, `drive`), and the
 /// modulators `lfo`, `env`, `bmod`.
 pub const CHAIN_KEYS: &[&str] = &[
@@ -573,13 +573,22 @@ pub struct UnsupportedSignature {
     pub first_bar: i64,
 }
 
+/// `s=<s> keys=<k1>,<k2>,…`: the text the engine binary's `unsupported` summary entries and the
+/// render crate's unreachable re-check carry (`keys=` stays when `keys` is empty).
+impl std::fmt::Display for UnsupportedSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "s={} keys={}", self.s, self.keys.join(","))
+    }
+}
+
 /// The unsupported part of one control map: `None` for a silence marker or a fully supported
 /// map, else `(s, sorted unique bad keys)` where `s` is the defaulted, bank-prefixed sound.
+#[cfg(test)]
 pub fn signature_of(map: &ValueMap, cps: f64) -> Option<(String, Vec<String>)> {
     signature_with(map, false, cps)
 }
 
-/// [`signature_of`] for a value whose bus-cycle status is known (the live engine passes
+/// `signature_of` for a value whose bus-cycle status is known (the live engine passes
 /// [`crate::bus::BusGraph::cyclic_readers`] of its growing graph): `bus-cycle` is among the keys
 /// when `bus_cycle`.
 pub fn signature_of_with_bus(
@@ -590,7 +599,7 @@ pub fn signature_of_with_bus(
     signature_with(map, bus_cycle, cps)
 }
 
-/// [`signature_of`], with `bus-cycle` among the keys when `bus_cycle` (the value reads a bus on
+/// `signature_of`, with `bus-cycle` among the keys when `bus_cycle` (the value reads a bus on
 /// a cycle of the job's bus graph, [`crate::bus::BusGraph::cyclic_readers`]). A modulator value (`lfo`,
 /// `env`, `bmod`) of the wrong shape is its key; a modulator target the engine cannot render is
 /// `<type>:<control>` (`modulate::unsupported_targets`).
@@ -895,6 +904,18 @@ mod tests {
             r#"[{"s":"sine","keys":["ir"],"firstBar":2},{"s":"bytebeat","keys":[],"firstBar":3}]"#,
             "serialized as the TS UnsupportedSignature"
         );
+        let texts: Vec<String> = sigs.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            texts,
+            ["s=sine keys=ir", "s=bytebeat keys="],
+            "displayed as the binary's summary message, keys= kept when empty"
+        );
+        let two = UnsupportedSignature {
+            s: "sine".into(),
+            keys: vec!["ir".into(), "lfo".into()],
+            first_bar: 0,
+        };
+        assert_eq!(two.to_string(), "s=sine keys=ir,lfo");
         // A negative cycle floors to a negative bar.
         let neg = unsupported_signatures(&job_with(json!([{ "s": "bytebeat" }]), &[-0.5]));
         assert_eq!(neg[0].first_bar, -1);
@@ -1297,6 +1318,7 @@ mod tests {
     /// (errors, every sample finite, peak) of a job's render.
     fn sound_render(values: serde_json::Value) -> (Vec<crate::RenderError>, bool, f32) {
         let out = crate::render(&sound_job(values)).unwrap();
+        assert!(out.unsupported.is_empty(), "{:?}", out.unsupported);
         let samples = || out.channels.iter().flatten();
         let finite = samples().all(|x| x.is_finite());
         let peak = samples().fold(0.0f32, |m, x| m.max(x.abs()));

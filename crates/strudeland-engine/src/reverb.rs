@@ -305,18 +305,15 @@ impl IrPlan {
     }
 
     /// The IR length `N` in frames.
+    #[cfg(test)]
     pub fn frames(&self) -> usize {
         self.frames
     }
 
     /// Whether the IR goes through the nested lowpass.
+    #[cfg(test)]
     pub fn has_lowpass(&self) -> bool {
         self.lowpass.is_some()
-    }
-
-    /// The request's settings.
-    pub fn params(&self) -> &ReverbParams {
-        &self.params
     }
 
     /// The run-wide cache key of this request's IR for the audio seed `seed`: the sample rate
@@ -876,12 +873,14 @@ impl Convolver {
     }
 
     /// `LatencyFrames`: always 0 (the direct stage covers the start of the IR).
+    #[cfg(test)]
     pub fn latency_frames(&self) -> usize {
         0
     }
 
     /// The stage layout: `(offset, length, fft_size or 0 for the direct stage, pre-delay,
     /// post-delay)` per stage of channel `c`.
+    #[cfg(test)]
     pub fn stages(&self, c: usize) -> Vec<(usize, usize, usize, usize, usize)> {
         let mut offset = 0;
         self.channels[c]
@@ -958,11 +957,13 @@ impl IrCache {
     }
 
     /// How many IRs the cache generated (one per miss).
+    #[cfg(test)]
     pub fn generated(&self) -> usize {
         self.generated
     }
 
     /// The cached IRs.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -1134,21 +1135,25 @@ impl Reverb {
     }
 
     /// The stored settings (`convolver.duration`, `fade`, `lp`, `dim`).
+    #[cfg(test)]
     pub fn settings(&self) -> &ReverbParams {
         &self.stored
     }
 
     /// `latest`: how many requests were made.
+    #[cfg(test)]
     pub fn latest(&self) -> u64 {
         self.latest
     }
 
     /// `applied`: the request number of the IR in place (0 before the first).
+    #[cfg(test)]
     pub fn applied(&self) -> u64 {
         self.applied
     }
 
     /// The request waiting for the end of the pause, if any.
+    #[cfg(test)]
     pub fn pending(&self) -> Option<(u64, &IrPlan)> {
         self.pending.as_ref().map(|(r, p)| (*r, p))
     }
@@ -1160,6 +1165,7 @@ impl Reverb {
     }
 
     /// The convolver playing the applied IR.
+    #[cfg(test)]
     pub fn convolver(&self) -> Option<&Convolver> {
         self.convolver.as_ref()
     }

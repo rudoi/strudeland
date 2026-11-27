@@ -8,7 +8,7 @@
 use crate::Rendered;
 use crate::bus::BusGraph;
 use crate::capability::unsupported_signatures_in;
-use crate::job::{EngineJob, ErrorKind, JobError, RenderError, bar_of};
+use crate::job::{EngineJob, ErrorKind, JobError, bar_of};
 use crate::orbit::OrbitBank;
 use crate::render_core::{Core, HapTag, ScheduleArgs, SyncSettler};
 use crate::stems::{StemCapture, StemLayout};
@@ -109,19 +109,19 @@ impl<'a> Engine<'a> {
         let (errors, overflowed) = if played {
             core.finish()
         } else {
-            let errors = unsupported
-                .into_iter()
-                .map(|u| {
-                    let msg = format!("s={} keys={}", u.s, u.keys.join(","));
-                    RenderError::new(ErrorKind::Unsupported, msg, Some(u.first_bar))
-                })
-                .collect();
-            (errors, false)
+            (Vec::new(), false)
         };
         if let Some(capture) = capture {
             channels.extend(capture.channels);
         }
-        (Rendered { channels, errors }, overflowed)
+        (
+            Rendered {
+                channels,
+                errors,
+                unsupported,
+            },
+            overflowed,
+        )
     }
 
     /// The pause loop: render to each pause frame, schedule its haps, settle the IRs; then
@@ -193,6 +193,8 @@ impl<'a> Engine<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::UnsupportedSignature;
+    use crate::job::RenderError;
     use crate::js::voice_seed;
     use crate::render as render_job;
     use crate::render_core::tests::{first_nonzero, value_map};
@@ -373,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_jobs_render_silence_and_only_unsupported_errors() {
+    fn unsupported_jobs_render_silence_and_report_their_signatures() {
         let j = job(base(
             4410,
             json!([{ "suspendSec": 0, "haps": [hap(0.0, 0.05, 0.0, 0), hap(0.0, 0.05, 2.0, 1), hap(0.0, 0.05, 0.0, 2)] }]),
@@ -385,13 +387,14 @@ mod tests {
                 .iter()
                 .all(|c| c.len() == 4410 && c.iter().all(|x| *x == 0.0))
         );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert_eq!(
-            r.errors,
-            vec![RenderError::new(
-                ErrorKind::Unsupported,
-                "s=bytebeat keys=ir",
-                Some(2)
-            )]
+            r.unsupported,
+            vec![UnsupportedSignature {
+                s: "bytebeat".into(),
+                keys: vec!["ir".into()],
+                first_bar: 2
+            }]
         );
     }
 
@@ -1643,13 +1646,14 @@ mod tests {
             json!([{ "s": "bus", "n": 1, "bus": 2 }, { "s": "bus", "n": 2, "bus": 1 }]),
         ));
         let r = render_job(&j).unwrap();
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert_eq!(
-            r.errors,
-            vec![RenderError::new(
-                ErrorKind::Unsupported,
-                "s=bus keys=bus-cycle",
-                Some(0)
-            )]
+            r.unsupported,
+            vec![UnsupportedSignature {
+                s: "bus".into(),
+                keys: vec!["bus-cycle".into()],
+                first_bar: 0
+            }]
         );
         assert!(r.channels.iter().flatten().all(|x| *x == 0.0));
     }

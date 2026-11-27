@@ -17,8 +17,10 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use strudeland_engine::capability::unsupported_signatures;
-use strudeland_engine::{EngineJob, SAMPLE_RATE, controls_json, render, wav};
+use strudeland_engine::{
+    EngineJob, ErrorKind, RenderError, SAMPLE_RATE, controls_json, render, unsupported_signatures,
+    wav,
+};
 
 const USAGE: &str = "usage: strudeland-engine render --job <file|-> --out <file.wav>\n       strudeland-engine signatures --job <file|->\n       strudeland-engine controls --json";
 
@@ -140,15 +142,23 @@ fn run_render(job_path: &str, out_path: &str) -> ExitCode {
     if let Err(e) = written {
         return fail(format!("writing {out_path}: {e}"));
     }
+    // A refused job played nothing; each signature is reported as an `unsupported` error,
+    // ahead of the render errors (empty when refused).
+    let errors: Vec<RenderError> = rendered
+        .unsupported
+        .iter()
+        .map(|u| RenderError::new(ErrorKind::Unsupported, u.to_string(), Some(u.first_bar)))
+        .chain(rendered.errors)
+        .collect();
     let summary = serde_json::json!({
-        "ok": rendered.errors.is_empty(),
+        "ok": errors.is_empty(),
         "frames": job.frames,
         "channels": job.channels.count,
-        "errors": rendered.errors,
+        "errors": errors,
         "renderMs": u64::try_from(render_ms).unwrap_or(u64::MAX),
     });
     println!("{summary}");
-    if rendered.errors.is_empty() {
+    if errors.is_empty() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)

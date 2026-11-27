@@ -230,6 +230,7 @@ pub fn route(channels: &[i64], count: usize) -> Vec<(usize, usize)> {
 /// The stem pair an orbit lands on (the twin of `orbitPair` in `src/lib/render/gates/stems.ts`):
 /// `orbit <= 0` -> 0, else `(orbit - 1) % pairs` (JS `%`: the sign of the dividend). `pairs` may
 /// be infinite (no wrap).
+#[cfg(test)]
 pub fn orbit_pair(orbit: f64, pairs: f64) -> f64 {
     if orbit <= 0.0 {
         0.0
@@ -284,7 +285,6 @@ impl OrbitInputs {
 #[derive(Debug, Clone)]
 pub struct Orbit {
     orbit: f64,
-    channels: Vec<i64>,
     routes: Vec<(usize, usize)>,
     /// `summingNode`'s summing bus this quantum.
     sum: Stereo,
@@ -321,7 +321,6 @@ impl Orbit {
     pub fn new(spec: &OrbitSpec, count: usize) -> Orbit {
         Orbit {
             orbit: spec.orbit,
-            channels: spec.channels.clone(),
             routes: route(&spec.channels, count),
             sum: [[0.0; QUANTUM]; 2],
             sum_silent: [true; 2],
@@ -385,11 +384,13 @@ impl Orbit {
     }
 
     /// The duck curve model, once the orbit was ducked.
+    #[cfg(test)]
     pub fn duck_curve(&self) -> Option<&DuckCurve> {
         self.duck_curve.as_ref()
     }
 
     /// The output gain (the duck target).
+    #[cfg(test)]
     pub fn output_gain(&self) -> &Param {
         &self.output.gain
     }
@@ -468,6 +469,7 @@ impl Orbit {
     }
 
     /// The orbit's reverb, once created.
+    #[cfg(test)]
     pub fn reverb(&self) -> Option<&Reverb> {
         self.reverb.as_ref()
     }
@@ -478,6 +480,7 @@ impl Orbit {
     }
 
     /// The effect returns in summing order (creation order).
+    #[cfg(test)]
     pub fn returns(&self) -> &[Return] {
         &self.returns
     }
@@ -569,13 +572,9 @@ impl Orbit {
     }
 
     /// The numeric orbit.
+    #[cfg(test)]
     pub fn orbit(&self) -> f64 {
         self.orbit
-    }
-
-    /// The 0-based output channels of the orbit's first hap.
-    pub fn channels(&self) -> &[i64] {
-        &self.channels
     }
 
     /// The `(splitter output, merger input)` connections.
@@ -603,6 +602,7 @@ impl Orbit {
     }
 
     /// [`Orbit::finish`] with the modulator connections into the `djf` worklet's `value`.
+    #[cfg(test)]
     pub fn finish_with(&mut self, quantum_start: u64, djf_inputs: &ParamInputs) -> (&Stereo, bool) {
         self.finish_observing_gain(quantum_start, djf_inputs, None)
     }
@@ -683,6 +683,7 @@ impl OrbitBank {
         self.orbits.push(Orbit::new(spec, self.count));
     }
 
+    #[cfg(test)]
     pub fn orbits(&self) -> &[Orbit] {
         &self.orbits
     }
@@ -757,6 +758,7 @@ impl OrbitBank {
     /// Renders one quantum of the orbit graph: each voice output `outputs[i]` into the orbit
     /// `orbit_of[i]` in voice order, the orbits' panners, then the merger into `dest` (one
     /// buffer per destination channel; unconnected channels are zeros).
+    #[cfg(test)]
     pub fn process(
         &mut self,
         quantum_start: u64,
@@ -1986,5 +1988,62 @@ mod tests {
         let mut b = bank(&[2.0, 2.0]);
         duck_with(&mut b, json!({ "duckorbit": 2 })).unwrap();
         assert!(b.orbits()[0].duck_curve().is_some() && b.orbits()[1].duck_curve().is_none());
+    }
+
+    // ---- orbit_pair and the stems routing against the table shared with the TS tests
+    // (tests/helpers/orbit-pairs.json, also read by tests/render-engine-job.test.ts)
+
+    const TABLE: &str = include_str!("../../../tests/helpers/orbit-pairs.json");
+
+    fn entries() -> Vec<(f64, f64, f64)> {
+        let v: serde_json::Value = serde_json::from_str(TABLE).unwrap();
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|e| {
+                let n = |k: &str| e[k].as_f64().unwrap();
+                (n("orbit"), n("pairs"), n("pair"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_table_covers_wrapping_and_non_positive_orbits() {
+        let e = entries();
+        assert!(e.len() >= 10);
+        assert!(e.iter().any(|(o, p, _)| *o > *p), "an orbit past the pairs");
+        assert!(e.iter().any(|(o, _, _)| *o <= 0.0));
+        assert!(e.iter().any(|(_, p, _)| *p == 16.0));
+    }
+
+    #[test]
+    fn orbit_pair_matches_the_shared_table() {
+        for (orbit, pairs, pair) in entries() {
+            assert_eq!(
+                orbit_pair(orbit, pairs),
+                pair,
+                "orbit {orbit} pairs {pairs}"
+            );
+        }
+    }
+
+    #[test]
+    fn stems_channels_route_to_the_pair() {
+        // `orbitChannels` with multiChannelOrbits: orbit k > 0 -> [2k-2, 2k-1], else [0, 1]; the
+        // merger connection `% count` then lands on the pair `orbit_pair` names.
+        for (orbit, pairs, pair) in entries() {
+            let k = orbit as i64;
+            let channels = if orbit > 0.0 {
+                vec![2 * k - 2, 2 * k - 1]
+            } else {
+                vec![0, 1]
+            };
+            let p = pair as usize;
+            assert_eq!(
+                route(&channels, 2 * pairs as usize),
+                vec![(0, 2 * p), (1, 2 * p + 1)],
+                "orbit {orbit} pairs {pairs}"
+            );
+        }
     }
 }

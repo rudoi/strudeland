@@ -19,8 +19,8 @@ errors, 2 bad input or I/O. `signatures` prints what the engine cannot play in a
 JSON `[{ s, keys, firstBar }]` (`[]` when it plays everything; exit 0 for any valid job, 2 for bad
 input). It is the only unsupported detection: `scripts/render/rust-engine.ts` calls it, and the
 shared signature table `tests/data/unsupported-signatures.json` pins its rules. `controls --json`
-prints the control allowlist (`capability::controls_json`; nothing on the TypeScript side mirrors
-it). Its `sounds` are the sources the engine builds plus the silence markers, and its
+prints the control allowlist (`strudeland_engine::controls_json`; nothing on the TypeScript
+side mirrors it). Its `sounds` are the sources the engine builds plus the silence markers, and its
 `modulatorTargets` are the `CONTROL_TARGETS` rows that resolve on some voice
 (`modulate::modulatable_targets`, pinned by a test).
 
@@ -513,8 +513,8 @@ thread owns it (it is `!Send`).
   `floor(t_sec * 44100)`, informational), with the hap's own `cps`. A hap before the render
   head is **late**: it starts at the head and `counters().late_haps` counts it; it is not an
   error and pushes no event. Support is decided at the first hap of each `(value, cps)`
-  (`capability::signature_of_with_bus`, a bus cycle counting as unsupported) and cached; an
-  unsupported hap is skipped (`skipped_haps`) and the first of each signature pushes one
+  (the internal `capability::signature_of_with_bus`, a bus cycle counting as unsupported) and
+  cached; an unsupported hap is skipped (`skipped_haps`) and the first of each signature pushes one
   `LiveEvent::Warning`. A hap naming an unknown value is an `Error` event.
 - **Events.** `take_events` drains the engine's events, then at most 32 of the core's render
   errors (`RenderError.message` verbatim; the rest of that batch are dropped).
@@ -633,7 +633,8 @@ behaviour during an offline render, so these differ from a superdough render:
   including samples and soundfonts, sample IRs (`ir`, `irspeed`, `irbegin`), `stretch`,
   wavetables (`wt_*`), `bytebeat`, kabelsalat (`workletSrc`, `workletInputs`), the `source` function
   key, `sbd` (Blink's `WaveShaperNode`) and zzfx (`zzfx`, `z_*`). The engine refuses such
-  jobs with `unsupported` errors. The `signatures` subcommand lists them.
+  jobs: `render` returns their signatures in `Rendered.unsupported`, and the binary reports
+  them as `unsupported` errors. The `signatures` subcommand lists them.
 
 ## Re-porting after a Playwright bump
 

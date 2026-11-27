@@ -427,10 +427,7 @@ fn controls_json_prints_the_allowlist() {
         .collect();
     assert_eq!(sounds, strudeland_engine::allowed_sounds());
     assert_eq!(v["unsupportedValues"], json!({}));
-    assert_eq!(
-        v["chainKeys"],
-        json!(strudeland_engine::capability::CHAIN_KEYS)
-    );
+    assert_eq!(v["chainKeys"], json!(strudeland_engine::CHAIN_KEYS));
     assert!(v["chainKeys"].as_array().unwrap().contains(&json!("delay")));
     let mk = v["modulatorKeys"].as_object().unwrap();
     assert_eq!(mk.keys().collect::<Vec<_>>(), ["bmod", "env", "lfo"]);
