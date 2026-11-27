@@ -121,7 +121,7 @@ These are lowercase like the rest of the dialog. The errors are app-worded, so l
 | noSections | `this song has no sections; choose a length in bars` |
 | sectionWithoutSections | `this song has no sections; choose a length in bars` |
 | unknownSection | `this song has no section '{name}' (sections: {list}); choose another section` |
-| lengthPastEnd | `{bars} bars is past the end of the song ({clipBars} bars); choose {clipBars} bars or fewer` |
+| lengthPastEnd | `{bars} bars is past the end of the song ({clipBars} bars); choose {clipBars} bars or fewer`, with each count's `bars` written `bar` when the count is 1 (`2 bars is past the end of the song (1 bar); choose 1 bar or fewer`) (singular added in the plan refinement) |
 | clipPastLimit | `the song's clip is {clipBars} bars, past the render limit of {limit} bars; choose a length in bars` |
 | sectionPastLimit | `section '{name}' ends at bar {toBar}, past the render limit of {limit} bars` |
 | loopPastLimit | `the loop ends at bar {end}, past the render limit of {limit} bars` |
@@ -181,7 +181,7 @@ The visible changes were approved by the user on 2026-11-25. These answers follo
   - The wording follows the drafts in §5. That copy is user-visible, so the PR lists it.
 - **No IPC shape change:** no `ipc:build` is needed.
 - **Loop presets:**
-  - A pure `loopUnavailable(song, options)` in the export controller disables export, with the help text "Mark a loop in the song to export a loop preset."
+  - A pure `loopUnavailable(song, options)` in the export controller disables export, with the help text "This song marks no loop; mark one to export a loop preset." (updated in the plan refinement: it leads with the reason, as `docs/writing-contextual-help.md` point 2 asks; it supersedes §6's draft)
   - The radios and the warning are unchanged.
   - Accepted limit, noted in the PR: the check reads the header as typed, the same way the dialog builds its range options.
 - **Out of scope:** the control socket's "unknown section" text.

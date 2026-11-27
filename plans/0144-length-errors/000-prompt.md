@@ -105,11 +105,11 @@ L() { log="$S/0144-$N-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "$
 
 | Step | Command | Stages | Pass |
 |---|---|---|---|
-| 1 | `L host-build bun run host:build` | 001, 002 | exit 0. In 002, `L host-unchanged git diff --exit-code HEAD -- crates/strudeland-host/js` exits 0 too |
+| 1 | `L host-build bun run host:build` | 001, 002 | exit 0. In 001 it re-runs the early build of 001 step 4 and writes no change to it. In 002, `L host-unchanged git diff --exit-code HEAD -- crates/strudeland-host/js` exits 0 too |
 | 2 | `L host-diff "$B/host-diff.sh"` | 001 | exit 0: every `host.js` hunk is inside the `job-plan.ts` region or a `main.ts` region, and `host.inputs.json` changes only those two hashes and `combined` |
-| 3 | `L refs-check bun run engine:refs` | 001, 002 | 001: exit 1, and its summary names only provenance and the two floor cases (`mod-lfo-note`, `vowel-formants`). 002: exit 0 |
+| 3 | `L refs-check bun run engine:refs` | 001, 002 | 001: exit 1, and its summary names only provenance and the two floor cases (`mod-lfo-note`, `vowel-formants`), which will change. 002: exit 0 |
 | 4 | `L refs-write bun run engine:refs --write` | 001 | exit 0 |
-| 5 | `L refs-recheck bun run engine:refs`, then `L refs-ab "$B/refs-ab.sh"` | 001 | both exit 0 |
+| 5 | `L refs-recheck bun run engine:refs`, then `L refs-ab "$B/refs-ab.sh"` | 001 | both exit 0. `refs-ab` counts the two floor WAVs as changed |
 | 6 | `L engine-vectors bun run engine:vectors` and `L render-vectors bun run render:vectors` (check mode) | 001, 002 | exit 0 |
 | 7 | `L frozen git diff --exit-code 0113154 -- <the stage's frozen list>` | 001, 002 | exit 0 (lists in each stage file) |
 | 8 | `bun run format`, then `L bun-test bun test`, `L check bun run check`, `L lint bun run lint` | 001, 002 | exit 0 |
@@ -124,9 +124,13 @@ L() { log="$S/0144-$N-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "$
 
 Notes:
 
-- Steps 3-5 are the provenance rule. `job-plan.ts` is in `PLANNER_FILES`, and the floor cases'
-  job files carry the provenance. `settleFloorCase` re-renders them, so their WAVs and
-  `floorDb` may move. Nothing else may.
+- Steps 3-5 are the provenance rule. `job-plan.ts` is in `PLANNER_FILES`, and every job file
+  carries the provenance, the floor cases' included. A floor case whose job text changed is
+  settled as `the job changed` (`settleFloorCase`, `scripts/engine/refs-lib.ts`), so the two
+  floor cases **will** change: their WAVs are replaced by a fresh render and their `floorDb`
+  in `index.json` is measured again (it may come out equal). The `floorDb` in
+  `tests/refs/thresholds.json` (`fixtures.floorDb`) is a tolerance, not a measurement; `--write`
+  does not rewrite `thresholds.json`, and it must stay unchanged. Nothing else may move.
 - There is no `perf_budget` step. Only throw sites change, and no path that plans a job does.
 - No `render:check`. Job identity is proven by the plan A/B (host against base) and by
   `host:parity` (page against host).
@@ -151,7 +155,7 @@ Do not work around them:
   signature;
 - a need to touch `SKILL.md`, a CLI flag, `src/lib/strudel/structure.ts`, a threshold, or an A/B
   script after its determinism pass;
-- a baseline case that does not give its expected code at baseline (001 step 1.8) after one
+- a baseline case that does not give its expected code at baseline (001 step 1.10) after one
   song fix.
 
 ## Commits

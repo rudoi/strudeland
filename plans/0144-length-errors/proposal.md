@@ -29,6 +29,9 @@ In:
 - `crates/strudeland-render/src/export/wording.rs`: an exhaustive
   `dialog_text(&LengthProblem) -> String`. `src-tauri/src/export_audio.rs` `export_message`
   (`:144`) calls it for a `MetaFlag`.
+- How the host reads the slot's `length`: a malformed `length` (an unknown code, a missing or
+  ill-typed parameter) fails the whole slot as `HostError::Runtime("malformed result slot:
+  …")`; a well-formed `length` on a kind other than `meta` is ignored, as `flag` is today.
 - In `src/lib/export/controller.ts`, a pure `loopUnavailable(song, options)`.
   `ExportAudio.svelte` uses it for `canExport`, for the export button's help and for the
   existing warning's condition.
@@ -112,7 +115,7 @@ dialog, they are lowercase (AGENTS.md styling rule). `{list}` is the section nam
 | `noSections` | `this song has no sections; choose a length in bars` |
 | `sectionWithoutSections` | `this song has no sections; choose a length in bars` |
 | `unknownSection` | `this song has no section '{name}' (sections: {list}); choose another section` |
-| `lengthPastEnd` | `{bars} bars is past the end of the song ({clipBars} bars); choose {clipBars} bars or fewer` |
+| `lengthPastEnd` | `{bars} bars is past the end of the song ({clipBars} bars); choose {clipBars} bars or fewer` (each count's `bars` is `bar` when the count is 1) |
 | `clipPastLimit` | `the song's clip is {clipBars} bars, past the render limit of {limit} bars; choose a length in bars` |
 | `sectionPastLimit` | `section '{name}' ends at bar {toBar}, past the render limit of {limit} bars` |
 | `loopPastLimit` | `the loop ends at bar {end}, past the render limit of {limit} bars` |
@@ -128,10 +131,16 @@ Notes:
 - `presetWithoutLoop` is a backstop once stage 002 lands, and it matches the dialog warning.
 - The app cannot reach `loopsWithoutLoop`, `loopsPastLimit` or `loopsInvalid`, because the
   dialog never sends loops.
+- `lengthPastEnd` writes `1 bar`, not `1 bars`, for a count of 1 (for example `2 bars is past
+  the end of the song (1 bar); choose 1 bar or fewer`). The test pins a singular and a plural
+  row. The other texts' counts are never 1 (`limit` is 100000, and every count past it is
+  larger).
 
-The gate's contextual help (stage 002), on the disabled export button, is `Mark a loop in the
-song to export a loop preset.` It is in sentence case, as `docs/writing-contextual-help.md`
-requires for help sentences. It names the blocker and the next step.
+The gate's contextual help (stage 002), on the disabled export button, is `This song marks no
+loop; mark one to export a loop preset.` It follows `docs/writing-contextual-help.md` point 2:
+it starts with the reason the action is unavailable, then gives the next step. It is one
+sentence in sentence case, as help sentences are. This updates the Decisions' draft (`Mark a
+loop in the song to export a loop preset.`), which led with the step instead of the reason.
 
 ### The loop preset gate
 
@@ -177,11 +186,21 @@ the destination keeps showing.
 - **A stale bundle.** A host whose bundle still writes `flag` would read every length error as
   plain `Meta` (exit 1). The bundle is compiled in (`bundle.rs`), and the `host.inputs.json`
   staleness test in `bun test` fails until `host:build` has run.
-- **The gate reads the header as typed.** A song whose header lacks the loop but whose `song()`
-  registers one would be blocked. The dialog already builds its range options from the header.
-  This limit is accepted (Decisions) and noted in the PR.
-- **The floor cases' re-render** (`mod-lfo-note`, `vowel-formants`) may move their WAVs and
-  `floorDb`. That is the provenance rule's known effect. Nothing else in the refs may move.
+- **The gate reads the header as typed.** These go in the PR notes, together:
+  - A song whose header lacks the loop but whose `song()` registers one would be blocked. The
+    dialog already builds its range options from the header. This limit is accepted
+    (Decisions).
+  - A header that does not parse (`song.structure` is null) makes the gate block every loop
+    preset, with the loop help. The planner would refuse such a song anyway, with a `meta`
+    error.
+  - A header that marks a loop while the song's `song()` structure has none passes the gate.
+    The planner then refuses it as K, and the dialog shows K's text (`loop export needs a
+    meta.loop range or a section with loop: true`).
+- **The floor cases' re-render** (`mod-lfo-note`, `vowel-formants`). Their job files carry the
+  provenance hash, so they **will** change: `settleFloorCase` sees `the job changed`, replaces
+  each WAV with a fresh render and measures its `floorDb` in `index.json` again. The
+  `fixtures.floorDb` in `tests/refs/thresholds.json` is a tolerance, and `--write` does not
+  rewrite it. That is the provenance rule's known effect. Nothing else in the refs may move.
 
 ## Open questions
 

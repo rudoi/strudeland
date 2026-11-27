@@ -61,18 +61,35 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
       `$B/bin/`.
    2. Write the songs in `$B/songs/`. `N` below stands for `note("c3").s('sine')`. Write it out
       in each file; do not use a shared binding unless a song fails to evaluate without one
-      (see step 1.8).
-      - `plain.js`: `const meta = { bpm: 120, meter: '4/4' };` then `$: note("c3").s('sine')`;
-      - `sections.js`: `meta = { bpm: 120, meter: '4/4', sections: [{ name: 'intro', bars: 2
-        }, { name: 'body', bars: 4, loop: true }, { name: 'tail', bars: 2 }] }`, then
+      (see step 1.10). Every song starts with a `const meta = { … };` statement, never
+      `meta = …` or `export const` (`readSongHeader` reads only a `const` declaration). Every
+      song with sections, and so every song with a loop, plays `$: song(meta, { … })` with one
+      part per section, named as in the header and in the header's order:
+      - `plain.js`:
+        `const meta = { bpm: 120, meter: '4/4' };` then `$: note("c3").s('sine')`;
+      - `sections.js`:
+        `const meta = { bpm: 120, meter: '4/4', sections: [{ name: 'intro', bars: 2 }, {
+        name: 'body', bars: 4, loop: true }, { name: 'tail', bars: 2 }] };`, then
         `$: song(meta, { intro: N, body: N, tail: N })`. Its clip is 8 bars;
-      - `long-loop.js`: sections `{ name: 'a', bars: 2 }, { name: 'b', bars: 10000, loop: true
-        }`, `bpm: 120`, then `$: song(meta, { a: N, b: N })`. Its clip is 10002 bars;
-      - `long-loop-meta.js`: the same with `loops: 10` in `meta`. Its clip is 100002 bars;
-      - `long-plain.js`: eleven sections `s0` … `s10` of `bars: 10000`, no loop, `bpm: 120`,
-        then `$: song(meta, { s0: N, …, s10: N })`. Its clip is 110000 bars;
-      - `long-last-loop.js`: `long-plain.js` with `loop: true` on `s10`;
-      - `long-range.js`: `long-plain.js` with `loop: { from: 's9', through: 's10' }` in `meta`.
+      - `long-loop.js`:
+        `const meta = { bpm: 120, meter: '4/4', sections: [{ name: 'a', bars: 2 }, { name:
+        'b', bars: 10000, loop: true }] };`, then `$: song(meta, { a: N, b: N })`. Its clip
+        is 10002 bars;
+      - `long-loop-meta.js`:
+        `const meta = { bpm: 120, meter: '4/4', sections: [{ name: 'a', bars: 2 }, { name:
+        'b', bars: 10000, loop: true }], loops: 10 };`, then `$: song(meta, { a: N, b: N })`.
+        Its clip is 100002 bars;
+      - `long-plain.js`:
+        `const meta = { bpm: 120, meter: '4/4', sections: [{ name: 's0', bars: 10000 }, …, {
+        name: 's10', bars: 10000 }] };` (eleven sections `s0` … `s10`, each written out, no
+        loop), then `$: song(meta, { s0: N, s1: N, …, s10: N })` (eleven parts, each written
+        out). Its clip is 110000 bars;
+      - `long-last-loop.js`:
+        `long-plain.js` with `loop: true` on `s10`'s section entry
+        (`{ name: 's10', bars: 10000, loop: true }`); the same `song(meta, …)` line;
+      - `long-range.js`:
+        `long-plain.js` with `loop: { from: 's9', through: 's10' }` after `sections` in the
+        `const meta = { … };` object; the same `song(meta, …)` line.
 
       Strings in `meta` use single quotes (AGENTS.md).
    3. Write `$B/length-cases.tsv`, one case per line: `tool<TAB>song<TAB>args<TAB>expect`.
@@ -82,7 +99,7 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
       - `@OUT` is `$S/0144-out/<n>` for case `<n>`. The script removes and recreates it before
         every run of the case, so a printed path is the same in `record` and `check`.
       - `expect` is the code letter the case must give at baseline (reverify §1), or `cli` for
-        the CLI's own preset guard. Step 1.8 checks it.
+        the CLI's own preset guard. Step 1.10 checks it.
 
       These 35 cases:
 
@@ -118,8 +135,10 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
         - `{"length":{"kind":"window","fromBar":0,"toBar":4,"layout":"linear"}}`;
         - `{"length":{"kind":"window","fromBar":1,"toBar":3,"layout":"clip"},"chunk":{"overlapBars":1,"lookbackSec":"auto","mode":"mix"}}`;
         - `{"length":{"kind":"clip"},"preset":P}` for each of the four presets.
-      - Add `{"length":{"kind":"section","name":X}}` for every section of `song-linear.js`,
-        `mixed-meter-loop.js` and `sections.js`, and for `X` = `drop` on `sections.js`.
+      - Add `{"length":{"kind":"section","name":X}}` for every section of
+        `tests/render/corpus/song-linear.js`, `tests/render/mixed-meter-loop.js` and
+        `sections.js`, and for `X` = `drop` on `sections.js`. `song-linear.js` is a corpus song,
+        so it also gets the nine requests above.
       - Add `{"length":{"kind":"length","bars":2},"preset":"tagged-loop"}` and
         `{"length":{"kind":"clip","loops":2},"preset":"tagged-loop"}` on `sections.js`. These
         are A, which only the host reaches.
@@ -140,12 +159,15 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
    7. Write `$B/refs-ab.sh`. With `R=crates/strudeland-engine/tests/refs`, it must exit 0 only
       if all of these hold:
       - `git status --porcelain -- "$R"` shows no untracked or deleted file;
-      - every changed `*.wav` is `mod-lfo-note.wav` or `vowel-formants.wav`;
+      - every changed `*.wav` is `mod-lfo-note.wav` or `vowel-formants.wav` (both are
+        expected to change: their job text carries the provenance hash);
       - every changed `*.json` other than `index.json` is byte-equal to its `0113154` version
         once both have every `"plannerSha256": "<64 hex>"` value replaced by `X` (with or
         without a space after the colon). Compare with `cmp`, not `jq`;
       - after the same replacement, `index.json`'s diff against `0113154` has only `"sha256":`
-        and `"bytes":` lines under `files`, plus the two floor cases' `"floorDb":` lines. Every
+        and `"bytes":` lines under `files`, plus the two floor cases' `"floorDb":` lines (the
+        re-measured floor; `thresholds.json`'s `fixtures.floorDb` is a tolerance and stays
+        byte-equal under the rule above). Every
         `files` entry's `sha256` and `bytes` match the file on disk;
       - every `plannerSha256` in `$R` has the same new value, and it differs from
         `860326f8f6ed525ee13a9fe85f652c645bf75e667f3fc219a818305d9c6ab0db`.
@@ -173,8 +195,14 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
 
       The scripts are final once this pass is equal.
    10. Read `$B/length-base` and check each case against its `expect`. A planner case must
-       exit 4 with stderr `error: <the site's text>` (cli) or `strudeland-render: <the site's
-       text>` (harness). The site's texts are in reverify §1. F must carry `or --loops N` on
+       give, with `<text>` the site's text:
+       - `cli`: exit 4 and stderr `error: <text>` (the CLI's usage class);
+       - `harness`: exit 2 and stderr `strudeland-render: <text>`. The harness maps the usage
+         class to its bad-input exit (`crates/strudeland-render/src/bin/strudeland-render.rs:193-210`
+         and `:293-296`; `crates/strudeland-render/tests/bin.rs:354` pins exit 2 for its
+         bad-input cases).
+
+       The site's texts are in reverify §1. F must carry `or --loops N` on
        `long-loop-meta.js` and must not on `long-plain.js`. A `cli` case must exit 4 with the
        CLI guard's text (`render.rs:44-47`). Every `ls -A` must be empty.
 
@@ -237,6 +265,13 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
 4. **`src/host/main.ts`.** In `HostResult` (`:40`), replace `flag?: string` with
    `length?: LengthProblem`, and import the type from `job-plan`. In `failure` (`:77-85`), write
    `...(e.problem === undefined ? {} : { length: e.problem })`. Nothing else changes.
+
+   Then run `bun run host:build` at once, logged as `$S/0144-001-host-build-early.log` with
+   its exit code, before step 5 and before any Rust targeted test: the bundle is compiled into
+   `strudeland-host` (`bundle.rs`), so a Rust test run before it reads the old `flag` slot.
+   Steps 5-12 edit no file that `host.inputs.json` lists, so gate step 1 re-runs `host:build`
+   as a no-op (it rewrites `host.js` and `host.inputs.json` byte for byte). If a later edit
+   does touch a bundled file, run `host:build` again before the next Rust test.
 5. **TS tests.**
    - `tests/render-job-plan.test.ts`:
      - `planRender length errors` (`:626-686`) and `planRender render limit` (`:1458-1501`):
@@ -266,7 +301,9 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
          }` and `tagged-loop`, giving `the loop ends at bar 110000, past the render limit of
          100000 bars`;
        - I through a preset: the same sections with `loop: true` on `s10` and `tagged-loop`,
-         giving `{ code: 'sectionPastLimit', name: 's10', toBar: 110000, limit: 100000 }`;
+         giving `{ code: 'sectionPastLimit', name: 's10', toBar: 110000, limit: 100000 }`.
+         Its flag is `--section`, not `--preset`: the code, not the request, names the flag,
+         exactly as site I passes `--section` today whichever request reached it;
      - `lengthFlag` of one example of each of the twelve codes. The test writes the examples
        as a `LengthProblem[]` literal, so `bun run check` proves each is well-typed. It
        asserts the proposal table's flag column. C has no throw test, because no input reaches
@@ -347,7 +384,9 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
    `length_errors_are_meta_with_their_problem`. Each row keeps its message literal and its flag
    column, and gains the expected `LengthProblem`. The test asserts `Err(HostError::MetaFlag {
    problem, message })`, and `problem.flag()` against the flag column. Add rows through real V8
-   for A, E, F (both forms), I (`--section` and a preset), K and L. Use inline long songs like
+   for A, E, F (both forms), I (through a `section` request and through a single-section loop
+   preset, `tagged-loop` with `loop: true` on the last section; the flag column is `--section`
+   in both rows), K and L. Use inline long songs like
    `crates/strudeland-render/tests/pipeline.rs:330-333`. Every code except C is then exercised
    through the bundle. Keep the bad-meta tail as it is.
 9. **`strudeland-render`.**
@@ -377,9 +416,13 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
      planner's length problems.
    - Unit tests in `wording.rs`: `every_problem_has_its_dialog_text`, one row per variant with
      the exact expected string. Use `unknownSection` with `name: "drop"` and `sections:
-     ["intro","body","tail"]`, and the other numbers from the step 6 examples. Assert that no
-     text contains `--`, and that none starts with an uppercase letter except the
-     `loopsInvalid` passthrough (use `message: "x"`).
+     ["intro","body","tail"]`, and the other numbers from the step 6 examples. `lengthPastEnd`
+     gets two rows, a plural one (`bars: 9, clipBars: 8`: `9 bars is past the end of the song
+     (8 bars); choose 8 bars or fewer`) and a singular one (`bars: 2, clipBars: 1`: `2 bars is
+     past the end of the song (1 bar); choose 1 bar or fewer`). A count of 1 is written `1
+     bar`; give `wording.rs` a private helper for it. Assert that no text contains `--`, and
+     that none starts with an uppercase letter except the `loopsInvalid` passthrough (use
+     `message: "x"`).
    - `tests/pipeline.rs:316-319` and `:340-343`: match on `HostError::MetaFlag { problem, .. }
      if problem.flag() == "--length"` (and `"--loops"`), and also assert
      `matches!(problem, LengthProblem::NoSections)` (and `LoopsPastLimit { loops: 1000,
@@ -422,7 +465,9 @@ vector, ref audio (beyond the floor cases), CLI text, exit code or IPC binding c
       length request, with its typed `LengthProblem` and the planner's message)";
     - `crates/strudeland-host/README.md:64-65`: "… is `HostError::MetaFlag`, whose
       `LengthProblem` names the CLI flag (`--length`, `--section`, `--loops`, `--preset`)".
-13. **Generated files and obligations:** gate steps 1-5 and 16, in the gate's order.
+13. **Generated files and obligations:** gate steps 1-5 and 16, in the gate's order. Gate step
+    1 is the re-run of step 4's early `host:build` and must leave `host.js` and
+    `host.inputs.json` as step 4 wrote them.
 
 ## Tests
 

@@ -4,7 +4,7 @@
 
 In the export dialog, a loop preset (`intro-loop`, `tagged-loop`, `folded-loop`) cannot be
 exported when the song's header marks no loop. The export button is disabled, and its
-contextual help reads `Mark a loop in the song to export a loop preset.` These stay as they
+contextual help reads `This song marks no loop; mark one to export a loop preset.` These stay as they
 are:
 
 - the radios, which remain selectable, so the warning can explain why;
@@ -60,10 +60,10 @@ component and the controller's `start()` both read it.
      (`:30`).
    - Change `canExport` (`:63`) to `$derived(!locked && !unavailable && $store.preview.kind ===
      'ready' && !$store.result)`.
-   - In `exportHelp` (`:69-79`), add a branch right after `locked`: `: unavailable ? 'Mark a
-     loop in the song to export a loop preset.'`. The missing loop is the real blocker
-     whatever the preview's state (`docs/writing-contextual-help.md`: for an unavailable
-     action, give the actual blocker, then the next step).
+   - In `exportHelp` (`:69-79`), add a branch right after `locked`: `: unavailable ? 'This
+     song marks no loop; mark one to export a loop preset.'`. The missing loop is the real
+     blocker whatever the preview's state. The text follows `docs/writing-contextual-help.md`
+     point 2: it starts with the reason the action is unavailable, then gives the next step.
    - Change the warning's condition (`:266`) from `loopMode(options.mode) && !markedLoop` to
      `unavailable`. Its text (`:267-269`) stays. Section names are identifiers
      (`structure.ts:186`), so the two conditions agree on every song.
@@ -71,10 +71,10 @@ component and the controller's `start()` both read it.
      it.
 
    Check the hint against the guide:
-   - It names the blocker and the next step.
+   - It leads with the blocker, then names the next step.
    - It is one sentence in sentence case, which help sentences allow.
-   - Read with the button name it says "export audio: Mark a loop in the song to export a loop
-     preset."
+   - Read with the button name it says "export audio: This song marks no loop; mark one to
+     export a loop preset."
    - It appears only while a loop preset is chosen on a song without a loop. Choosing another
      mode, or marking a loop in the header (the session republishes the structure), lifts it.
      Note that the dialog captures `source` once at open (`:28`), so a loop marked while the

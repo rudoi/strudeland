@@ -21,7 +21,7 @@ and the planning brief. Targets: [proposal.md](proposal.md), [000-prompt.md](000
 | Baseline before any edit of CLI stderr and exit for every reachable length error (synthetic songs; `strudeland render` and the harness), byte-identical after | 001 step 1 (35 cases), gate step 12 |
 | `plan-render` plans byte-identical on the corpus; engine jobs, goldens and vectors unchanged | gate steps 6, 7, 11, 16 |
 | Tests: each code's TS throw, the Rust round trip of every variant, `dialog_text` for every variant, the `export_message` mapping | 001 steps 5-11 |
-| `loopUnavailable(song, options)` in the controller; export disabled; help `Mark a loop in the song to export a loop preset.`; radios and warning unchanged | 002 steps 1-2 |
+| `loopUnavailable(song, options)` in the controller; export disabled; help `This song marks no loop; mark one to export a loop preset.` (the decision's update); radios and warning unchanged | 002 steps 1-2 |
 | `markedLoop` and the gate cannot disagree (reverify §6) | 002 step 2 (the warning reads `unavailable`) |
 | Accepted limit: the header as typed | proposal Risks; 002 step 1 doc comment; PR note |
 | Out of scope: the control socket's `unknown section` text | proposal Scope |
@@ -47,6 +47,17 @@ and the planning brief. Targets: [proposal.md](proposal.md), [000-prompt.md](000
 - The `host.js` allowed regions changed since #129: `job-plan.ts` now ends at 18946, and there
   are two `main.ts` regions. The script computes the regions from the file instead of
   hard-coding them.
+
+- The plan refinement:
+  - the gate's help text now leads with the reason (`This song marks no loop; mark one to
+    export a loop preset.`), per `docs/writing-contextual-help.md` point 2. The Decisions
+    record the update;
+  - the §5 `lengthPastEnd` wording writes `1 bar` for a count of 1, and the test pins both
+    forms;
+  - the harness's exit for a length error is 2 (`strudeland-render: …`), not 4; the CLI's
+    stays 4 (`error: …`). Nothing changes either; the baseline check states each;
+  - the PR notes gain the header parse error and the header loop without a `song()` loop,
+    beside the accepted `song()` limit (proposal, Risks).
 
 ## Intentionally dropped
 
