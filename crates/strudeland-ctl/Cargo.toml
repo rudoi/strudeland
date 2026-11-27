@@ -1,7 +1,7 @@
 [package]
 name = "strudeland-ctl"
 version = "0.1.0"
-description = "strudeland control socket: JSON-RPC protocol types, framing and a blocking client"
+description = "strudeland control socket: JSON-RPC protocol types, framing, a blocking client and the app's endpoint"
 authors = ["Andrew Rudoi"]
 edition = "2024"
 rust-version = "1.94"
@@ -11,6 +11,10 @@ license = "AGPL-3.0-or-later"
 # Exposes the golden wire examples (`tests/wire/`) as `wire_fixtures`; only ever turned on by
 # other crates' dev-dependencies.
 wire-fixtures = []
+# The app's side of the control endpoint (`server`): bind, the lock and the stale probe,
+# verified accept. The CLI's own build never enables it; this crate's tests build the
+# module through `cfg(test)`.
+server = ["dep:tokio", "tokio/net", "tokio/sync"]
 
 [dependencies]
 thiserror = "2.0.21"
@@ -23,6 +27,17 @@ tempfile = "3.27.0"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.191"
 
+[target.'cfg(unix)'.dependencies]
+tokio = { version = "1.54.1", features = ["net"], optional = true }
+
+# The server module's tests (`cfg(test)`, feature off).
+[target.'cfg(unix)'.dev-dependencies]
+tokio = { version = "1.54.1", features = ["net", "rt", "io-util"] }
+
 [target.'cfg(windows)'.dependencies]
 tokio = { version = "1.54.1", features = ["net", "io-util", "time", "rt"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Security_Authorization", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_IO"] }
+
+# The server module's tests (`cfg(test)`, feature off).
+[target.'cfg(windows)'.dev-dependencies]
+tokio = { version = "1.54.1", features = ["sync"] }

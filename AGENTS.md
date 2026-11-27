@@ -177,7 +177,10 @@ the V8 download the host brings.
   method share a conditional selection edit. `strudeland-cli/src/run/instruments.rs` shares
   instrument operations with its local stdio MCP server in `src/run/mcp.rs`.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,
-  blocking `Client`). Windows uses per-user named pipes. Linux uses private XDG Unix sockets
+  blocking `Client`) and, behind its `server` feature, the endpoint the app listens on:
+  `server::bind` (the lock, the stale probe and the modes on Unix, the first-instance pipe on
+  Windows), and `Endpoint::accept` (the Linux peer check, the next pipe instance) and `close`.
+  Windows uses per-user named pipes. Linux uses private XDG Unix sockets
   with peer credentials. No Tauri dependency. `tests/wire/` the golden wire examples
   (hand-written, prettier-formatted), read by `tests/wire.rs`, the TS control tests
   (`tests/helpers/wire-examples.ts`) and, through the dev-only `wire-fixtures` feature, the

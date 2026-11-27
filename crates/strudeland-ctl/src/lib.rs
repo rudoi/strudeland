@@ -1,5 +1,6 @@
 //! The strudeland control socket: JSON-RPC 2.0 envelope types, line framing, error codes, the
-//! typed params and results of every method, the socket path and a blocking client.
+//! typed params and results of every method, the socket path and a blocking client, and, behind
+//! the `server` feature, the endpoint the app listens on.
 //!
 //! The golden wire examples are in `tests/wire/`, exposed to tests by the `wire-fixtures` feature.
 //!
@@ -10,6 +11,8 @@ pub mod frame;
 pub mod methods;
 pub mod path;
 pub mod protocol;
+#[cfg(any(test, feature = "server"))]
+pub mod server;
 #[cfg(windows)]
 pub mod windows_pipe;
 #[cfg(any(test, feature = "wire-fixtures"))]

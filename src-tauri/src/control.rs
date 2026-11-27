@@ -1795,19 +1795,115 @@ mod tests {
         fs::create_dir(&ro).unwrap();
         fs::set_permissions(&ro, fs::Permissions::from_mode(0o500)).unwrap();
         let outcome = bind_socket(&ro.join("a/c.sock"));
+        let e = fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(ro.join("a"))
+            .unwrap_err();
         fs::set_permissions(&ro, fs::Permissions::from_mode(0o700)).unwrap();
         let BindOutcome::Disabled(detail) = outcome else {
             panic!("expected Disabled");
         };
-        assert!(detail.starts_with("cannot create"), "{detail}");
+        assert_eq!(
+            detail,
+            format!("cannot create {}: {e}", ro.join("a").display())
+        );
 
-        // A path under a regular file fails at the existence check instead.
+        // A path under a regular file skips the create and fails at the lock instead.
         let file = dir.path().join("f");
         fs::write(&file, "").unwrap();
-        assert!(matches!(
-            bind_socket(&file.join("c.sock")),
-            BindOutcome::Disabled(_)
-        ));
+        let lock = file.join("c.sock.lock");
+        let e = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(&lock)
+            .unwrap_err();
+        let BindOutcome::Disabled(detail) = bind_socket(&file.join("c.sock")) else {
+            panic!("expected Disabled");
+        };
+        assert_eq!(detail, format!("cannot open {}: {e}", lock.display()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_unopenable_lock_is_disabled() {
+        let dir = short_tempdir();
+        let path = dir.path().join("c.sock");
+        let lock = lock_path(&path);
+        fs::create_dir(&lock).unwrap();
+        let e = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(&lock)
+            .unwrap_err();
+        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
+            panic!("expected Disabled");
+        };
+        assert_eq!(detail, format!("cannot open {}: {e}", lock.display()));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_unremovable_stale_socket_is_disabled() {
+        let dir = short_tempdir();
+        let path = dir.path().join("c.sock");
+        drop(StdUnixListener::bind(&path).unwrap()); // stale: nothing accepts
+        fs::write(lock_path(&path), "").unwrap();
+        let before = fs::symlink_metadata(&path).unwrap().ino();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o500)).unwrap();
+        let outcome = bind_socket(&path);
+        let e = fs::remove_file(&path).unwrap_err();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let BindOutcome::Disabled(detail) = outcome else {
+            panic!("expected Disabled");
+        };
+        assert_eq!(
+            detail,
+            format!("cannot remove stale {}: {e}", path.display())
+        );
+        assert_eq!(fs::symlink_metadata(&path).unwrap().ino(), before);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_probe_error_is_disabled() {
+        let dir = short_tempdir();
+        let path = dir.path().join("c.sock");
+        drop(StdUnixListener::bind(&path).unwrap()); // stale: nothing accepts
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        let e = StdUnixStream::connect(&path).unwrap_err();
+        assert!(
+            !matches!(
+                e.kind(),
+                io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+            ),
+            "{e}"
+        );
+        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
+            panic!("expected Disabled");
+        };
+        assert_eq!(detail, format!("{}: {e}", path.display()));
+        assert!(path.exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_unbindable_path_is_disabled() {
+        let dir = short_tempdir();
+        let path = dir.path().join("s".repeat(110));
+        assert!(path.as_os_str().len() > 108);
+        let e = StdUnixListener::bind(&path).unwrap_err();
+        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
+            panic!("expected Disabled");
+        };
+        assert_eq!(detail, format!("cannot listen on {}: {e}", path.display()));
     }
 
     #[tokio::test]
@@ -1823,7 +1919,13 @@ mod tests {
         // The first listener's lock is still held (same process, separate open file).
         let (info, listener) = listen(Ok(path.clone()));
         assert_eq!(info.status, SocketStatus::InUse);
-        assert!(info.detail.is_some());
+        assert_eq!(
+            info.detail,
+            Some(format!(
+                "another strudeland is listening on {}",
+                path.display()
+            ))
+        );
         assert!(listener.is_none());
 
         let (info, listener) = listen(Err(PathError::NoHome));
