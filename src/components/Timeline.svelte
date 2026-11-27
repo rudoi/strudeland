@@ -3,23 +3,21 @@
   import type { App } from '../lib/app';
   import type { ArmChoice } from '../lib/project/song-playback';
   import {
-    blockPlayhead,
     commitInput,
     editableStructure,
     fieldValue,
-    hasEnding,
     litBars,
     minorTicks,
     mixedMeterRuler,
-    playheadPct,
     rulerBars,
     rulerMarks,
     sectionItemHelp,
+    timelineView,
+    type TimelineViewInput,
     type InputField,
     type SectionItemTexts,
   } from '../lib/project/timeline';
   import { authoredLoop, meterString } from '../lib/strudel/structure';
-  import { canPlayEnding, type Located } from '../lib/strudel/transport';
   import { catOf } from '../lib/theme/tones';
   import SectionBlock from './SectionBlock.svelte';
   import Button from './ui/Button.svelte';
@@ -52,7 +50,7 @@
     );
   }
 
-  // None while the header has a meta error: no blocks, menu or inputs (see the note below).
+  // None while the header has a meta error: no blocks, menu or inputs (see `TimelineView.armedName`).
   const structure = $derived(editableStructure($ss));
   const sections = $derived(structure?.sections ?? []);
   const bars = $derived(rulerBars(structure));
@@ -65,14 +63,8 @@
   const savedLoop = $derived(structure && authoredLoop(structure));
   const hasLoop = $derived(savedLoop !== null);
 
-  // The playing song is the active one; otherwise there is no playhead or menu.
-  const playingActive = $derived($pb.playing !== null && $pb.playing.path === $ss.active);
-  const playingOther = $derived($pb.playing !== null && !playingActive);
-  const playable = $derived($rt.started ? $rt.structure : structure);
-  const ending = $derived(hasEnding(playable));
-
   // Position, refreshed each animation frame while the scheduler runs.
-  let position = $state.raw<{ cycle: number; located: Located | null }>({
+  let position = $state.raw<TimelineViewInput['position']>({
     cycle: 0,
     located: null,
   });
@@ -87,32 +79,23 @@
     return () => cancelAnimationFrame(frame);
   });
 
-  // Without sections the playhead runs over the 16-bar ruler; with them it sits in the block
-  // that plays and spans the blocks only: it follows the blocks' layout, whose widths are not
-  // proportional to bars (min width, gaps), so it would not line up with the ruler's marks.
-  const pct = $derived(
-    playingActive && sections.length === 0 ? playheadPct($rt.structure, position) : null,
-  );
-  const head = $derived.by(() => {
-    const located = position.located;
-    if (!playingActive || !located) return null;
-    const name = playable?.sections[located.section]?.name;
-    const section = sections.findIndex((item) => item.name === name);
-    return blockPlayhead(structure, { ...located, section });
-  });
-  const auditionNames = $derived($pb.transport.loop?.names ?? []);
-  const endingEnabled = $derived(
-    canPlayEnding($rt.started, $rt.structure, $pb.transport.view, position.located) &&
-      playingActive,
-  );
+  // What plays and where: the playheads, the ending and the armed start (see `timelineView`).
+  const {
+    playingOther,
+    ending,
+    endingEnabled,
+    endingHelp,
+    stopLoopingHelp,
+    pct,
+    head,
+    armedName,
+    auditionNames,
+  } = $derived(timelineView({ session: $ss, runtime: $rt, playback: $pb, position }));
 
   // ---- section menu ----
   let menuFor = $state<number | null>(null);
   let choosingEnd = $state(false);
   let track = $state<HTMLDivElement>();
-  // Shown with the blocks only (none while the header has a meta error). The module disarms on a
-  // meta error, except for the arm of a `start` still waiting on the runtime, so the gate stays.
-  const armedName = $derived(structure ? $pb.transport.armed : null);
 
   function openMenu(e: MouseEvent, index: number) {
     e.stopPropagation();
@@ -180,15 +163,7 @@
         class="ending"
         onclick={() => playback.playEnding()}
         disabled={!endingEnabled}
-        help={endingEnabled
-          ? 'Finish the loop pass, then play the ending once.'
-          : playingOther
-            ? 'The ending belongs to the song currently playing.'
-            : !$rt.started
-              ? 'Start song playback to reach its defined loop.'
-              : $pb.transport.view.kind === 'release'
-                ? 'The ending is already queued or playing.'
-                : 'Available while the song plays through its defined loop.'}
+        help={endingHelp}
       >
         play ending
       </Button>
@@ -274,11 +249,7 @@
                       <MenuItem
                         onclick={stopLooping}
                         disabled={$pb.transport.view.kind !== 'loop'}
-                        help={$pb.transport.view.kind !== 'loop'
-                          ? 'There’s no temporary section loop to clear.'
-                          : $rt.started
-                            ? 'Return to the song’s normal playback at the next available bar line.'
-                            : 'Clear the temporary section loop for the next play.'}
+                        help={stopLoopingHelp}
                       >
                         stop looping
                       </MenuItem>

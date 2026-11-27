@@ -14,7 +14,9 @@ import {
   rulerMarks,
   rulerStride,
   sectionItemHelp,
+  timelineView,
   type SectionItemPlay,
+  type TimelineViewInput,
 } from '../src/lib/project/timeline';
 import { buildStructure, type Meter } from '../src/lib/strudel/structure';
 import { catOf } from '../src/lib/theme/tones';
@@ -316,4 +318,245 @@ describe('sectionItemHelp', () => {
   for (const [why, resolves, play, expected] of rows) {
     test(why, () => expect(sectionItemHelp(resolves, play, TEXT)).toBe(expected));
   }
+});
+
+describe('timelineView', () => {
+  const SESSION: TimelineViewInput['session'] = {
+    active: 'songs/a.js',
+    structure: song,
+    metaError: null,
+  };
+  const RUNTIME: TimelineViewInput['runtime'] = { started: true, structure: song };
+  const PLAYBACK: TimelineViewInput['playback'] = {
+    playing: { path: 'songs/a.js', title: 'a' },
+    transport: { view: { kind: 'song' }, loop: null, armed: null },
+  };
+  const POSITION: TimelineViewInput['position'] = {
+    cycle: 3,
+    located: { section: 1, localCycle: 1, songBar: 3 },
+  };
+  const input = (over: Partial<TimelineViewInput> = {}): TimelineViewInput => ({
+    session: SESSION,
+    runtime: RUNTIME,
+    playback: PLAYBACK,
+    position: POSITION,
+    ...over,
+  });
+  const OTHER: TimelineViewInput['playback'] = {
+    ...PLAYBACK,
+    playing: { path: 'songs/b.js', title: 'b' },
+  };
+  const STOPPED: Partial<TimelineViewInput> = {
+    runtime: { ...RUNTIME, started: false },
+    playback: { ...PLAYBACK, playing: null },
+  };
+  const transport = (over: Partial<TimelineViewInput['playback']['transport']>) => ({
+    ...PLAYBACK,
+    transport: { ...PLAYBACK.transport, ...over },
+  });
+
+  test('the active song plays', () => {
+    const view = timelineView(input());
+    expect(view.playingActive).toBe(true);
+    expect(view.playingOther).toBe(false);
+    expect(view.head).toEqual({ section: 1, fraction: 0.25, localCycle: 1 });
+    expect(view.pct).toBeNull();
+    expect(view.ending).toBe(true);
+    expect(view.endingEnabled).toBe(true);
+    expect(view.endingHelp).toBe('Finish the loop pass, then play the ending once.');
+  });
+
+  test('another song plays: no playhead and no ending', () => {
+    const view = timelineView(input({ playback: OTHER }));
+    expect(view.playingOther).toBe(true);
+    expect(view.playingActive).toBe(false);
+    expect(view.head).toBeNull();
+    expect(view.pct).toBeNull();
+    expect(view.endingEnabled).toBe(false);
+    expect(view.endingHelp).toBe('The ending belongs to the song currently playing.');
+  });
+
+  test('a sectionless song has the ruler playhead only while it is the one playing', () => {
+    const plain = buildStructure({ bpm: 100 });
+    const over = {
+      session: { ...SESSION, structure: plain },
+      runtime: { ...RUNTIME, structure: plain },
+    };
+    expect(timelineView(input({ ...over, playback: OTHER })).pct).toBeNull();
+    expect(timelineView(input(over)).pct).toBe(18.75);
+  });
+
+  test('a sectionless header with an evaluated song that has sections has no ruler playhead', () => {
+    const plain = buildStructure({ bpm: 100 });
+    expect(timelineView(input({ session: { ...SESSION, structure: plain } })).pct).toBeNull();
+  });
+
+  test('an evaluated structure that differs from the header places the head by name', () => {
+    const evaluated = buildStructure({
+      sections: [
+        { name: 'intro', bars: 2 },
+        { name: 'verse', bars: 2 },
+        { name: 'body', bars: 8, loop: true },
+        { name: 'tail', bars: 2 },
+      ],
+    });
+    const view = timelineView(
+      input({
+        runtime: { ...RUNTIME, structure: evaluated },
+        position: { cycle: 5, located: { section: 2, localCycle: 1, songBar: 5 } },
+      }),
+    );
+    expect(view.head).toEqual({ section: 1, fraction: 0.25, localCycle: 1 });
+    expect(view.playable).toBe(evaluated);
+    const stopped = timelineView(
+      input({ ...STOPPED, runtime: { started: false, structure: evaluated } }),
+    );
+    expect(stopped.playable).toBe(song);
+  });
+
+  test('armed while stopped: the armed name, and the stale position shows nothing', () => {
+    const view = timelineView(
+      input({ ...STOPPED, playback: { ...transport({ armed: 'body' }), playing: null } }),
+    );
+    expect(view.armedName).toBe('body');
+    expect(view.head).toBeNull();
+    expect(view.pct).toBeNull();
+    expect(view.endingEnabled).toBe(false);
+    expect(view.endingHelp).toBe('Start song playback to reach its defined loop.');
+  });
+
+  test('the armed name is gated on the editable structure', () => {
+    const armed = { ...STOPPED, playback: { ...transport({ armed: 'body' }), playing: null } };
+    const metaError = { ...SESSION, metaError: 'meta.bpm must be a number (1:20)' };
+    expect(timelineView(input({ ...armed, session: metaError })).armedName).toBeNull();
+    const none = { ...SESSION, structure: null };
+    expect(timelineView(input({ ...armed, session: none })).armedName).toBeNull();
+  });
+
+  test('duplicate section names: the head is in the first match', () => {
+    const header = {
+      ...song,
+      sections: [
+        { name: 'intro', start: 0, bars: 2, loop: false },
+        { name: 'body', start: 2, bars: 4, loop: true },
+        { name: 'body', start: 6, bars: 2, loop: false },
+        { name: 'tail', start: 8, bars: 2, loop: false },
+      ],
+      totalBars: 10,
+    };
+    const view = timelineView(input({ session: { ...SESSION, structure: header } }));
+    expect(view.head).toEqual({ section: 1, fraction: 0.25, localCycle: 1 });
+  });
+
+  test('a section the header lacks has no head', () => {
+    const evaluated = buildStructure({
+      sections: [
+        { name: 'intro', bars: 2 },
+        { name: 'bridge', bars: 4 },
+      ],
+    });
+    const view = timelineView(input({ runtime: { ...RUNTIME, structure: evaluated } }));
+    expect(view.playingActive).toBe(true);
+    expect(view.head).toBeNull();
+  });
+
+  test('no located position while the active song plays', () => {
+    const view = timelineView(input({ position: { cycle: 3, located: null } }));
+    expect(view.head).toBeNull();
+    expect(view.endingEnabled).toBe(false);
+    expect(view.endingHelp).toBe('Available while the song plays through its defined loop.');
+  });
+
+  test('the ending follows what plays: the evaluated song while started, else the header', () => {
+    const noTail = buildStructure({
+      bpm: 120,
+      sections: [
+        { name: 'intro', bars: 2 },
+        { name: 'body', bars: 4, loop: true },
+      ],
+    });
+    expect(timelineView(input({ runtime: { ...RUNTIME, structure: noTail } })).ending).toBe(false);
+    const stopped = { ...STOPPED, runtime: { started: false, structure: noTail } };
+    expect(timelineView(input(stopped)).ending).toBe(true);
+  });
+
+  test('audition names', () => {
+    const loop = { section: 'body', names: ['body', 'tail'] };
+    expect(timelineView(input({ playback: transport({ loop }) })).auditionNames).toEqual([
+      'body',
+      'tail',
+    ]);
+    expect(timelineView(input()).auditionNames).toEqual([]);
+  });
+
+  test('without a loop the audition names are one shared array', () => {
+    const a = timelineView(input()).auditionNames;
+    expect(timelineView(input()).auditionNames).toBe(a);
+  });
+
+  test('a header with sections and an evaluated sectionless song has no ruler playhead', () => {
+    const plain = buildStructure({ bpm: 100 });
+    expect(timelineView(input({ runtime: { ...RUNTIME, structure: plain } })).pct).toBeNull();
+  });
+
+  test('no armed section: no armed name', () => {
+    expect(timelineView(input()).armedName).toBeNull();
+  });
+
+  test('no active song while another plays: other, and no head', () => {
+    const view = timelineView(input({ session: { ...SESSION, active: null } }));
+    expect(view.playingOther).toBe(true);
+    expect(view.playingActive).toBe(false);
+    expect(view.head).toBeNull();
+  });
+
+  describe('ending help', () => {
+    const rows: [string, Partial<TimelineViewInput>, string][] = [
+      ['enabled', {}, 'Finish the loop pass, then play the ending once.'],
+      [
+        'another song plays',
+        { playback: OTHER },
+        'The ending belongs to the song currently playing.',
+      ],
+      ['stopped, nothing playing', STOPPED, 'Start song playback to reach its defined loop.'],
+      [
+        'the release is queued or playing',
+        { playback: transport({ view: { kind: 'release' } }) },
+        'The ending is already queued or playing.',
+      ],
+      [
+        'not on a loop pass (in the tail)',
+        { position: { cycle: 6, located: { section: 2, localCycle: 0, songBar: 6 } } },
+        'Available while the song plays through its defined loop.',
+      ],
+      [
+        'unreachable, kept for the order: another song wins over stopped',
+        { runtime: { ...RUNTIME, started: false }, playback: OTHER },
+        'The ending belongs to the song currently playing.',
+      ],
+    ];
+    for (const [why, over, expected] of rows) {
+      test(why, () => expect(timelineView(input(over)).endingHelp).toBe(expected));
+    }
+  });
+
+  describe('stop looping help', () => {
+    const loop = transport({ view: { kind: 'loop', section: 1 } });
+    const rows: [string, Partial<TimelineViewInput>, string][] = [
+      ['no section loop', {}, 'There’s no temporary section loop to clear.'],
+      [
+        'a section loop while started',
+        { playback: loop },
+        'Return to the song’s normal playback at the next available bar line.',
+      ],
+      [
+        'a section loop while stopped',
+        { runtime: { ...RUNTIME, started: false }, playback: { ...loop, playing: null } },
+        'Clear the temporary section loop for the next play.',
+      ],
+    ];
+    for (const [why, over, expected] of rows) {
+      test(why, () => expect(timelineView(input(over)).stopLoopingHelp).toBe(expected));
+    }
+  });
 });

@@ -135,7 +135,8 @@ the V8 download the host brings.
   and calls its verbs, never `runtime.transport`), `actions.ts` (shared open and create actions
   for the File menu, keyboard shortcut, and welcome screen),
   `meta-write.ts` (minimal-diff edits of header values), `timeline.ts` (pure helpers for
-  `Timeline.svelte`).
+  `Timeline.svelte`, and `timelineView`, what it shows of the playing song: playheads, the
+  ending and its help, the armed start).
 - `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs),
   `store.ts` (the prefs store, the one frontend copy of a pref) and `migrate.ts` (the one-time
   move of the old `localStorage` limiter value; the only `localStorage` caller).
