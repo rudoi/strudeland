@@ -113,6 +113,9 @@ mod tests {
                 answer_one_ping(a).await;
                 answer_one_ping(b).await;
             });
+            // The pipe deregisters from the runtime that owns it, so drop it first.
+            drop(endpoint);
+            drop(rt);
         });
         let mut a = Client::connect(&path, Duration::from_secs(1)).unwrap();
         // Only the next instance can take a second client while the first is connected.
