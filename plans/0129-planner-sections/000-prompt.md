@@ -140,10 +140,21 @@ The stages are sequential: 002 reads the field 001 adds.
 `S` is the scratchpad,
 `/private/tmp/claude-501/-Volumes-rudenet-code-strudeland-worktrees-poptart/2d85ebc3-84cd-4f6d-90b0-657c13b5df8a/scratchpad`.
 That path belongs to the session that wrote this plan. A later session sets `S` to its own
-scratchpad. If `$S/0129-baseline/` is missing there, it rebuilds the baseline as
-[001](001-planner-sections.md) step 1 says, from a detached checkout of `ee91dbd` in this
-worktree (`git switch --detach ee91dbd`, build, `git switch -` back). Never use a second
-worktree. `N` is the stage number (`001` or `002`). `L` logs a command with its start time
+scratchpad. At the first use of this plan the tree is code-identical to `ee91dbd`: the
+branch commits on top of it touch only `plans/` (`git diff --name-only ee91dbd HEAD`). So
+[001](001-planner-sections.md) step 1 builds the baseline binaries from the working tree as
+it is, with no detach. If `$B` is ever missing later (a new scratchpad, or after 001's
+edits), rebuild it without switching the working tree:
+
+```sh
+mkdir -p "$S/base" && git archive ee91dbd | tar -x -C "$S/base"
+(cd "$S/base" && CARGO_TARGET_DIR="$S/base-target" cargo build --locked \
+  -p strudeland-cli -p strudeland-render -p strudeland-host --bins)
+```
+
+Then copy the three binaries from `$S/base-target/debug/` to `$B/bin/` and record as step 1
+says, from this worktree. Never use a second worktree, and never `git switch` away from the
+branch with edits in it. `N` is the stage number (`001` or `002`). `L` logs a command with its start time
 and exit code:
 
 ```sh
@@ -155,7 +166,7 @@ L() { log="$S/0129-$N-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "$
 | Step | Command | Stages | Pass |
 |---|---|---|---|
 | 1 | `L host-build bun run host:build` | 001, 002 | exit 0. In 002, `git diff --exit-code -- crates/strudeland-host/js` (log it as `host-unchanged`) exits 0 too |
-| 2 | `L host-diff "$B/host-diff.sh"` | 001 | exit 0: every `host.js` hunk is inside the `// src/lib/render/job-plan.ts` region, and `host.inputs.json` changes only the `job-plan.ts` hash |
+| 2 | `L host-diff "$B/host-diff.sh"` | 001 | exit 0: every `host.js` hunk is inside the `// src/lib/render/job-plan.ts` region, and `host.inputs.json` changes only the `job-plan.ts` hash and `combined` |
 | 3 | `L refs-check bun run engine:refs` | 001, 002 | 001: exit 1, and its summary names only provenance and the two floor cases (`mod-lfo-note`, `vowel-formants`). 002: exit 0 |
 | 4 | `L refs-write bun run engine:refs --write` | 001 | exit 0 |
 | 5 | `L refs-recheck bun run engine:refs` then `L refs-ab "$B/refs-ab.sh"` | 001 | both exit 0 |
@@ -164,7 +175,7 @@ L() { log="$S/0129-$N-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "$
 | 8 | `bun run format`, then `L bun-test bun test`, `L check bun run check`, `L lint bun run lint` | 001, 002 | exit 0 |
 | 9 | `L build cargo build --locked -p strudeland-cli -p strudeland-render -p strudeland-host --bins` | 001, 002 | exit 0 (the A/B scripts use these debug binaries) |
 | 10 | `L plan-ab "$B/plan-ab.sh" check "$S/0129-$N-plan"` | 001, 002 | exit 0, ends `equal: <n> cases`, with the baseline's case count |
-| 11 | `L refuse-ab "$B/refuse-ab.sh" check "$S/0129-$N-refuse"` | 001, 002 | exit 0, ends `equal: <n> cases`, with the baseline's case count |
+| 11 | `L refuse-ab "$B/refuse-ab.sh" check "$S/0129-$N-refuse"` | 001, 002 | exit 0, ends `equal: 36 cases` |
 | 12 | `L probe cargo test -p strudeland-render --lib sections_probe -- --nocapture` | 001 only (step 9 of the stage file) | exit 0 |
 | 13 | `L host-tests cargo test --locked -p strudeland-host` | 001, 002 | exit 0 |
 | 14 | `L cargo-test cargo test --locked --workspace` | 001, 002 | exit 0 |

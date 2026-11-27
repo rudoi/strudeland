@@ -28,10 +28,10 @@ Tests that pin the refusal:
 
 | Test | Pins |
 |---|---|
-| `plan.rs:187-224` `clip_bars_map_through_the_loop` | per-bar clip names, loops 2 and 3 |
+| `plan.rs:190-224` `clip_bars_map_through_the_loop` | per-bar clip names, loops 2 and 3 |
 | `plan.rs:226-238` `clip_diagnostics_follow_each_section_inside_a_repeated_range` | `loop_range` |
-| `plan.rs:240-277` `song_bars_map_linearly` | linear names, the no-loop and no-section cases |
-| `plan.rs:316-380` | dedupe and sort; full texts for clip and linear (`--section` lookback) |
+| `plan.rs:240-279` `song_bars_map_linearly` | linear names, the no-loop and no-section cases |
+| `plan.rs:313-380` | dedupe and sort; full texts for clip and linear (`--section` lookback) |
 | `error.rs:150-153,194-205` | full texts with and without a section |
 | `tests/pipeline.rs:231-255` (samples.js), `:274-304` (`--section body` lookback names `intro`; clip names `intro`) | real host plans, full text |
 | `tests/bin.rs:182`, `:451` | harness binary stderr |
@@ -129,7 +129,7 @@ source of truth.
 3. `refuse` takes `&planned.sections` instead of the window and structure, then dedupes, does a
    binary-search lookup and sorts. Delete `section_at`, `section_of_clip_bar` and
    `section_of_song_bar`.
-4. Move the mapping cases from `plan.rs:187-277` to a TS test of the runs: clip with loops 2/3,
+4. Move the mapping cases from `plan.rs:190-279` to a TS test of the runs: clip with loops 2/3,
    `loop_range`, linear, no sections, past the end, mixed meter, and the `--section` lookback.
 5. Keep the Rust `refuse` tests on synthetic runs. Keep every text-pinning test unchanged (step 1
    table), and they must pass unedited.

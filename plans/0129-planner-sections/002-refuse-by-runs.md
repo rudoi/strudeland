@@ -12,13 +12,15 @@ file changes.
 
 - Stage 001 committed and green. Its plan A/B and refusal A/B logs end `equal`.
 - `$B` (`$S/0129-baseline/`) present with its binaries and recordings. If it is missing,
-  rebuild it as [001](001-planner-sections.md) step 1 says, from `ee91dbd`.
+  rebuild it from `ee91dbd` with `git archive` and its own `CARGO_TARGET_DIR`, as
+  [000-prompt.md](000-prompt.md#the-full-gate) says, never by switching the working tree.
 
 ## Files
 
 - Edited:
   - `crates/strudeland-render/src/plan.rs`;
-  - `AGENTS.md:285`.
+  - `AGENTS.md`: the render pipeline bullet's line that reads `plan (host to jobs, refusal of
+    unsupported material; the only V8 caller)` (line 285 at `ee91dbd`; find it by that text).
 - Untouched, besides the shared list:
   - everything under `src/`, `scripts/` and `tests/`;
   - `crates/strudeland-host/` (`js/` included);
@@ -50,8 +52,10 @@ file changes.
 3. **`take_jobs`** (`:58`): `refuse(&planned.sections, signatures)?`.
 4. **Delete** `section_at` (`:92-98`), `section_of_song_bar` (`:100-110`) and
    `section_of_clip_bar` (`:112-136`). Trim the `strudeland_host` import (`:8-10`) to what is
-   still used (`ExportPreset, Host, PlannedRender, PlannedSection, RenderPlanRequest`), and
-   let clippy confirm it.
+   still used (`ExportPreset, Host, PlannedRender, PlannedSection, RenderPlanRequest`): `Layout`,
+   `PlannedWindow` and `Structure` go. In the test module, `use strudeland_host::{Meter,
+   Section};` (`:141`) goes too: only the deleted `section`, `song_linear` and `no_sections`
+   helpers use it. Let clippy confirm both.
 5. **Tests in `plan.rs`:**
    - Delete `clip_bars_map_through_the_loop`, `clip_diagnostics_follow_each_section_inside_a_repeated_range`
      and `song_bars_map_linearly` (`:190-279`). Stage 001's TS `planRender sections` tests
@@ -84,7 +88,8 @@ file changes.
      - with `&[]`, every bar is `None`.
    - Targeted: `cargo test -p strudeland-render --lib plan::`, then
      `cargo test -p strudeland-render --test pipeline`.
-6. **Docs.** `AGENTS.md:285`, the render pipeline bullet: `plan` "(host to jobs, refusal of
+6. **Docs.** `AGENTS.md`, the render pipeline bullet, found by the text `plan (host to jobs,
+   refusal of unsupported material; the only V8 caller)`: `plan` "(host to jobs, refusal of
    unsupported material, its sections named from the plan's `sections`; the only V8 caller)".
    `crates/strudeland-render/README.md:15-17` and `SKILL.md` stay as they are: they describe
    the refusal list, which does not change.

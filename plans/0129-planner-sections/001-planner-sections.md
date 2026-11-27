@@ -20,6 +20,11 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
 - Edited:
   - `src/lib/render/job-plan.ts`;
   - `tests/render-job-plan.test.ts`;
+  - `tests/render-page-job.test.ts`: the typed `PlannedRender` literal in the `pageJobInfo`
+    describe's `planned` helper (`:133-141`) gains `sections: [],` right after `structure,`.
+    Without it `bun run check` fails, because the literal is annotated `: PlannedRender`. The
+    other hand-built plans need no edit: `tests/render-host-parity.test.ts:274` and
+    `scripts/render/host-planner.ts:141` cast through `as unknown as PlannedRender`;
   - `crates/strudeland-host/src/planned.rs`, `crates/strudeland-host/src/lib.rs` (the
     re-export), `crates/strudeland-host/tests/plan_render.rs` (one new test);
   - `crates/strudeland-render/src/pipeline_audio.rs`: the destructure at `:68-78` and the test
@@ -74,9 +79,11 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
       - `nosections.js`: `const meta = { bpm: 120, meter: '4/4' };` then `$: s("zzfx*2")`.
    3. `$B/refuse-cases.tsv`, one case per line: `tool<TAB>song<TAB>args`. `tool` is `cli`
       (`strudeland render SONG ARGS`) or `harness` (`strudeland-render render --song SONG
-      ARGS`). In `args`, `@OUT` is the case's empty output directory, and `@REPO` in `song`
-      is the repo root. Every case writes into `@OUT` (`--out @OUT/x.wav`, or `--out
-      @OUT/stems` with `--stems`). At least these cases:
+      ARGS`). In `args`, `@OUT` is the case's fixed output directory, `$S/0129-out/<n>` for
+      case `<n>`. The script removes and recreates it before every run of the case, in
+      `record` and `check` alike, so a path printed in stdout or stderr is the same in both.
+      `@REPO` in `song` is the repo root. Every case writes into `@OUT` (`--out @OUT/x.wav`,
+      or `--out @OUT/stems` with `--stems`). These 36 cases:
       - `refuse-sections.js` (cli): no flags; `--loops 1`; `--loops 3`; `--length 5`;
         `--length 12`; `--section intro`; `--section body`; `--section tail`;
         `--preset tagged-loop`; `--preset intro-loop`; `--preset folded-loop`;
@@ -93,8 +100,10 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
       - `nosections.js` (cli): `--length 4`; `--length 8`;
       - `@REPO/tests/render/corpus/samples.js`: (cli) `--length 2` and `--length 4`;
         (harness) `--from 0 --to 2 --layout linear`.
-   4. `$B/refuse-ab.sh record|check OUTDIR`. It runs every case with `$B/bin/` (record) or
-      `target/debug/` (check), writing `OUTDIR/<n>.out`: the stdout, then `exit <code>`, then
+   4. `$B/refuse-ab.sh record|check OUTDIR`. It reads its binary directory from the
+      environment from the start: `record` always uses `$B/bin/`, and `check` uses
+      `BIN=${BIN:-target/debug}` (relative to the repo root, where the script `cd`s first).
+      It runs every case with that directory, writing `OUTDIR/<n>.out`: the stdout, then `exit <code>`, then
       `ls -A` of the case's `@OUT`. It also writes `OUTDIR/<n>.err` (the stderr). `check`
       then runs `diff -r "$B/refuse-base" OUTDIR`. It prints `equal: <n> cases` and exits 0,
       or prints the diff and exits 1. `record` writes `$B/refuse-base`.
@@ -112,11 +121,15 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
       `mixed-meter-loop.js` and the sectioned `$B/songs`. A request the song cannot satisfy
       is a case too: its error text is compared.
    6. `$B/plan-ab.sh record|check OUTDIR`. It runs `strudeland-host plan-render --song SONG
-      --request JSON` for each case (`$B/bin/` or `target/debug/`). It writes
+      --request JSON` for each case. Its binary directory is read as in `refuse-ab.sh`:
+      `$B/bin/` for `record`, `BIN=${BIN:-target/debug}` for `check`. It writes
       `OUTDIR/<n>.out` (`exit <code>`) and `OUTDIR/<n>.err`. On success it also writes
       `OUTDIR/<n>.json`: `jq -S .` of stdout in `record`, and `jq -S 'del(.sections)'` in
       `check`. `record` also fails if any baseline plan has a `sections` key. `check` also
-      fails unless every successful plan `has("sections")`, and it writes `jq -c .sections`
+      fails unless every successful plan `has("sections")`; that requirement is on by
+      default and read as `EXPECT_SECTIONS=${EXPECT_SECTIONS:-1}`, so the determinism pass
+      (step 9) can run `check` on the baseline binaries, whose plans have no `sections`.
+      `check` writes `jq -c .sections`
       to `OUTDIR/<n>.sections` for the report. Then it runs `diff -r` against
       `$B/plan-base`, ignoring `*.sections`, and prints `equal: <n> cases`. JSON strings
       (each chunk's `json`, the job text) pass through `jq` unchanged, so the job texts are
@@ -136,22 +149,30 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
       It prints the counts: JSON files changed, WAVs changed.
    8. `$B/host-diff.sh`. Using `git diff -U0 ee91dbd -- crates/strudeland-host/js/host.js`,
       every hunk's new-side line range must lie between the line of
-      `  // src/lib/render/job-plan.ts` and the next `  // src/` line of the new file. A
-      pure deletion's anchor counts too. `git diff -U0 ee91dbd -- crates/strudeland-host/js/host.inputs.json`
-      must change only the `"src/lib/render/job-plan.ts":` line.
+      `  // src/lib/render/job-plan.ts` and the next line of the new file that matches
+      `^  // ` (any bundled module's header). At `ee91dbd` these are lines 18577 and 18928
+      (`  // vendor/strudel/packages/core/index.mjs`). Do not end the region at the next
+      `  // src/` line: that is line 25395 (`src/lib/strudel/song.ts`), and the region would
+      take in vendor core. A pure deletion's anchor counts too.
+      `git diff -U0 ee91dbd -- crates/strudeland-host/js/host.inputs.json` must change exactly
+      two lines: the `"src/lib/render/job-plan.ts":` line and the `"combined":` line (the hash
+      over every file's hash, `scripts/host/build.ts:47-53`). Any other changed line fails.
    9. Run `"$B/refuse-ab.sh" record` and `"$B/plan-ab.sh" record`, then run each again
-      in `check` mode against the baseline binaries (temporarily point check at `$B/bin`)
-      to show the runs are deterministic. If a line differs between two baseline runs, the
-      script filters exactly that line kind (say which in the report), or the scripts are
-      unusable: STOP.
+      in `check` mode against the baseline binaries, with no script edit:
+      `BIN="$B/bin" "$B/refuse-ab.sh" check "$S/0129-det-refuse"` and
+      `BIN="$B/bin" EXPECT_SECTIONS=0 "$B/plan-ab.sh" check "$S/0129-det-plan"`. This shows
+      the runs are deterministic. If a line differs between two baseline runs, add a filter
+      for exactly that line kind now (say which in the report), then record both again and
+      repeat the pass. Otherwise the scripts are unusable: STOP. The scripts are final once
+      this pass is equal; the shared STOP list forbids editing them after that.
    10. Read `$B/refuse-base`. Every `refuse-*`, `lookback`, `nosections` and `samples` case
        must exit 1 with `the song uses sounds or controls the engine cannot play yet`. The
        one exception is a case that fails as a usage error at baseline, which is recorded as
        is. Together the cases must name `'intro'`, `'body'`, `'tail'`, `'E'` and `'ending'`,
        and must include texts with no section. If a song does not refuse as intended (a
        sound turns out to be playable), change that song's sound to another one that
-       `samples.js` shows is refused, and re-record. This is the only point where a baseline
-       may be re-recorded, and no code has been edited yet.
+       `samples.js` shows is refused, and re-record. This and step 9's filter are the only
+       points where a baseline may be re-recorded, and no code has been edited yet.
 2. **`job-plan.ts`: the type.** After `ChunkInfo` (`:244-248`), add:
 
    ```ts
@@ -249,11 +270,40 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
      structure')` setup (`evaluated`, `:1173-1182`), `{ kind: 'clip', loops: 2 }` gives
      `[r(0,4,'intro'), r(4,44,'main'), r(44,48,'outro'), r(48,50,'coda')]`. The runs read
      the `--loops`-applied structure.
-   - **agrees with `locate`**: for each request above, for every bar `b` in `[0, c1)`, the run
-     containing `b` (or none) names the same section as `locate(b, got.structure,
-     layoutSegments(got.window.layout, got.structure))`. The runs are sorted, non-empty and
-     disjoint, and two touching runs never share a section index. Import `locate` and
-     `layoutSegments` for this test.
+   - **agrees with the Rust mapping**: for each request above, for every bar `b` in
+     `[-1, c1)`, the run containing `b` (or none) names the same section as `oracle(b)`, a
+     TS port of `plan.rs`'s `section_at` / `section_of_song_bar` / `section_of_clip_bar`
+     (`:92-136` at `ee91dbd`) kept in the test file. The oracle must not call `locate`:
+     `sectionRuns` is built on `locate`, so comparing against it would prove nothing, and
+     after 002 deletes the Rust mapping this port is the only independent statement of it.
+     Port it as:
+
+     ```ts
+     /** `plan.rs`'s bar-to-section mapping at ee91dbd (`section_at`), the independent oracle. */
+     function oracle(layout: 'clip' | 'linear', s: SongStructure, bar: number): string | null {
+       const song = (b: number) =>
+         s.sections.find((x) => b >= x.start && b < x.start + x.bars)?.name ?? null;
+       if (layout === 'linear') return song(bar);
+       const loop = s.loopIndex === null ? undefined : s.sections[s.loopIndex];
+       const [start, end] = s.loopRange
+         ? [s.loopRange.start, s.loopRange.end]
+         : loop
+           ? [loop.start, loop.start + loop.bars]
+           : [0, 0];
+       const period = end - start;
+       if (period <= 0 || bar < start) return song(bar);
+       const elapsed = bar - start;
+       return song(
+         Math.floor(elapsed / period) < s.loops
+           ? start + (elapsed % period)
+           : end + elapsed - period * s.loops,
+       );
+     }
+     ```
+
+     Call it with `got.window.layout` and `got.structure`. Bar `-1` gives `null` on both
+     sides. Also assert the runs are sorted, non-empty and disjoint, and that two touching
+     runs never name the same section. Import the `SongStructure` type for the oracle.
 
    Where a case's expected runs differ from the `plan.rs` case it mirrors (for example the
    past-the-song bars), say so in a comment: the runs stop at `c1`, while `plan.rs` answered
@@ -286,9 +336,17 @@ job, ref audio, golden, vector, refusal text or `--info` document changes.
        right after the `structure` object;
      - `the_bundle_shape_parses_exactly` asserts those two runs, and that the re-serialized
        text contains `"sections":[{"fromBar":0,"toBar":4,"name":"a"},`;
-     - `a_wrong_shape_is_rejected` gains three cases: the whole `"sections":[…],` removed;
-       `"fromBar":0,"toBar":4,"name":"a"` with `"fromBar":-1`; and `"name":"a"` replaced with
-       `"name":1`;
+     - `a_wrong_shape_is_rejected` gains three `(from, to)` cases. The test applies
+       `replacen(from, to, 1)`, and `PLANNED` already holds `"sections":[` and `"name":"a"`
+       inside `structure`, which comes first. So each `from` must occur only in the new
+       field. Use exactly these:
+       - removal:
+         `(r#""sections":[{"fromBar":0,"toBar":4,"name":"a"},{"fromBar":4,"toBar":12,"name":"b"}],"#, "")`;
+       - a negative bar:
+         `(r#""fromBar":0,"toBar":4,"name":"a""#, r#""fromBar":-1,"toBar":4,"name":"a""#)`;
+       - a wrong name type: `(r#""toBar":4,"name":"a""#, r#""toBar":4,"name":1"#)`.
+
+       The existing `assert_ne!(text, PLANNED, …)` shows each one matched;
      - every other test keeps its assertions and still passes on the new `PLANNED`.
 6. **`pipeline_audio.rs`:** add `sections: _,` to the `PlannedRender` destructure
    (`:68-78`), and `sections: vec![],` to the test helper `planned` (`:290-301`). Nothing else.
