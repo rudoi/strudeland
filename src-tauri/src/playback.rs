@@ -250,7 +250,7 @@ pub fn playback_limiter(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -279,7 +279,7 @@ mod tests {
         }
     }
 
-    fn fake() -> Result<Box<dyn Output>, OutputError> {
+    pub(crate) fn fake() -> Result<Box<dyn Output>, OutputError> {
         let (out, _handle) = FakeOutput::new(
             OutputInfo {
                 sample_rate: 48_000,
@@ -288,6 +288,17 @@ mod tests {
             Pace::RealTime,
         );
         Ok(Box::new(out))
+    }
+
+    struct Discard;
+
+    impl EventSink for Discard {
+        fn send(&self, _: Event) {}
+    }
+
+    /// A session on a fake output whose events are dropped; returns its id.
+    pub(crate) fn fake_session(state: &PlaybackState) -> u64 {
+        start(state, 0, Discard, fake).expect("starts").session
     }
 
     fn begin(state: &PlaybackState, sink: &Collect) -> u64 {

@@ -13,23 +13,16 @@
 //!    recorder is disarmed, without events.
 //! 4. [`playback::end_session`]: the webview that owned the session is gone.
 //!
-//! Playback stops last here. The order predates this module and is kept: a recorder
-//! finalize can delay the stop by the WAV and sidecar write, and a take's song backing plays
-//! on superdough, not on this session.
+//! Playback stops last here: a recorder finalize can delay the stop by the WAV and sidecar
+//! write, and a take's song backing plays on superdough, not on this session.
 //!
 //! [`on_exit`], in this order: playback first, so the audio is the first thing to stop; then
 //! the recorder, ahead of the control socket, which could otherwise hold the audio up; then
 //! [`Bridge::close_server`] (on Unix it removes the socket, then releases the lock).
 //!
 //! Left alone on purpose:
-//! - A reload does not cancel an audio export. Exports have no cancel mechanism and run to
-//!   completion. Until one finishes, a new export answers `busy` and a Quit is refused.
-//! - The exit does not reset [`QuitState`] or release the export permit. An approved exit
-//!   holds the permit until the process ends, so no export can start between the approval
-//!   and the exit.
-//! - The project watcher, the piano roll host and the instrument preview. The project stays
-//!   open across a reload, a piano roll inspection is bounded, and the preview keeps no
-//!   native state. At exit, the end of the process stops them.
+//! - A reload does not cancel an audio export; it runs to completion.
+//! - The exit does not reset [`QuitState`] or release the export permit.
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -95,8 +88,6 @@ fn step(_: &'static str) {}
 mod tests {
     use std::sync::Arc;
 
-    use strudeland_live::testing::{FakeOutput, Pace};
-    use strudeland_live::{Event, Output, OutputError, OutputInfo};
     use strudeland_project::Project;
     use strudeland_record::takes::{RecState, TakesConfig};
     use strudeland_record::testing::{Limits, TakesRig};
@@ -105,31 +96,7 @@ mod tests {
     use super::*;
     use crate::command_error::CommandErrorKind;
     use crate::export_audio::ExportState;
-    use crate::playback::EventSink;
-
-    struct Discard;
-
-    impl EventSink for Discard {
-        fn send(&self, _: Event) {}
-    }
-
-    fn fake() -> Result<Box<dyn Output>, OutputError> {
-        let (out, _handle) = FakeOutput::new(
-            OutputInfo {
-                sample_rate: 48_000,
-                buffer_frames: None,
-            },
-            Pace::RealTime,
-        );
-        Ok(Box::new(out))
-    }
-
-    /// A playback session on a fake output; returns its id.
-    fn session(state: &PlaybackState) -> u64 {
-        playback::start(state, 0, Discard, fake)
-            .expect("starts")
-            .session
-    }
+    use crate::playback::tests::fake_session;
 
     fn assert_stale(state: &PlaybackState, id: u64) {
         let error = playback::stop(state, id).expect_err("the session is gone");
@@ -157,7 +124,7 @@ mod tests {
         let (_tmp, rig) = rig();
         let handle = rig.take();
         let state = PlaybackState::default();
-        let id = session(&state);
+        let id = fake_session(&state);
 
         on_reload(&quit, &bridge, Some(&*rig.takes), Some(&state));
 
@@ -170,6 +137,7 @@ mod tests {
         assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Idle);
         assert_eq!(rig.files(), ["main-01.json", "main-01.wav"]);
         assert_stale(&state, id);
+        bridge.close_server();
     }
 
     #[test]
@@ -190,7 +158,7 @@ mod tests {
     #[test]
     fn the_exit_stops_audio_recorder_and_socket() {
         let state = PlaybackState::default();
-        let id = session(&state);
+        let id = fake_session(&state);
         let (_tmp, rig) = rig();
         let handle = rig.take();
         let bridge = Bridge::new();
@@ -207,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn the_hooks_skip_states_not_managed_yet() {
+    fn the_hooks_skip_absent_states() {
         STEPS.take();
         on_reload(&QuitState::default(), &Bridge::new(), None, None);
         assert_eq!(STEPS.take(), ["quit", "bridge"]);
@@ -217,6 +185,8 @@ mod tests {
 
     #[test]
     fn the_hooks_run_in_the_documented_order() {
+        // Pins where each `step` sits next to its call; the coverage tests pin that each call
+        // has its effect.
         let quit = QuitState::default();
         let bridge = Bridge::new();
         let (_tmp, rig) = rig();

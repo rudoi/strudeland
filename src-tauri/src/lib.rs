@@ -113,6 +113,8 @@ pub fn run() {
         .expect("error while building the strudeland application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                // The Bridge is managed in the builder before `build`, so this lookup cannot
+                // panic even though it now runs before the audio stops.
                 let session = app.try_state::<playback::PlaybackState>();
                 let recorder = app.try_state::<recording::RecorderState>();
                 lifecycle::on_exit(
