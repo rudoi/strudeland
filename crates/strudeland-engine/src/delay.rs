@@ -39,7 +39,6 @@ pub const MAX_DELAY_TIME: f64 = 1.0;
 pub const BUFFER_LENGTH: usize = QUANTUM + SAMPLE_RATE as usize;
 /// The frames each loop through the feedback cycle adds to the delay time (one render quantum,
 /// from the delay's output being read one quantum late; not a separate delay line).
-#[cfg(test)]
 pub const FEEDBACK_EXTRA_FRAMES: u64 = QUANTUM as u64;
 /// `getDelay` clamps the feedback to `[0, 0.98]`.
 pub const MAX_FEEDBACK: f64 = 0.98;

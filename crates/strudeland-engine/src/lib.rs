@@ -42,6 +42,16 @@ pub(crate) mod vowel;
 pub mod wav;
 pub(crate) mod worklet;
 
+/// The engine constants the export post-roll bound mirrors (`exportFilterTailSec` in
+/// `src/lib/render/schedule.ts` and `exportDecay` in `src/lib/render/lookback.ts`).
+/// `strudeland-render`'s `tests/decay_bound.rs` checks the bound against them.
+pub mod decay {
+    pub use crate::biquad::{MAX_TAIL_AMPLITUDE, MAX_TAIL_TIME};
+    pub use crate::delay::{FEEDBACK_EXTRA_FRAMES, MAX_DELAY_TIME, MAX_FEEDBACK};
+    pub use crate::reverb::IR_DURATION_FACTOR;
+    pub use crate::vowel::FORMANTS;
+}
+
 pub use capability::{ALLOWED_KEYS, allowed_sounds, controls_json};
 pub use job::{EngineJob, ErrorKind, JobError, OrbitSpec, RenderError, Value, ValueMap};
 /// superdough's `mulberry32`, reused by the render pipeline's dither.

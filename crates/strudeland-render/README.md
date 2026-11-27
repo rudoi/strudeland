@@ -115,6 +115,34 @@ at the handoff and repeat wrap as well as within the audio. A lossy overshoot is
 described in [Finishing and the lossy correction loop](#finishing-and-the-lossy-correction-loop).
 `--loudness off` bypasses gain and correction.
 
+### Post-roll bound
+
+The planner (`exportDecay` and `exportFilterTailSec` in `src/lib/render/`) bounds the tail a
+preset renders after the arrangement. It budgets the release, filter ringing (capped at 30 s,
+the engine's biquad tail time), reverb at 1.5 times the roomsize (the IR length), and a delay's
+first tap plus its repeats down to −60 dB (one render quantum per repeat, feedback at most 0.98,
+delay time at most 1 s).
+
+- **The delay cut is intended.** Echoes below −60 dB are dropped from one-shots and are not
+  folded into loops. Going to −90 dB would add about 50 % post-roll to delayed songs. Measured
+  against the −60 dB floor, a gain-1 sawtooth through `delay(1)` keeps 2.4 dB of margin at
+  feedback 0.98 and 0.99 (time 0.1), 1.5 dB at time 1.5 with feedback 0.9, and 8.3 dB at 0.5
+  with 0.5.
+- Filter rings are budgeted to about e^−19, below 24-bit resolution.
+- **Known difference: the DJ filter.** The planner gives `djf` a flat 0.5 s, and the engine's
+  SVF state decays more slowly when its cutoff is low (djf near 0, or just above 0.5). Measured with a gain-1 sawtooth
+  (`note(36).s("sawtooth").gain(1)`; before the bound it peaks at −11.1 dBFS through djf
+  0.53/0.55 and at −72.1/−54.1 dBFS through 0.03/0.05), the output after the bound peaks at
+  −76.9 dBFS at djf 0.03 and 0.53, staying above −90.3 dBFS for about 4.57 s, and at
+  −76.3 dBFS at 0.05 and 0.55, for about 0.44 s. At this source level the tail needs about
+  5.1 s and 0.94 s. A sine (`s("sine").note(60).gain(1)`) ends at −90.7 dBFS after the bound
+  at all four values. The leftover grows with the source level. Exports keep the 0.5 s.
+- `tests/decay_bound.rs` pins the bound's constants to the engine's (`strudeland_engine::decay`,
+  read back from host one-shot plans, within one frame) and renders 33 one-shots, one or more
+  per control family, 5 s past the bound. What is left must stay under 1/32768 (−90.3 dBFS),
+  −60 dB under the peak for delays, and −70 dBFS for the DJ filter (about 6 dB above the
+  measured leftover). Its floors are never loosened to absorb a defect.
+
 ## Loudness and true peak
 
 Integrated loudness is BS.1770-4 with the two gates, checked against the TypeScript implementation
