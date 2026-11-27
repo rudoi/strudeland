@@ -244,3 +244,14 @@ touch `lookback.ts`, so it would need `host:build`, `engine:refs --write` and `h
 - **Delay margins (measured):** the −60 dB delay floor holds with 2.4 dB to spare at feedback
   0.98 and 0.99 (time 0.1), 1.5 dB at time 1.5 / feedback 0.9, and 8.3 dB at 0.5 / 0.5. The
   floors are unchanged.
+- **Code review, djf(0.03) (user, 2026-11-26):** the review added a sounding check (the peak
+  before the bound at least 10 dB above the floor). djf(0.03) cannot meet it at any gain: its
+  leftover scales 1:1 with the source, and it stays 4.8 dB (sawtooth) and 9.6 dB (sine) under
+  its own pre-bound peak. It is pinned as a known gap, judged relative to that peak: at most
+  4.0 dB (sawtooth) and 9.0 dB (sine) under it, about 0.5 dB inside the measurement, with a
+  -100 dBFS sounding check. Exports are unchanged. The other djf cases keep −70 dBFS
+  (sawtooth) and a new sine floor of −84.5 dBFS (measured −90.7 + 6 dB), at gain 1, with the
+  10 dB sounding check. The review also added the compressor pre-delay (parity and a
+  completeness case, `compressor.rs`'s `K_PRE_DELAY` made `pub`), the filter LFO, `hpenv`,
+  `bpenv`, `fanchor` and `FXrelease` cases, and wet-presence checks for delay and reverb:
+  12 parity cases and 44 completeness cases.

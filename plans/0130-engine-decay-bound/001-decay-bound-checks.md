@@ -149,7 +149,8 @@ a visibility change only.
    | reverb | `B.room(1).roomsize(0.5)`, `B.room(1)` (default 2), `B.room(1).roomsize(10)` |
    | delay (−60 dB) | `B.delay(1).delaytime(0.1).delayfeedback(0.98)`, `B.delay(1).delaytime(0.1).delayfeedback(0.99)`, `B.delay(1).delaytime(0.5).delayfeedback(0.5)`, `B.delay(1).delaytime(1.5).delayfeedback(0.9)` |
 
-   That is 3 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 2 + 2 + 8 + 3 + 4 = 33 cases.
+   That is 3 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 2 + 2 + 8 + 3 + 4 = 33 cases. The code review
+   raised it to 44 and the parity group to 12 (reverify, Decisions: code review, djf(0.03)).
 
    The prototype (`$S/proto/complete.log` of the refine session) measured: everything except
    the four sawtooth djf cases at −999 dBFS (exact zero) or, for reverb, below −239 dBFS; the

@@ -25,8 +25,9 @@
 - **New:** `crates/strudeland-render/tests/decay_bound.rs`, with two groups of tests:
   - *parity*: the TS bound's constants, read from host `plan-render` one-shot tails, equal the
     engine's;
-  - *completeness*: every family case (33), rendered past `tail_frames`, stays under its floor.
-  - The parity group has 11 cases.
+  - *completeness*: every family case (33; 44 after the code review), rendered past
+    `tail_frames`, stays under its floor.
+  - The parity group has 11 cases (12 after the code review, with the compressor).
 - **Engine, visibility and naming only:**
   - `pub mod decay` in `strudeland-engine/src/lib.rs` re-exports `biquad::{MAX_TAIL_TIME,
     MAX_TAIL_AMPLITUDE}`, `delay::{MAX_FEEDBACK, MAX_DELAY_TIME, FEEDBACK_EXTRA_FRAMES}`,
@@ -63,7 +64,8 @@ There is one stage: [001-decay-bound-checks.md](001-decay-bound-checks.md), one 
   - `crates/strudeland-host/js/`;
   - `crates/strudeland-cli/`.
 - **Allowed files.** Outside `plans/`, the diff touches only:
-  - `crates/strudeland-engine/src/{lib,delay,reverb}.rs`;
+  - `crates/strudeland-engine/src/{lib,delay,reverb,compressor}.rs` (`compressor.rs`: `K_PRE_DELAY`
+    made `pub`, visibility only, added in the code review);
   - `crates/strudeland-render/tests/decay_bound.rs`;
   - `crates/strudeland-render/README.md`;
   - `AGENTS.md`.
@@ -125,7 +127,7 @@ changed path is on the allowed list:
 #!/bin/sh
 cd /Volumes/rudenet/code/strudeland-worktrees/poptart || exit 2
 git diff --name-only b7b18ce -- . ':(exclude)plans' |
-  grep -vxE 'crates/strudeland-engine/src/(lib|delay|reverb)\.rs|crates/strudeland-render/tests/decay_bound\.rs|crates/strudeland-render/README\.md|AGENTS\.md'
+  grep -vxE 'crates/strudeland-engine/src/(lib|delay|reverb|compressor)\.rs|crates/strudeland-render/tests/decay_bound\.rs|crates/strudeland-render/README\.md|AGENTS\.md'
 test $? -eq 1
 ```
 

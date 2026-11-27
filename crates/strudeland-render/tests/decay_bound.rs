@@ -4,9 +4,12 @@
 //! - parity: the bound's constants, read from the `tail_frames` of host one-shot plans, equal
 //!   the engine's (`strudeland_engine::decay`), within one frame;
 //! - completeness: one-shots of every control family, rendered past `tail_frames`, leave
-//!   nothing above the floor after the bound.
+//!   nothing above the floor after the bound, and each one sounds before it (so a case cannot
+//!   pass by being silent), and a delay or reverb case rings past the dry voice's own budget.
 //!
-//! The floors are never loosened to absorb a defect.
+//! The floors are judged on the raw engine output, before any leveling (a one-shot export is
+//! later leveled to -23 LUFS, which moves the leftover with it). They are never loosened to
+//! absorb a defect.
 
 use strudeland_engine::capability::unsupported_signatures;
 use strudeland_engine::{EngineJob, SAMPLE_RATE, decay, render};
@@ -18,11 +21,23 @@ const EXTRA: u64 = 5 * SAMPLE_RATE as u64;
 /// The planner budgets delay echoes down to -60 dB (`ln(1000)` repeats' worth): a TS decision
 /// (echoes below it are dropped by design), not an engine constant.
 const DELAY_CUT: f64 = 1e-3;
-/// The DJ filter cases' own floor (dBFS). The planner allows the DJ filter a flat 0.5 s; the
-/// user kept that tail as it is, so exports do not change. The measured leftover after the
-/// bound is -76.9 dBFS at most (a gain-1 sawtooth), and this floor sits about 6 dB above it,
-/// so a regression still fails. The render README documents the difference.
+/// The sawtooth DJ filter cases' own floor (dBFS). The planner allows the DJ filter a flat
+/// 0.5 s; the user kept that tail as it is, so exports do not change. The measured leftover
+/// after the bound is -76.9 dBFS at most (a gain-1 sawtooth), and this floor sits about 6 dB
+/// above it, so a regression still fails. The render README documents the difference.
 const DJF_FLOOR_DBFS: f64 = -70.0;
+/// The sine DJ filter cases' own floor (dBFS): the measured leftover (-90.7 dBFS, a gain-1
+/// sine) plus 6 dB, rounded to 0.5 dB.
+const DJF_SINE_FLOOR_DBFS: f64 = -84.5;
+/// A case sounds when its peak before the bound is this far above its floor.
+const SOUNDING_DB: f64 = 10.0;
+/// A delay case's floor is relative, so it sounds when its peak before the bound is above this.
+const DELAY_SOUNDING_DBFS: f64 = -40.0;
+/// A [`Floor::Relative`] case sounds when its peak before the bound is above this. The 10 dB
+/// rule does not apply: a relative floor moves with the source, so a quiet case is not vacuous
+/// (its drop is judged at any level), and these cases pass too little of the source to sound
+/// 10 dB above an absolute floor at any gain (their leftover scales 1:1 with it).
+const RELATIVE_SOUNDING_DBFS: f64 = -100.0;
 
 fn song(voice: &str) -> String {
     format!("const meta = {{ bpm: 120 }}\n$: {voice}\n")
@@ -157,7 +172,13 @@ fn the_bound_uses_the_engine_constants() {
             echo(1.5, 0.5),
         ),
         (format!(r#"{D}.vowel("a")"#), SR),
+        // Blink's `SetPreDelayTime`: `(unsigned)(kPreDelay * sampleRate)` frames, 264.
+        (
+            format!(r#"{D}.compressor("-20:12:6:0.01:0.1")"#),
+            f64::from((decay::COMPRESSOR_PRE_DELAY * SAMPLE_RATE as f32) as u32),
+        ),
     ];
+    assert_eq!(cases.len() + 1, 12, "the parity table");
 
     let mut lines = Vec::new();
     let mut mismatches = Vec::new();
@@ -208,7 +229,7 @@ fn the_bound_uses_the_engine_constants() {
     );
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Floor {
     /// Blink's `MAX_TAIL_AMPLITUDE`.
     Tail,
@@ -216,14 +237,45 @@ enum Floor {
     Delay,
     /// [`DJF_FLOOR_DBFS`].
     Djf,
+    /// [`DJF_SINE_FLOOR_DBFS`].
+    DjfSine,
+    /// This many dB under the render's peak before the bound: a known gap pinned as measured.
+    /// At djf(0.03) the 0.5 s allowance ends while the tail is still near its peak, so the
+    /// export cuts it (the user's decision: exports stay as they are). The value sits about
+    /// 0.5 dB inside the measured drop, so a regression that cuts more still fails.
+    Relative(f64),
+}
+
+struct Case {
+    voice: String,
+    gain: f64,
+    floor: Floor,
+    /// A delay or reverb: its wet signal must outlast the dry voice's own budget.
+    wet: bool,
+}
+
+fn saw(gain: f64) -> String {
+    format!(r#"note(36).s("sawtooth").gain({gain})"#)
+}
+
+fn sine(gain: f64) -> String {
+    format!(r#"s("sine").note(60).gain({gain})"#)
+}
+
+fn db_to_amp(db: f64) -> f64 {
+    10f64.powf(db / 20.0)
 }
 
 #[test]
 fn one_shots_decay_below_the_floor_after_the_bound() {
     let host = Host::new().unwrap();
-    const B: &str = r#"note(36).s("sawtooth").gain(1)"#;
-    const SINE: &str = r#"s("sine").note(60).gain(1)"#;
-    let mut cases: Vec<(String, Floor)> = [
+    let case = |base: String, gain: f64, fx: &str, floor: Floor, wet: bool| Case {
+        voice: format!("{base}{fx}"),
+        gain,
+        floor,
+        wet,
+    };
+    let mut cases: Vec<Case> = [
         ".release(0.01)",
         ".release(0.5)",
         ".release(4)",
@@ -236,40 +288,83 @@ fn one_shots_decay_below_the_floor_after_the_bound() {
         ".lpf(40).lpq(30).ftype('24db')",
         ".bpf(40).bpq(20).ftype('24db')",
         ".lpf(300).lpq(20).lpenv(-4)",
+        ".lpf(300).lpq(20).lpenv(4).fanchor(0.5)",
+        ".hpf(500).hpq(15).hpenv(4)",
+        ".bpf(500).bpq(10).bpenv(-3)",
+        // The built-in filter LFO: the bound sweeps the cutoff down to 30 Hz.
+        ".lpf(400).lpq(20).lprate(1)",
+        ".lpf(400).lpq(20).lpdepth(1).lpshape(2).lpskew(0.2)",
+        ".lpf(400).lpq(20).lpenv(2).lprate(1)",
+        ".hpf(500).hpq(15).hprate(2)",
+        ".bpf(500).bpq(10).bprate(1)",
         ".lpf(400).lpq(20).lfo({ c: 'cutoff', r: 1, dep: 0.5 })",
         ".lpf(200).lpq(20).ftype('ladder')",
         r#".vowel("a")"#,
         r#".vowel("ue")"#,
         ".phaser(1)",
         ".phaser(1).phaserdepth(1)",
+        // FXrelease extends the voice's own need past its release.
+        ".lpf(600).lpq(12).release(0.05).fxr(0.4)",
+        r#".vowel("a").release(0.05).fxr(2)"#,
+        r#".compressor("-20:12:6:0.01:0.1")"#,
     ]
     .iter()
-    .map(|c| (format!("{B}{c}"), Floor::Tail))
+    .map(|fx| case(saw(1.0), 1.0, fx, Floor::Tail, false))
     .collect();
-    for d in ["0.03", "0.05", "0.53", "0.55"] {
-        cases.push((format!("{B}.djf({d})"), Floor::Djf));
-        cases.push((format!("{SINE}.djf({d})"), Floor::Djf));
+    // djf(0.03) is the known gap: measured drops of 4.8 dB (sawtooth) and 9.6 dB (sine).
+    cases.push(case(
+        saw(1.0),
+        1.0,
+        ".djf(0.03)",
+        Floor::Relative(4.0),
+        false,
+    ));
+    cases.push(case(
+        sine(1.0),
+        1.0,
+        ".djf(0.03)",
+        Floor::Relative(9.0),
+        false,
+    ));
+    for d in ["0.05", "0.53", "0.55"] {
+        let fx = format!(".djf({d})");
+        cases.push(case(saw(1.0), 1.0, &fx, Floor::Djf, false));
+        cases.push(case(sine(1.0), 1.0, &fx, Floor::DjfSine, false));
     }
-    for c in [
+    for fx in [
         ".room(1).roomsize(0.5)",
         ".room(1)",
         ".room(1).roomsize(10)",
     ] {
-        cases.push((format!("{B}{c}"), Floor::Tail));
+        cases.push(case(saw(1.0), 1.0, fx, Floor::Tail, true));
     }
-    for c in [
+    for fx in [
         ".delay(1).delaytime(0.1).delayfeedback(0.98)",
         ".delay(1).delaytime(0.1).delayfeedback(0.99)",
         ".delay(1).delaytime(0.5).delayfeedback(0.5)",
         ".delay(1).delaytime(1.5).delayfeedback(0.9)",
     ] {
-        cases.push((format!("{B}{c}"), Floor::Delay));
+        cases.push(case(saw(1.0), 1.0, fx, Floor::Delay, true));
     }
-    assert_eq!(cases.len(), 33, "the case table");
+    assert_eq!(cases.len(), 44, "the case table");
+
+    // The dry voice the wet cases add their effect to: its own budget ends at its job's frames.
+    let dry_voice = saw(1.0);
+    let dry_plan = plan(&host, &dry_voice);
+    let dry_tail = dry_plan.export.as_ref().unwrap().tail_frames;
+    let (dry_long, dry_frames) = render_past(&dry_voice, &dry_plan.chunks[0].json, EXTRA);
+    let dry_frames = dry_frames as usize;
+    let dry_before = peak(&dry_long, 0..dry_frames);
 
     let mut rows = Vec::new();
     let mut failures = Vec::new();
-    for (voice, floor_kind) in &cases {
+    for Case {
+        voice,
+        gain,
+        floor: floor_kind,
+        wet,
+    } in &cases
+    {
         let planned = plan(&host, voice);
         let tail_frames = planned.export.as_ref().unwrap().tail_frames;
         let (long, frames) = render_past(voice, &planned.chunks[0].json, EXTRA);
@@ -279,28 +374,66 @@ fn one_shots_decay_below_the_floor_after_the_bound() {
         let floor = match floor_kind {
             Floor::Tail => decay::MAX_TAIL_AMPLITUDE,
             Floor::Delay => DELAY_CUT * before,
-            Floor::Djf => 10f64.powf(DJF_FLOOR_DBFS / 20.0),
+            Floor::Djf => db_to_amp(DJF_FLOOR_DBFS),
+            Floor::DjfSine => db_to_amp(DJF_SINE_FLOOR_DBFS),
+            Floor::Relative(db) => before * db_to_amp(-db),
         };
-        let pass = after <= floor;
-        rows.push(format!(
-            "{voice:75} tail {tail_frames:8} before {:7.1} after {:7.1} floor {:6.1} {}",
-            dbfs(before),
-            dbfs(after),
-            dbfs(floor),
-            if pass { "pass" } else { "FAIL" }
-        ));
-        if !pass {
-            failures.push(format!(
-                "{voice}: {:.1} dBFS after the bound, floor {:.1} dBFS",
+        let mut problems = Vec::new();
+        if after > floor {
+            problems.push(format!(
+                "{:.1} dBFS after the bound, floor {:.1} dBFS",
                 dbfs(after),
                 dbfs(floor)
             ));
         }
+        let sounding = match floor_kind {
+            Floor::Delay => db_to_amp(DELAY_SOUNDING_DBFS),
+            Floor::Relative(_) => db_to_amp(RELATIVE_SOUNDING_DBFS),
+            _ => floor * db_to_amp(SOUNDING_DB),
+        };
+        if before < sounding {
+            problems.push(format!(
+                "silent: {:.1} dBFS before the bound, needs {:.1} dBFS",
+                dbfs(before),
+                dbfs(sounding)
+            ));
+        }
+        let mut wet_db = String::new();
+        if *wet {
+            let ring = DELAY_CUT * dry_before;
+            let wet_peak = peak(&long, dry_frames.min(frames)..frames);
+            wet_db = format!(" wet {:7.1}", dbfs(wet_peak));
+            if wet_peak <= ring {
+                problems.push(format!(
+                    "no wet signal after the dry budget: {:.1} dBFS in frames {dry_frames}..{frames}, needs {:.1} dBFS",
+                    dbfs(wet_peak),
+                    dbfs(ring)
+                ));
+            }
+            if tail_frames <= dry_tail {
+                problems.push(format!(
+                    "tail {tail_frames} frames is not past the dry tail {dry_tail}"
+                ));
+            }
+        }
+        rows.push(format!(
+            "{voice:75} gain {gain:3} tail {tail_frames:8} before {:7.1} after {:7.1} floor {:6.1} margin {:6.1}{wet_db} {}",
+            dbfs(before),
+            dbfs(after),
+            dbfs(floor),
+            dbfs(floor) - dbfs(after),
+            if problems.is_empty() { "pass" } else { "FAIL" }
+        ));
+        failures.extend(problems.into_iter().map(|p| format!("{voice}: {p}")));
     }
+    eprintln!(
+        "dry {dry_voice}: tail {dry_tail} frames {dry_frames} before {:.1}",
+        dbfs(dry_before)
+    );
     eprintln!("{}", rows.join("\n"));
     assert!(
         failures.is_empty(),
-        "cases above their floor after the bound:\n{}",
+        "cases that fail after the bound:\n{}",
         failures.join("\n")
     );
 }
