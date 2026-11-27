@@ -40,14 +40,60 @@ const CHANCE_FIT: f64 = 0.25;
 
 /// A division that fits the rhythm better than the requested one.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DivisionSuggestion {
-    pub division: GridDivision,
+struct DivisionSuggestion {
+    division: GridDivision,
     /// Its timing spread, milliseconds.
-    pub spread_ms: f32,
+    spread_ms: f32,
+}
+
+/// The suggestions for `raw` on `grid` quantized at `requested` with timing spread
+/// `requested_spread_ms`, under the `--shift` already `given_shift_ms`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggestions {
+    /// `GridReport::suggested_division`.
+    pub division: Option<GridDivision>,
+    /// `GridReport::suggested_shift_ms`: `given_shift_ms` plus the suggested delta.
+    pub shift_ms: Option<f64>,
+    /// The division warning, then the shift warning, each when suggested.
+    pub warnings: Vec<String>,
+}
+
+/// The division and shift to suggest for `raw` on `grid` quantized at `requested`, and their
+/// warnings in order.
+pub fn suggest(
+    raw: &[RawNote],
+    grid: &Grid,
+    requested: GridDivision,
+    requested_spread_ms: f32,
+    given_shift_ms: f64,
+) -> Suggestions {
+    let division = suggest_division(raw, grid, requested);
+    // the shift on the suggested division when there is one, so the two go together
+    let (shift_division, spread) = match &division {
+        Some(s) => (s.division, s.spread_ms),
+        None => (requested, requested_spread_ms),
+    };
+    let shift = suggest_shift(raw, grid, shift_division, spread);
+    let mut warnings = Vec::new();
+    if let Some(s) = &division {
+        warnings.push(division_warning(s, requested_spread_ms));
+    }
+    if let Some(delta) = shift {
+        warnings.push(shift_warning(
+            delta,
+            given_shift_ms,
+            division.as_ref().map(|s| s.division),
+        ));
+    }
+    Suggestions {
+        division: division.map(|s| s.division),
+        shift_ms: shift.map(|delta| given_shift_ms + delta),
+        warnings,
+    }
 }
 
 /// The division to suggest instead of `requested`, if any.
-pub fn suggest_division(
+fn suggest_division(
     raw: &[RawNote],
     grid: &Grid,
     requested: GridDivision,
@@ -76,7 +122,7 @@ pub fn suggest_division(
 /// (0..=0.5; 0.25 for onsets at random), each gap weighted by the lower confidence of its two
 /// notes. `None` under `GRID_FIT_MIN_PAIRS` gaps, for a division that does not divide the bar,
 /// or without weight.
-pub fn rhythm_fit(raw: &[RawNote], grid: &Grid, division: GridDivision) -> Option<f64> {
+fn rhythm_fit(raw: &[RawNote], grid: &Grid, division: GridDivision) -> Option<f64> {
     steps_per_bar(grid.beats_per_bar, division).ok()?;
     let step = 60.0 / grid.bpm / f64::from(division.steps_per_quarter());
     if !(step.is_finite() && step > 0.0) {
@@ -101,7 +147,7 @@ pub fn rhythm_fit(raw: &[RawNote], grid: &Grid, division: GridDivision) -> Optio
 
 /// The shift in milliseconds (positive: the origin later) to suggest for `raw` on `grid` at
 /// `division`, whose timing spread unshifted is `current_spread_ms`, if any.
-pub fn suggest_shift(
+fn suggest_shift(
     raw: &[RawNote],
     grid: &Grid,
     division: GridDivision,
@@ -142,7 +188,7 @@ pub fn suggest_shift(
 }
 
 /// The warning for a suggested division.
-pub fn division_warning(s: &DivisionSuggestion, requested_spread_ms: f32) -> String {
+fn division_warning(s: &DivisionSuggestion, requested_spread_ms: f32) -> String {
     format!(
         "timing fits --grid {} better (spread {:.0} ms vs {:.0} ms)",
         s.division.label(),
@@ -153,7 +199,7 @@ pub fn division_warning(s: &DivisionSuggestion, requested_spread_ms: f32) -> Str
 
 /// The warning for a suggested shift of `delta_ms` on top of the `--shift` already given,
 /// measured on `suggested`, the suggested division, when there is one.
-pub fn shift_warning(delta_ms: f64, given_ms: f64, suggested: Option<GridDivision>) -> String {
+fn shift_warning(delta_ms: f64, given_ms: f64, suggested: Option<GridDivision>) -> String {
     let side = if delta_ms > 0.0 { "after" } else { "before" };
     let shift = given_ms + delta_ms;
     match suggested {
@@ -286,6 +332,102 @@ mod tests {
                 suggest_division(&random, &g, GridDivision::Eighth),
                 None,
                 "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn suggest_is_its_parts() {
+        let g = grid(2.0);
+        let sixteenths = Some(GridDivision::Sixteenth);
+        let fits = |spread: &str| format!("timing fits --grid 16 better (spread {spread})");
+        // (notes, requested division, given shift, division, shift, warnings in order)
+        let cases = [
+            // a division suggestion alone
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Eighth,
+                0.0,
+                sixteenths,
+                None,
+                vec![fits("18 ms vs 163 ms")],
+            ),
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Eighth,
+                25.0,
+                sixteenths,
+                None,
+                vec![fits("18 ms vs 163 ms")],
+            ),
+            // a division suggestion with its shift, on the given shift
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Eighth,
+                0.0,
+                sixteenths,
+                Some(60.0),
+                vec![
+                    fits("75 ms vs 125 ms"),
+                    "notes sit ~60 ms after the --grid 16 grid; try --grid 16 --shift 60".into(),
+                ],
+            ),
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Eighth,
+                25.0,
+                sixteenths,
+                Some(85.0),
+                vec![
+                    fits("75 ms vs 125 ms"),
+                    "notes sit ~60 ms after the --grid 16 grid; try --grid 16 --shift 85".into(),
+                ],
+            ),
+            // a shift alone
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Sixteenth,
+                0.0,
+                None,
+                Some(60.0),
+                vec!["notes sit ~60 ms after the grid; try --shift 60".to_string()],
+            ),
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Sixteenth,
+                25.0,
+                None,
+                Some(85.0),
+                vec!["notes sit ~60 ms after the grid; try --shift 85".to_string()],
+            ),
+            // nothing to suggest: sixteenths on the grid already
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Sixteenth,
+                0.0,
+                None,
+                None,
+                vec![],
+            ),
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Sixteenth,
+                25.0,
+                None,
+                None,
+                vec![],
+            ),
+        ];
+        for (notes, requested, given, division, shift_ms, warnings) in cases {
+            let q = quantize(&notes, &g, requested).unwrap();
+            assert_eq!(
+                suggest(&notes, &g, requested, q.timing_spread_ms, given),
+                Suggestions {
+                    division,
+                    shift_ms,
+                    warnings,
+                },
+                "{requested:?} given {given}"
             );
         }
     }

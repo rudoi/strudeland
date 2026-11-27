@@ -1,11 +1,12 @@
 //! Melody transcription for a monophonic voice: a sung or hummed take in, notes quantized to a
 //! bar grid and Strudel mini-notation out.
 //!
-//! The crate is pure: it takes samples and a grid hint, never paths, sidecars, devices or the
-//! network, and it holds no global state. The stages (`load`, pitch tracking, segmentation, grid,
-//! quantizing, key, notation) are plain functions over plain data, and the result is the
-//! serializable [`Transcription`]. `eval` (behind the `eval` feature, and in the crate's own unit
-//! tests) is test support: a seeded synthetic melody generator and a note-level scorer.
+//! The crate is pure: it holds no global state and reads no sidecars, devices or network. The
+//! `load` module reads a span of a WAV file. The stages after it (pitch tracking, segmentation,
+//! grid, quantizing, key, notation) take samples and a grid hint and are plain functions over
+//! plain data, and the result is the serializable [`Transcription`]. `eval` (behind the `eval`
+//! feature, and in the crate's own unit tests) is test support: a seeded synthetic melody
+//! generator and a note-level scorer.
 
 pub mod consts;
 mod error;
@@ -37,7 +38,7 @@ use std::borrow::Cow;
 use consts::{ANALYSIS_RATE, FRAME, MAX_NOTATION_BARS, TUNING_WARN_CENTS};
 use grid::{Grid, GridOutcome, meter_label, resolve_grid};
 use key::detect_key;
-use notation::{midi_to_name, render_notation};
+use notation::{Window, midi_to_name, render_notation};
 use onset::onset_strength_of_signal;
 use pitch::{PitchTracker, PyinTracker};
 use quantize::quantize;
@@ -62,10 +63,11 @@ pub struct Options {
     /// The memo's whole length in seconds, for `Bar1PastEnd`; `None` is the end of `samples`
     /// (`span_start_seconds` plus their duration).
     pub memo_seconds: Option<f64>,
-    /// The last bar the caller asked for (`--bars A-B`'s B): the notation then ends at it, rest
-    /// bars included, so the pattern loops in `B - firstBar + 1` cycles. `None` ends it at the
-    /// last bar with a note.
-    pub last_bar: Option<u32>,
+    /// `--bars A-B` as `(A, B)`: memo bars, 1-based and inclusive, `1 <= A <= B`. The
+    /// notation then covers exactly bars A to B, rest bars included, whatever bar the samples
+    /// start in; there is no notation when no notated note is from bar A on. `None` notates
+    /// from the bar the samples start in (or the pickup bar) to the last bar with a note.
+    pub bars: Option<(u32, u32)>,
     /// Fill `Transcription::{frames, onsets}`.
     pub debug: bool,
 }
@@ -102,6 +104,13 @@ pub fn transcribe(
     }
     if let Some(m) = opts.memo_seconds.filter(|m| !m.is_finite()) {
         return Err(bad("the memo length", &m));
+    }
+    if let Some((from, to)) = opts.bars
+        && (from == 0 || from > to)
+    {
+        return Err(TranscribeError::BadOption(format!(
+            "the bars must be 1 <= A <= B (got {from}-{to})"
+        )));
     }
     let hint = hint.validated();
     let clean: Cow<[f32]> = if samples.iter().all(|s| s.is_finite()) {
@@ -181,25 +190,9 @@ pub fn transcribe(
         GridOutcome::Known(grid, warnings) => {
             out.warnings.extend(warnings);
             let q = quantize(&raw, &grid, opts.grid)?;
-            let division = suggest::suggest_division(&raw, &grid, opts.grid);
-            // the shift on the suggested division when there is one, so the two go together
-            let (shift_division, spread) = match &division {
-                Some(s) => (s.division, s.spread_ms),
-                None => (opts.grid, q.timing_spread_ms),
-            };
-            let shift = suggest::suggest_shift(&raw, &grid, shift_division, spread);
+            let s = suggest::suggest(&raw, &grid, opts.grid, q.timing_spread_ms, opts.shift_ms);
             out.warnings.extend(q.warnings);
-            if let Some(s) = &division {
-                out.warnings
-                    .push(suggest::division_warning(s, q.timing_spread_ms));
-            }
-            if let Some(delta) = shift {
-                out.warnings.push(suggest::shift_warning(
-                    delta,
-                    opts.shift_ms,
-                    division.as_ref().map(|s| s.division),
-                ));
-            }
+            out.warnings.extend(s.warnings);
             out.timing_spread = (!q.notes.is_empty()).then_some(q.timing_spread_ms);
             out.notes = q.notes;
             out.dropped = q.dropped;
@@ -219,8 +212,8 @@ pub fn transcribe(
                 confidence: grid.confidence,
                 steps_per_bar: q.steps_per_bar,
                 division: opts.grid,
-                suggested_division: division.map(|s| s.division),
-                suggested_shift_ms: shift.map(|delta| opts.shift_ms + delta),
+                suggested_division: s.division,
+                suggested_shift_ms: s.shift_ms,
             });
         }
         GridOutcome::Unresolved(warnings) => {
@@ -244,7 +237,7 @@ pub fn transcribe(
         },
     };
     notation::fill_degrees(&mut out.notes, out.key.as_ref());
-    if let Some((spb, span_bar)) = notation_grid {
+    if let Some((spb, start_bar)) = notation_grid {
         // the notes the notation can show: not those more than a bar before bar 1
         let notated: Vec<Note> = out
             .notes
@@ -252,23 +245,20 @@ pub fn transcribe(
             .filter(|n| !n.early && n.step.is_some() && n.steps.is_some())
             .cloned()
             .collect();
-        let note_bar = notated.iter().filter_map(|n| n.bar).max();
-        // a span from before bar 1 with notes in the pickup bar starts at bar 0
-        let pickup = span_bar == 0 && notated.iter().any(|n| n.bar == Some(0));
-        let first_bar = if pickup { 0 } else { span_bar.max(1) };
-        let last_bar = opts.last_bar.unwrap_or(note_bar.unwrap_or(0));
-        if last_bar > MAX_NOTATION_BARS {
-            out.warnings.push(format!(
+        match notation::window(opts.bars, start_bar, &notated) {
+            Window::TooLong { last_bar } => out.warnings.push(format!(
                 "the notes reach bar {last_bar}; notation is limited to {MAX_NOTATION_BARS} bars"
-            ));
-        } else if note_bar.is_some_and(|b| b >= first_bar) && last_bar >= first_bar {
-            out.notation = Some(render_notation(
-                &notated,
-                spb,
-                first_bar,
-                last_bar,
-                out.key.as_ref(),
-            ));
+            )),
+            Window::Bars { first, last } => {
+                out.notation = Some(render_notation(
+                    &notated,
+                    spb,
+                    first,
+                    last,
+                    out.key.as_ref(),
+                ));
+            }
+            Window::Empty => {}
         }
     }
 
@@ -292,8 +282,8 @@ pub fn transcribe(
     Ok(out)
 }
 
-/// Slack when the span starts on a barline, in seconds, so `--bars 5-8` resolved from the grid
-/// starts in bar 5 despite rounding.
+/// Slack when a whole or seconds span starts on a barline, in seconds, so a start computed as the
+/// barline's time, but a rounding short of it, starts in that bar.
 const BARLINE_SLACK_SECONDS: f64 = 1e-6;
 
 /// The bar of `grid` that memo time `span_start` falls in; 0 before bar 1 or when it is not a
@@ -335,7 +325,7 @@ mod tests {
     use crate::eval::synth::{Case, SplitMix64, SynthSettings};
     use crate::grid::UNRESOLVED_WARNING;
     use crate::onset::onset_strength;
-    use crate::test_support::{audio, voice};
+    use crate::test_support::{audio, case_of, voice};
 
     /// The grid a case was generated on, as a sidecar would give it.
     fn sidecar(case: &Case) -> GridHint {
@@ -638,7 +628,7 @@ mod tests {
         let opts = Options {
             span_start_seconds: from,
             memo_seconds: Some(samples.len() as f64 / 48_000.0),
-            last_bar: Some(8),
+            bars: Some((5, 8)),
             ..Options::default()
         };
         let t = run(span, 48_000, &sidecar(&case), &opts);
@@ -648,19 +638,71 @@ mod tests {
         assert_eq!(notation.note, truth.note);
         assert!(notation.note.ends_with("] ~ ~>"), "{}", notation.note);
         // without it the notation ends at the last bar with a note
-        let opts = Options {
-            last_bar: None,
-            ..opts
-        };
+        let opts = Options { bars: None, ..opts };
         let t = run(span, 48_000, &sidecar(&case), &opts);
         assert_eq!(t.notation.unwrap().last_bar, 6);
         // a requested bar past the limit warns instead
         let opts = Options {
-            last_bar: Some(MAX_NOTATION_BARS + 1),
+            bars: Some((5, MAX_NOTATION_BARS + 1)),
             ..opts
         };
         let t = run(span, 48_000, &sidecar(&case), &opts);
         assert_eq!(t.notation, None);
+    }
+
+    #[test]
+    fn a_bars_request_starts_at_its_bar_when_the_cut_rounds_early() {
+        // 110 bpm at 48 kHz: cut at whole frames, as the loader cuts it, the span for --bars 2-3
+        // starts more than the barline slack before bar 2
+        let beat = 60.0 / 110.0;
+        let midis = [[60, 62, 64, 65], [67, 69, 71, 72], [72, 71, 69, 67]];
+        let notes: Vec<(f64, f64, i32)> = midis
+            .iter()
+            .enumerate()
+            .flat_map(|(b, bar)| {
+                bar.iter().enumerate().map(move |(i, &midi)| {
+                    let start = 0.5 + (b as f64 * 4.0 + i as f64) * beat;
+                    (start, start + 0.9 * beat, midi)
+                })
+            })
+            .collect();
+        let mut case = case_of(&notes, voice());
+        case.bpm = 110.0;
+        case.beats_per_bar = 4.0;
+        case.origin_seconds = 0.5;
+        case.bars = 3;
+        let samples = case.render(48_000);
+        let hint = sidecar(&case);
+        let (from, to) = hint.bar_span(2, 3, 0.0).unwrap();
+        let len = samples.len() as f64;
+        let a = (from * 48_000.0).round();
+        let b = (to * 48_000.0).round().min(len);
+        let start = a / 48_000.0;
+        assert!(
+            from - start > BARLINE_SLACK_SECONDS,
+            "{from} cut at {start}"
+        );
+        let span = &samples[a as usize..b as usize];
+        let seconds = Options {
+            span_start_seconds: start,
+            memo_seconds: Some(len / 48_000.0),
+            ..Options::default()
+        };
+        // a seconds span from the rounded start begins in bar 1: a leading rest bar
+        let by_seconds = run(span, 48_000, &hint, &seconds);
+        let s = by_seconds.notation.as_ref().expect("notation");
+        assert_eq!((s.first_bar, s.last_bar), (1, 3));
+        assert!(s.note.starts_with("<~ "), "{}", s.note);
+        // the bars request is exactly bars 2 to 3, the same notes without the rest bar
+        let opts = Options {
+            bars: Some((2, 3)),
+            ..seconds.clone()
+        };
+        let bars = run(span, 48_000, &hint, &opts);
+        assert_eq!(bars.notes, by_seconds.notes);
+        let n = bars.notation.as_ref().expect("notation");
+        assert_eq!((n.first_bar, n.last_bar), (2, 3), "{n:?}");
+        assert_eq!(s.note, format!("<~ {}", &n.note[1..]));
     }
 
     #[test]
@@ -1050,6 +1092,40 @@ mod tests {
         };
         let t = run(&samples[16_000..], 16_000, &grid_at(1.0), &opts);
         assert_eq!(t.notation.as_ref().map(|n| n.first_bar), Some(1));
+    }
+
+    #[test]
+    fn a_bars_request_from_bar_1_leaves_the_pickup_in_the_notes() {
+        // the a_pickup_bar_starts_the_notation take: the c4 at 0.5 s is in bar 0
+        let samples = audio(&melody(), voice());
+        let whole = run(&samples, 16_000, &grid_at(1.0), &Options::default());
+        assert_eq!(whole.notation.as_ref().map(|n| n.first_bar), Some(0));
+        let opts = Options {
+            bars: Some((1, 2)),
+            ..Options::default()
+        };
+        let t = run(&samples, 16_000, &grid_at(1.0), &opts);
+        let notation = t.notation.as_ref().expect("notation");
+        assert_eq!((notation.first_bar, notation.last_bar), (1, 2));
+        assert_eq!(t.notes, whole.notes);
+        assert!(t.notes.iter().any(|n| n.bar == Some(0)), "{:?}", t.notes);
+    }
+
+    #[test]
+    fn bad_bars_requests_are_bad_options() {
+        for (bars, want) in [
+            ((0, 1), "the bars must be 1 <= A <= B (got 0-1)"),
+            ((3, 2), "the bars must be 1 <= A <= B (got 3-2)"),
+        ] {
+            let opts = Options {
+                bars: Some(bars),
+                ..Options::default()
+            };
+            match transcribe(&[0.0; 4096], 16_000, &grid_at(0.0), &opts) {
+                Err(TranscribeError::BadOption(m)) => assert_eq!(m, want),
+                other => panic!("{bars:?}: {other:?}"),
+            }
+        }
     }
 
     #[test]

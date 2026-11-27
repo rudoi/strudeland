@@ -16,6 +16,7 @@
 //! scale is the scale degree below it plus one `#` per semitone above that degree; negative
 //! degrees are notes below the root.
 
+use crate::consts::MAX_NOTATION_BARS;
 use crate::key::Key;
 use crate::report::{Notation, Note};
 
@@ -274,6 +275,45 @@ pub fn render_notation(
         scale,
         first_bar,
         last_bar,
+    }
+}
+
+/// The bars to notate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Window {
+    Bars {
+        first: u32,
+        last: u32,
+    },
+    /// Past `MAX_NOTATION_BARS`: the caller warns with `last_bar`.
+    TooLong {
+        last_bar: u32,
+    },
+    /// Nothing to notate.
+    Empty,
+}
+
+/// The bars to notate of `notated`, the notes the notation can show. A bars request
+/// (`Options.bars`) is exactly its bars. Without one the notation starts at `span_bar`, the bar
+/// the samples start in (bar 1 at the earliest), or at the pickup bar, bar 0, when the span
+/// starts before bar 1 and has notes there; it ends at the last bar with a note.
+pub(crate) fn window(bars: Option<(u32, u32)>, span_bar: u32, notated: &[Note]) -> Window {
+    let note_bar = notated.iter().filter_map(|n| n.bar).max();
+    let (first, last) = match bars {
+        Some((from, to)) => (from, to),
+        None => {
+            // a span from before bar 1 with notes in the pickup bar starts at bar 0
+            let pickup = span_bar == 0 && notated.iter().any(|n| n.bar == Some(0));
+            let first = if pickup { 0 } else { span_bar.max(1) };
+            (first, note_bar.unwrap_or(0))
+        }
+    };
+    if last > MAX_NOTATION_BARS {
+        Window::TooLong { last_bar: last }
+    } else if note_bar.is_some_and(|b| b >= first) && last >= first {
+        Window::Bars { first, last }
+    } else {
+        Window::Empty
     }
 }
 
@@ -643,5 +683,93 @@ mod tests {
         fill_degrees(&mut loose, Some(&c));
         assert_eq!(loose[0].degree.as_deref(), Some("0"));
         assert_eq!(loose[1].degree.as_deref(), Some("1"));
+    }
+
+    fn bars_of(bars: &[u32]) -> Vec<Note> {
+        bars.iter().map(|&b| note(b, 0, 4, 60)).collect()
+    }
+
+    #[test]
+    fn window_rules() {
+        use Window::{Bars, Empty, TooLong};
+        let max = MAX_NOTATION_BARS;
+        // (bars, span bar, notes' bars, window); the span bar does not move a bars request
+        for (bars, span_bar, notes, want) in [
+            (Some((2, 3)), 1, vec![1, 2, 3], Bars { first: 2, last: 3 }),
+            // the pickup does not move a bars request
+            (Some((1, 4)), 0, vec![0, 1, 2], Bars { first: 1, last: 4 }),
+            (Some((2, max + 1)), 2, vec![], TooLong { last_bar: max + 1 }),
+            (Some((3, 4)), 3, vec![1, 2], Empty),
+            (None, 0, vec![0, 2], Bars { first: 0, last: 2 }),
+            (None, 0, vec![1, 2], Bars { first: 1, last: 2 }),
+            (None, 3, vec![2, 5], Bars { first: 3, last: 5 }),
+            (None, 3, vec![], Empty),
+            (None, 1, vec![max + 1], TooLong { last_bar: max + 1 }),
+            (None, u32::MAX, vec![2], Empty),
+        ] {
+            assert_eq!(
+                window(bars, span_bar, &bars_of(&notes)),
+                want,
+                "{bars:?} at span bar {span_bar} over {notes:?}"
+            );
+        }
+    }
+
+    /// The window rule before `Options.bars`, copied: `last_bar` is the requested last bar.
+    fn todays_window(span_bar: u32, notated: &[Note], last_bar: Option<u32>) -> Window {
+        let note_bar = notated.iter().filter_map(|n| n.bar).max();
+        // a span from before bar 1 with notes in the pickup bar starts at bar 0
+        let pickup = span_bar == 0 && notated.iter().any(|n| n.bar == Some(0));
+        let first_bar = if pickup { 0 } else { span_bar.max(1) };
+        let last_bar = last_bar.unwrap_or(note_bar.unwrap_or(0));
+        if last_bar > MAX_NOTATION_BARS {
+            Window::TooLong { last_bar }
+        } else if note_bar.is_some_and(|b| b >= first_bar) && last_bar >= first_bar {
+            Window::Bars {
+                first: first_bar,
+                last: last_bar,
+            }
+        } else {
+            Window::Empty
+        }
+    }
+
+    #[test]
+    fn span_bar_window_is_todays_rule() {
+        let max = MAX_NOTATION_BARS;
+        let sets: [&[u32]; 8] = [
+            &[],
+            &[0],
+            &[0, 1],
+            &[1],
+            &[2, 4],
+            &[0, max + 1],
+            &[max],
+            &[u32::MAX],
+        ];
+        for b in [0, 1, 2, 3, 7, max, max + 1, u32::MAX] {
+            for bars in sets {
+                let notated = bars_of(bars);
+                assert_eq!(
+                    window(None, b, &notated),
+                    todays_window(b, &notated, None),
+                    "span bar {b} over {bars:?}"
+                );
+                // a request for bars b to `to`, cut from bar b (so no pickup), is today's rule
+                // with that last bar
+                if b >= 1 {
+                    for to in [b, b.saturating_add(1), b.saturating_add(5), max, max + 1] {
+                        if to < b {
+                            continue;
+                        }
+                        assert_eq!(
+                            window(Some((b, to)), b, &notated),
+                            todays_window(b, &notated, Some(to)),
+                            "bars {b}-{to} over {bars:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

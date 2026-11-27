@@ -1,10 +1,10 @@
 # strudeland-transcribe
 
 Melody transcription for a monophonic voice: a sung or hummed take in, notes quantized to a bar
-grid and Strudel mini-notation out. A pure library (no Tauri, V8, audio I/O, threads, global state
-or `unsafe`); `strudeland transcribe` (`crates/strudeland-cli`) is its only caller. It takes samples
-and a `GridHint`, never paths or a sidecar, so other callers (drum transcription, an app command)
-can use it on any audio.
+grid and Strudel mini-notation out. A pure library (no Tauri, V8, audio devices, threads, global
+state or `unsafe`); `strudeland transcribe` (`crates/strudeland-cli`) is its only caller.
+`load_wav_span` reads a span of a WAV file. The stages take samples and a `GridHint`, never a
+sidecar, so other callers (drum transcription, an app command) can use them on any audio.
 
 ## Stages
 
@@ -21,7 +21,7 @@ can use it on any audio.
 | quantize | `quantize` | onsets and offsets snapped to the `--grid` steps, overlaps cut, collisions dropped, barline crossings reported as tied parts, snap errors and the timing spread |
 | suggest | `suggest` | a `--grid` division the rhythm fits clearly better (onset gaps against whole steps), and a `--shift` the notes share within a step; warnings and `grid.suggested*` only |
 | key | `key` | Krumhansl–Schmuckler over the 24 major and minor keys, with downbeat and final-note bonuses; or `--key` |
-| notation | `notation` | `note("…")` names and `n("…").scale("…")` degrees, one cycle per bar from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied parts play as one held note |
+| notation | `notation` | `note("…")` names and `n("…").scale("…")` degrees, one cycle per bar: exactly bars A to B for a bars request (`Options.bars`; none when no notated note is from bar A on), else from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied parts play as one held note |
 | report | `report` | `Transcription` and every serde type (camelCase, nulls kept) |
 
 `eval` is test support, in the library so the tests, the example and other crates share it:

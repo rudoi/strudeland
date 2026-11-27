@@ -641,7 +641,7 @@ fn run_transcribe(
         shift_ms: args.shift,
         span_start_seconds: audio.start_seconds,
         memo_seconds: Some(audio.memo_seconds),
-        last_bar: args.bars.map(|(_, to)| to),
+        bars: args.bars,
         debug: args.debug,
     };
     let mut result =
@@ -2338,7 +2338,7 @@ mod tests {
     // --- transcribe ---
 
     use strudeland_project::Sidecar;
-    use strudeland_transcribe::eval::synth::{Case, SynthSettings, write_wav};
+    use strudeland_transcribe::eval::synth::{Case, SynthSettings, TruthNote, write_wav};
 
     const TAKE_RATE: u32 = 16_000;
 
@@ -2888,6 +2888,88 @@ mod tests {
             assert_eq!(v["notation"]["firstBar"], 2, "--shift {shift}");
             assert_eq!(v["notation"]["lastBar"], 2, "--shift {shift}");
         }
+    }
+
+    #[test]
+    fn transcribe_bars_start_at_their_bar_on_a_48k_take() {
+        // 110 bpm at 48 kHz: the cut for --bars 2-3 rounds its start to a frame more than the
+        // barline slack before bar 2, and the notation still starts at bar 2.
+        let (bpm, origin, rate) = (110.0, 0.5, 48_000u32);
+        let beat = 60.0 / bpm;
+        let bars = [[60, 62, 64, 65], [67, 69, 71, 72], [72, 71, 69, 67]];
+        let truth = bars
+            .iter()
+            .enumerate()
+            .flat_map(|(b, midis)| {
+                midis.iter().enumerate().map(move |(i, &midi)| {
+                    let start = origin + (b as f64 * 4.0 + i as f64) * beat;
+                    TruthNote {
+                        start,
+                        end: start + 0.9 * beat,
+                        midi,
+                        bar: b as u32 + 1,
+                        step: 4 * i as u32,
+                        steps: 4,
+                    }
+                })
+            })
+            .collect();
+        let case = Case {
+            seed: 11,
+            settings: SynthSettings {
+                lead_in_seconds: origin,
+                ..SynthSettings::default()
+            },
+            bpm,
+            beats_per_bar: 4.0,
+            bars: 3,
+            tonic_pc: 0,
+            minor: false,
+            origin_seconds: origin,
+            truth,
+        };
+        let (_t, root, _) = transcribe_project(1);
+        write_wav(
+            &root.join("recordings/take48.wav"),
+            &case.render(rate),
+            rate,
+        )
+        .unwrap();
+        let sidecar: Sidecar =
+            serde_json::from_value(sidecar_value(bpm, json!(origin * f64::from(rate)))).unwrap();
+        Project::open(&root)
+            .unwrap()
+            .write_sidecar("take48", &sidecar)
+            .unwrap();
+        // the precondition: the cut rounds early by more than the slack
+        let hint = GridHint {
+            bpm: Some(Hinted::flag(bpm)),
+            beats_per_bar: Some(Hinted::flag(4.0)),
+            origin_seconds: Some(Hinted::flag(origin)),
+            ..Default::default()
+        };
+        let (start, _) = hint.bar_span(2, 3, 0.0).unwrap();
+        let rounded = (start * f64::from(rate)).round() / f64::from(rate);
+        assert!(start - rounded > 1e-6, "start {start}, rounded {rounded}");
+
+        let flags = [
+            "take48", "--bpm", "110", "--meter", "4/4", "--bar1", "0.5", "--grid", "4", "--bars",
+            "2-3",
+        ];
+        for (run, args) in [
+            ("flags", &flags[..]),
+            ("sidecar", &["take48", "--bars", "2-3"][..]),
+        ] {
+            let (code, v, err) = json_run(args, &root);
+            assert_eq!(code, 0, "{run}: {err}");
+            let notation = &v["notation"];
+            assert_eq!(notation["firstBar"], 2, "{run}: {notation}");
+            assert_eq!(notation["lastBar"], 3, "{run}: {notation}");
+            let note = notation["note"].as_str().unwrap();
+            assert_eq!(note, "<[g4 a4 b4 c5] [c5 b4 a4 g4]>", "{run}");
+        }
+        let (_, out, _) = transcribe_run(&flags, &root);
+        assert!(out.lines().next().unwrap().ends_with("(bars 2-3)"), "{out}");
     }
 
     #[test]
