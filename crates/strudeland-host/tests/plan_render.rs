@@ -331,14 +331,12 @@ fn length_errors_are_meta_with_their_problem() {
             plain.as_str(),
             plan_request(clip.clone()),
             LengthProblem::NoSections,
-            "--length",
             "this song has no sections; pass --length N to say how many bars to render",
         ),
         (
             plain.as_str(),
             plan_request(LengthRequest::Section { name: "a".into() }),
             LengthProblem::SectionWithoutSections,
-            "--section",
             "this song has no sections; --section needs meta.sections",
         ),
         (
@@ -350,7 +348,6 @@ fn length_errors_are_meta_with_their_problem() {
                 name: "drop".into(),
                 sections: vec!["intro".into(), "body".into(), "tail".into()],
             },
-            "--section",
             "unknown section 'drop' (sections: intro, body, tail)",
         ),
         (
@@ -360,21 +357,18 @@ fn length_errors_are_meta_with_their_problem() {
                 bars: 13,
                 clip_bars: 12,
             },
-            "--length",
             "--length 13 is past the end of the song (12 bars)",
         ),
         (
             plain.as_str(),
             plan_request(LengthRequest::Clip { loops: Some(2) }),
             LengthProblem::LoopsWithoutLoop,
-            "--loops",
             "--loops needs meta.loop or a section with loop: true in meta.sections",
         ),
         (
             sections.as_str(),
             preset(LengthRequest::Length { bars: 2 }),
             LengthProblem::PresetWithLength,
-            "--preset",
             "loop presets cannot be combined with --section, --length or --loops",
         ),
         (
@@ -385,7 +379,6 @@ fn length_errors_are_meta_with_their_problem() {
                 clip_bars: 10000002,
                 limit: 100000,
             },
-            "--loops",
             "--loops 1000 makes the clip 10000002 bars, past the render limit of 100000 bars",
         ),
         (
@@ -396,7 +389,6 @@ fn length_errors_are_meta_with_their_problem() {
                 limit: 100000,
                 has_loop: true,
             },
-            "--length",
             "the song's clip is 100002 bars, past the render limit of 100000 bars; pass --length N or --loops N",
         ),
         (
@@ -407,7 +399,6 @@ fn length_errors_are_meta_with_their_problem() {
                 limit: 100000,
                 has_loop: false,
             },
-            "--length",
             "the song's clip is 110000 bars, past the render limit of 100000 bars; pass --length N",
         ),
         (
@@ -418,7 +409,6 @@ fn length_errors_are_meta_with_their_problem() {
                 to_bar: 110000,
                 limit: 100000,
             },
-            "--section",
             "section 's10' ends at bar 110000, past the render limit of 100000 bars",
         ),
         (
@@ -429,14 +419,12 @@ fn length_errors_are_meta_with_their_problem() {
                 to_bar: 110000,
                 limit: 100000,
             },
-            "--section",
             "section 's10' ends at bar 110000, past the render limit of 100000 bars",
         ),
         (
             plain.as_str(),
             preset(clip.clone()),
             LengthProblem::PresetWithoutLoop,
-            "--preset",
             "--preset needs meta.loop or a section with loop: true in meta.sections",
         ),
         (
@@ -446,24 +434,22 @@ fn length_errors_are_meta_with_their_problem() {
                 end: 110000,
                 limit: 100000,
             },
-            "--preset",
             "the loop ends at bar 110000, past the render limit of 100000 bars",
         ),
     ];
-    for (code, request, want, flag, message) in cases {
+    for (code, request, want, message) in cases {
         match host.plan_render(code, &request) {
             Err(HostError::MetaFlag {
                 problem,
                 message: m,
             }) => {
-                assert_eq!(problem, want, "{request:?}");
-                assert_eq!(problem.flag(), flag, "{request:?}");
+                assert_eq!(problem, Some(want), "{request:?}");
                 assert_eq!(m, message, "{request:?}");
             }
             other => panic!("{request:?}: {other:?}"),
         }
     }
-    // A bad meta header has no flag.
+    // A bad meta header is a plain meta error, without a length problem.
     match host.plan_render(
         "const meta = { bpm: 'x' };\n$: note(\"c\")\n",
         &plan_request(LengthRequest::Length { bars: 2 }),

@@ -269,7 +269,7 @@
             </p>
           {/if}
         {/if}
-        {#if unavailable}
+        {#if loopMode(options.mode) && !markedLoop}
           <Notice tone="warning"
             >loop export needs a <code>meta.loop</code> range or a section with
             <code>loop: true</code></Notice

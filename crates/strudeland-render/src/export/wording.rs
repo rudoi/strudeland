@@ -38,7 +38,9 @@ pub fn dialog_text(problem: &LengthProblem) -> String {
         LengthProblem::PresetWithoutLoop => {
             "loop export needs a meta.loop range or a section with loop: true".into()
         }
-        LengthProblem::PresetWithLength => "loop exports use the marked loop section".into(),
+        LengthProblem::PresetWithLength => {
+            "loop exports use the marked loop; choose the whole clip".into()
+        }
         LengthProblem::LoopsWithoutLoop => {
             "the loop count needs a meta.loop range or a section with loop: true".into()
         }
@@ -50,7 +52,11 @@ pub fn dialog_text(problem: &LengthProblem) -> String {
             "{loops} loop passes make the clip {clip_bars} bars, past the render limit of \
              {limit} bars"
         ),
-        LengthProblem::LoopsInvalid { message } => message.clone(),
+        // `withLoops` refuses a count outside `isInt(v, 1, MAX_LOOPS)` (`structure.ts`); the
+        // message it carries names `meta.loops`, so the dialog words its own.
+        LengthProblem::LoopsInvalid { .. } => {
+            "the number of loops must be a whole number from 1 to 1000".into()
+        }
     }
 }
 
@@ -72,7 +78,7 @@ mod tests {
         let cases = [
             (
                 LengthProblem::PresetWithLength,
-                "loop exports use the marked loop section",
+                "loop exports use the marked loop; choose the whole clip",
             ),
             (
                 LengthProblem::LoopsWithoutLoop,
@@ -80,9 +86,9 @@ mod tests {
             ),
             (
                 LengthProblem::LoopsInvalid {
-                    message: "x".into(),
+                    message: "meta.loops must be an integer from 1 to 1000".into(),
                 },
-                "x",
+                "the number of loops must be a whole number from 1 to 1000",
             ),
             (
                 LengthProblem::NoSections,
@@ -154,9 +160,7 @@ mod tests {
             assert_eq!(text, *want, "{problem:?}");
             assert!(!text.contains("--"), "{problem:?}: {text}");
             let first = text.chars().next().unwrap();
-            if !matches!(problem, LengthProblem::LoopsInvalid { .. }) {
-                assert!(!first.is_uppercase(), "{problem:?}: {text}");
-            }
+            assert!(!first.is_uppercase(), "{problem:?}: {text}");
         }
     }
 }

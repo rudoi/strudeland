@@ -317,7 +317,7 @@ fn length_errors_are_usage_errors() {
         matches!(
             &e,
             RenderError::Plan(HostError::MetaFlag { problem, .. })
-                if problem.flag() == "--length" && matches!(problem, LengthProblem::NoSections)
+                if matches!(problem, Some(LengthProblem::NoSections))
         ),
         "{e:?}"
     );
@@ -345,15 +345,14 @@ fn a_clip_past_the_render_limit_is_a_usage_error_not_an_abort() {
         matches!(
             &e,
             RenderError::Plan(HostError::MetaFlag { problem, .. })
-                if problem.flag() == "--loops"
-                    && matches!(
-                        problem,
-                        LengthProblem::LoopsPastLimit {
-                            loops: 1000,
-                            clip_bars: 10000002,
-                            limit: 100000
-                        }
-                    )
+                if matches!(
+                    problem,
+                    Some(LengthProblem::LoopsPastLimit {
+                        loops: 1000,
+                        clip_bars: 10000002,
+                        limit: 100000
+                    })
+                )
         ),
         "{e:?}"
     );

@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use strudeland_project::Project;
 use strudeland_render::export;
 use strudeland_render::{
-    EncoderOptions, ExportPreset, ExportRole, Format, HostError, LengthRequest, Loudness, MAX_BARS,
-    OutputOptions, Progress, RenderError, StemGrouping,
+    EncoderOptions, ExportPreset, ExportRole, Format, LengthRequest, Loudness, MAX_BARS,
+    OutputOptions, Progress, StemGrouping,
 };
 use tauri::{Manager, State, WebviewWindow, ipc::Channel};
 use tauri_plugin_dialog::{
@@ -144,10 +144,10 @@ fn problem(error: impl Display) -> ExportError {
 /// wording ([`export::dialog_text`], no CLI flags), everything else the module's.
 fn export_message(error: &export::Error) -> String {
     match error {
-        export::Error::Render(RenderError::Plan(HostError::MetaFlag { problem, .. })) => {
-            export::dialog_text(problem)
-        }
-        export::Error::Render(e) => e.to_string(),
+        export::Error::Render(e) => match e.length_problem() {
+            Some(problem) => export::dialog_text(problem),
+            None => e.to_string(),
+        },
         export::Error::Project { source, .. } => source.to_string(),
         export::Error::FolderChanged { path } => {
             format!("the selected output folder changed: {}", path.display())
@@ -790,7 +790,7 @@ mod tests {
     fn export_messages_keep_their_wording() {
         use std::io;
         use strudeland_project::ProjectError;
-        use strudeland_render::LengthProblem;
+        use strudeland_render::{HostError, LengthProblem, RenderError};
         let outside = ProjectError::PathOutsideProject("renders/x.wav".into());
         let outside_text = outside.to_string();
         let cases: Vec<(export::Error, &str)> = vec![
@@ -834,7 +834,7 @@ mod tests {
             (export::Error::PreviewRequired, "the export has no preview"),
             (
                 export::Error::Render(RenderError::Plan(HostError::MetaFlag {
-                    problem: LengthProblem::NoSections,
+                    problem: Some(LengthProblem::NoSections),
                     message:
                         "this song has no sections; pass --length N to say how many bars to render"
                             .into(),
@@ -843,12 +843,20 @@ mod tests {
             ),
             (
                 export::Error::Render(RenderError::Plan(HostError::MetaFlag {
-                    problem: LengthProblem::PresetWithoutLoop,
+                    problem: Some(LengthProblem::PresetWithoutLoop),
                     message:
                         "--preset needs meta.loop or a section with loop: true in meta.sections"
                             .into(),
                 })),
                 "loop export needs a meta.loop range or a section with loop: true",
+            ),
+            (
+                // A problem the host could not parse keeps the planner's message.
+                export::Error::Render(RenderError::Plan(HostError::MetaFlag {
+                    problem: None,
+                    message: "pass --length N".into(),
+                })),
+                "pass --length N",
             ),
             (
                 export::Error::Render(RenderError::Plan(HostError::Eval("boom".into()))),

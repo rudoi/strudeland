@@ -2,14 +2,15 @@
 
 use std::path::PathBuf;
 
-use strudeland_host::HostError;
+use strudeland_host::{HostError, LengthProblem};
 
 /// Why a render failed. Every variant names its stage; there is no `From` that hides one.
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     /// Planning failed (any `HostError`, including `MetaFlag` and `Timeout`). Display is the
-    /// host error's text, except a `MetaFlag` prints just its message, the planner's advice for
-    /// the user, without the `meta:` prefix ("pass --length N ...").
+    /// host error's text, except a `MetaFlag` (a length request the song cannot satisfy)
+    /// prints just its message, the planner's advice for the user, without the `meta:` prefix
+    /// ("pass --length N ...").
     #[error("{}", plan_text(.0))]
     Plan(#[from] HostError),
     /// Nothing was rendered: the song uses material the engine cannot play (sorted, one line
@@ -69,6 +70,14 @@ impl RenderError {
             _ => ExitClass::Failed,
         }
     }
+
+    /// The typed length problem of a planning failure of the length request, when it parsed.
+    pub fn length_problem(&self) -> Option<&LengthProblem> {
+        match self {
+            RenderError::Plan(HostError::MetaFlag { problem, .. }) => problem.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 fn plan_text(e: &HostError) -> String {
@@ -101,7 +110,6 @@ fn display_unsupported(list: &[Unsupported]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strudeland_host::LengthProblem;
 
     fn unsupported(s: &str, keys: &[&str], bar: i64, section: Option<&str>) -> Unsupported {
         Unsupported {
@@ -127,7 +135,7 @@ mod tests {
             ),
             (
                 RenderError::Plan(HostError::MetaFlag {
-                    problem: LengthProblem::NoSections,
+                    problem: Some(LengthProblem::NoSections),
                     message: "pass --length N".into(),
                 }),
                 "pass --length N",
@@ -189,6 +197,29 @@ mod tests {
                 .to_string()
                 .starts_with("unsettled: ")
         );
+    }
+
+    #[test]
+    fn only_a_parsed_length_error_has_a_length_problem() {
+        let flagged = |problem| {
+            RenderError::Plan(HostError::MetaFlag {
+                problem,
+                message: "pass --length N".into(),
+            })
+        };
+        assert_eq!(
+            flagged(Some(LengthProblem::NoSections)).length_problem(),
+            Some(&LengthProblem::NoSections)
+        );
+        let unparsed = flagged(None);
+        assert_eq!(unparsed.length_problem(), None);
+        assert_eq!(unparsed.exit_class(), ExitClass::Usage);
+        assert_eq!(unparsed.to_string(), "pass --length N");
+        assert_eq!(
+            RenderError::Plan(HostError::Meta("bad".into())).length_problem(),
+            None
+        );
+        assert_eq!(RenderError::render("x").length_problem(), None);
     }
 
     #[test]

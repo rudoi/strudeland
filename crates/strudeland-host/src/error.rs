@@ -5,9 +5,9 @@ use thiserror::Error;
 
 /// Why a host request failed. `Meta`, `Eval` and `Plan` carry the text of the bundle's result
 /// slot whose `kind` matched (the song's `meta` header, its evaluation, or the query and plan);
-/// `MetaFlag` is a `meta` failure of a render's length request: its typed [`LengthProblem`] and the
-/// planner's message ([`LengthProblem::flag`] names the CLI flag at fault: `--length`, `--section`,
-/// `--loops`, `--preset`); `Timeout` is a planning that ran past its deadline;
+/// `MetaFlag` is a `meta` failure of a render's length request: its typed [`LengthProblem`]
+/// (`None` when the slot's problem does not parse, for example a code this crate does not know)
+/// and the planner's message; `Timeout` is a planning that ran past its deadline;
 /// `Unsettled` is an empty slot after the microtask drain (a promise still pending, for example
 /// an `await` on a timer, which never fires); `Runtime` is everything outside the entry: the
 /// bundle failing to load, an exception thrown outside the entry, a native failure, or a thread
@@ -18,7 +18,7 @@ pub enum HostError {
     Meta(String),
     #[error("meta: {message}")]
     MetaFlag {
-        problem: LengthProblem,
+        problem: Option<LengthProblem>,
         message: String,
     },
     #[error("eval: {0}")]
@@ -82,26 +82,6 @@ pub enum LengthProblem {
     LoopPastLimit { end: u64, limit: u64 },
 }
 
-impl LengthProblem {
-    /// The CLI flag the problem is about (`lengthFlag` in `job-plan.ts`).
-    pub fn flag(&self) -> &'static str {
-        match self {
-            LengthProblem::PresetWithLength
-            | LengthProblem::PresetWithoutLoop
-            | LengthProblem::LoopPastLimit { .. } => "--preset",
-            LengthProblem::LoopsWithoutLoop
-            | LengthProblem::LoopsInvalid { .. }
-            | LengthProblem::LoopsPastLimit { .. } => "--loops",
-            LengthProblem::NoSections
-            | LengthProblem::ClipPastLimit { .. }
-            | LengthProblem::LengthPastEnd { .. } => "--length",
-            LengthProblem::SectionWithoutSections
-            | LengthProblem::UnknownSection { .. }
-            | LengthProblem::SectionPastLimit { .. } => "--section",
-        }
-    }
-}
-
 /// Whole milliseconds as seconds, for `Display`.
 fn millis_as_secs(millis: u64) -> f64 {
     millis as f64 / 1000.0
@@ -146,7 +126,7 @@ mod tests {
             assert_eq!(err.to_string(), text, "{err:?}");
         }
         let flagged = HostError::MetaFlag {
-            problem: LengthProblem::NoSections,
+            problem: Some(LengthProblem::NoSections),
             message: "pass --length N".into(),
         };
         assert_eq!(flagged.kind(), "meta");
@@ -171,37 +151,30 @@ mod tests {
         assert!(!HostError::Plan("query before a successful evaluate".into()).is_bad_request());
         assert!(!HostError::Meta("bad request: x".into()).is_bad_request());
         let flagged = HostError::MetaFlag {
-            problem: LengthProblem::LoopsWithoutLoop,
+            problem: Some(LengthProblem::LoopsWithoutLoop),
             message: "bad request: x".into(),
         };
         assert!(!flagged.is_bad_request());
     }
 
-    /// One example of each code, as the TS planner writes it, with its flag.
-    fn examples() -> Vec<(&'static str, LengthProblem, &'static str)> {
+    /// One example of each code, as the TS planner writes it.
+    fn examples() -> Vec<(&'static str, LengthProblem)> {
         vec![
             (
                 r#"{"code":"presetWithLength"}"#,
                 LengthProblem::PresetWithLength,
-                "--preset",
             ),
             (
                 r#"{"code":"loopsWithoutLoop"}"#,
                 LengthProblem::LoopsWithoutLoop,
-                "--loops",
             ),
             (
                 r#"{"code":"loopsInvalid","message":"x"}"#,
                 LengthProblem::LoopsInvalid {
                     message: "x".into(),
                 },
-                "--loops",
             ),
-            (
-                r#"{"code":"noSections"}"#,
-                LengthProblem::NoSections,
-                "--length",
-            ),
+            (r#"{"code":"noSections"}"#, LengthProblem::NoSections),
             (
                 r#"{"code":"loopsPastLimit","loops":1000,"clipBars":10000002,"limit":100000}"#,
                 LengthProblem::LoopsPastLimit {
@@ -209,7 +182,6 @@ mod tests {
                     clip_bars: 10000002,
                     limit: 100000,
                 },
-                "--loops",
             ),
             (
                 r#"{"code":"clipPastLimit","clipBars":110000,"limit":100000,"hasLoop":true}"#,
@@ -218,12 +190,10 @@ mod tests {
                     limit: 100000,
                     has_loop: true,
                 },
-                "--length",
             ),
             (
                 r#"{"code":"sectionWithoutSections"}"#,
                 LengthProblem::SectionWithoutSections,
-                "--section",
             ),
             (
                 r#"{"code":"unknownSection","name":"drop","sections":["intro","body","tail"]}"#,
@@ -231,7 +201,6 @@ mod tests {
                     name: "drop".into(),
                     sections: vec!["intro".into(), "body".into(), "tail".into()],
                 },
-                "--section",
             ),
             (
                 r#"{"code":"sectionPastLimit","name":"s10","toBar":110000,"limit":100000}"#,
@@ -240,7 +209,6 @@ mod tests {
                     to_bar: 110000,
                     limit: 100000,
                 },
-                "--section",
             ),
             (
                 r#"{"code":"lengthPastEnd","bars":9,"clipBars":8}"#,
@@ -248,12 +216,10 @@ mod tests {
                     bars: 9,
                     clip_bars: 8,
                 },
-                "--length",
             ),
             (
                 r#"{"code":"presetWithoutLoop"}"#,
                 LengthProblem::PresetWithoutLoop,
-                "--preset",
             ),
             (
                 r#"{"code":"loopPastLimit","end":110000,"limit":100000}"#,
@@ -261,7 +227,6 @@ mod tests {
                     end: 110000,
                     limit: 100000,
                 },
-                "--preset",
             ),
         ]
     }
@@ -270,17 +235,10 @@ mod tests {
     fn every_length_problem_round_trips() {
         let examples = examples();
         assert_eq!(examples.len(), 12);
-        for (json, problem, _) in &examples {
+        for (json, problem) in &examples {
             let read: LengthProblem = serde_json::from_str(json).expect(json);
             assert_eq!(&read, problem, "{json}");
             assert_eq!(serde_json::to_string(&read).unwrap(), *json);
-        }
-    }
-
-    #[test]
-    fn every_length_problem_names_its_flag() {
-        for (json, problem, flag) in examples() {
-            assert_eq!(problem.flag(), flag, "{json}");
         }
     }
 

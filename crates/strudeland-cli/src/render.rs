@@ -1331,7 +1331,7 @@ mod tests {
     #[test]
     fn host_length_errors_are_usage_other_plan_errors_fail() {
         let o = fail(RenderError::Plan(HostError::MetaFlag {
-            problem: LengthProblem::NoSections,
+            problem: Some(LengthProblem::NoSections),
             message: "this song has no sections; pass --length N".into(),
         }));
         assert_eq!(o.code, 4);
