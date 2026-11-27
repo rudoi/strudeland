@@ -111,7 +111,7 @@ pub(crate) fn render_planned(
     let Rendered {
         channels: joined,
         errors: mut engine_errors,
-        ..
+        unsupported,
     } = render_window(
         join::Joiner::for_plans(&window, &chunks, channels, music_frames, tail_frames)?,
         &chunks,
@@ -120,6 +120,10 @@ pub(crate) fn render_planned(
         |job| renderer.render(job, stems.as_ref()),
         &|event| report_chunk(progress, event, 0, chunk_count),
     )?;
+    debug_assert!(
+        unsupported.is_empty(),
+        "render_one fails on any chunk with unsupported signatures"
+    );
     let (isolated_body, repeat_workers) = if let Some(repeat) =
         export.and_then(|export| export.repeat)
     {

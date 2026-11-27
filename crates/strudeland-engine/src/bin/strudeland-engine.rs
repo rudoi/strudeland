@@ -147,10 +147,7 @@ fn run_render(job_path: &str, out_path: &str) -> ExitCode {
     let errors: Vec<RenderError> = rendered
         .unsupported
         .iter()
-        .map(|u| {
-            let message = format!("s={} keys={}", u.s, u.keys.join(","));
-            RenderError::new(ErrorKind::Unsupported, message, Some(u.first_bar))
-        })
+        .map(|u| RenderError::new(ErrorKind::Unsupported, u.to_string(), Some(u.first_bar)))
         .chain(rendered.errors)
         .collect();
     let summary = serde_json::json!({

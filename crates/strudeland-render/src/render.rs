@@ -218,8 +218,7 @@ fn render_one(
     if let Some(u) = rendered.unsupported.first() {
         // Unreachable in practice (`plan::take_jobs` refuses first). The engine binary's
         // message for the signature, capped as the engine caps its messages.
-        let message = format!("s={} keys={}", u.s, u.keys.join(","));
-        let e = EngineRenderError::new(ErrorKind::Unsupported, message, None);
+        let e = EngineRenderError::new(ErrorKind::Unsupported, u.to_string(), None);
         return fail(format!("unsupported: {}", e.message));
     }
     if rendered.channels.len() != channels {
@@ -518,12 +517,13 @@ mod tests {
     fn a_surviving_unsupported_message_is_capped_as_the_engine_caps_it() {
         let keys: Vec<String> = (0..40).map(|k| format!("unknowncontrol{k:02}")).collect();
         let mut jobs: Vec<Fake> = (0..3).map(ok).collect();
-        jobs[1].unsupported = vec![UnsupportedSignature {
+        let sig = UnsupportedSignature {
             s: "sine".into(),
-            keys: keys.clone(),
+            keys,
             first_bar: 1,
-        }];
-        let full = format!("s=sine keys={}", keys.join(","));
+        };
+        let full = sig.to_string();
+        jobs[1].unsupported = vec![sig];
         assert!(full.chars().count() > 300);
         let capped: String = full.chars().take(300).collect();
         let (r, _) = run(jobs, 2);

@@ -181,6 +181,12 @@ fn check_case(name: &str, threshold: &Value, judge_null: bool) -> Result<Option<
         .errors
         .iter()
         .map(|e| (e.bar.unwrap_or(i64::MIN), kind_name(e.kind).to_string()))
+        .chain(
+            rendered
+                .unsupported
+                .iter()
+                .map(|u| (u.first_bar, "unsupported".to_string())),
+        )
         .collect();
     expected.sort();
     expected.dedup();
@@ -188,8 +194,8 @@ fn check_case(name: &str, threshold: &Value, judge_null: bool) -> Result<Option<
     got.dedup();
     if got != expected {
         return Err(format!(
-            "errors (bar, kind) {got:?}, expected {expected:?}: {:?}",
-            rendered.errors
+            "errors (bar, kind) {got:?}, expected {expected:?}: {:?} {:?}",
+            rendered.errors, rendered.unsupported
         ));
     }
     if !judge_null {

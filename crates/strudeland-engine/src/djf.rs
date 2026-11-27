@@ -86,7 +86,7 @@ impl Djf {
         self.process_with(q, bus, &ParamInputs::NONE)
     }
 
-    /// [`Djf::process`] with the connections into `value` (orbit-held modulators).
+    /// `Djf::process` with the connections into `value` (orbit-held modulators).
     pub fn process_with(
         &mut self,
         q: u64,
