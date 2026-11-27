@@ -50,7 +50,24 @@ const defaultDeps: Deps = {
   getController: getSuperdoughAudioController,
 };
 
-export function createSuperdoughBackend(deps: Deps = defaultDeps): AudioBackend {
+/**
+ * The superdough backend, with what only it has: the Web Audio graph and the master stage's
+ * latency. The graph feeds previews, the metronome, the output clock and memo playback; the
+ * master latency feeds the take's output delay. Previews play here even while the Rust engine
+ * plays the song.
+ */
+export interface SuperdoughBackend extends AudioBackend {
+  /**
+   * The live graph, or null unless audio runs (it never creates the context) or while the output
+   * is being rebuilt. Never throws. Callers call it each time they need a node and never keep the
+   * result: the destination and the context can be replaced.
+   */
+  graph(): AudioGraph | null;
+  /** The delay the master stage adds to what is heard, in seconds (0 when none). */
+  masterLatencySec(): number;
+}
+
+export function createSuperdoughBackend(deps: Deps = defaultDeps): SuperdoughBackend {
   // Not created until the first resume()/init(): getAudioContext() creates the
   // AudioContext lazily, and one created outside a user gesture starts suspended.
   let ctx: Ctx | undefined;

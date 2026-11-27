@@ -81,7 +81,10 @@ the V8 download the host brings.
   offset, snapshotted as one value; no Strudel imports),
   `song.ts` (the `song(meta, parts)` pattern, registered in the eval scope; it follows the live
   transport segments unless a query passes its own in `controls._segments`, as `runtime.query`
-  does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the
+  does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (`SuperdoughBackend` in
+  `superdough.ts` adds the Web Audio graph and the master latency: the graph feeds previews, the
+  metronome, the output clock and memo playback; the master latency feeds the take's output
+  delay; and `scope-tap.ts`, the
   master-output analyser behind `readScope`; `playback-api.ts`, the only Tauri caller for live
   playback, and `rust.ts`, the Rust backend over it, tested with `tests/helpers/fake-playback-api.ts`). The master meter and limiter: `master-dsp.ts`
   (the limiter and level maths), `master-worklet.ts` and `master-tap.ts` (the superdough tap);
@@ -126,6 +129,10 @@ the V8 download the host brings.
   and the welcome screen, and the Export Audio item's availability. `src/lib/shell-ports.ts`
   wraps `app-quit.ts`, `onProjectMenu` and `setExportMenuAvailable`, which stay the only Tauri
   callers for them; tests use `tests/helpers/fake-shell-ports.ts`.
+- `src/lib/status-notices.ts` (`statusNotices`, pure) the status bar's notices: their order,
+  copy, tones, tooltips, action kinds and stable ids, composed from `engineNotices` and
+  `recordingNotices`. `StatusBar.svelte` renders the list and keeps the action controls,
+  their help and the separate audio-suspended button.
 - `src/lib/project/` projects: `song-header.ts` (`readSongHeader`: the static song header read,
   its structure and evaluate options), `api.ts` (the only module that calls Tauri for projects:
   commands, events, dialogs, window), `session.ts` (open project, songs, dirty state, hot-reload

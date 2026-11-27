@@ -19,6 +19,8 @@ const { getCM, Vim } = await import('@replit/codemirror-vim');
 const { vimAdapter } = await import('../src/lib/editor/vim-mode');
 
 import type { EditorView } from '@codemirror/view';
+import type { RustBackend } from '../src/lib/audio/rust';
+import type { SuperdoughBackend } from '../src/lib/audio/superdough';
 import type { Prefs } from '../src/lib/prefs/api';
 import type { Sidecar } from '../src/lib/recording/types';
 import { countDispatches } from './helpers/dispatches';
@@ -66,7 +68,13 @@ async function setup(opts: { last?: string | null; tauri?: boolean } = {}) {
     '/empty': { name: 'Empty', files: {} },
   });
   fake.last = opts.last === undefined ? '/p' : opts.last;
-  const app = createApp(api, () => opts.tauri ?? true, null, null, null);
+  const app = createApp({
+    api,
+    inTauri: () => opts.tauri ?? true,
+    controlApi: null,
+    recordingApi: null,
+    prefsApi: null,
+  });
   const evaluated: string[] = [];
   app.runtime.stop = () => {}; // the real stop draws on a canvas happy-dom lacks
   app.runtime.evaluate = async (code: string) => (evaluated.push(code), true);
@@ -257,7 +265,13 @@ describe('createApp', () => {
   test('a view attached after init shows the active song', async () => {
     const { api, fake } = fakeProjectApi({ '/p': { name: 'p', files: { [MAIN]: A } } });
     fake.last = '/p';
-    const app = createApp(api, () => true, null, null, null);
+    const app = createApp({
+      api,
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: null,
+      prefsApi: null,
+    });
     app.runtime.stop = () => {};
     await app.session.init();
     const view = createEditor(document.body, '', app.runtime, app.hooks);
@@ -414,7 +428,13 @@ describe('window title', () => {
     const log = console.error;
     console.error = (e: unknown) => void errors.push(e);
     try {
-      const app = createApp(api, () => true, null, null, null);
+      const app = createApp({
+        api,
+        inTauri: () => true,
+        controlApi: null,
+        recordingApi: null,
+        prefsApi: null,
+      });
       app.runtime.stop = () => {};
       await app.session.init();
       await tick();
@@ -437,7 +457,13 @@ describe('control socket', () => {
     const { api, fake } = fakeProjectApi({ '/p': { name: 'p', files: { [MAIN]: A } } });
     fake.last = '/p';
     const control = fakeControlApi(info);
-    const app = createApp(api, () => true, control.api, null, null);
+    const app = createApp({
+      api,
+      inTauri: () => true,
+      controlApi: control.api,
+      recordingApi: null,
+      prefsApi: null,
+    });
     app.runtime.stop = () => {};
     await app.session.init();
     await flush();
@@ -453,7 +479,7 @@ describe('control socket', () => {
 
   test('outside Tauri the default is no ControlApi', async () => {
     const { api } = fakeProjectApi({ '/p': { name: 'p', files: { [MAIN]: A } } });
-    const app = createApp(api, () => false);
+    const app = createApp({ api, inTauri: () => false });
     await flush();
     expect(get(app.control)).toEqual({ status: 'off', path: null, detail: null });
   });
@@ -471,7 +497,13 @@ describe('control socket', () => {
   test('destroy before the listener is set up unlistens when it is, without attaching', async () => {
     const { api } = fakeProjectApi({ '/p': { name: 'p', files: { [MAIN]: A } } });
     const control = fakeControlApi();
-    const app = createApp(api, () => true, control.api, null, null);
+    const app = createApp({
+      api,
+      inTauri: () => true,
+      controlApi: control.api,
+      recordingApi: null,
+      prefsApi: null,
+    });
     app.destroy();
     await flush();
     expect(control.fake.log).toEqual(['onRequest', 'unlisten']);
@@ -510,7 +542,13 @@ describe('control socket', () => {
     const log = console.error;
     console.error = (e: unknown) => void errors.push(e);
     try {
-      const app = createApp(api, () => true, control.api, null, null);
+      const app = createApp({
+        api,
+        inTauri: () => true,
+        controlApi: control.api,
+        recordingApi: null,
+        prefsApi: null,
+      });
       await flush();
       expect(get(app.control)).toEqual({ status: 'disabled', path: null, detail: 'no bridge' });
     } finally {
@@ -612,7 +650,13 @@ describe('recording and memos', () => {
     const rec = fakeRecordingApi({ roots: ['/p', '/q'] });
     rec.fake.memos.set('/p', [entry('take-01')]);
     rec.fake.memos.set('/q', [entry('other-01')]);
-    const app = createApp(api, () => true, null, rec.api, null);
+    const app = createApp({
+      api,
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: rec.api,
+      prefsApi: null,
+    });
     app.runtime.stop = () => {};
     app.runtime.evaluate = async () => true;
     await app.session.init();
@@ -818,7 +862,13 @@ describe('vim keybindings', () => {
     fake.last = '/p';
     const prefs = fakePrefsApi(initial);
     const gate = prefs.deferGet();
-    const app = createApp(api, () => true, null, null, prefs);
+    const app = createApp({
+      api,
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: null,
+      prefsApi: prefs,
+    });
     app.runtime.stop = () => {};
     const view = createEditor(document.body, '', app.runtime, app.hooks);
     const focused: string[] = [];
@@ -1023,7 +1073,13 @@ describe('limiter migration wiring', () => {
   test('moves a stored limiter into prefs and removes the key', async () => {
     localStorage.setItem(KEY, '1');
     const prefs = fakePrefsApi();
-    const app = createApp(apiFor(), () => true, null, null, prefs);
+    const app = createApp({
+      api: apiFor(),
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: null,
+      prefsApi: prefs,
+    });
     await app.ready;
     await flush();
     expect(get(app.runtime.store).limiter).toBe(true);
@@ -1036,7 +1092,13 @@ describe('limiter migration wiring', () => {
     localStorage.setItem(KEY, '1');
     const prefs = fakePrefsApi({ vim: true });
     prefs.clean = false;
-    const app = createApp(apiFor(), () => true, null, null, prefs);
+    const app = createApp({
+      api: apiFor(),
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: null,
+      prefsApi: prefs,
+    });
     await app.ready;
     await flush();
     expect(prefs.saved).toEqual([]);
@@ -1047,11 +1109,149 @@ describe('limiter migration wiring', () => {
 
   test('without a prefs api the key stays and the limiter stays off', async () => {
     localStorage.setItem(KEY, '1');
-    const app = createApp(apiFor(), () => true, null, null, null);
+    const app = createApp({
+      api: apiFor(),
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: null,
+      prefsApi: null,
+    });
     await app.ready;
     await flush();
     expect(localStorage.getItem(KEY)).toBe('1');
     expect(get(app.runtime.store).limiter).toBe(false);
+    app.destroy();
+  });
+});
+
+describe('createApp options', () => {
+  /** Backends that log what the runtime and the previews ask of them. */
+  function fakeBackends() {
+    const log: string[] = [];
+    const superdough: SuperdoughBackend = {
+      id: 'superdough',
+      init: async () => {},
+      resume: async () => true,
+      isRunning: () => false,
+      getTime: () => 0,
+      setSeed: () => {},
+      output: () => {},
+      setLimiter: (on) => void log.push(`superdough limiter ${on}`),
+      graph: () => (log.push('superdough graph'), null),
+      masterLatencySec: () => 0,
+    };
+    const rust: RustBackend = {
+      id: 'rust',
+      init: async () => {},
+      resume: async () => true,
+      isRunning: () => false,
+      getTime: () => 0,
+      setSeed: () => {},
+      output: () => {},
+      liveStats: () => null,
+      onWarning: () => () => {},
+      onLevels: () => () => {},
+      setLimiter: (on) => void log.push(`rust limiter ${on}`),
+      limiterAvailable: () => true,
+      stop: async () => {},
+    };
+    return { log, superdough, rust };
+  }
+
+  function appWith(backends: { superdough: SuperdoughBackend; rust?: RustBackend }) {
+    const { api } = fakeProjectApi({ '/p': { name: 'p', files: { [MAIN]: '$: s("a")\n' } } });
+    // Renders succeed, so a preview reaches the graph.
+    api.instrumentPreview = async () => new Uint8Array();
+    const app = createApp({
+      api,
+      inTauri: () => true,
+      controlApi: null,
+      recordingApi: null,
+      prefsApi: null,
+      backends,
+    });
+    app.runtime.stop = () => {}; // the real stop draws on a canvas happy-dom lacks
+    return app;
+  }
+
+  const version = { id: 'pad', fingerprint: 'pad', root: null };
+
+  test('the runtime plays on the given backends', () => {
+    const { log, superdough, rust } = fakeBackends();
+    const app = appWith({ superdough, rust });
+    log.length = 0;
+    app.runtime.setLimiter(true);
+    expect(log).toEqual(['superdough limiter true', 'rust limiter true']);
+    app.destroy();
+  });
+
+  test('the runtime has no rust backend', async () => {
+    const { log, superdough } = fakeBackends();
+    const app = appWith({ superdough });
+    log.length = 0;
+    app.runtime.setLimiter(true);
+    expect(log).toEqual(['superdough limiter true']);
+    // A song that asks for rust still plays on superdough.
+    const proto = HTMLCanvasElement.prototype as any;
+    const getContext = proto.getContext;
+    proto.getContext = () => ({ clearRect: () => {}, canvas: { width: 0, height: 0 } });
+    try {
+      expect(await app.runtime.evaluate('$: s("a")', { engine: 'rust', autostart: false })).toBe(
+        true,
+      );
+    } finally {
+      proto.getContext = getContext;
+    }
+    expect(get(app.runtime.store)).toMatchObject({ backend: 'superdough', engine: 'superdough' });
+    app.destroy();
+  });
+
+  test("previews read the given superdough backend's graph", async () => {
+    const { log, superdough } = fakeBackends();
+    const app = appWith({ superdough });
+    expect(app.arbiter.auditionsAvailable()).toBe(true);
+    app.runtime.prepareAudition = async () => true;
+    await app.instrumentPreview.play(version);
+    expect(log).toContain('superdough graph');
+    expect(get(app.instrumentPreview.store)).toEqual({
+      status: 'error',
+      message: 'audio output is unavailable',
+    });
+    app.destroy();
+  });
+
+  test('typed-note auditions call prepareAudition as it is when they are typed', async () => {
+    const { superdough } = fakeBackends();
+    const app = appWith({ superdough });
+    app.attachView(createEditor(document.body, '', app.runtime, app.hooks));
+    await app.prefs.setAuditionNotes(true);
+    expect(app.arbiter.auditionsAvailable()).toBe(true);
+    let prepares = 0;
+    app.runtime.prepareAudition = async () => (prepares++, false);
+    app.hooks.onAuditionEdit?.({
+      kind: 'note',
+      from: 6,
+      to: 8,
+      pitch: 55,
+      sound: 'triangle',
+      controls: {},
+    });
+    expect(prepares).toBeGreaterThanOrEqual(1);
+    app.destroy();
+  });
+
+  test('previews call prepareAudition as it is when they start', async () => {
+    const { superdough } = fakeBackends();
+    const app = appWith({ superdough });
+    expect(app.arbiter.auditionsAvailable()).toBe(true);
+    let prepares = 0;
+    app.runtime.prepareAudition = async () => (prepares++, false);
+    await app.instrumentPreview.play(version);
+    expect(prepares).toBe(1);
+    expect(get(app.instrumentPreview.store)).toEqual({
+      status: 'error',
+      message: 'could not start preview audio',
+    });
     app.destroy();
   });
 });
