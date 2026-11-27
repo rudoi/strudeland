@@ -1,6 +1,6 @@
 /** Pure helpers behind `Timeline.svelte`: layout, what plays and where, section-item help and input validation. */
 import type { StopTarget } from '../play-arbiter';
-import type { RuntimeState } from '../strudel/runtime';
+import type { Runtime, RuntimeState } from '../strudel/runtime';
 import {
   authoredLoop,
   barsProblem,
@@ -146,7 +146,7 @@ export interface TimelineViewInput {
   runtime: Pick<RuntimeState, 'started' | 'structure'>;
   playback: Pick<PlaybackState, 'playing' | 'transport'>;
   /** `runtime.position()`, polled by the component; stale after a stop, and every reader is gated. */
-  position: { cycle: number; located: Located | null };
+  position: ReturnType<Runtime['position']>;
 }
 
 /** What `Timeline.svelte` shows of the playing song. */
@@ -175,15 +175,18 @@ export interface TimelineView {
    * The block playhead: the evaluated section that plays, found by name in the header (the first
    * match), and null when the header has no section of that name.
    */
-  head: { section: number; fraction: number; localCycle: number } | null;
+  head: ReturnType<typeof blockPlayhead>;
   /**
    * Shown with the blocks only (none while the header has a meta error). The module disarms on a
    * meta error, except for the arm of a `start` still waiting on the runtime, so the gate stays.
    */
   armedName: string | null;
   /** The sections of the audition loop, by name; empty without one. */
-  auditionNames: string[];
+  auditionNames: readonly string[];
 }
+
+/** Shared so that the audition names compare equal across frames while there is no loop. */
+const NO_NAMES: readonly string[] = Object.freeze([]);
 
 /** Everything the Timeline shows that depends on what plays, from plain snapshots. */
 export function timelineView(input: TimelineViewInput): TimelineView {
@@ -233,7 +236,7 @@ export function timelineView(input: TimelineViewInput): TimelineView {
     pct,
     head,
     armedName: structure ? playback.transport.armed : null,
-    auditionNames: playback.transport.loop?.names ?? [],
+    auditionNames: playback.transport.loop?.names ?? NO_NAMES,
   };
 }
 

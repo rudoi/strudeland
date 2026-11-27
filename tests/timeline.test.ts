@@ -396,7 +396,7 @@ describe('timelineView', () => {
       sections: [
         { name: 'intro', bars: 2 },
         { name: 'verse', bars: 2 },
-        { name: 'body', bars: 4, loop: true },
+        { name: 'body', bars: 8, loop: true },
         { name: 'tail', bars: 2 },
       ],
     });
@@ -487,6 +487,27 @@ describe('timelineView', () => {
       'tail',
     ]);
     expect(timelineView(input()).auditionNames).toEqual([]);
+  });
+
+  test('without a loop the audition names are one shared array', () => {
+    const a = timelineView(input()).auditionNames;
+    expect(timelineView(input()).auditionNames).toBe(a);
+  });
+
+  test('a header with sections and an evaluated sectionless song has no ruler playhead', () => {
+    const plain = buildStructure({ bpm: 100 });
+    expect(timelineView(input({ runtime: { ...RUNTIME, structure: plain } })).pct).toBeNull();
+  });
+
+  test('no armed section: no armed name', () => {
+    expect(timelineView(input()).armedName).toBeNull();
+  });
+
+  test('no active song while another plays: other, and no head', () => {
+    const view = timelineView(input({ session: { ...SESSION, active: null } }));
+    expect(view.playingOther).toBe(true);
+    expect(view.playingActive).toBe(false);
+    expect(view.head).toBeNull();
   });
 
   describe('ending help', () => {

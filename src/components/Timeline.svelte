@@ -13,11 +13,11 @@
     rulerMarks,
     sectionItemHelp,
     timelineView,
+    type TimelineViewInput,
     type InputField,
     type SectionItemTexts,
   } from '../lib/project/timeline';
   import { authoredLoop, meterString } from '../lib/strudel/structure';
-  import { type Located } from '../lib/strudel/transport';
   import { catOf } from '../lib/theme/tones';
   import SectionBlock from './SectionBlock.svelte';
   import Button from './ui/Button.svelte';
@@ -50,7 +50,7 @@
     );
   }
 
-  // None while the header has a meta error: no blocks, menu or inputs (see the note below).
+  // None while the header has a meta error: no blocks, menu or inputs (see `TimelineView.armedName`).
   const structure = $derived(editableStructure($ss));
   const sections = $derived(structure?.sections ?? []);
   const bars = $derived(rulerBars(structure));
@@ -64,7 +64,7 @@
   const hasLoop = $derived(savedLoop !== null);
 
   // Position, refreshed each animation frame while the scheduler runs.
-  let position = $state.raw<{ cycle: number; located: Located | null }>({
+  let position = $state.raw<TimelineViewInput['position']>({
     cycle: 0,
     located: null,
   });
