@@ -215,11 +215,11 @@ fn render_one(
         Ok(r) => r,
         Err(e) => return fail(e.message),
     };
-    if let Some(e) = rendered
-        .errors
-        .iter()
-        .find(|e| e.kind == ErrorKind::Unsupported)
-    {
+    if let Some(u) = rendered.unsupported.first() {
+        // Unreachable in practice (`plan::take_jobs` refuses first). The engine binary's
+        // message for the signature, capped as the engine caps its messages.
+        let message = format!("s={} keys={}", u.s, u.keys.join(","));
+        let e = EngineRenderError::new(ErrorKind::Unsupported, message, None);
         return fail(format!("unsupported: {}", e.message));
     }
     if rendered.channels.len() != channels {
@@ -289,6 +289,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::sync::atomic::AtomicUsize;
+    use strudeland_engine::UnsupportedSignature;
     use strudeland_host::{Layout, PlannedWindow};
 
     fn nz(n: usize) -> Option<NonZeroUsize> {
@@ -329,6 +330,7 @@ mod tests {
     struct Fake {
         index: usize,
         result: Result<Vec<EngineRenderError>, String>,
+        unsupported: Vec<UnsupportedSignature>,
         channels: usize,
         frames: usize,
         delay_ms: u64,
@@ -338,6 +340,7 @@ mod tests {
         Fake {
             index,
             result: Ok(vec![]),
+            unsupported: vec![],
             channels: 2,
             frames: 3,
             delay_ms: 0,
@@ -378,6 +381,7 @@ mod tests {
                 })
                 .collect(),
             errors,
+            unsupported: job.unsupported.clone(),
         })
     }
 
@@ -495,16 +499,37 @@ mod tests {
     }
 
     #[test]
-    fn a_surviving_unsupported_error_fails() {
+    fn a_surviving_unsupported_signature_fails() {
         let mut jobs: Vec<Fake> = (0..3).map(ok).collect();
-        jobs[1].result = Ok(vec![
-            hap(1, "fine"),
-            EngineRenderError::new(ErrorKind::Unsupported, "s=kick", Some(1)),
-        ]);
+        jobs[1].result = Ok(vec![hap(1, "fine")]);
+        jobs[1].unsupported = vec![UnsupportedSignature {
+            s: "kick".into(),
+            keys: vec!["ir".into()],
+            first_bar: 1,
+        }];
         let (r, _) = run(jobs, 2);
         assert_eq!(
             r.unwrap_err().to_string(),
-            "render failed: chunk 1: unsupported: s=kick"
+            "render failed: chunk 1: unsupported: s=kick keys=ir"
+        );
+    }
+
+    #[test]
+    fn a_surviving_unsupported_message_is_capped_as_the_engine_caps_it() {
+        let keys: Vec<String> = (0..40).map(|k| format!("unknowncontrol{k:02}")).collect();
+        let mut jobs: Vec<Fake> = (0..3).map(ok).collect();
+        jobs[1].unsupported = vec![UnsupportedSignature {
+            s: "sine".into(),
+            keys: keys.clone(),
+            first_bar: 1,
+        }];
+        let full = format!("s=sine keys={}", keys.join(","));
+        assert!(full.chars().count() > 300);
+        let capped: String = full.chars().take(300).collect();
+        let (r, _) = run(jobs, 2);
+        assert_eq!(
+            r.unwrap_err().to_string(),
+            format!("render failed: chunk 1: unsupported: {capped}")
         );
     }
 

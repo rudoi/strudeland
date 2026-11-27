@@ -67,10 +67,12 @@ impl DelayKernel {
         }
     }
 
+    #[cfg(test)]
     pub fn buffer(&self) -> &[f32] {
         &self.buffer
     }
 
+    #[cfg(test)]
     pub fn write_index(&self) -> usize {
         self.write_index
     }
@@ -153,6 +155,7 @@ impl DelayLine {
         self.kernels.len()
     }
 
+    #[cfg(test)]
     pub fn kernels(&self) -> &[DelayKernel] {
         &self.kernels
     }
@@ -301,6 +304,7 @@ impl FeedbackDelay {
         })
     }
 
+    #[cfg(test)]
     pub fn line(&self) -> &DelayLine {
         &self.line
     }
@@ -316,6 +320,7 @@ impl FeedbackDelay {
     }
 
     /// The channel count of the line and its output.
+    #[cfg(test)]
     pub fn channels(&self) -> usize {
         self.line.channels()
     }

@@ -250,6 +250,7 @@ impl VoiceOutput {
     }
 
     /// The send tap (`post`).
+    #[cfg(test)]
     pub fn to_sends(&self) -> crate::orbit::Input<'_> {
         crate::orbit::Input {
             channels: &self.post[..self.channels.clamp(1, 2)],

@@ -81,6 +81,7 @@ impl Djf {
 
     /// One quantum in place on the summing node's two channels. Returns the output's silence
     /// hint: always `false` (the processor lives and its tail is infinite).
+    #[cfg(test)]
     pub fn process(&mut self, q: u64, bus: &mut [[f32; QUANTUM]; 2]) -> bool {
         self.process_with(q, bus, &ParamInputs::NONE)
     }

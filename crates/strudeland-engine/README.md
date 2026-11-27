@@ -633,7 +633,8 @@ behaviour during an offline render, so these differ from a superdough render:
   including samples and soundfonts, sample IRs (`ir`, `irspeed`, `irbegin`), `stretch`,
   wavetables (`wt_*`), `bytebeat`, kabelsalat (`workletSrc`, `workletInputs`), the `source` function
   key, `sbd` (Blink's `WaveShaperNode`) and zzfx (`zzfx`, `z_*`). The engine refuses such
-  jobs with `unsupported` errors. The `signatures` subcommand lists them.
+  jobs: `render` returns their signatures in `Rendered.unsupported`, and the binary reports
+  them as `unsupported` errors. The `signatures` subcommand lists them.
 
 ## Re-porting after a Playwright bump
 

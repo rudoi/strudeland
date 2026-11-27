@@ -1,5 +1,5 @@
 //! Streaming mode: [`LiveEngine`] renders haps that arrive over time, a quantum at a time into a
-//! caller's buffer, on the render core the offline [`crate::Engine`] uses. Values (and their
+//! caller's buffer, on the render core the offline `Engine` uses. Values (and their
 //! orbits) are added as they first appear, haps are scheduled at any frame (a late one starts at
 //! the render head and is counted), unsupported values are skipped with one warning per
 //! signature, and reverb IRs are built off the render path by an optional worker

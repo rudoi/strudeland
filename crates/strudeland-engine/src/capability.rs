@@ -449,7 +449,7 @@ pub fn allowed_sounds() -> Vec<&'static str> {
 
 /// Keys the engine implements inside an `FX` chain entry (a subset of [`ALLOWED_KEYS`]), sorted:
 /// the keys superdough reads per entry (superdough.mjs:612-938; research `modulation-routing.md`
-/// 4.2) without [`CHAIN_UNSUPPORTED_KEYS`], the lowpass, highpass and bandpass families (their
+/// 4.2) without `CHAIN_UNSUPPORTED_KEYS`, the lowpass, highpass and bandpass families (their
 /// cutoff, Q, envelope and LFO keys, and the maps' `fanchor`, `ftype`, `drive`), and the
 /// modulators `lfo`, `env`, `bmod`.
 pub const CHAIN_KEYS: &[&str] = &[
@@ -575,6 +575,7 @@ pub struct UnsupportedSignature {
 
 /// The unsupported part of one control map: `None` for a silence marker or a fully supported
 /// map, else `(s, sorted unique bad keys)` where `s` is the defaulted, bank-prefixed sound.
+#[cfg(test)]
 pub fn signature_of(map: &ValueMap, cps: f64) -> Option<(String, Vec<String>)> {
     signature_with(map, false, cps)
 }
@@ -1297,6 +1298,7 @@ mod tests {
     /// (errors, every sample finite, peak) of a job's render.
     fn sound_render(values: serde_json::Value) -> (Vec<crate::RenderError>, bool, f32) {
         let out = crate::render(&sound_job(values)).unwrap();
+        assert!(out.unsupported.is_empty(), "{:?}", out.unsupported);
         let samples = || out.channels.iter().flatten();
         let finite = samples().all(|x| x.is_finite());
         let peak = samples().fold(0.0f32, |m, x| m.max(x.abs()));

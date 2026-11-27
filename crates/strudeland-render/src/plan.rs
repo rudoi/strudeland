@@ -3,8 +3,7 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use strudeland_engine::EngineJob;
-use strudeland_engine::capability::{UnsupportedSignature, unsupported_signatures};
+use strudeland_engine::{EngineJob, UnsupportedSignature, unsupported_signatures};
 use strudeland_host::{ExportPreset, Host, PlannedRender, PlannedSection, RenderPlanRequest};
 
 use crate::{RenderError, RenderOptions, Unsupported};

@@ -5,7 +5,7 @@
 pub(crate) mod adsr;
 pub(crate) mod biquad;
 pub(crate) mod bus;
-pub mod capability;
+pub(crate) mod capability;
 pub(crate) mod chain;
 pub(crate) mod coerce;
 pub(crate) mod compressor;
@@ -21,7 +21,7 @@ pub(crate) mod lfo;
 pub mod live;
 pub(crate) mod modulate;
 pub(crate) mod noise;
-pub mod orbit;
+pub(crate) mod orbit;
 pub(crate) mod osc;
 pub(crate) mod panner;
 pub(crate) mod param;
@@ -57,14 +57,17 @@ pub mod decay {
     pub use crate::vowel::FORMANTS;
 }
 
-pub use capability::{ALLOWED_KEYS, allowed_sounds, controls_json};
+pub use capability::{
+    ALLOWED_KEYS, CHAIN_KEYS, UnsupportedSignature, allowed_sounds, controls_json,
+    unsupported_signatures,
+};
 pub use job::{EngineJob, ErrorKind, JobError, OrbitSpec, RenderError, Value, ValueMap};
 /// superdough's `mulberry32`, reused by the render pipeline's dither.
 pub use js::Mulberry32;
 /// JS `String(number)`, exposed for the headless host's `String(number)` differential test.
 #[doc(hidden)]
 pub use js::number_to_string;
-pub use render::Engine;
+use render::Engine;
 pub use shaper::{DISTORTION_NAMES, distortion_algorithm};
 pub use stems::{StemGrouping, StemId, StemLayout, render_with_stems};
 
@@ -79,15 +82,19 @@ pub const QUANTUM_U64: u64 = QUANTUM as u64;
 
 /// The time in seconds of the end of the quantum starting at frame `quantum_start`: an
 /// `AudioHandler`'s `last_non_silent_time_` after a non-silent quantum.
-pub fn quantum_end_time(quantum_start: u64) -> f64 {
+pub(crate) fn quantum_end_time(quantum_start: u64) -> f64 {
     (quantum_start + QUANTUM_U64) as f64 / SAMPLE_RATE_F64
 }
 
-/// A rendered job: planar output channels of exactly `frames` samples, and the render errors.
+/// A rendered job: planar output channels of exactly `frames` samples, the render errors and
+/// the unsupported signatures. A job with unsupported material is not played: its channels are
+/// silent, `errors` is empty and `unsupported` lists what the engine cannot play, as
+/// [`unsupported_signatures`] reports it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rendered {
     pub channels: Vec<Vec<f32>>,
     pub errors: Vec<RenderError>,
+    pub unsupported: Vec<UnsupportedSignature>,
 }
 
 /// Validates and renders a job.

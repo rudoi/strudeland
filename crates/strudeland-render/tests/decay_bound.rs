@@ -11,8 +11,7 @@
 //! later leveled to -23 LUFS, which moves the leftover with it). They are never loosened to
 //! absorb a defect.
 
-use strudeland_engine::capability::unsupported_signatures;
-use strudeland_engine::{EngineJob, SAMPLE_RATE, decay, render};
+use strudeland_engine::{EngineJob, SAMPLE_RATE, decay, render, unsupported_signatures};
 use strudeland_host::{ExportPreset, Host, LengthRequest, PlannedRender, RenderPlanRequest};
 
 const SR: f64 = SAMPLE_RATE as f64;

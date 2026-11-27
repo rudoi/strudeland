@@ -16,9 +16,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use strudeland_engine::capability::unsupported_signatures;
 use strudeland_engine::wav::{read_f32, write_f32};
-use strudeland_engine::{EngineJob, ErrorKind, render};
+use strudeland_engine::{EngineJob, render, unsupported_signatures};
 
 mod common;
 use common::{corpus_path, load_job, read_json, refs_dir};
@@ -249,7 +248,7 @@ fn structural(file: &str, job: &EngineJob) -> Result<strudeland_engine::Rendered
     if !same {
         return Err("a repeat render is not bit-identical".into());
     }
-    if a.errors != b.errors {
+    if a.errors != b.errors || a.unsupported != b.unsupported {
         return Err("a repeat render reports different errors".into());
     }
     let mut bytes = Vec::new();
@@ -276,6 +275,9 @@ fn check_supported(
     let rendered = structural(job_file, &job)?;
     if !rendered.errors.is_empty() {
         return Err(format!("render errors: {:?}", rendered.errors));
+    }
+    if !rendered.unsupported.is_empty() {
+        return Err(format!("unsupported: {:?}", rendered.unsupported));
     }
     let env = read_ref(env_file);
     if env["schema"] != 1 || env["windowFrames"].as_u64() != Some(WINDOW_FRAMES as u64) {
@@ -464,20 +466,20 @@ fn kept_unsupported_fixtures_are_refused_with_their_signatures() {
             got.dedup();
             assert_eq!(got, want, "{file}: unsupported signatures");
             let rendered = structural(file, &job).unwrap_or_else(|e| panic!("{file}: {e}"));
-            assert!(!rendered.errors.is_empty(), "{file}: no errors");
-            for e in &rendered.errors {
-                assert_eq!(e.kind, ErrorKind::Unsupported, "{file}: {e:?}");
-            }
-            let mut messages: Vec<String> =
-                rendered.errors.iter().map(|e| e.message.clone()).collect();
-            messages.sort();
-            messages.dedup();
-            let mut want_messages: Vec<String> = want
+            assert!(rendered.errors.is_empty(), "{file}: {:?}", rendered.errors);
+            assert_eq!(
+                rendered.unsupported,
+                unsupported_signatures(&job),
+                "{file}: the render reports the detection's signatures"
+            );
+            let mut reported: Vec<(String, String)> = rendered
+                .unsupported
                 .iter()
-                .map(|(s, k)| format!("s={s} keys={k}"))
+                .map(|u| (u.s.clone(), u.keys.join(",")))
                 .collect();
-            want_messages.sort();
-            assert_eq!(messages, want_messages, "{file}: error messages");
+            reported.sort();
+            reported.dedup();
+            assert_eq!(reported, want, "{file}: reported signatures");
             assert!(
                 rendered
                     .channels

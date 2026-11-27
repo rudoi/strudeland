@@ -35,6 +35,8 @@ fn capture(job: &EngineJob, layout: &StemLayout) -> Rendered {
     let result = render_with_stems(job, layout).unwrap();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
     assert_eq!(result.errors, ordinary.errors);
+    assert!(result.unsupported.is_empty(), "{:?}", result.unsupported);
+    assert_eq!(result.unsupported, ordinary.unsupported);
     assert_eq!(result.channels.len(), 2 + 2 * layout.ids().len());
     for (ch, reference) in ordinary.channels.iter().enumerate() {
         for (i, &x) in reference.iter().enumerate() {

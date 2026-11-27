@@ -90,6 +90,11 @@ fn batch_and_per_chunk_renders_join_bit_identically() {
             "chunk {k}: {:?}",
             rendered.errors
         );
+        assert!(
+            rendered.unsupported.is_empty(),
+            "chunk {k}: {:?}",
+            rendered.unsupported
+        );
         joiner.place_rendered(k, plan, &rendered.channels).unwrap();
     }
     let joined = joiner.finish().unwrap();

@@ -207,19 +207,23 @@ impl Param {
         self.rate
     }
 
+    #[cfg(test)]
     pub fn default_value(&self) -> f32 {
         self.default
     }
 
+    #[cfg(test)]
     pub fn min_value(&self) -> f32 {
         self.min
     }
 
+    #[cfg(test)]
     pub fn max_value(&self) -> f32 {
         self.max
     }
 
     /// The timeline (tests and callers that inspect what was scheduled).
+    #[cfg(test)]
     pub fn events(&self) -> &[ParamEvent] {
         &self.events
     }
