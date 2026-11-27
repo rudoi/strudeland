@@ -210,3 +210,39 @@ cfg fields collapse to one `Mutex<Option<Endpoint>>`.
 7. `bind` is a plain function that must be called inside the tokio runtime.
 8. Linux keeps its two parent-folder steps.
 9. `windows_pipe::listen` stays public for the CLI e2e test.
+
+## Refinement (2026-11-27)
+
+Checked against the code at `9dbe6c5` before folding in the review:
+
+- **No self dev-dependency.** A scratch copy of `crates/strudeland-ctl` with
+  `strudeland-ctl = { path = ".", features = ["server"] }` under `[dev-dependencies]` gains one
+  `"strudeland-ctl"` line in its lockfile, so every `--locked` gate and CI job would fail. The
+  same copy with the `wire_fixtures` pattern (`lib.rs:15`:
+  `#[cfg(any(test, feature = "server"))] pub mod server;`), the optional Unix tokio (`net`),
+  `server = ["dep:tokio", "tokio/net", "tokio/sync"]` and target dev-dependencies (Unix tokio
+  `net`, `rt`, `io-util`; Windows tokio `sync`) resolves, turns on tokio `sync` for both
+  targets with `--features server`, and leaves the lockfile byte-identical. `Cargo.lock` is
+  now a gate. Decision 1's "the CLI gets it only for its tests" is narrowed by the proposal:
+  the CLI manifest is unchanged, and ctl's own tests build the module through `cfg(test)`.
+- **No smoke run.** It started the real app against the user's app data and killed PIDs. 002
+  instead splits `start` (`:713-749`): it keeps its signature, builds the emitter and the
+  snapshotter (`:737-739`, plain wrappers of `AppHandle` clones), and calls `start_on`, which
+  holds the rest (enter, `listen`, log, `set_info`, spawn, `set_server`). A plain `#[test]`
+  drives `start_on` on a temp path. `ping` is answered by the app itself (`:359-366`,
+  `PingResult { version, attached }`), and `Bridge::new` starts with `attached` false, so the
+  test needs no webview. `Client::connect` maps `NotFound` and `ConnectionRefused` to
+  `NotRunning` (`client.rs:90-93`). On Windows `close` does nothing and the abort drops the
+  pipe asynchronously, so that test polls for `NotRunning`. `\\.\pipe\strudeland-app-test-{pid}`
+  passes `windows_pipe::validate_path` (`windows_pipe.rs:98-117`).
+- **Literal inventory.** The counts in 001 step 2 hold at `9dbe6c5` with the surrounding `"`
+  included in each fixed string (797 non-test lines). Without the quotes,
+  `control: disabled` would also count `control: disabled: {detail}`.
+- **The no-cfg check.** The non-test part of `control.rs` already has a `#[cfg(test)]`
+  (`:212`), so the grep allows exactly `cfg(test)` and `cfg(all(…, test))`.
+
+Open questions:
+
+1. Unix connections joined into the `JoinSet` and aborted at shutdown: accepted, unobservable.
+2. The Windows `disconnect` before the log: accepted, unobservable.
+3. The macOS peer check (`getpeereid`, Decision 2) is filed as task #162.

@@ -33,7 +33,7 @@ module gains the pins.
   - `crates/strudeland-ctl/src/server/mod.rs`, `server/unix.rs`, `server/windows.rs`;
   - `$S/0131-literals.sh`, `$S/0131-same-tests.sh` (not committed).
 - Untouched, besides the shared frozen list: everything in `src-tauri/` other than
-  `control.rs`'s test module, `Cargo.lock` (expected, see the gate notes).
+  `control.rs`'s test module, and `Cargo.lock`, which stays byte-identical (gate step 14).
 
 ## Steps
 
@@ -79,13 +79,14 @@ module gains the pins.
    precondition does not hold on macOS, STOP: the plan assumed it does.
 
 2. **The checking scripts** (in `$S`, not committed).
-   - `0131-literals.sh N`. For each literal below, it counts the lines that contain it (fixed
-     string) in the non-test part of each file: the lines before the first `^mod tests`
+   - `0131-literals.sh N`. For each literal below, it counts the lines that contain it (a
+     fixed string, `grep -cF`, **including the surrounding `"`**, so `"control: disabled"` does
+     not also count `"control: disabled: {detail}"`) in the non-test part of each file: the lines before the first `^mod tests`
      line, found with `awk '/^mod tests/{exit} {print}'`, or the whole file if there is none.
      It prints a table and exits 1 on any count that differs from the expected one for stage
      `N`.
 
-     | Literal (as in the source) | `control.rs` 001 | `control.rs` 002 | `server/unix.rs` | `server/windows.rs` |
+     | Literal (as in the source, quotes included) | `control.rs` 001 | `control.rs` 002 | `server/unix.rs` | `server/windows.rs` |
      |---|---|---|---|---|
      | `"cannot open {}: {e}"` | 1 | 0 | 1 | 0 |
      | `"cannot lock {}: {e}"` | 1 | 0 | 1 | 0 |
@@ -103,8 +104,8 @@ module gains the pins.
      | `"control: accept failed: {e}"` | 2 | 1 | 0 | 0 |
      | `"control: cannot create next pipe instance: {e}"` | 1 | 1 | 0 | 0 |
 
-     The `control.rs` 001 column is `9dbe6c5`'s count. It was measured while writing this
-     plan, and the script also checks it against `git show 9dbe6c5:src-tauri/src/control.rs`.
+     The `control.rs` 001 column is `9dbe6c5`'s count. It was measured, with the quotes, while
+     writing and again while refining this plan, and the script also checks it against `git show 9dbe6c5:src-tauri/src/control.rs`.
      The ctl columns are the same in both stages. If `cargo fmt` wraps a `format!` call, the
      literal still stays on one line: do not split a literal.
    - `0131-same-tests.sh` extracts each named item from `src-tauri/src/control.rs` and from
@@ -133,22 +134,29 @@ module gains the pins.
 
      ```toml
      # The app's side of the control endpoint (`server`): bind, the lock and the stale probe,
-     # verified accept. Only the app turns it on; the CLI never links it.
+     # verified accept. The CLI's own build never enables it; this crate's tests build the
+     # module through `cfg(test)`.
      server = ["dep:tokio", "tokio/net", "tokio/sync"]
      ```
 
-   - `[dev-dependencies]` (`:20-21`): add
-     `strudeland-ctl = { path = ".", features = ["server"] }`, with the comment "builds
-     `server` and its tests under `cargo test -p strudeland-ctl`".
    - New `[target.'cfg(unix)'.dependencies]`:
      `tokio = { version = "1.54.1", features = ["net"], optional = true }`.
    - New `[target.'cfg(unix)'.dev-dependencies]`:
-     `tokio = { version = "1.54.1", features = ["rt", "io-util"] }`.
+     `tokio = { version = "1.54.1", features = ["net", "rt", "io-util"] }`, with the comment
+     "the server module's tests (`cfg(test)`, feature off)".
+   - New `[target.'cfg(windows)'.dev-dependencies]`:
+     `tokio = { version = "1.54.1", features = ["sync"] }`, with the same comment.
    - The Windows tokio line (`:27`) is unchanged and stays non-optional: `windows_pipe` (the
-     client) needs it. A probe crate showed that `dep:tokio` resolves with this split.
-4. **`lib.rs`.** Add `#[cfg(feature = "server")] pub mod server;`. In the module doc, after
-   "a blocking client", add: "and, behind the `server` feature, the endpoint the app listens
-   on". No new re-export at the crate root: callers write `strudeland_ctl::server::…`.
+     client) needs it. `[dev-dependencies]` (`:20-21`) is unchanged.
+   - **No self dev-dependency** (`strudeland-ctl = { path = "." … }`): it adds a
+     `"strudeland-ctl"` line to `Cargo.lock`, and every `--locked` gate and CI job fails. A
+     scratch copy of the crate showed that this manifest resolves (`dep:tokio` with the
+     Unix-only optional entry, `tokio/sync` reaching the Windows dependency) and leaves the
+     lockfile byte-identical, while the self dev-dependency adds that one line.
+4. **`lib.rs`.** Add `#[cfg(any(test, feature = "server"))] pub mod server;`, next to the
+   `wire_fixtures` line (`:15`), which uses the same pattern. In the module doc, after "a
+   blocking client", add: "and, behind the `server` feature, the endpoint the app listens on".
+   No new re-export at the crate root: callers write `strudeland_ctl::server::…`.
 5. **`server/mod.rs`.** The module doc says what the endpoint owns, platform by platform (see
    the proposal), and that `bind` must run inside a tokio runtime with IO enabled.
    - `Bind`, `AcceptError` with `closed()` and `pause()`, exactly as in the proposal's API.
@@ -199,6 +207,14 @@ module gains the pins.
      alive, and ensure a second client can connect." (`:691`).
    - `close` does nothing and says why in its doc. `Drop` calls it, for symmetry with Unix.
 8. **ctl tests.**
+   - **Entered runtime.** Every test that calls `bind` (or `accept_verified` on a bound
+     endpoint) and can reach a successful create builds
+     `tokio::runtime::Builder::new_current_thread().enable_all().build()` and calls `bind` with
+     it entered (`let _guard = rt.enter();`); `UnixListener::from_std` and `ServerOptions`
+     panic otherwise. Those tests: `bind_reports_each_outcome`,
+     `a_client_round_trips_over_the_endpoint`, `close_frees_the_path_and_twice_is_harmless`,
+     `dropping_the_endpoint_closes_it`, `a_rejected_peer_is_skipped_silently`,
+     `a_new_private_parent_is_created_0700`, and all four Windows tests below.
    - `server/unix.rs` `#[cfg(test)] mod tests`:
      - the 14 items of step 2, byte-identical;
      - `bind_reports_each_outcome`, on a runtime from
@@ -252,43 +268,12 @@ module gains the pins.
        `CallError::NotRunning`.
    - Targeted runs: `cargo test --locked -p strudeland-ctl server::` (macOS),
      `DL server::` (Linux), `X x86_64-pc-windows-msvc --all-targets`.
-9. **Smoke baseline** (the app is still `9dbe6c5`'s code). `/tmp` is used because macOS caps
-   socket paths at 103 bytes and `$S` is longer, the same reason as `short_tempdir`:
-
-   ```sh
-   D=/tmp/sl0131; rm -rf "$D"; mkdir -m 0700 "$D"
-   STRUDELAND_SOCKET="$D/ctl.sock" bun run tauri dev > "$S/0131-$N-app1.log" 2>&1   # run_in_background
-   ```
-
-   1. Wait (Monitor, an until-loop on `grep -q '^control: ' "$S/0131-$N-app1.log"`).
-   2. `STRUDELAND_SOCKET="$D/ctl.sock" cargo run -q --locked -p strudeland-cli -- ping`,
-      logged as `ping` (exit 0, `… is running`).
-   3. `stat -f '%Sp %N' "$D"/*`, logged as `modes`: `srw-------` for `ctl.sock` and
-      `-rw-------` for `ctl.sock.lock`.
-   4. Start a second instance with
-      `STRUDELAND_SOCKET="$D/ctl.sock" "$PWD/target/debug/strudeland-app" > "$S/0131-$N-app2.log" 2>&1`
-      (background). Wait for its `control: ` line, then kill **that PID only**.
-   5. Stop the first instance by its PID
-      (`pgrep -f "$PWD/target/debug/strudeland-app"`; never a broad `pkill`: the user may
-      have their own strudeland running), then the `bun` parent. A kill skips
-      `RunEvent::Exit`, so `ctl.sock` stays stale.
-   6. Start the first instance again, the same way, as `app3.log`. Its `control: ` line shows
-      that the stale socket was taken over. Stop it the same way.
-   7. `grep -h '^control: ' "$S/0131-$N-app1.log" "$S/0131-$N-app2.log" "$S/0131-$N-app3.log" > "$S/0131-$N-smoke-lines.log"`.
-
-   The expected lines, in order:
-   - `control: listening on /tmp/sl0131/ctl.sock`;
-   - `control: disabled: another strudeland is listening on /tmp/sl0131/ctl.sock`;
-   - `control: listening on /tmp/sl0131/ctl.sock`.
-
-   Do not start playback or touch the UI. If port 1420 is taken or the app cannot start,
-   report it and skip the smoke. It is a cross-check, not the proof.
-10. **Docs.** `AGENTS.md`, the `crates/strudeland-ctl/` bullet (`:179-184`). After
-    "blocking `Client`)", add: "and, behind its `server` feature (only the app turns it on),
-    the endpoint the app listens on: `server::bind` (the lock, the stale probe and the modes
-    on Unix, the first-instance pipe on Windows), and `Endpoint::accept` (the Linux peer
-    check, the next pipe instance) and `close`". The `control.rs` bullet changes in 002, which
-    makes it stale.
+9. **Docs.** `AGENTS.md`, the `crates/strudeland-ctl/` bullet (`:179-184`). After
+   "blocking `Client`)", add: "and, behind its `server` feature, the endpoint the app listens
+   on: `server::bind` (the lock, the stale probe and the modes on Unix, the first-instance
+   pipe on Windows), and `Endpoint::accept` (the Linux peer check, the next pipe instance) and
+   `close`". Nothing turns the feature on yet, so this stage does not say who does; 002 adds
+   that. The `control.rs` bullet changes in 002, which makes it stale.
 
 ## Tests
 

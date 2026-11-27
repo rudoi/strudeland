@@ -74,8 +74,8 @@ DL() { docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_TARGET_D
 |---|---|---|---|
 | 1 | `L fmt cargo fmt --all --check` | 001, 002 | exit 0 |
 | 2 | `L clippy cargo clippy --locked --workspace --all-targets -- -D warnings` | 001, 002 | exit 0 |
-| 3 | `L clippy-ctl-lib cargo clippy --locked -p strudeland-ctl --lib -- -D warnings` (`server` off: the CLI's build) | 001, 002 | exit 0 |
-| 4 | `L x-win-lib X x86_64-pc-windows-msvc --lib`, `L x-win-all X x86_64-pc-windows-msvc --all-targets`, `L x-linux-lib X x86_64-unknown-linux-gnu --lib`, `L x-linux-all X x86_64-unknown-linux-gnu --all-targets` | 001, 002 | exit 0 each. `--all-targets` builds `server` (the self dev-dependency), `--lib` does not |
+| 3 | `L clippy-ctl-lib cargo clippy --locked -p strudeland-ctl --lib -- -D warnings` (`server` off: the CLI's build), then `L clippy-ctl-server cargo clippy --locked -p strudeland-ctl --lib --features server -- -D warnings` (the non-test server build, with only ctl's own tokio features) | 001, 002 | exit 0 each |
+| 4 | `L x-win-lib X x86_64-pc-windows-msvc --lib`, `L x-win-server X x86_64-pc-windows-msvc --lib --features server`, `L x-win-all X x86_64-pc-windows-msvc --all-targets`, `L x-linux-lib X x86_64-unknown-linux-gnu --lib`, `L x-linux-server X x86_64-unknown-linux-gnu --lib --features server`, `L x-linux-all X x86_64-unknown-linux-gnu --all-targets` | 001, 002 | exit 0 each. `--lib` builds no `server`, `--lib --features server` builds it without test code, `--all-targets` builds it and its tests through `cfg(test)` |
 | 5 | `L ctl-test cargo test --locked -p strudeland-ctl` | 001, 002 | exit 0. The log lists the `server::` tests |
 | 6 | `L ctl-test-linux DL` | 001, 002 | exit 0. The log lists the Linux-only `server::` tests |
 | 7 | `L app-test cargo test --locked -p strudeland-app control::` | 001, 002 | exit 0 |
@@ -85,7 +85,7 @@ DL() { docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_TARGET_D
 | 11 | `L literals "$S/0131-literals.sh" $N` (written in 001 step 2) | 001, 002 | exit 0 |
 | 12 | `L same-tests "$S/0131-same-tests.sh"` (written in 001 step 2) | 001 | exit 0 |
 | 13 | `L ipc sh -c 'bun run ipc:build && git diff --exit-code src/lib/ipc/bindings.ts'`, then `L bun-test bun test` | 002 | exit 0 each |
-| 14 | the smoke run (001 step 9, 002 step 8) | 001, 002 | as the stage says |
+| 14 | `L lock git diff --exit-code 9dbe6c5 -- Cargo.lock` | 001, 002 | exit 0: `Cargo.lock` is byte-identical |
 
 Notes:
 
@@ -93,13 +93,17 @@ Notes:
   first in CI (`native.yml`, `windows-2025`), after the push.
 - `cargo test --workspace` needs cmake, a C compiler and the V8 download. The first build takes
   minutes.
-- `Cargo.lock` is expected to stay unchanged: tokio is already listed under `strudeland-ctl`.
-  If it changes, the report shows the diff.
+- `Cargo.lock` stays byte-identical (step 14): tokio is already listed under `strudeland-ctl`,
+  and target dev-dependencies add no line. Never add a self dev-dependency on
+  `strudeland-ctl`: it adds a `"strudeland-ctl"` line, and every `--locked` gate and CI job
+  fails.
+- No step starts the app. The start path is covered by 002's
+  `start_path_serves_and_closes_a_temp_endpoint`, a plain test on a temp path, so no gate
+  touches the user's app data or kills a process.
 - **Each stage report lists:**
   - the exit line of every log;
   - the `server::` test names from steps 5 and 6;
   - the literal-count table (step 11);
-  - the smoke stderr lines;
   - any pin that is platform-gated, and why.
 
 ## STOP, and report to the user, on any of these
@@ -115,7 +119,7 @@ Do not work around them:
 - in 002, a needed change to any ctl file (the API is fixed in 001);
 - a CI failure on Windows or Ubuntu in a `server::` or `control::` test whose fix would
   change an asserted text or behaviour;
-- the smoke stderr lines differing between 001 and 002.
+- any `Cargo.lock` change.
 
 Never loosen a check, and never re-record an expectation, to absorb a difference.
 

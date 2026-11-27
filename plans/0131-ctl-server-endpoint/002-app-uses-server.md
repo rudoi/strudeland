@@ -10,10 +10,7 @@ stderr line, status, mode and wire byte is unchanged. This stage touches no ctl 
 
 ## Prerequisites
 
-- Stage 001 committed and green. Its `same-tests`, `literals` and `smoke-lines` logs are in
-  `$S`.
-- `$S/0131-001-smoke-lines.log` exists, or 001 reported the smoke as skipped. In that case
-  this stage's smoke is a first look only, and the report says so.
+- Stage 001 committed and green. Its `same-tests` and `literals` logs are in `$S`.
 
 ## Files
 
@@ -94,11 +91,20 @@ stderr line, status, mode and wire byte is unchanged. This stage touches no ctl 
 
      The two `eprintln!` literals are byte-identical to `:468` and `:695`. Keep the binding
      named `e` so the literal inventory finds them.
-   - `start` (`:713-749`): unchanged through `bridge.set_info(info)`. Then, when `listen` gave
-     an endpoint: `let endpoint = Arc::new(endpoint);`, take a `Weak` with
-     `Arc::downgrade`, spawn `serve(endpoint, …)` with `tauri::async_runtime::spawn`, and call
-     `bridge.set_server(Server { endpoint: weak, task })`. The comment about entering the
-     runtime (`:716-717`) stays.
+   - `start` (`:713-749`) keeps its signature and doc. It builds the emitter and the
+     snapshotter first (`TauriEmitter(app.clone())`, `TauriSnapshotter(app.clone())`, the two
+     lines `:737-739` today; they are plain wrappers with no side effect, so building them
+     when the bind fails is invisible), then calls
+     `start_on(bridge, strudeland_ctl::socket_path(), emitter, snapshotter)`.
+   - New `fn start_on(bridge: Arc<Bridge>, path: Result<PathBuf, PathError>, emitter: Arc<dyn RequestEmitter>, snapshotter: Arc<dyn Snapshotter>)`
+     holds the rest of today's body, in today's order: enter the runtime (with the comment
+     `:716-717`), `listen(path)`, the three-arm log `match` (moved, every literal
+     byte-identical), `bridge.set_info(info)`. Then, when `listen` gave an endpoint:
+     `let endpoint = Arc::new(endpoint);`, take a `Weak` with `Arc::downgrade`, spawn
+     `serve(endpoint, …)` with `tauri::async_runtime::spawn`, and call
+     `bridge.set_server(Server { endpoint: weak, task })`. Doc: "`start` without the
+     `AppHandle`: binds `path`, logs the status, and serves it on the tauri runtime." It is
+     the seam the start-path test drives.
    - `shutdown` (`:760-772`): `app.state::<Arc<Bridge>>().close_server();`. Doc: "Closes the
      endpoint on exit (Unix: removes the socket, then releases the lock) and stops the accept
      task."
@@ -116,31 +122,40 @@ stderr line, status, mode and wire byte is unchanged. This stage touches no ctl 
      `listen(Ok(path))`, `assert_eq!(info.status, SocketStatus::Listening)`, then
      `tokio::spawn(serve(Arc::new(endpoint.unwrap()), …))`, without the `_lock` juggling.
      Every request, response and assertion stays byte-identical.
-   - New `#[cfg(unix)] close_server_removes_the_socket_and_frees_the_path`
-     (`#[tokio::test]`): `listen` a path, then build a `Server` from that endpoint's `Weak`
-     and a task from `tauri::async_runtime::spawn(serve(…))` that holds the `Arc`. After
-     `bridge.close_server()`:
-     - the socket file is gone, and `{path}.lock` still exists;
-     - a second `listen` gives `Listening`;
-     - a second `close_server()` does nothing.
+   - New `start_path_serves_and_closes_a_temp_endpoint`, a plain `#[test]` (not
+     `#[tokio::test]`: `start_on` enters the tauri runtime itself, and the blocking client
+     must not run on a runtime thread). The path is `short_tempdir().path().join("c.sock")` on
+     Unix and `\\.\pipe\strudeland-app-test-{pid}` (`std::process::id()`) on Windows; the
+     two `cfg`s sit inside `mod tests`. Then:
+     - `start_on(Arc::clone(&bridge), Ok(path.clone()), Arc::new(FakeEmitter::default()), Arc::new(FakeSnapshotter::default()))`,
+       and `bridge.info().status` is `Listening`;
+     - a blocking `strudeland_ctl::Client::connect(&path, Duration::from_secs(1))` and
+       `call_raw("ping", json!({}))` give a result whose `["attached"]` is `false` (the app
+       answers `ping` itself; nothing attached);
+     - drop the client and call `bridge.close_server()`;
+     - Unix: the socket file is gone, `{path}.lock` still exists, and `Client::connect` gives
+       `CallError::NotRunning`. Windows: `close` does nothing and the abort drops the pipe
+       asynchronously, so `Client::connect` is retried every 10 ms for up to 2 s until it
+       gives `CallError::NotRunning`;
+     - a second `bridge.close_server()` is a no-op (no panic; on Unix the lock file is still
+       there).
 
-     If `tauri::async_runtime::spawn` cannot run in a unit test, the task may come from
-     `tokio::spawn`, but only if `Server.task` keeps its type. If neither works, drop this
-     test and say so in the report. ctl's `close` tests still cover the removal.
+     It drives the real spawn, so no `JoinHandle` is built by hand. It does not start the
+     app, touch the user's app data or kill a process.
    - Targeted: `cargo test --locked -p strudeland-app control::`.
-5. **No cfg in app code.** `awk '/^mod tests/{exit} {print}' src-tauri/src/control.rs | grep -n 'cfg(' | grep -v test`
-   prints nothing. Log it as `$S/0131-002-no-cfg.log`, with `echo "exit $?"`: grep's exit 1
-   means nothing was found.
+5. **No cfg in app code.** `awk '/^mod tests/{exit} {print}' src-tauri/src/control.rs | grep -n 'cfg(' | grep -vE 'cfg\((all\([^)]*, )?test\)'`
+   prints nothing. Only `cfg(test)` and `cfg(all(…, test))` are allowed, exactly; a
+   `cfg(not(test))` or a `cfg(any(unix, test))` is reported. Log it as
+   `$S/0131-002-no-cfg.log`, with `echo "exit $?"`: grep's exit 1 means nothing was found.
 6. **Docs.** `AGENTS.md`, the `src-tauri/src/control.rs` bullet (`:190-194`): "the control
    socket listener; it bridges requests to the webview" becomes "the control socket server:
    it serves the endpoint `strudeland_ctl::server` binds, bridges requests to the webview".
-   The rest of the bullet stays. Check that the ctl bullet 001 wrote still reads true.
+   The rest of the bullet stays. In the ctl bullet 001 wrote, "behind its `server` feature"
+   becomes "behind its `server` feature (on in the app only)", now that the app turns it on.
+   Check that the rest of that bullet still reads true.
    `README.md` does not change: the paths and permissions it states are the same.
 7. **ipc.** `control_attach` and `control_reply` are unchanged, so `bun run ipc:build` must
    leave `bindings.ts` byte-identical (gate step 13).
-8. **Smoke.** Repeat 001 step 9 exactly, with `N=002`. Then:
-   - `diff "$S/0131-001-smoke-lines.log" "$S/0131-002-smoke-lines.log"` exits 0;
-   - the `ping` and `modes` logs match 001's.
 
 ## Tests
 
@@ -150,7 +165,7 @@ stderr line, status, mode and wire byte is unchanged. This stage touches no ctl 
 - Adapted, every assertion unchanged: `listen_reports_each_status`,
   `a_connection_serves_a_screenshot`, `serve_on` and the four serve tests that use it
   (`:1882-1990`).
-- New: `close_server_removes_the_socket_and_frees_the_path`.
+- New: `start_path_serves_and_closes_a_temp_endpoint`.
 - Unchanged and passing: every other `control::tests` test, including the wire-fixture tests.
 
 ## Validation
@@ -162,20 +177,24 @@ does not apply: the app copies are gone. Its proof was 001's. Also, before commi
 git diff --name-only HEAD > "$S/0131-002-files.log"
 git diff --exit-code HEAD -- crates/strudeland-ctl Cargo.lock > "$S/0131-002-ctl-untouched.log" 2>&1
 echo "exit $?" >> "$S/0131-002-ctl-untouched.log"
-git diff HEAD -- src-tauri/src/control.rs | grep '^[-+].*eprintln!' > "$S/0131-002-eprintln.log"
+for side in - +; do
+  git diff HEAD -- src-tauri/src/control.rs | grep "^$side" | grep -v "^$side$side" \
+    | grep -o '"control: [^"]*"' | sort > "$S/0131-002-eprintln$side.log"
+done
 ```
 
 Run these before committing (`HEAD` is stage 001's commit).
 
 - `files.log` lists only `AGENTS.md`, `src-tauri/Cargo.toml` and `src-tauri/src/control.rs`.
 - `ctl-untouched.log` ends `exit 0`.
-- `eprintln.log` holds exactly three `-` lines: the Unix and Windows `control: accept failed:
-  {e}` and `control: cannot create next pipe instance: {e}`. It holds exactly their two `+`
-  lines in the new `serve`, byte-identical apart from indentation. The `listening on` and
-  `disabled` lines do not appear.
+- `eprintln-.log` and `eprintln+.log` hold the `control: ` literals the diff removes and adds,
+  quotes included. The `+` list is the `-` list with one `"control: accept failed: {e}"`
+  fewer: the Unix and Windows copies become the one in the new `serve`, beside the one
+  `"control: cannot create next pipe instance: {e}"`. The `listening on` and `disabled`
+  literals appear on both sides or on neither, since they move from `start` into `start_on`;
+  each literal is byte-identical.
 - `literals.log` shows the 002 column.
 - `no-cfg.log` ends `exit 1`.
-- `smoke-lines.log` is identical to 001's.
 
 ## STOP
 
@@ -183,7 +202,6 @@ Run these before committing (`HEAD` is stage 001's commit).
 - A needed change to any `crates/strudeland-ctl/` file (fix it in a new 001-style change only
   after reporting).
 - A `cfg(unix)`, `cfg(windows)` or `target_os` that the app code cannot do without.
-- Any smoke difference from 001.
 - Anything in the shared STOP list.
 
 ## Commit message

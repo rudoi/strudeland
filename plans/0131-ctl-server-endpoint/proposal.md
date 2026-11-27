@@ -49,13 +49,18 @@ be linted for every target and run on Linux before CI. After the change, `contro
 
 In:
 
-1. `crates/strudeland-ctl/src/server/` (`mod.rs`, `unix.rs`, `windows.rs`), compiled only with
-   the new `server` feature. Unix gets an optional tokio (`net`). The feature also turns on
-   tokio `sync`, which the Windows endpoint's mutex needs.
-2. A ctl self dev-dependency with `features = ["server"]`, so `cargo test -p strudeland-ctl`
-   and `--all-targets` clippy build the server and its tests. A probe crate showed that the
-   self dev-dependency resolves, that a test behind the feature runs, and that it cross-checks
-   for Windows.
+1. `crates/strudeland-ctl/src/server/` (`mod.rs`, `unix.rs`, `windows.rs`), compiled with
+   the new `server` feature or under `cfg(test)`. Unix gets an optional tokio (`net`). The
+   feature also turns on tokio `sync`, which the Windows endpoint's mutex needs.
+2. ctl's own tests build the module the way they build `wire_fixtures` (`lib.rs:15`):
+   `#[cfg(any(test, feature = "server"))] pub mod server;`. The tokio features the test build
+   needs are target dev-dependencies: Unix `net`, `rt`, `io-util`; Windows `sync` (its normal
+   tokio already has `net`, `io-util`, `time`, `rt`). So `cargo test -p strudeland-ctl` and
+   `--all-targets` clippy build the server and its tests with the feature off. There is no
+   self dev-dependency: one adds a `"strudeland-ctl"` line to `Cargo.lock`, and every
+   `--locked` gate and CI job would fail. A scratch copy of the crate showed that the
+   dev-dependency form leaves the lockfile byte-identical, since tokio is already listed under
+   `strudeland-ctl`.
 3. The Unix bind tests move from `control.rs:1672-1811` into ctl. Their bodies stay
    byte-identical, because the private helpers keep their names (`BindOutcome`,
    `bind_socket`, `lock_socket`, `lock_path`).
@@ -121,6 +126,7 @@ Endpoint::close(&self), Drop -> close        shutdown -> Bridge::close_server:
 
 ```rust
 /// What binding the control endpoint gave.
+#[derive(Debug)]
 pub enum Bind {
     /// This process owns the endpoint.
     Listening(Endpoint),
@@ -217,10 +223,13 @@ foreign uid without root.
   Unix connections move from detached `tokio::spawn` into the `JoinSet`. They used to outlive
   the accept task, which never ended, until the runtime died. Now they end when shutdown
   aborts the task. That is invisible: shutdown runs on `RunEvent::Exit`.
-- `start` is unchanged up to `set_info`. It then wraps the endpoint in an `Arc`, spawns
-  `serve`, and stores the `Weak` and the handle. `shutdown` calls `Bridge::close_server`, which
-  upgrades the `Weak` and calls `close()` (Unix: remove the socket, then release the lock), and
-  then aborts the task.
+- `start` keeps its signature. It builds the emitter and the snapshotter, then calls a new
+  function that takes the bridge, the path result, the emitter and the snapshotter, and holds
+  the rest of today's body: enter the runtime, `listen`, log, `set_info`, then wrap the
+  endpoint in an `Arc`, spawn `serve`, and `set_server` with the `Weak` and the handle. The
+  split lets a plain `#[test]` run the real start path on a temp path, without an `AppHandle`.
+  `shutdown` calls `Bridge::close_server`, which upgrades the `Weak` and calls `close()` (Unix:
+  remove the socket, then release the lock), and then aborts the task.
 - `remove_socket` (`:751-758`) goes away. Only a `Listening` bind yields an `Endpoint`, so
   "remove only when listening" now holds by type.
 
@@ -262,8 +271,9 @@ The stages are sequential: 002 uses the API that 001 fixes.
 
 ## Dependencies
 
-- tokio `1.54.1` (already in `Cargo.lock` under `strudeland-ctl`). The probe found no
-  lockfile change. Any `Cargo.lock` diff is reviewed in the stage report.
+- tokio `1.54.1` (already in `Cargo.lock` under `strudeland-ctl`, through the Windows
+  dependency). The optional Unix dependency and the target dev-dependencies add no lockfile
+  line. `Cargo.lock` stays byte-identical to `9dbe6c5`, and a gate checks it.
 - Docker with `rust:1.100.0-bookworm` (present) for the Linux test run. This is newer than
   CI's `1.94.1`. It is good enough to execute the Linux-only tests, and CI then runs them on
   the pinned toolchain.
@@ -277,21 +287,25 @@ The stages are sequential: 002 uses the API that 001 fixes.
 - **Permission-based pins behave differently as root.** CI and Docker (`--user`) run
   unprivileged. A pin whose precondition cannot be produced on some platform is gated to the
   platforms where it can, and the report says so. Its expected composition is never changed.
-- **Feature unification.** `cargo test --workspace` turns `server` on everywhere, so a missing
-  `#[cfg(feature = "server")]` would only show in a CLI-alone build. Gates: `clippy -p
-  strudeland-ctl --lib` (feature off) for each target, and a `cargo tree` check that the CLI
-  does not enable `server`.
+- **Feature unification.** From 002 on, the app's normal dependency turns `server` on for
+  every workspace build, and the app's own tokio features (`net`, `sync`, `time`, `rt`) unify
+  with ctl's. A missing `cfg` gate would only show in a CLI-alone build, and a tokio feature
+  that ctl's server code needs but does not request would only show in a ctl-alone build. In
+  001 nothing turns the feature on, and the tests build the module through `cfg(test)` with
+  the dev-dependency features. Gates, each for macOS and both cross targets: `clippy -p
+  strudeland-ctl --lib` (feature off, the CLI's build), `clippy -p strudeland-ctl --lib
+  --features server` (the non-test server build, with only ctl's own features), and a
+  `cargo tree` check that the CLI does not enable `server`.
 - **The `Weak` handoff on Unix.** If `close` ran after the task had dropped the endpoint, it
   would do nothing. That cannot happen: the Unix accept loop never returns, so only the
   aborted future drops the `Arc`, and `close_server` upgrades before it aborts.
 
-## Open questions
+## Open questions (resolved)
 
 1. Joining Unix connections into the `JoinSet` means shutdown aborts them with the accept task.
-   That is invisible at exit, and Decision 6 asks for the abort, but it is a change in task
-   ownership. The plan takes it. Say if detached Unix connections must stay. They would need
-   a `cfg(unix)` in the app that cannot be linted locally.
+   Accepted: it is unobservable at exit, and Decision 6 asks for the abort. Detached Unix
+   connections would need a `cfg(unix)` in the app that cannot be linted locally.
 2. On Windows the pipe is now `disconnect`ed inside `accept` before the app logs the failure
-   (today: log, then disconnect). The difference is a few microseconds of ordering, with
-   nothing observable.
-3. File the `getpeereid` follow-up (Decision 2) as a task now, or when this lands?
+   (today: log, then disconnect). Accepted: a few microseconds of ordering, with nothing
+   observable.
+3. The `getpeereid` follow-up (Decision 2) is filed as task #162.
