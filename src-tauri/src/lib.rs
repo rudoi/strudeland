@@ -28,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(project::ProjectState::default())
+        .manage(project::AppDataState::locate())
         .manage(app_quit::QuitState::default())
         .manage(export_audio::ExportState::default())
         .manage(playback::PlaybackState::default())

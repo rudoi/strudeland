@@ -24,7 +24,7 @@ export function fakeRuntime(
     rustResumeTimeoutMs?: number;
     /** The runtime's `resumeTimeoutMs` option. */
     resumeTimeoutMs?: number;
-    /** The runtime's initial limiter preference. */
+    /** The runtime's initial applied limiter. */
     limiter?: boolean;
   } = {},
 ) {

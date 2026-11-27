@@ -20,8 +20,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use strudeland_project::{
-    HostNs, Project, RecordingEntry, SidecarBacking, SidecarClockOffsets, SidecarOutput,
-    SidecarTempo, format_rfc3339_utc,
+    AppData, HostNs, Project, RecordingEntry, RecordingInput, SidecarBacking, SidecarClockOffsets,
+    SidecarOutput, SidecarTempo, format_rfc3339_utc,
 };
 
 use crate::{
@@ -36,10 +36,13 @@ pub(crate) mod testing;
 mod tests;
 
 pub use error::TakeError;
-pub use prefs::{Prefs, write_prefs};
-
-use prefs::{read_prefs, resolve_selection, saved_channel};
+use prefs::{resolve_selection, saved_channel};
 use sidecar::{TakeMeta, complete_ended, memo, publish_fallback};
+
+/// The saved input, or the defaults when the file is missing or invalid (logged, left in place).
+fn read_input(app: &AppData) -> RecordingInput {
+    RecordingInput::load(app).log("recording")
+}
 
 // --- domain types ---
 
@@ -468,7 +471,7 @@ impl Takes {
         self.emit(event);
     }
 
-    pub fn status(&self, prefs_path: &Path) -> TakeStatus {
+    pub fn status(&self, app: &AppData) -> TakeStatus {
         let permission = self.platform.permission();
         let inner = self.lock();
         let armed = inner.state.armed();
@@ -500,7 +503,7 @@ impl Takes {
         };
         let (device, channel) = match armed {
             Some(armed) => (Some(armed.device.clone()), armed.info.channel),
-            None => (None, read_prefs(prefs_path).channel),
+            None => (None, read_input(app).channel),
         };
         TakeStatus {
             state,
@@ -526,10 +529,10 @@ impl Takes {
         Ok(list)
     }
 
-    pub fn devices(&self, prefs_path: &Path) -> Result<Devices, TakeError> {
+    pub fn devices(&self, app: &AppData) -> Result<Devices, TakeError> {
         let list = self.input_devices()?;
-        let prefs = read_prefs(prefs_path);
-        let selected = resolve_selection(&list, &prefs).map(|(d, channel)| Selection {
+        let input = read_input(app);
+        let selected = resolve_selection(&list, &input).map(|(d, channel)| Selection {
             device_id: d.id.clone(),
             channel,
         });
@@ -565,11 +568,11 @@ impl Takes {
         Err(error)
     }
 
-    /// Opens the stream on the chosen input (the arguments, else the saved prefs, else the
-    /// default input). Saves the prefs only when an argument was given.
+    /// Opens the stream on the chosen input (the arguments, else the saved input, else the
+    /// default input). Saves the input only when an argument was given.
     pub fn arm(
         self: &Arc<Self>,
-        prefs_path: &Path,
+        app: &AppData,
         device_id: Option<String>,
         channel: Option<u16>,
     ) -> Result<TakeStatus, TakeError> {
@@ -582,18 +585,18 @@ impl Takes {
         self.ensure_permission()?;
         let channel_arg = channel;
         let list = self.input_devices()?;
-        let prefs = read_prefs(prefs_path);
+        let input = read_input(app);
         let (device, channel) = match device_id.as_deref() {
             Some(id) => {
                 let device = list
                     .iter()
                     .find(|d| d.id == id)
                     .ok_or_else(|| TakeError::from(RecordError::NoDevice))?;
-                let channel = channel.unwrap_or(saved_channel(device, &prefs));
+                let channel = channel.unwrap_or(saved_channel(device, &input));
                 (device, channel)
             }
             None => {
-                let (device, saved) = resolve_selection(&list, &prefs)
+                let (device, saved) = resolve_selection(&list, &input)
                     .ok_or_else(|| TakeError::from(RecordError::NoDevice))?;
                 (device, channel.unwrap_or(saved))
             }
@@ -640,24 +643,27 @@ impl Takes {
             });
         }
         if device_id.is_some() || channel_arg.is_some() {
-            let prefs = Prefs {
+            let input = RecordingInput {
                 device_id: Some(device.id.clone()),
                 channel,
             };
-            if let Err(e) = write_prefs(prefs_path, &prefs) {
-                eprintln!("recording: cannot save {}: {e}", prefs_path.display());
+            if let Err(e) = input.save(app) {
+                eprintln!(
+                    "recording: cannot save {}: {e}",
+                    RecordingInput::file(app).display()
+                );
             }
         }
-        Ok(self.armed_status(prefs_path))
+        Ok(self.armed_status(app))
     }
 
-    fn armed_status(&self, prefs_path: &Path) -> TakeStatus {
+    fn armed_status(&self, app: &AppData) -> TakeStatus {
         self.emit(TakeEvent::new(RecState::Armed));
-        self.status(prefs_path)
+        self.status(app)
     }
 
     /// Closes the stream. `Busy` while a take runs.
-    pub fn disarm(&self, prefs_path: &Path) -> Result<TakeStatus, TakeError> {
+    pub fn disarm(&self, app: &AppData) -> Result<TakeStatus, TakeError> {
         {
             let mut inner = self.lock();
             if inner.state.is_recording() {
@@ -673,7 +679,7 @@ impl Takes {
             };
         }
         self.emit(TakeEvent::new(RecState::Idle));
-        Ok(self.status(prefs_path))
+        Ok(self.status(app))
     }
 
     /// Starts a take named by Rust (`<songStem>-NN` or `memo-NN`) in the project `resolve`

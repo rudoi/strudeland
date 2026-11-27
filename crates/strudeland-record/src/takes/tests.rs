@@ -97,7 +97,7 @@ fn record(e: RecordError) -> TakeError {
 fn not_determined_asks_then_arms_when_granted() {
     let rig = rig();
     *rig.platform.permission.lock().unwrap() = Permission::NotDetermined;
-    let status = rig.takes.arm(&rig.prefs(), None, None).unwrap();
+    let status = rig.takes.arm(&rig.app_data(), None, None).unwrap();
     assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 1);
     assert_eq!(status.state, RecState::Armed);
     assert_eq!(status.permission, Permission::Authorized);
@@ -110,7 +110,7 @@ fn not_determined_asks_then_refuses_when_denied() {
     let rig = rig();
     *rig.platform.permission.lock().unwrap() = Permission::NotDetermined;
     *rig.platform.answer.lock().unwrap() = Permission::Denied;
-    let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+    let error = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
     assert_eq!(error, TakeError::PermissionDenied);
     assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 1);
     rig.no_new_handle();
@@ -118,7 +118,7 @@ fn not_determined_asks_then_refuses_when_denied() {
         rig.sink.states(),
         vec![TakeEvent::new(RecState::Idle).error(error)]
     );
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Idle);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Idle);
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn denied_and_restricted_open_no_stream() {
     ] {
         let rig = rig();
         *rig.platform.permission.lock().unwrap() = permission;
-        let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+        let error = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
         assert_eq!(error, expected, "{permission:?}");
         assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 0);
         rig.no_new_handle();
@@ -146,17 +146,17 @@ fn on_a_desktop_without_a_prompt_the_stream_decides_access_and_can_be_retried() 
     rig.platform.has_prompt.store(false, Ordering::Release);
     *rig.platform.permission.lock().unwrap() = Permission::NotDetermined;
     assert_eq!(
-        rig.takes.status(&rig.prefs()).permission,
+        rig.takes.status(&rig.app_data()).permission,
         Permission::NotDetermined
     );
     *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
-    let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+    let error = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
     assert_eq!(error, TakeError::PermissionDenied);
     assert_eq!(
-        rig.takes.status(&rig.prefs()).permission,
+        rig.takes.status(&rig.app_data()).permission,
         Permission::Denied
     );
-    let armed = rig.takes.arm(&rig.prefs(), None, None).unwrap();
+    let armed = rig.takes.arm(&rig.app_data(), None, None).unwrap();
     assert_eq!(armed.permission, Permission::Authorized);
     assert_eq!(rig.platform.requests.load(Ordering::SeqCst), 0);
 }
@@ -170,13 +170,13 @@ fn a_second_arm_during_a_pending_request_is_busy() {
     let (release, gate) = mpsc::channel();
     *rig.platform.gate.lock().unwrap() = Some(gate);
     std::thread::scope(|s| {
-        let first = s.spawn(|| rig.takes.arm(&rig.prefs(), None, None));
+        let first = s.spawn(|| rig.takes.arm(&rig.app_data(), None, None));
         let deadline = Instant::now() + WAIT;
         while rig.platform.requests.load(Ordering::SeqCst) == 0 {
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(1));
         }
-        let second = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+        let second = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
         assert_eq!(second, TakeError::PermissionPending);
         release.send(()).unwrap();
         assert_eq!(first.join().unwrap().unwrap().state, RecState::Armed);
@@ -191,11 +191,11 @@ fn a_second_arm_during_a_pending_request_is_busy() {
 fn arm_without_devices_is_no_device() {
     let rig = rig();
     rig.platform.devices.lock().unwrap().clear();
-    let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+    let error = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
     assert_eq!(error, record(RecordError::NoDevice));
     let error = rig
         .takes
-        .arm(&rig.prefs(), Some("fake:gone".into()), None)
+        .arm(&rig.app_data(), Some("fake:gone".into()), None)
         .unwrap_err();
     assert_eq!(error, record(RecordError::NoDevice));
     rig.no_new_handle();
@@ -206,7 +206,7 @@ fn arm_with_an_absent_device_id_is_no_device() {
     let rig = rig();
     let error = rig
         .takes
-        .arm(&rig.prefs(), Some("fake:gone".into()), None)
+        .arm(&rig.app_data(), Some("fake:gone".into()), None)
         .unwrap_err();
     assert_eq!(error, record(RecordError::NoDevice));
     assert_eq!(error.to_string(), "no input device");
@@ -217,11 +217,11 @@ fn arm_with_an_absent_device_id_is_no_device() {
 fn a_busy_device_stays_idle_and_reports_the_device_error() {
     let rig = rig();
     *rig.arm_failure.lock().unwrap() = Some(RecordError::DeviceBusy);
-    let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+    let error = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
     // The kind (device lost on macOS, busy elsewhere) is the app's error table.
     assert_eq!(error, record(RecordError::DeviceBusy));
     assert_eq!(error.to_string(), "the input device is busy");
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Idle);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Idle);
     assert!(rig.sink.states().is_empty());
 }
 
@@ -230,7 +230,7 @@ fn a_channel_out_of_range_is_other() {
     let rig = rig();
     let error = rig
         .takes
-        .arm(&rig.prefs(), Some("fake:usb".into()), Some(4))
+        .arm(&rig.app_data(), Some("fake:usb".into()), Some(4))
         .unwrap_err();
     assert_eq!(
         error,
@@ -245,13 +245,13 @@ fn a_channel_out_of_range_is_other() {
 #[test]
 fn arm_reports_the_armed_input_and_rearm_replaces_it() {
     let rig = rig();
-    let status = rig.takes.arm(&rig.prefs(), None, None).unwrap();
+    let status = rig.takes.arm(&rig.app_data(), None, None).unwrap();
     assert_eq!(status.device, Some(FakePlatform::mic()));
     assert_eq!(status.channel, 0);
     let first = rig.next_handle();
     let status = rig
         .takes
-        .arm(&rig.prefs(), Some("fake:usb".into()), Some(2))
+        .arm(&rig.app_data(), Some("fake:usb".into()), Some(2))
         .unwrap();
     assert_eq!(status.device, Some(FakePlatform::usb()));
     assert_eq!(status.channel, 2);
@@ -265,10 +265,13 @@ fn arm_and_disarm_during_a_take_are_busy() {
     let rig = rig();
     let handle = rig.take();
     assert_eq!(
-        rig.takes.arm(&rig.prefs(), None, None).unwrap_err(),
+        rig.takes.arm(&rig.app_data(), None, None).unwrap_err(),
         TakeError::Busy
     );
-    assert_eq!(rig.takes.disarm(&rig.prefs()).unwrap_err(), TakeError::Busy);
+    assert_eq!(
+        rig.takes.disarm(&rig.app_data()).unwrap_err(),
+        TakeError::Busy
+    );
     assert!(handle.is_recording());
 }
 
@@ -276,19 +279,19 @@ fn arm_and_disarm_during_a_take_are_busy() {
 fn disarm_closes_the_stream_and_emits_idle() {
     let rig = rig();
     let handle = rig.arm();
-    let status = rig.takes.disarm(&rig.prefs()).unwrap();
+    let status = rig.takes.disarm(&rig.app_data()).unwrap();
     assert_eq!(status.state, RecState::Idle);
     assert_eq!(status.device, None);
     assert!(!handle.is_open());
     assert_eq!(rig.sink.last(), Some(TakeEvent::new(RecState::Idle)));
     // Disarming again is harmless.
     assert_eq!(
-        rig.takes.disarm(&rig.prefs()).unwrap().state,
+        rig.takes.disarm(&rig.app_data()).unwrap().state,
         RecState::Idle
     );
 }
 
-// --- prefs ---
+// --- the saved input ---
 
 #[test]
 fn a_saved_exclusive_input_keeps_its_identity_and_armed_channel_count() {
@@ -297,30 +300,28 @@ fn a_saved_exclusive_input_keeps_its_identity_and_armed_channel_count() {
     busy.channels = 0;
     busy.sample_rate = 0;
     *rig.platform.devices.lock().unwrap() = vec![FakePlatform::mic(), busy];
-    write_prefs(
-        &rig.prefs(),
-        &Prefs {
-            device_id: Some(FakePlatform::usb().id),
-            channel: 2,
-        },
-    )
+    RecordingInput {
+        device_id: Some(FakePlatform::usb().id),
+        channel: 2,
+    }
+    .save(&rig.app_data())
     .unwrap();
 
     // Enumeration could not open the USB endpoint. The stream-open error is authoritative.
     *rig.arm_failure.lock().unwrap() = Some(RecordError::PermissionDenied);
-    let error = rig.takes.arm(&rig.prefs(), None, None).unwrap_err();
+    let error = rig.takes.arm(&rig.app_data(), None, None).unwrap_err();
     assert_eq!(error, TakeError::PermissionDenied);
-    let st = rig.takes.arm(&rig.prefs(), None, None).unwrap();
+    let st = rig.takes.arm(&rig.app_data(), None, None).unwrap();
     assert_eq!(st.device, Some(FakePlatform::usb()));
     assert_eq!(st.channel, 2);
     rig.next_handle();
 
     // With the exclusive stream open the picker still exposes the active channels.
-    let list = rig.takes.devices(&rig.prefs()).unwrap();
+    let list = rig.takes.devices(&rig.app_data()).unwrap();
     assert!(list.devices.contains(&FakePlatform::usb()));
     let st = rig
         .takes
-        .arm(&rig.prefs(), Some(FakePlatform::usb().id), Some(3))
+        .arm(&rig.app_data(), Some(FakePlatform::usb().id), Some(3))
         .unwrap();
     assert_eq!(st.channel, 3);
 }
@@ -328,34 +329,32 @@ fn a_saved_exclusive_input_keeps_its_identity_and_armed_channel_count() {
 #[test]
 fn arm_writes_prefs_only_when_it_carried_an_argument() {
     let rig = rig();
-    write_prefs(
-        &rig.prefs(),
-        &Prefs {
-            device_id: Some("fake:gone".into()),
-            channel: 2,
-        },
-    )
+    RecordingInput {
+        device_id: Some("fake:gone".into()),
+        channel: 2,
+    }
+    .save(&rig.app_data())
     .unwrap();
     let before = std::fs::read_to_string(rig.prefs()).unwrap();
     // The saved device is absent: the default input, and the file is not rewritten.
-    let status = rig.takes.arm(&rig.prefs(), None, None).unwrap();
+    let status = rig.takes.arm(&rig.app_data(), None, None).unwrap();
     assert_eq!(status.device.unwrap().id, "fake:mic");
     assert_eq!(status.channel, 0);
     assert_eq!(std::fs::read_to_string(rig.prefs()).unwrap(), before);
-    rig.takes.arm(&rig.prefs(), None, Some(0)).unwrap();
+    rig.takes.arm(&rig.app_data(), None, Some(0)).unwrap();
     assert_eq!(
-        read_prefs(&rig.prefs()),
-        Prefs {
+        RecordingInput::load(&rig.app_data()).value,
+        RecordingInput {
             device_id: Some("fake:mic".into()),
             channel: 0
         }
     );
     rig.takes
-        .arm(&rig.prefs(), Some("fake:usb".into()), None)
+        .arm(&rig.app_data(), Some("fake:usb".into()), None)
         .unwrap();
     assert_eq!(
-        read_prefs(&rig.prefs()),
-        Prefs {
+        RecordingInput::load(&rig.app_data()).value,
+        RecordingInput {
             device_id: Some("fake:usb".into()),
             channel: 0
         }
@@ -368,7 +367,7 @@ fn a_prefs_write_failure_does_not_fail_the_arm() {
     std::fs::create_dir_all(rig.prefs()).unwrap();
     let status = rig
         .takes
-        .arm(&rig.prefs(), Some("fake:usb".into()), Some(1))
+        .arm(&rig.app_data(), Some("fake:usb".into()), Some(1))
         .unwrap();
     assert_eq!(status.state, RecState::Armed);
     assert_eq!(status.channel, 1);
@@ -377,7 +376,7 @@ fn a_prefs_write_failure_does_not_fail_the_arm() {
 #[test]
 fn devices_and_idle_status_use_the_saved_choice() {
     let rig = rig();
-    let result = rig.takes.devices(&rig.prefs()).unwrap();
+    let result = rig.takes.devices(&rig.app_data()).unwrap();
     assert_eq!(
         result.devices,
         vec![FakePlatform::mic(), FakePlatform::usb()]
@@ -389,15 +388,13 @@ fn devices_and_idle_status_use_the_saved_choice() {
             channel: 0
         })
     );
-    write_prefs(
-        &rig.prefs(),
-        &Prefs {
-            device_id: Some("fake:usb".into()),
-            channel: 2,
-        },
-    )
+    RecordingInput {
+        device_id: Some("fake:usb".into()),
+        channel: 2,
+    }
+    .save(&rig.app_data())
     .unwrap();
-    let result = rig.takes.devices(&rig.prefs()).unwrap();
+    let result = rig.takes.devices(&rig.app_data()).unwrap();
     assert_eq!(
         result.selected,
         Some(Selection {
@@ -405,7 +402,7 @@ fn devices_and_idle_status_use_the_saved_choice() {
             channel: 2
         })
     );
-    let idle = rig.takes.status(&rig.prefs());
+    let idle = rig.takes.status(&rig.app_data());
     assert_eq!(
         idle,
         TakeStatus {
@@ -418,7 +415,7 @@ fn devices_and_idle_status_use_the_saved_choice() {
         }
     );
     rig.platform.devices.lock().unwrap().clear();
-    let none = rig.takes.devices(&rig.prefs()).unwrap();
+    let none = rig.takes.devices(&rig.app_data()).unwrap();
     assert!(none.devices.is_empty());
     assert_eq!(none.selected, None);
 }
@@ -448,7 +445,7 @@ fn start_names_the_take_and_reports_recording() {
         rig.sink.last(),
         Some(TakeEvent::new(RecState::Recording).stem("main-01"))
     );
-    let status = rig.takes.status(&rig.prefs());
+    let status = rig.takes.status(&rig.app_data());
     assert_eq!(status.state, RecState::Recording);
     assert_eq!(status.stem.as_deref(), Some("main-01"));
     assert!(status.elapsed_seconds.is_some_and(|s| s >= 0.0));
@@ -502,7 +499,7 @@ fn start_with_a_stale_root_touches_nothing() {
     assert_eq!(error, ResolveError::Stale);
     assert!(rig.files().is_empty());
     assert!(!handle.is_recording());
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Armed);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Armed);
 }
 
 #[test]
@@ -518,7 +515,7 @@ fn a_start_without_audio_times_out_and_leaves_no_partial() {
         .unwrap_err();
     assert_eq!(error, TakeError::NoAudio);
     assert!(rig.files().is_empty());
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Armed);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Armed);
     assert_eq!(rig.sink.last(), Some(TakeEvent::new(RecState::Armed)));
 }
 
@@ -595,7 +592,7 @@ fn stop_writes_the_webview_fields_input_and_anchors() {
         rig.sink.last(),
         Some(TakeEvent::new(RecState::Armed).stem("main-01"))
     );
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Armed);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Armed);
 }
 
 #[test]
@@ -688,7 +685,7 @@ fn a_failed_publish_keeps_the_take_and_a_retry_publishes_it() {
         (event.state, event.stem.as_deref(), event.error.as_ref()),
         (RecState::Armed, Some("main-01"), Some(&error))
     );
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Armed);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Armed);
     // The conflict still exists, and the take remains available for retry.
     assert!(rig.takes.stop(None).is_err());
     std::fs::remove_file(conflict).unwrap();
@@ -711,7 +708,7 @@ fn a_failed_publish_keeps_the_take_and_a_retry_publishes_it() {
 fn a_take_that_failed_to_publish_is_published_by_disarm_reload_and_quit() {
     type Settle = fn(&Rig);
     let settles: [(Settle, &str); 3] = [
-        (|r| drop(r.takes.disarm(&r.prefs()).unwrap()), "disarm"),
+        (|r| drop(r.takes.disarm(&r.app_data()).unwrap()), "disarm"),
         (|r| r.takes.on_reload(), "reload"),
         (|r| r.takes.shutdown(), "quit"),
     ];
@@ -748,7 +745,7 @@ fn the_length_cap_finalizes_and_a_later_stop_is_idempotent() {
     let entry = rig.project().recordings().unwrap().remove(0);
     assert_eq!(entry.frames, Some(100));
     assert_eq!(entry.sidecar.unwrap().timing.bar1_host_ns, None);
-    let status = rig.takes.status(&rig.prefs());
+    let status = rig.takes.status(&rig.app_data());
     assert_eq!(status.state, RecState::Armed);
     assert!(handle.is_open());
     // The webview's stop replaces the fallback sidecar.
@@ -782,7 +779,7 @@ fn a_device_loss_finalizes_and_emits_idle() {
     let fallback = sidecar_of(&rig, "main-01");
     assert_eq!(fallback.timing.bar1_frame, None);
     assert_eq!(fallback.timing.bar1_host_ns, None);
-    let status = rig.takes.status(&rig.prefs());
+    let status = rig.takes.status(&rig.app_data());
     assert_eq!(status.state, RecState::Idle);
     assert_eq!(status.device, None);
     let entry = rig
@@ -825,7 +822,7 @@ fn a_stale_failed_after_a_rearm_is_ignored() {
         error: RecordError::DeviceLost("old".into()),
     });
     assert_eq!(rig.sink.states().len(), events);
-    let status = rig.takes.status(&rig.prefs());
+    let status = rig.takes.status(&rig.app_data());
     assert_eq!(status.state, RecState::Armed);
     assert!(status.device.is_some());
     // This stream's own `Failed` disarms.
@@ -834,7 +831,7 @@ fn a_stale_failed_after_a_rearm_is_ignored() {
         error: RecordError::DeviceLost("now".into()),
     });
     assert_eq!(rig.sink.last().unwrap().state, RecState::Idle);
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Idle);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Idle);
 }
 
 #[test]
@@ -844,7 +841,7 @@ fn a_rearm_after_a_device_loss_stays_armed() {
     assert!(handle.fault(FaultKind::DeviceLost, "unplugged"));
     rig.sink.wait(|e| e.error.is_some());
     rig.arm();
-    assert_eq!(rig.takes.status(&rig.prefs()).state, RecState::Armed);
+    assert_eq!(rig.takes.status(&rig.app_data()).state, RecState::Armed);
 }
 
 #[test]
@@ -873,7 +870,7 @@ fn a_reload_finalizes_the_take_and_disarms_silently() {
     let timing = entry.sidecar.unwrap().timing;
     assert_eq!(timing.bar1_frame, None);
     assert_eq!(timing.bar1_host_ns, None);
-    let status = rig.takes.status(&rig.prefs());
+    let status = rig.takes.status(&rig.app_data());
     assert_eq!(status.state, RecState::Idle);
     assert_eq!(rig.takes.stop(None).unwrap_err(), TakeError::NoTake);
     // The recorder arms again afterwards.

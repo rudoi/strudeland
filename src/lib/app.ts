@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { EditorView } from '@codemirror/view';
-import { writable, type Readable, type Writable } from 'svelte/store';
+import { get, writable, type Readable, type Writable } from 'svelte/store';
 import type { AudioGraph } from './audio/backend';
 import { createInstrumentPreview } from './audio/instrument-preview';
 import { createMemoPlayer } from './audio/memo-player';
@@ -18,6 +18,7 @@ import { createVisuals, highlightAudition } from './editor/visuals';
 import { inspectPianoRoll } from './piano-roll/api';
 import { createInspectionQueue } from './piano-roll/inspection';
 import { createTauriPrefsApi, type PrefsApi } from './prefs/api';
+import { migrateLimiter, webStorage } from './prefs/migrate';
 import { createPrefs, type PrefsStore } from './prefs/store';
 import { createTauriProjectApi, type InstrumentBrowserApi, type ProjectApi } from './project/api';
 import { createSession, errorMessage, windowTitle, type Session } from './project/session';
@@ -27,7 +28,6 @@ import { createRecordingController, type RecordingController } from './recording
 import { captureAuditionSynths, createNoteAuditionPlayer } from './audio/note-audition';
 import { createAuditionQueue } from './editor/note-audition-queue';
 import { createMemos, type Memos } from './recording/memos';
-import { loadLimiter, saveLimiter } from './audio/limiter-pref';
 import { createPlayArbiter, type PlayArbiter } from './play-arbiter';
 import { createScopeClock, type ScopeClock } from './scope/clock';
 import { prebake } from './strudel/prebake';
@@ -113,15 +113,10 @@ export function createApp(
       captureAuditionSynths();
     },
     hooks: { ...visuals, onPlaybackRequest: stopAuditions },
-    limiter: loadLimiter(),
   });
   const scopeClock = createScopeClock((buf) => runtime.readScope(buf));
-  let savedLimiter: boolean | null = null;
   let unfollow: (() => void) | null = runtime.store.subscribe((s) => {
     scopeClock.setRunning(s.started);
-    // The first call is the loaded value itself.
-    if (savedLimiter !== null && s.limiter !== savedLimiter) saveLimiter(s.limiter);
-    savedLimiter = s.limiter;
   });
   let recording: RecordingController | undefined;
   let memos: Memos | undefined;
@@ -196,7 +191,8 @@ export function createApp(
     },
   });
   const restoreVimWrite = defineVimWrite(() => void session.save());
-  let unprefs: (() => void) | null = prefs.store.subscribe(({ vim, auditionNotes }) => {
+  let unprefs: (() => void) | null = prefs.store.subscribe(({ vim, auditionNotes, limiter }) => {
+    if (limiter !== get(runtime.store).limiter) runtime.setLimiter(limiter);
     if (!auditionNotes && (!rollAudition || rollAudition.automatic)) {
       rollAudition = null;
       audition.stop();
@@ -204,6 +200,7 @@ export function createApp(
     if (view && setKeymap(view, vim)) vimMode.attach(view);
   });
   const ready = prefs.load();
+  if (prefsApi) void ready.then(() => migrateLimiter(prefs, webStorage));
   if (recordingApi) {
     ({ recording, memos } = createRecording(recordingApi, superdough, runtime, session, api));
   }
@@ -253,10 +250,10 @@ export function createApp(
     prefs,
     vimMode,
     ready,
-    toggleVim() {
+    async toggleVim() {
       const saved = prefs.setVim(!prefs.vim());
       view?.focus();
-      return saved;
+      await saved;
     },
     attachView(v) {
       rollAudition = null;

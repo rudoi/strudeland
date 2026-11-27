@@ -167,7 +167,7 @@
         drain={runtime.drainLevels}
         limiter={$rt.limiter}
         available={$rt.limiterAvailable}
-        onlimiter={runtime.setLimiter}
+        onlimiter={prefs.setLimiter}
       />
       <button
         type="button"

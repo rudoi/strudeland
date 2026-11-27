@@ -71,6 +71,7 @@ fn project_kind(e: &ProjectError) -> (CommandErrorKind, Option<Subject>) {
         | ProjectError::InvalidRenderName(_)
         | ProjectError::InvalidSidecar(_)
         | ProjectError::UnsupportedSidecarSchema { .. }
+        | ProjectError::NoDataDir
         | ProjectError::Io { .. } => (K::Other, None),
     }
 }
@@ -224,6 +225,11 @@ mod tests {
                 ProjectError::UnsupportedSidecarSchema { found: "2".into() },
                 K::Other,
                 "unsupported memo sidecar schema 2 (this app reads schema 1)",
+            ),
+            (
+                ProjectError::NoDataDir,
+                K::Other,
+                "cannot locate the user data directory",
             ),
             (
                 ProjectError::Io {

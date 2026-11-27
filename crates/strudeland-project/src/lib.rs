@@ -1,29 +1,34 @@
 //! Project folders for strudeland: the on-disk layout, `project.json`, song discovery,
-//! path-scoped reads and atomic writes, voice memos (`recordings/`), file templates and the recent projects list.
+//! path-scoped reads and atomic writes, voice memos (`recordings/`), file templates, and the app
+//! data dir and its documents (preferences, recent projects, the recording input).
 //!
 //! This crate has no Tauri dependency so the app and the CLI can share it.
 
+mod app_data;
 mod error;
 mod instruments;
 mod prefs;
 mod project;
 mod recents;
+mod recording_input;
 mod recordings;
 mod template;
 
+pub use app_data::{AppData, Loaded};
 pub use error::ProjectError;
 pub use instruments::{
     INSTRUMENTS_DIR, InstrumentDefinition, InstrumentEntry, InstrumentLibrary, InstrumentSnapshot,
     MAX_INSTRUMENT_ENTRIES, instrument_dir_entries, instrument_file_candidate,
     validate_instrument_snapshot,
 };
-pub use prefs::{PREFS_FILE, Prefs};
+pub use prefs::Prefs;
 pub use project::{
     MANIFEST_FILE, Manifest, Project, ProjectInfo, RenderSet, SCHEMA, SONG_EXT, SONGS_DIR,
     SongEntry, atomic_create_bytes, atomic_write_bytes, is_song_file, is_song_file_name,
     list_songs, render_exists, render_filename, song_rel_path,
 };
-pub use recents::{MAX_RECENTS, RecentProject, Recents};
+pub use recents::{MAX_RECENTS, RECENTS_FILE, RecentProject, Recents};
+pub use recording_input::RecordingInput;
 pub use recordings::{
     ClockOffsetSample, HostNs, OffsetNs, RECORDINGS_DIR, RecordingEntry, RecoveredRecording,
     RepairReport, RepairSkip, SIDECAR_SCHEMA, Sidecar, SidecarApp, SidecarBacking,

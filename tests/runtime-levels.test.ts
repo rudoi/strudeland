@@ -1,8 +1,7 @@
-import { afterEach, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import * as core from '@strudel/core';
 import * as mini from '@strudel/mini';
 import type { LevelFrame } from '../src/lib/levels/levels';
-import { loadLimiter, saveLimiter } from '../src/lib/audio/limiter-pref';
 import type { RuntimeState } from '../src/lib/strudel/runtime';
 import { fakeRuntime as fake } from './helpers/fake-runtime';
 
@@ -115,33 +114,4 @@ test('limiterAvailable follows the active backend on the interval', () => {
   b.limiterOk = true;
   tick(1);
   expect(snap(rt).limiterAvailable).toBe(true);
-});
-
-const realStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-afterEach(() => {
-  if (realStorage) Object.defineProperty(globalThis, 'localStorage', realStorage);
-  else delete (globalThis as any).localStorage;
-});
-const useStorage = (s: unknown) =>
-  Object.defineProperty(globalThis, 'localStorage', { value: s, configurable: true });
-
-test('limiter-pref round-trips, defaults to off and survives a throwing localStorage', () => {
-  const m = new Map<string, string>();
-  useStorage({
-    getItem: (k: string) => m.get(k) ?? null,
-    setItem: (k: string, v: string) => void m.set(k, v),
-  });
-  expect(loadLimiter()).toBe(false);
-  saveLimiter(true);
-  expect(m.get('strudeland.limiter')).toBe('1');
-  expect(loadLimiter()).toBe(true);
-  saveLimiter(false);
-  expect(m.get('strudeland.limiter')).toBe('0');
-  expect(loadLimiter()).toBe(false);
-  const boom = () => {
-    throw new Error('blocked');
-  };
-  useStorage({ getItem: boom, setItem: boom });
-  expect(loadLimiter()).toBe(false);
-  expect(() => saveLimiter(true)).not.toThrow();
 });

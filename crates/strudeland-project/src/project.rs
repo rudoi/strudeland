@@ -1090,12 +1090,9 @@ fn temp_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::tempdir;
     use crate::test_symlink;
     use tempfile::TempDir;
-
-    fn tempdir() -> TempDir {
-        tempfile::tempdir().expect("tempdir")
-    }
 
     fn new_project() -> (TempDir, Project) {
         let tmp = tempdir();

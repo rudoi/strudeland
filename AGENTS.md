@@ -84,8 +84,8 @@ the V8 download the host brings.
   does with `LINEAR_SEGMENTS`). `src/lib/audio/` the `AudioBackend` seam (and `scope-tap.ts`, the
   master-output analyser behind `readScope`; `playback-api.ts`, the only Tauri caller for live
   playback, and `rust.ts`, the Rust backend over it, tested with `tests/helpers/fake-playback-api.ts`). The master meter and limiter: `master-dsp.ts`
-  (the limiter and level maths), `master-worklet.ts`, `master-tap.ts` (the superdough tap) and
-  `limiter-pref.ts` (the stored preference); `src/lib/levels/levels.ts` (pure: frames, hold, the
+  (the limiter and level maths), `master-worklet.ts` and `master-tap.ts` (the superdough tap);
+  `src/lib/levels/levels.ts` (pure: frames, hold, the
   meter's view model; outside `src/lib/audio/` because the runtime imports it and the host bundle
   must not reach `src/lib/audio/`).
   `src/lib/editor/` CodeMirror setup, visuals and
@@ -136,8 +136,9 @@ the V8 download the host brings.
   for the File menu, keyboard shortcut, and welcome screen),
   `meta-write.ts` (minimal-diff edits of header values), `timeline.ts` (pure helpers for
   `Timeline.svelte`).
-- `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs) and
-  `store.ts` (the prefs store, the one frontend copy of a pref).
+- `src/lib/prefs/` app preferences: `api.ts` (the only module that calls Tauri for prefs),
+  `store.ts` (the prefs store, the one frontend copy of a pref) and `migrate.ts` (the one-time
+  move of the old `localStorage` limiter value; the only `localStorage` caller).
 - `src-tauri/` the Rust app crate (`strudeland-app`): `project.rs` (commands, open-project state, and
   the song commands (they reject with a `CommandError`), and the `prefs_get`/`prefs_set` commands),
   `project_menu.rs` (native project commands in File), `watcher.rs` (`project://changed` events),
@@ -157,7 +158,15 @@ the V8 download the host brings.
   outcome. The project session's `guardShutdown` shares the unsaved prompt with window close.
   An approved native exit holds the export permit through Tauri shutdown.
 - `crates/strudeland-project/` the project folder library (layout, `project.json`, path scoping,
-  atomic writes, templates, recents, app preferences (`prefs.json`)). No Tauri dependency, so the CLI can reuse it.
+  atomic writes, templates) and the owner of the app data dir and its documents: `AppData`
+  (`app_data.rs`) locates the dir without Tauri and holds the one load and save, with one
+  bad-file policy (a missing, unreadable, corrupt or wrong-schema file gives the defaults, stays
+  in place and is reported to the caller to log), for `prefs.json` (app preferences),
+  `recent.json` (recent projects) and `recording.json` (the saved recording input,
+  `RecordingInput`). The app resolves it once at start as `AppDataState` for the project,
+  prefs and recording commands. The instrument commands (`src-tauri/src/instruments.rs`) still
+  locate it on each call through `InstrumentLibrary::open_default`. No Tauri dependency, so the
+  CLI can reuse it.
 - The instrument library store and project pins live in `crates/strudeland-project`.
   `src/lib/strudel/instruments.ts` binds the pinned snapshot as `instruments` at
   evaluation. The project session refreshes the snapshot through the watcher, and the desktop
@@ -302,12 +311,13 @@ the V8 download the host brings.
   the threads, format and the capture-timestamp decision).
   `crates/strudeland-record/src/takes/` the take lifecycle (`Takes` over the `Platform`,
   `Sink` and `RecorderMaker` ports; `TakeState`, idle, armed, recording or ended; the
-  sidecar build, the device prefs file and the repair skip; `TakeError`; the fakes in
-  `testing`). `crates/strudeland-project/src/recordings.rs`
+  sidecar build, the input selection over the saved `RecordingInput` and the repair skip;
+  `TakeError`; the fakes in `testing`). `crates/strudeland-project/src/recordings.rs`
   names, lists, renames and deletes memos, owns the sidecar (schema 1) and repairs `.partial` files.
   `src-tauri/src/recording.rs` the wire types, the mapping of `TakeError` and `TakeEvent` to
   `CommandError` and `recording://state`, `SystemPlatform` (the microphone permission),
-  `AppSink`, `RecorderState` and the commands (device prefs in `recording.json` in the app data dir);
+  `AppSink`, `RecorderState` and the commands (the saved input is `strudeland-project`'s
+  `RecordingInput`, `recording.json` in the app data dir);
   `src-tauri/Info.plist` (`NSMicrophoneUsageDescription`) and `Entitlements.plist` (audio input).
   `src/lib/recording/`: `api.ts` (the only Tauri caller for recording), `controller.ts` (the take
   state machine), `backing.ts`, `sync.ts`, `memos.ts`, `memo-ui.ts`, `types.ts`. `src/lib/audio/`
