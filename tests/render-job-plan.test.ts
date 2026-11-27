@@ -12,6 +12,7 @@ import {
   singleChunkRequest,
   type LengthRequest,
   type PlannedRender,
+  type PlannedSection,
   type PlanJobPhase,
   type PlannerRuntime,
   type RenderPlanRequest,
@@ -1167,6 +1168,229 @@ describe('PlanJobError flag', () => {
   });
 });
 
+/** `plan.rs`'s bar-to-section mapping at ee91dbd (`section_at`), the independent oracle. */
+function oracle(layout: 'clip' | 'linear', s: SongStructure, bar: number): string | null {
+  const song = (b: number) =>
+    s.sections.find((x) => b >= x.start && b < x.start + x.bars)?.name ?? null;
+  if (layout === 'linear') return song(bar);
+  const loop = s.loopIndex === null ? undefined : s.sections[s.loopIndex];
+  const [start, end] = s.loopRange
+    ? [s.loopRange.start, s.loopRange.end]
+    : loop
+      ? [loop.start, loop.start + loop.bars]
+      : [0, 0];
+  const period = end - start;
+  if (period <= 0 || bar < start) return song(bar);
+  const elapsed = bar - start;
+  return song(
+    Math.floor(elapsed / period) < s.loops
+      ? start + (elapsed % period)
+      : end + elapsed - period * s.loops,
+  );
+}
+
+/** The runs are well formed, end by `c1`, and name every bar in `[-1, c1)` as the Rust mapping
+ *  they replace did. */
+function expectRunsAgree(got: PlannedRender, c1: number): void {
+  const runs = got.sections;
+  runs.forEach((run, i) => {
+    expect(run.fromBar).toBeLessThan(run.toBar);
+    if (i === 0) return;
+    const prev = runs[i - 1]!;
+    expect(prev.toBar).toBeLessThanOrEqual(run.fromBar);
+    if (prev.toBar === run.fromBar) expect(prev.name).not.toBe(run.name);
+  });
+  if (runs.length > 0) {
+    expect(runs[0]!.fromBar).toBeGreaterThanOrEqual(0);
+    expect(runs.at(-1)!.toBar).toBeLessThanOrEqual(c1);
+  }
+  for (let bar = -1; bar < c1; bar++) {
+    const run = runs.find((x) => bar >= x.fromBar && bar < x.toBar);
+    expect({ bar, name: run?.name ?? null }).toEqual({
+      bar,
+      name: oracle(got.window.layout, got.structure, bar),
+    });
+  }
+}
+
+/** `length` planned over `structure` (the evaluated one; the header has no sections), its
+ *  runs checked against the Rust mapping. */
+async function planSections(
+  structure: SongStructure | null,
+  length: LengthRequest,
+  o: Partial<RenderPlanRequest> = {},
+): Promise<PlannedRender> {
+  const rt = fakeRuntime({ structure, cps: structure?.cps ?? 0.5 }).rt;
+  const got = await planRender(rt, CODE, renderReq(length, o), []);
+  expectRunsAgree(got, got.window.toBar + (o.chunk?.overlapBars ?? 0));
+  return got;
+}
+
+const r = (fromBar: number, toBar: number, name: string): PlannedSection => ({
+  fromBar,
+  toBar,
+  name,
+});
+
+describe('planRender sections', () => {
+  // `plan.rs`'s `song_linear()`: intro 2, body 4 (loop) x 2, tail 2.
+  const SONG_LINEAR = buildStructure({
+    bpm: 120,
+    loops: 2,
+    sections: [
+      { name: 'intro', bars: 2 },
+      { name: 'body', bars: 4, loop: true },
+      { name: 'tail', bars: 2 },
+    ],
+  });
+  const CLIP = [r(0, 2, 'intro'), r(2, 10, 'body'), r(10, 12, 'tail')];
+  const LINEAR = [r(0, 2, 'intro'), r(2, 6, 'body'), r(6, 8, 'tail')];
+  const BODY = [r(0, 2, 'intro'), r(2, 6, 'body')];
+
+  test('a clip names each loop pass and the tail (loops 2, 3 and 1)', async () => {
+    expect((await planSections(SONG_LINEAR, { kind: 'clip' })).sections).toEqual(CLIP);
+    expect((await planSections(SONG_LINEAR, { kind: 'clip', loops: 3 })).sections).toEqual([
+      r(0, 2, 'intro'),
+      r(2, 14, 'body'),
+      r(14, 16, 'tail'),
+    ]);
+    expect((await planSections(SONG_LINEAR, { kind: 'clip', loops: 1 })).sections).toEqual(LINEAR);
+  });
+
+  test('a repeated range names each section inside every pass', async () => {
+    const range = buildStructure({
+      bpm: 120,
+      loops: 2,
+      sections: [
+        { name: 'intro', bars: 2 },
+        { name: 'body', bars: 4 },
+        { name: 'tail', bars: 2 },
+      ],
+      loop: { from: 'intro', through: 'body' },
+    });
+    expect(range.clipBars).toBe(14);
+    expect((await planSections(range, { kind: 'clip' })).sections).toEqual([
+      r(0, 2, 'intro'),
+      r(2, 6, 'body'),
+      r(6, 8, 'intro'),
+      r(8, 12, 'body'),
+      r(12, 14, 'tail'),
+    ]);
+  });
+
+  test('a linear window names the song sections', async () => {
+    const linear = { kind: 'window', fromBar: 0, toBar: 8, layout: 'linear' } as const;
+    expect((await planSections(SONG_LINEAR, linear)).sections).toEqual(LINEAR);
+  });
+
+  test('bars past the song are in no run', async () => {
+    // `plan.rs` answered `None` for any bar past the song; the runs simply end there.
+    const linear = { kind: 'window', fromBar: 0, toBar: 10, layout: 'linear' } as const;
+    expect((await planSections(SONG_LINEAR, linear)).sections).toEqual(LINEAR);
+    const clip = { kind: 'window', fromBar: 0, toBar: 14, layout: 'clip' } as const;
+    expect((await planSections(SONG_LINEAR, clip)).sections).toEqual(CLIP);
+  });
+
+  test('without a loop section both layouts name the song sections', async () => {
+    const noLoop = buildStructure({
+      bpm: 120,
+      sections: [
+        { name: 'a', bars: 3 },
+        { name: 'b', bars: 1 },
+      ],
+    });
+    for (const layout of ['clip', 'linear'] as const) {
+      const got = await planSections(noLoop, { kind: 'window', fromBar: 0, toBar: 6, layout });
+      expect(got.sections).toEqual([r(0, 3, 'a'), r(3, 4, 'b')]);
+    }
+  });
+
+  test('a song without sections has no runs', async () => {
+    expect((await planSections(null, { kind: 'length', bars: 4 })).sections).toEqual([]);
+    const clip = { kind: 'window', fromBar: 0, toBar: 2, layout: 'clip' } as const;
+    expect((await planSections(null, clip)).sections).toEqual([]);
+  });
+
+  test('--length with sections names the clip bars it covers', async () => {
+    const got = await planSections(SONG_LINEAR, { kind: 'length', bars: 5 });
+    expect(got.window.layout).toBe('clip');
+    expect(got.sections).toEqual([r(0, 2, 'intro'), r(2, 5, 'body')]);
+  });
+
+  test('--section names the lookback bars before the window', async () => {
+    const body = await planSections(SONG_LINEAR, { kind: 'section', name: 'body' });
+    expect(body.window).toEqual({ fromBar: 2, toBar: 6, layout: 'linear' });
+    expect(body.sections).toEqual(BODY);
+    const tail = await planSections(SONG_LINEAR, { kind: 'section', name: 'tail' });
+    expect(tail.sections).toEqual(LINEAR);
+  });
+
+  test('loop presets name the opening and the repeat pass', async () => {
+    for (const preset of ['tagged-loop', 'intro-loop'] as const) {
+      const got = await planSections(SONG_LINEAR, { kind: 'clip' }, { preset });
+      expect(got.window).toEqual({ fromBar: 0, toBar: 6, layout: 'linear' });
+      expect(got.sections).toEqual(BODY);
+      const repeat = got.export?.repeat?.chunks ?? [];
+      expect(repeat.length).toBeGreaterThan(0);
+      for (const { plan } of repeat) {
+        expect(plan.fromBar).toBeGreaterThanOrEqual(got.sections[0]!.fromBar);
+        expect(plan.toBar).toBeLessThanOrEqual(got.sections.at(-1)!.toBar);
+      }
+    }
+    const folded = await planSections(SONG_LINEAR, { kind: 'clip' }, { preset: 'folded-loop' });
+    expect(folded.window).toEqual({ fromBar: 2, toBar: 6, layout: 'linear' });
+    expect(folded.sections).toEqual(BODY);
+    const oneShot = await planSections(SONG_LINEAR, { kind: 'clip' }, { preset: 'one-shot' });
+    expect(oneShot.sections).toEqual(CLIP);
+  });
+
+  test("a single chunk's overlap is named through c1", async () => {
+    const got = await planSections(
+      SONG_LINEAR,
+      { kind: 'window', fromBar: 0, toBar: 4, layout: 'linear' },
+      { chunk: { overlapBars: 2, lookbackSec: 0, mode: 'mix' } },
+    );
+    expect(got.sections).toEqual(BODY);
+  });
+
+  test('mixed meter: the meter changes move no bar', async () => {
+    // The `meta` of tests/render/mixed-meter-loop.js.
+    const mixed = buildStructure({
+      bpm: 120,
+      meter: '4/4',
+      sections: [
+        { name: 'opening', bars: 1 },
+        { name: 'F1', bars: 3 },
+        { name: 'F2', bars: 3 },
+        { name: 'E', bars: 4 },
+        { name: 'ending', bars: 1 },
+      ],
+      loop: { from: 'F1', through: 'E' },
+      meterChanges: [
+        { bar: 4, meter: '3/8' },
+        { bar: 5, meter: '4/4' },
+        { bar: 7, meter: '3/8' },
+        { bar: 8, meter: '4/4' },
+      ],
+      loops: 2,
+    });
+    expect(mixed.clipBars).toBe(22);
+    const clip = [
+      r(0, 1, 'opening'),
+      r(1, 4, 'F1'),
+      r(4, 7, 'F2'),
+      r(7, 11, 'E'),
+      r(11, 14, 'F1'),
+      r(14, 17, 'F2'),
+      r(17, 21, 'E'),
+      r(21, 22, 'ending'),
+    ];
+    expect((await planSections(mixed, { kind: 'clip' })).sections).toEqual(clip);
+    const tagged = await planSections(mixed, { kind: 'clip' }, { preset: 'tagged-loop' });
+    expect(tagged.sections).toEqual(clip.slice(0, 4));
+  });
+});
+
 describe('planRender follows the evaluated structure', () => {
   // The header says intro 4, main 8 (loop) x 2, outro 4: 24 bars. The song's `song()` call
   // registers another structure: main is 20 bars and played 3 times.
@@ -1198,6 +1422,16 @@ describe('planRender follows the evaluated structure', () => {
     expect(got.window).toEqual({ fromBar: 0, toBar: 50, layout: 'clip' });
     expect(got.structure).toEqual(want);
     for (const q of f.queries) expect(q.segments).toEqual(clipSegments(want));
+  });
+
+  test('the section runs read the --loops-applied structure', async () => {
+    const got = await planSections(evaluated, { kind: 'clip', loops: 2 });
+    expect(got.sections).toEqual([
+      r(0, 4, 'intro'),
+      r(4, 44, 'main'),
+      r(44, 48, 'outro'),
+      r(48, 50, 'coda'),
+    ]);
   });
 
   test('sections, lengths and their errors read the evaluated sections', async () => {

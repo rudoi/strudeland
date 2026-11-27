@@ -76,7 +76,9 @@ stem pairs). The bundle refuses a bad `chunk` with `bad request: …`; productio
 The result is the structure, the window and chunk windows, the song's errors, and one job text per
 chunk. It carries every frame measure, for every song: `musicFrames`, each chunk's
 `contentFrames` (and `overlapFrames` when a chunk renders overlap), and with a loop
-`loopStartFrame` and `repeat.musicFrames`.
+`loopStartFrame` and `repeat.musicFrames`. It also carries `sections`: the runs of layout bars
+from 0 to the window's end (plus a single chunk's overlap) and the section each plays in, as
+`locate` places them on the plan's segments.
 
 The optional `preset` field accepts `tagged-loop`, `intro-loop`, `folded-loop` or `one-shot`.
 Loop presets take a plain clip request and set `export.loopStartBar` to the marked section's

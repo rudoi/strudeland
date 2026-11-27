@@ -29,7 +29,7 @@ pub use inspection::{
 };
 pub use planned::{
     ChunkInfo, ChunkWindow, LoopRange, Meter, MeterChange, PlanError, PlannedChunk, PlannedExport,
-    PlannedRender, PlannedRepeat, PlannedWindow, Section, Structure,
+    PlannedRender, PlannedRepeat, PlannedSection, PlannedWindow, Section, Structure,
 };
 pub use request::{
     ExportPreset, Layout, LengthRequest, LookbackSec, MAX_BARS, MAX_TIMEOUT_SEC, Mode,

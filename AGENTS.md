@@ -278,7 +278,8 @@ the V8 download the host brings.
   (`host:parity`, pure parts in `src/lib/render/host-parity-lib.ts`).
 - The render pipeline: `src/lib/render/job-plan.ts`
   `planRender` (resolve the length request, evaluate once, query the schedule once, plan every
-  chunk's job, or one chunk for the harness with `chunk`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
+  chunk's job, or one chunk for the harness with `chunk`, and name the section of every layout
+  bar it schedules, `sections`), `batch-window.ts` (reads the pipeline's `--info` file, its chunk frames included, and
   builds the `AssembledWindow` for `--planner batch`), `chunks.ts` `renderChunkPlans`. `crates/strudeland-host/` also has
   `plan_render` (the `plan-render` subcommand), the planning timeout (a watchdog thread,
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a

@@ -18796,6 +18796,23 @@ Defaulting to 2020, but this will stop working in the future.`);
     }
     return lo;
   }
+  function sectionRuns(structure, segments, c1) {
+    const runs = [];
+    let open = -1;
+    for (let bar = 0;bar < c1; bar++) {
+      const at2 = locate(bar, structure, segments);
+      if (!at2) {
+        open = -1;
+        continue;
+      }
+      if (at2.section === open)
+        runs.at(-1).toBar = bar + 1;
+      else
+        runs.push({ fromBar: bar, toBar: bar + 1, name: structure.sections[at2.section].name });
+      open = at2.section;
+    }
+    return runs;
+  }
   function onsetsFrom(selected, bar) {
     const first = onsetIndex(selected, bar);
     return first === 0 ? selected : selected.slice(first).map((s, index) => ({ ...s, index }));
@@ -18893,6 +18910,7 @@ Defaulting to 2020, but this will stop working in the future.`);
       const separateRepeat = loopStartBar !== undefined && loopStartBar > fromBar;
       const scheduleStart = loopStartBar === fromBar ? fromBar : 0;
       const c1 = toBar + (single?.overlapBars ?? 0);
+      const sections = sectionRuns(structure, segments, c1);
       const full = selectHaps(query(scheduleStart, c1));
       const opening = planPass(full, fromBar, scheduleStart, !separateRepeat && !!request.preset);
       const repeat = separateRepeat ? planPass({
@@ -18904,6 +18922,7 @@ Defaulting to 2020, but this will stop working in the future.`);
         musicFrames: musicalFrames,
         cps,
         structure,
+        sections,
         lookbackSec,
         errors: dedupeErrors(errors),
         ...request.includeEvents === true ? { events: opening.events } : {},
