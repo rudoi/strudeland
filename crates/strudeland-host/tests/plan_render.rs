@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use common::{SONG, corpus_song, job, request, single_chunk};
 use strudeland_engine::{EngineJob, Value};
 use strudeland_host::{
-    ExportPreset, Host, HostError, Layout, LengthRequest, LookbackSec, Mode, PlannedChunk,
-    PlannedRender, PlannedSection, RenderPlanRequest, SingleChunk,
+    ExportPreset, Host, HostError, Layout, LengthProblem, LengthRequest, LookbackSec, Mode,
+    PlannedChunk, PlannedRender, PlannedSection, RenderPlanRequest, SingleChunk,
 };
 
 fn plan_request(length: LengthRequest) -> RenderPlanRequest {
@@ -289,55 +289,167 @@ fn sections_name_the_layout_bars_of_a_real_plan() {
 }
 
 #[test]
-fn length_errors_are_meta_with_their_flag() {
+fn length_errors_are_meta_with_their_problem() {
     let host = Host::new().unwrap();
     let sections = corpus_song("song-linear.js");
     let plain = corpus_song("sine-basic.js");
+    let n = "note('c').s('sine')";
+    let long_loop = |loops: &str| {
+        format!(
+            "const meta = {{ bpm: 120, {loops}sections: [{{ name: 'a', bars: 2 }}, \
+             {{ name: 'b', bars: 10000, loop: true }}] }};\n\
+             song(meta, {{ a: {n}, b: {n} }})\n"
+        )
+    };
+    // Eleven 10000-bar sections, `last` on the last one's entry, `tail` after the sections.
+    let eleven = |last: &str, tail: &str| {
+        let secs: Vec<String> = (0..11)
+            .map(|i| {
+                let extra = if i == 10 { last } else { "" };
+                format!("{{ name: 's{i}', bars: 10000{extra} }}")
+            })
+            .collect();
+        let parts: Vec<String> = (0..11).map(|i| format!("s{i}: {n}")).collect();
+        format!(
+            "const meta = {{ bpm: 120, sections: [{}]{tail} }};\nsong(meta, {{ {} }})\n",
+            secs.join(", "),
+            parts.join(", ")
+        )
+    };
+    let looped = long_loop("");
+    let meta_loops = long_loop("loops: 10, ");
+    let long_plain = eleven("", "");
+    let last_loop = eleven(", loop: true", "");
+    let range = eleven("", ", loop: { from: 's9', through: 's10' }");
+    let preset = |length: LengthRequest| RenderPlanRequest {
+        preset: Some(ExportPreset::TaggedLoop),
+        ..plan_request(length)
+    };
+    let clip = LengthRequest::Clip { loops: None };
     let cases = [
         (
             plain.as_str(),
-            LengthRequest::Clip { loops: None },
-            "--length",
+            plan_request(clip.clone()),
+            LengthProblem::NoSections,
             "this song has no sections; pass --length N to say how many bars to render",
         ),
         (
             plain.as_str(),
-            LengthRequest::Section { name: "a".into() },
-            "--section",
+            plan_request(LengthRequest::Section { name: "a".into() }),
+            LengthProblem::SectionWithoutSections,
             "this song has no sections; --section needs meta.sections",
         ),
         (
             sections.as_str(),
-            LengthRequest::Section {
+            plan_request(LengthRequest::Section {
                 name: "drop".into(),
+            }),
+            LengthProblem::UnknownSection {
+                name: "drop".into(),
+                sections: vec!["intro".into(), "body".into(), "tail".into()],
             },
-            "--section",
             "unknown section 'drop' (sections: intro, body, tail)",
         ),
         (
             sections.as_str(),
-            LengthRequest::Length { bars: 13 },
-            "--length",
+            plan_request(LengthRequest::Length { bars: 13 }),
+            LengthProblem::LengthPastEnd {
+                bars: 13,
+                clip_bars: 12,
+            },
             "--length 13 is past the end of the song (12 bars)",
         ),
         (
             plain.as_str(),
-            LengthRequest::Clip { loops: Some(2) },
-            "--loops",
+            plan_request(LengthRequest::Clip { loops: Some(2) }),
+            LengthProblem::LoopsWithoutLoop,
             "--loops needs meta.loop or a section with loop: true in meta.sections",
         ),
+        (
+            sections.as_str(),
+            preset(LengthRequest::Length { bars: 2 }),
+            LengthProblem::PresetWithLength,
+            "loop presets cannot be combined with --section, --length or --loops",
+        ),
+        (
+            looped.as_str(),
+            plan_request(LengthRequest::Clip { loops: Some(1000) }),
+            LengthProblem::LoopsPastLimit {
+                loops: 1000,
+                clip_bars: 10000002,
+                limit: 100000,
+            },
+            "--loops 1000 makes the clip 10000002 bars, past the render limit of 100000 bars",
+        ),
+        (
+            meta_loops.as_str(),
+            plan_request(clip.clone()),
+            LengthProblem::ClipPastLimit {
+                clip_bars: 100002,
+                limit: 100000,
+                has_loop: true,
+            },
+            "the song's clip is 100002 bars, past the render limit of 100000 bars; pass --length N or --loops N",
+        ),
+        (
+            long_plain.as_str(),
+            plan_request(clip.clone()),
+            LengthProblem::ClipPastLimit {
+                clip_bars: 110000,
+                limit: 100000,
+                has_loop: false,
+            },
+            "the song's clip is 110000 bars, past the render limit of 100000 bars; pass --length N",
+        ),
+        (
+            long_plain.as_str(),
+            plan_request(LengthRequest::Section { name: "s10".into() }),
+            LengthProblem::SectionPastLimit {
+                name: "s10".into(),
+                to_bar: 110000,
+                limit: 100000,
+            },
+            "section 's10' ends at bar 110000, past the render limit of 100000 bars",
+        ),
+        (
+            last_loop.as_str(),
+            preset(clip.clone()),
+            LengthProblem::SectionPastLimit {
+                name: "s10".into(),
+                to_bar: 110000,
+                limit: 100000,
+            },
+            "section 's10' ends at bar 110000, past the render limit of 100000 bars",
+        ),
+        (
+            plain.as_str(),
+            preset(clip.clone()),
+            LengthProblem::PresetWithoutLoop,
+            "--preset needs meta.loop or a section with loop: true in meta.sections",
+        ),
+        (
+            range.as_str(),
+            preset(clip.clone()),
+            LengthProblem::LoopPastLimit {
+                end: 110000,
+                limit: 100000,
+            },
+            "the loop ends at bar 110000, past the render limit of 100000 bars",
+        ),
     ];
-    for (code, length, flag, message) in cases {
-        assert_eq!(
-            host.plan_render(code, &plan_request(length.clone())),
+    for (code, request, want, message) in cases {
+        match host.plan_render(code, &request) {
             Err(HostError::MetaFlag {
-                flag: flag.into(),
-                message: message.into()
-            }),
-            "{length:?}"
-        );
+                problem,
+                message: m,
+            }) => {
+                assert_eq!(problem, Some(want), "{request:?}");
+                assert_eq!(m, message, "{request:?}");
+            }
+            other => panic!("{request:?}: {other:?}"),
+        }
     }
-    // A bad meta header has no flag.
+    // A bad meta header is a plain meta error, without a length problem.
     match host.plan_render(
         "const meta = { bpm: 'x' };\n$: note(\"c\")\n",
         &plan_request(LengthRequest::Length { bars: 2 }),

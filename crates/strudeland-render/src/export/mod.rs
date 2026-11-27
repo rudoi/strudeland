@@ -8,12 +8,15 @@
 //!    [`prepare_previewed`] (the app: per role, resolve then stat, in table order; the
 //!    [`Preview`]). Neither creates anything.
 //! 3. [`Prepared::run`]: render and publish.
+//!
+//! [`dialog_text`] is the dialog's wording of the planner's length problems.
 
 mod destination;
 mod error;
 mod pipeline;
 mod publish;
 mod request;
+mod wording;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -25,6 +28,7 @@ pub(crate) use publish::publish_file;
 pub use publish::{PublishStep, ReplacePolicy, check_chosen_folder};
 pub(crate) use request::roles;
 pub use request::{ExportProblem, Kind, Request, check_length_for_preset};
+pub use wording::dialog_text;
 
 use destination::{MixNames, Place, stem_target};
 use publish::Mode;

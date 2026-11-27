@@ -51,20 +51,72 @@ export interface PlannerRuntime {
 
 export type PlanJobPhase = 'evaluating' | 'querying';
 
+/** A render's length request the song cannot satisfy: a code and its parameters. The message
+ *  thrown with it is the command-line wording; `lengthFlag` names the flag it is about. */
+export type LengthProblem =
+  /** A loop preset combined with a section, a length or a loop count. */
+  | { code: 'presetWithLength' }
+  /** A loop count on a song that marks no loop. */
+  | { code: 'loopsWithoutLoop' }
+  /** A loop count the structure refuses (its own message). */
+  | { code: 'loopsInvalid'; message: string }
+  /** The whole clip of a song without sections. */
+  | { code: 'noSections' }
+  /** A loop count that makes the clip longer than the render limit. */
+  | { code: 'loopsPastLimit'; loops: number; clipBars: number; limit: number }
+  /** The whole clip, longer than the render limit. */
+  | { code: 'clipPastLimit'; clipBars: number; limit: number; hasLoop: boolean }
+  /** A section of a song without sections. */
+  | { code: 'sectionWithoutSections' }
+  /** A section the song does not have. */
+  | { code: 'unknownSection'; name: string; sections: string[] }
+  /** A section (or a single-section loop) that ends past the render limit. */
+  | { code: 'sectionPastLimit'; name: string; toBar: number; limit: number }
+  /** A length in bars past the end of the song's clip. */
+  | { code: 'lengthPastEnd'; bars: number; clipBars: number }
+  /** A loop preset on a song that marks no loop. */
+  | { code: 'presetWithoutLoop' }
+  /** A loop preset whose loop range ends past the render limit. */
+  | { code: 'loopPastLimit'; end: number; limit: number };
+
+/** The command-line flag a length problem is about. */
+export function lengthFlag(
+  problem: LengthProblem,
+): '--length' | '--section' | '--loops' | '--preset' {
+  switch (problem.code) {
+    case 'presetWithLength':
+    case 'presetWithoutLoop':
+    case 'loopPastLimit':
+      return '--preset';
+    case 'loopsWithoutLoop':
+    case 'loopsInvalid':
+    case 'loopsPastLimit':
+      return '--loops';
+    case 'noSections':
+    case 'clipPastLimit':
+    case 'lengthPastEnd':
+      return '--length';
+    case 'sectionWithoutSections':
+    case 'unknownSection':
+    case 'sectionPastLimit':
+      return '--section';
+  }
+}
+
 /** Why planning failed: the `meta` header, the song's evaluation, or the query and plan.
- *  `flag` names the command-line flag a length request error is about (`--length`,
- *  `--section`, `--loops`, `--preset`); only `planRender` sets it, and only with kind 'meta'. */
+ *  `problem` is the typed length-request error; only `planRender` sets it, and only with kind
+ *  'meta'. */
 export class PlanJobError extends Error {
-  declare public readonly flag?: string;
+  declare public readonly problem?: LengthProblem;
 
   constructor(
     public readonly kind: 'meta' | 'eval' | 'plan',
     message: string,
-    flag?: string,
+    problem?: LengthProblem,
   ) {
     super(message);
     this.name = 'PlanJobError';
-    if (flag !== undefined) this.flag = flag;
+    if (problem !== undefined) this.problem = problem;
   }
 }
 
@@ -331,7 +383,7 @@ function validateRenderRequest(request: unknown): asserts request is RenderPlanR
     throw new PlanJobError(
       'meta',
       'loop presets cannot be combined with --section, --length or --loops',
-      '--preset',
+      { code: 'presetWithLength' },
     );
   }
   switch (length.kind) {
@@ -385,29 +437,31 @@ function validateChunk(chunk: Record<string, unknown>, toBar: number): void {
   if (mode !== 'mix' && mode !== 'stems') throw badRequest(`unknown chunk mode ${String(mode)}`);
 }
 
-/** `structure` with the `--loops` override (unchanged without one), as a flagged `meta` error
- *  when the song has no loop section. */
+/** `structure` with the `--loops` override (unchanged without one), as a `meta` error with its
+ *  length problem when the song has no loop section. */
 function loopsApplied(structure: SongStructure, loops: number | undefined): SongStructure {
   if (loops === undefined) return structure;
   if (authoredLoop(structure) === null) {
     throw new PlanJobError(
       'meta',
       '--loops needs meta.loop or a section with loop: true in meta.sections',
-      '--loops',
+      { code: 'loopsWithoutLoop' },
     );
   }
   try {
     return withLoops(structure, loops);
   } catch (e) {
-    if (e instanceof StructureError) throw new PlanJobError('meta', e.message, '--loops');
+    if (e instanceof StructureError) {
+      throw new PlanJobError('meta', e.message, { code: 'loopsInvalid', message: e.message });
+    }
     throw e;
   }
 }
 
 /** The render window and layout a length request asks for, from the song's structure (with any
  *  `loops` override applied). A window ending past `MAX_RENDER_BARS` (a clip of many or long
- *  loops, a late section) is refused like an explicit window would be. Throws the flagged `meta`
- *  errors. */
+ *  loops, a late section) is refused like an explicit window would be. Throws the `meta` errors
+ *  with their length problems. */
 function resolveWindow(
   length: LengthRequest,
   structure: SongStructure,
@@ -421,7 +475,7 @@ function resolveWindow(
         throw new PlanJobError(
           'meta',
           'this song has no sections; pass --length N to say how many bars to render',
-          '--length',
+          { code: 'noSections' },
         );
       }
       const { clipBars } = structure;
@@ -431,32 +485,32 @@ function resolveWindow(
           throw new PlanJobError(
             'meta',
             `--loops ${length.loops} makes the clip ${clipBars} bars, ${limit}`,
-            '--loops',
+            { code: 'loopsPastLimit', loops: length.loops, clipBars, limit: MAX_RENDER_BARS },
           );
         }
-        const advice = authoredLoop(structure) === null ? '--length N' : '--length N or --loops N';
+        const hasLoop = authoredLoop(structure) !== null;
+        const advice = hasLoop ? '--length N or --loops N' : '--length N';
         throw new PlanJobError(
           'meta',
           `the song's clip is ${clipBars} bars, ${limit}; pass ${advice}`,
-          '--length',
+          { code: 'clipPastLimit', clipBars, limit: MAX_RENDER_BARS, hasLoop },
         );
       }
       return { fromBar: 0, toBar: clipBars, layout: 'clip' };
     }
     case 'section': {
       if (sections.length === 0) {
-        throw new PlanJobError(
-          'meta',
-          'this song has no sections; --section needs meta.sections',
-          '--section',
-        );
+        throw new PlanJobError('meta', 'this song has no sections; --section needs meta.sections', {
+          code: 'sectionWithoutSections',
+        });
       }
       const section = sections.find((s) => s.name === length.name);
       if (!section) {
+        const names = sections.map((s) => s.name);
         throw new PlanJobError(
           'meta',
-          `unknown section '${length.name}' (sections: ${sections.map((s) => s.name).join(', ')})`,
-          '--section',
+          `unknown section '${length.name}' (sections: ${names.join(', ')})`,
+          { code: 'unknownSection', name: length.name, sections: names },
         );
       }
       const toBar = section.start + section.bars;
@@ -464,7 +518,7 @@ function resolveWindow(
         throw new PlanJobError(
           'meta',
           `section '${section.name}' ends at bar ${toBar}, past the render limit of ${MAX_RENDER_BARS} bars`,
-          '--section',
+          { code: 'sectionPastLimit', name: section.name, toBar, limit: MAX_RENDER_BARS },
         );
       }
       return { fromBar: section.start, toBar, layout: 'linear' };
@@ -475,7 +529,7 @@ function resolveWindow(
         throw new PlanJobError(
           'meta',
           `--length ${length.bars} is past the end of the song (${structure.clipBars} bars)`,
-          '--length',
+          { code: 'lengthPastEnd', bars: length.bars, clipBars: structure.clipBars },
         );
       }
       return { fromBar: 0, toBar: length.bars, layout: 'clip' };
@@ -493,7 +547,7 @@ function exportWindow(request: RenderPlanRequest, structure: SongStructure) {
     throw new PlanJobError(
       'meta',
       '--preset needs meta.loop or a section with loop: true in meta.sections',
-      '--preset',
+      { code: 'presetWithoutLoop' },
     );
   }
   if (loop.first === loop.last) {
@@ -509,7 +563,7 @@ function exportWindow(request: RenderPlanRequest, structure: SongStructure) {
     throw new PlanJobError(
       'meta',
       `the loop ends at bar ${loop.end}, past the render limit of ${MAX_RENDER_BARS} bars`,
-      '--preset',
+      { code: 'loopPastLimit', end: loop.end, limit: MAX_RENDER_BARS },
     );
   }
   const window = {
@@ -577,7 +631,7 @@ export function cutSchedule(full: ScheduleSelection, c1: number): ScheduleSelect
  * lookback ('auto': the schedule's) and mode, and carries its `info`; its job is byte-equal to
  * the matching chunk of a full plan. It names the section of every layout bar it schedules
  * (`sections`). `captured` is read as each chunk is planned. Throws
- * `PlanJobError` (length errors are kind 'meta' with a `flag`; a header or evaluation error comes
+ * `PlanJobError` (length errors are kind 'meta' with a `problem`; a header or evaluation error comes
  * first).
  */
 export async function planRender(

@@ -140,10 +140,14 @@ fn problem(error: impl Display) -> ExportError {
     CommandError::other(error).into()
 }
 
-/// The dialog's wording of an export module error.
+/// The dialog's wording of an export module error: a length problem gets the dialog's own
+/// wording ([`export::dialog_text`], no CLI flags), everything else the module's.
 fn export_message(error: &export::Error) -> String {
     match error {
-        export::Error::Render(e) => e.to_string(),
+        export::Error::Render(e) => match e.length_problem() {
+            Some(problem) => export::dialog_text(problem),
+            None => e.to_string(),
+        },
         export::Error::Project { source, .. } => source.to_string(),
         export::Error::FolderChanged { path } => {
             format!("the selected output folder changed: {}", path.display())
@@ -786,7 +790,7 @@ mod tests {
     fn export_messages_keep_their_wording() {
         use std::io;
         use strudeland_project::ProjectError;
-        use strudeland_render::RenderError;
+        use strudeland_render::{HostError, LengthProblem, RenderError};
         let outside = ProjectError::PathOutsideProject("renders/x.wav".into());
         let outside_text = outside.to_string();
         let cases: Vec<(export::Error, &str)> = vec![
@@ -828,11 +832,46 @@ mod tests {
                 "replacement requires confirmation",
             ),
             (export::Error::PreviewRequired, "the export has no preview"),
+            (
+                export::Error::Render(RenderError::Plan(HostError::MetaFlag {
+                    problem: Some(LengthProblem::NoSections),
+                    message:
+                        "this song has no sections; pass --length N to say how many bars to render"
+                            .into(),
+                })),
+                "this song has no sections; choose a length in bars",
+            ),
+            (
+                export::Error::Render(RenderError::Plan(HostError::MetaFlag {
+                    problem: Some(LengthProblem::PresetWithoutLoop),
+                    message:
+                        "--preset needs meta.loop or a section with loop: true in meta.sections"
+                            .into(),
+                })),
+                "loop export needs a meta.loop range or a section with loop: true",
+            ),
+            (
+                // A problem the host could not parse keeps the planner's message.
+                export::Error::Render(RenderError::Plan(HostError::MetaFlag {
+                    problem: None,
+                    message: "pass --length N".into(),
+                })),
+                "pass --length N",
+            ),
+            (
+                export::Error::Render(RenderError::Plan(HostError::Eval("boom".into()))),
+                "eval: boom",
+            ),
+            (
+                export::Error::Render(RenderError::Plan(HostError::Meta("bad".into()))),
+                "meta: bad",
+            ),
         ];
         for (error, text) in cases {
             let label = format!("{error:?}");
             let e = run_error(error.into());
             assert_eq!(e.message, text, "{label}");
+            assert!(matches!(e.kind, CommandErrorKind::Other), "{label}");
             assert!(e.written.is_empty(), "{label}");
         }
         let e = run_error(export::RunError {

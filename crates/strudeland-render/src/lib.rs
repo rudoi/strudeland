@@ -55,7 +55,8 @@ pub use output::{OutputTarget, resolve_format, write_output};
 pub use render::MAX_WARNINGS;
 pub use stems::{StemExport, StemGrouping, StemTarget};
 pub use strudeland_host::{
-    ExportPreset, HostError, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC, timeout_from_secs,
+    ExportPreset, HostError, LengthProblem, LengthRequest, MAX_BARS, MAX_TIMEOUT_SEC,
+    timeout_from_secs,
 };
 pub use summary::{Progress, RenderOutput, RenderedAudio, Summary, Timings};
 

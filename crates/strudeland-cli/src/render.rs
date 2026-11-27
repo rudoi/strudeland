@@ -426,11 +426,11 @@ mod tests {
     use clap::Parser;
     use std::time::Duration;
     use strudeland_ctl::{CallError, Method};
-    use strudeland_render::HostError;
     use strudeland_render::Mp3Mode;
     use strudeland_render::level::LoudnessSummary;
     use strudeland_render::testing::FakePipeline;
     use strudeland_render::{ExportFile, RenderOutput, Timings, Unsupported};
+    use strudeland_render::{HostError, LengthProblem};
 
     struct NoTransport;
     impl Transport for NoTransport {
@@ -1331,7 +1331,7 @@ mod tests {
     #[test]
     fn host_length_errors_are_usage_other_plan_errors_fail() {
         let o = fail(RenderError::Plan(HostError::MetaFlag {
-            flag: "--length".into(),
+            problem: Some(LengthProblem::NoSections),
             message: "this song has no sections; pass --length N".into(),
         }));
         assert_eq!(o.code, 4);

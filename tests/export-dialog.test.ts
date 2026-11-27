@@ -4,6 +4,8 @@ import type { ExportApi, ExportProgress, ExportResult, ExportTarget } from '../s
 import {
   captureExportSong,
   createExportDialog,
+  loopUnavailable,
+  MODES,
   showMp3Warning,
 } from '../src/lib/export/controller';
 import { ExportError } from '../src/lib/export/error';
@@ -20,9 +22,11 @@ const editor = {
   root: '/works',
   songPath: 'songs/main.js',
   title: 'main',
-  source: 'unsaved editor text',
+  source:
+    "const meta = { sections: [{ name: 'lead', bars: 2 }, { name: 'body', bars: 4, loop: true }] }\nunsaved editor text",
   dirty: true,
   structure,
+  cleanHeader: true,
 };
 const audio = { role: 'single', path: '/works/renders/main.wav', exists: false } as const;
 const opening = { role: 'intro', path: '/works/renders/main-intro.wav', exists: true } as const;
@@ -61,7 +65,13 @@ describe('export dialog', () => {
       notice: null,
     };
     expect(captureExportSong(state, editor.source)).toEqual(editor);
-    expect(captureExportSong(state, '')?.source).toBe('');
+    expect(captureExportSong(state, '')).toEqual({ ...editor, source: '', cleanHeader: false });
+    // Only a static header that parses and breaks no rule is clean.
+    const clean = (source: string) => captureExportSong(state, source)?.cleanHeader;
+    expect(clean("const meta = { bpm: 120 }\nnote('c')")).toBe(true);
+    expect(clean("note('c')")).toBe(false);
+    expect(clean("const meta = { bpm: 'fast' }\nnote('c')")).toBe(false);
+    expect(clean("const meta = { bpm: }\nnote('c')")).toBe(false);
     expect(captureExportSong(state, null)).toBeNull();
     expect(captureExportSong({ ...state, active: null }, editor.source)).toBeNull();
     expect(captureExportSong({ ...state, available: false }, editor.source)).toBeNull();
@@ -161,7 +171,11 @@ describe('export dialog', () => {
   });
 
   test('accepts manual clip or loop requests when the static structure is unavailable', async () => {
-    const { api, dialog, state } = setup({ ...editor, structure: buildStructure({}) });
+    const { api, dialog, state } = setup({
+      ...editor,
+      structure: buildStructure({}),
+      cleanHeader: false,
+    });
     await dialog.refresh();
     expect(state().options.range).toBe('length');
     expect(api.preview).not.toHaveBeenCalled();
@@ -410,5 +424,99 @@ describe('export dialog', () => {
     folder.resolve(null);
     await picking;
     expect(dialog.canClose()).toBe(true);
+  });
+
+  test('loopUnavailable holds exactly for a loop preset on a clean header that marks no loop', () => {
+    const structures = {
+      looped: structure,
+      unlooped: buildStructure({
+        sections: [
+          { name: 'a', bars: 2 },
+          { name: 'b', bars: 2 },
+        ],
+      }),
+      range: buildStructure({
+        sections: [
+          { name: 'a', bars: 2 },
+          { name: 'b', bars: 2 },
+          { name: 'c', bars: 2 },
+        ],
+        loop: { from: 'a', through: 'b' },
+      }),
+      empty: buildStructure({}),
+      none: null,
+    };
+    const songs = [
+      ...Object.entries(structures).map(([name, s]) => ({
+        name,
+        song: { structure: s, cleanHeader: true },
+      })),
+      // No static header, or a header error: the session's structure is the default one.
+      { name: 'missing header', song: { structure: buildStructure({}), cleanHeader: false } },
+      { name: 'header error', song: { structure: buildStructure({}), cleanHeader: false } },
+    ];
+    const loopModes = ['intro-loop', 'tagged-loop', 'folded-loop'];
+    const noLoop = ['unlooped', 'empty', 'none'];
+    const table = MODES.flatMap(({ id: mode }) =>
+      songs.map(({ name, song }) => ({ mode, name, got: loopUnavailable(song, { mode }) })),
+    );
+    expect(table).toHaveLength(MODES.length * 7);
+    for (const row of table) {
+      expect(row).toEqual({
+        ...row,
+        got: loopModes.includes(row.mode) && noLoop.includes(row.name),
+      });
+    }
+    expect(table.filter((row) => row.got)).toHaveLength(9);
+  });
+
+  test('start refuses a loop preset while a clean header marks no loop', async () => {
+    const { api, dialog, state } = setup({ ...editor, structure: buildStructure({}) });
+    dialog.select({ mode: 'tagged-loop' });
+    await next();
+    expect(state().preview.kind).toBe('ready');
+    await dialog.start();
+    expect(api.start).not.toHaveBeenCalled();
+    expect(state().activity.kind).toBe('idle');
+    dialog.select({ mode: 'one-shot', range: 'length', bars: '2' });
+    await next();
+    expect(state().preview.kind).toBe('ready');
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledTimes(1);
+  });
+
+  test('start sends a loop preset without a clean header, so the planner decides', async () => {
+    for (const source of ["note('c')", "const meta = { bpm: 'fast' }\nnote('c')"]) {
+      const { api, dialog, state } = setup({
+        ...editor,
+        source,
+        structure: buildStructure({}),
+        cleanHeader: false,
+      });
+      dialog.select({ mode: 'tagged-loop' });
+      await next();
+      expect(state().preview.kind).toBe('ready');
+      await dialog.start();
+      expect(api.start).toHaveBeenCalledWith(
+        expect.objectContaining({ preset: 'tagged-loop' }),
+        source,
+        [audio],
+        expect.any(Function),
+      );
+    }
+  });
+
+  test('a loop preset on a looped song still starts', async () => {
+    const { api, dialog, state } = setup();
+    dialog.select({ mode: 'folded-loop' });
+    await next();
+    expect(state().preview.kind).toBe('ready');
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledWith(
+      expect.objectContaining({ preset: 'folded-loop' }),
+      editor.source,
+      [audio],
+      expect.any(Function),
+    );
   });
 });

@@ -77,7 +77,7 @@
     "node_modules/source-map/source-map.js": "dc098456c2d9ab90a4c0a17cca9be16665b9813df20906553a98b0088a157be7",
     "src/host/backend.ts": "25b2d9391bcfa7cc3cab8912460f9dbffaeb0d21d2a0d6e8804deadf784af7ab",
     "src/host/inspection.ts": "47911e6226a2845e3e355ef17178d8bd387752ef41b371bb7e829bb145418110",
-    "src/host/main.ts": "51c24e141ffcbba94d168f061c4a4df4d0871e4c5a1043025805916bb6acbac3",
+    "src/host/main.ts": "aee9158e95b48903b5796eb2dd3621662346bcaf042a8c8b906109c159e21ce2",
     "src/host/prebake.ts": "5cdddf2c9241e8a70fbad9c41c2f548355e17cac9a6261ed5c2b7bc44527fd62",
     "src/host/shims.ts": "6af1da421ab0fdcf8a38fde7f7dbbd514b550d55204dfdee694b26f88b6039a3",
     "src/host/superdough-names.ts": "9efabfd5c7d3df3f9531866aeb617956a628986830d34208282425d0dbec0585",
@@ -90,7 +90,7 @@
     "src/lib/render/engine-job.ts": "74f51e997b2df27e7084d7f18f2b3d87f5d2ac03c52842de2bbe0827197e600e",
     "src/lib/render/gates/stems.ts": "764c7fa27262d21ca39788c5079ce25fe46f5e4d248ef0a41f73c0625467b2f8",
     "src/lib/render/gates/types.ts": "8d76bb081146020dd471738cf7e7eac5c47b416ea81f21912c469102d851744e",
-    "src/lib/render/job-plan.ts": "97cff8525b117bacc9a7eedf25864344c74a1ef6d69090679501da808b55d93d",
+    "src/lib/render/job-plan.ts": "6bb4a4b462a5ed4ee9925b9881813447ae18a0a5f0279a01b49f76de3ea1381f",
     "src/lib/render/logged-errors.ts": "4af126d11de1554b847eabbe2c49c735da7b1caca547458b16e5d605bab352f4",
     "src/lib/render/lookback.ts": "48bd60331a9740b81e84eb079e3b8d666eea6bf72adbb150d27484a010d6c9ea",
     "src/lib/render/page-job.ts": "aec2af75ee3022bc4e37f808d3e329f00825c93911f77ce3c4cbf394c3911d20",
@@ -156,5 +156,5 @@
     "vendor/strudel/packages/transpiler/plugin-widgets.mjs": "5aafb2454330002b4594a1d5c3c588560455b6537ef535bc85fda2a4ee5f69e9",
     "vendor/strudel/packages/transpiler/transpiler.mjs": "0d680c8fb69c7ea2843a67ecbc4f07dacdd234362361afcc8b61b6cef315eb2c"
   },
-  "combined": "63096b485f08882daaf0692781360bd2f25062796d4d1008f80b4f039933e288"
+  "combined": "728f6a1c44cad47299ae5f3d90f605ddcc33b5013e517cfc139f703e288134c3"
 }

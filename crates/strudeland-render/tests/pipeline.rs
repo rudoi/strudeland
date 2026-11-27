@@ -5,7 +5,7 @@ mod common;
 
 use common::{Recorder, corpus_song, options, window};
 use strudeland_engine::wav::read_f32;
-use strudeland_host::{HostError, Layout, LengthRequest};
+use strudeland_host::{HostError, Layout, LengthProblem, LengthRequest};
 use strudeland_render::encode::verify::decode;
 use strudeland_render::encode::{EncodeRequest, encode_once};
 use strudeland_render::level::{integrated_lufs, true_peak_db};
@@ -314,7 +314,11 @@ fn length_errors_are_usage_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&e, RenderError::Plan(HostError::MetaFlag { flag, .. }) if flag == "--length"),
+        matches!(
+            &e,
+            RenderError::Plan(HostError::MetaFlag { problem, .. })
+                if matches!(problem, Some(LengthProblem::NoSections))
+        ),
         "{e:?}"
     );
     assert_eq!(e.exit_class(), ExitClass::Usage);
@@ -338,7 +342,18 @@ fn a_clip_past_the_render_limit_is_a_usage_error_not_an_abort() {
     )
     .unwrap_err();
     assert!(
-        matches!(&e, RenderError::Plan(HostError::MetaFlag { flag, .. }) if flag == "--loops"),
+        matches!(
+            &e,
+            RenderError::Plan(HostError::MetaFlag { problem, .. })
+                if matches!(
+                    problem,
+                    Some(LengthProblem::LoopsPastLimit {
+                        loops: 1000,
+                        clip_bars: 10000002,
+                        limit: 100000
+                    })
+                )
+        ),
         "{e:?}"
     );
     assert_eq!(e.exit_class(), ExitClass::Usage);

@@ -2,7 +2,8 @@ import { writable } from 'svelte/store';
 import { errorMessage } from '../errors';
 import { ExportError } from './error';
 import type { SessionState } from '../project/session';
-import type { SongStructure } from '../strudel/structure';
+import { headerRanges } from '../project/song-header';
+import { authoredLoop, type SongStructure } from '../strudel/structure';
 import type {
   ExportApi,
   ExportFormat,
@@ -59,6 +60,10 @@ export interface ExportSong {
   source: string;
   dirty: boolean;
   structure: SongStructure | null;
+  /** The source starts with a static `const meta = {…}` header that parses and breaks no rule.
+   *  False without a header or with a header error: `structure` is then the default one, not
+   *  what the song marks. */
+  cleanHeader: boolean;
 }
 
 export function captureExportSong(state: SessionState, source: string | null): ExportSong | null {
@@ -72,6 +77,7 @@ export function captureExportSong(state: SessionState, source: string | null): E
         source,
         dirty: song.dirty,
         structure: state.structure,
+        cleanHeader: headerRanges(source) !== null,
       }
     : null;
 }
@@ -115,6 +121,20 @@ export const loopMode = (mode: Mode): mode is Exclude<ExportPreset, 'one-shot'> 
 
 export const showMp3Warning = ({ mode, format }: Options): boolean =>
   loopMode(mode) && format === 'mp3';
+
+/** A loop preset with no loop to export: the song has a clean static header (see
+ *  `cleanHeader`) and it marks neither a `meta.loop` range nor a section with `loop: true`.
+ *  Without a header, or with a header error, the structure is the default one and says nothing
+ *  about the song, so this is false and the planner decides. The planner reads the evaluated
+ *  song, so a loop that only `song()` registers is not seen here (the dialog words its ranges
+ *  from the header too). */
+export const loopUnavailable = (
+  song: Pick<ExportSong, 'structure' | 'cleanHeader'>,
+  { mode }: Pick<Options, 'mode'>,
+): boolean =>
+  loopMode(mode) &&
+  song.cleanHeader &&
+  (song.structure === null || authoredLoop(song.structure) === null);
 
 export const roleLabel = (role: ExportRole): string =>
   ({ intro: 'opening', loop: 'loop', single: 'audio' })[role];
@@ -259,7 +279,14 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
   }
 
   async function start() {
-    if (disposed || !canClose() || state.preview.kind !== 'ready' || state.result) return;
+    if (
+      disposed ||
+      !canClose() ||
+      state.preview.kind !== 'ready' ||
+      state.result ||
+      loopUnavailable(song, state.options)
+    )
+      return;
     const { target, request } = state.preview;
     let receivingProgress = true;
     hasUnacknowledgedOutcome = false;

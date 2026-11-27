@@ -17,6 +17,7 @@ import {
   PlanJobError,
   planRender,
   querySong,
+  type LengthProblem,
   type PlannerRuntime,
 } from '../lib/render/job-plan';
 import { asciiJson } from '../lib/render/page-job';
@@ -37,7 +38,7 @@ import { hostPrebake } from './prebake';
 
 export type HostResult =
   | { ok: true; value: string }
-  | { ok: false; kind: 'meta' | 'eval' | 'plan'; error: string; flag?: string };
+  | { ok: false; kind: 'meta' | 'eval' | 'plan'; error: string; length?: LengthProblem };
 
 export type Layout = SegmentLayout;
 
@@ -80,7 +81,7 @@ const failure = (e: unknown): Extract<HostResult, { ok: false }> =>
         ok: false,
         kind: e.kind,
         error: e.message,
-        ...(e.flag === undefined ? {} : { flag: e.flag }),
+        ...(e.problem === undefined ? {} : { length: e.problem }),
       }
     : { ok: false, kind: 'plan', error: errorMessage(e) };
 

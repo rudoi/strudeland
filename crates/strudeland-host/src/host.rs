@@ -92,7 +92,7 @@ impl Host {
     /// `request.timeout_sec` bounds the whole call ([`HostError::Timeout`]). An invalid
     /// instrument snapshot or timeout is [`HostError::Plan`] `invalid request: …`; a bad length
     /// request is the bundle's [`HostError::Plan`] `bad request: …`; a length request the song
-    /// cannot satisfy is [`HostError::MetaFlag`] naming the CLI flag.
+    /// cannot satisfy is [`HostError::MetaFlag`] with its [`LengthProblem`](crate::LengthProblem) (when it parses).
     pub fn plan_render(
         &self,
         code: &str,
@@ -205,14 +205,16 @@ impl Drop for Host {
 }
 
 /// The bundle's result slot (`globalThis.__strudelandResult`): `{ ok: true, value }` or
-/// `{ ok: false, kind, error, flag? }` (`flag` names the CLI flag of a length error).
+/// `{ ok: false, kind, error, length? }` (`length` is the typed problem of a length error).
+/// `length` is read loosely: a problem this crate cannot parse (a newer code, a bad parameter)
+/// still makes a length error, without its typed problem, so the planner's message survives.
 #[derive(Deserialize)]
 struct Slot {
     ok: bool,
     value: Option<String>,
     kind: Option<String>,
     error: Option<String>,
-    flag: Option<String>,
+    length: Option<serde_json::Value>,
 }
 
 /// Reads the result slot after the drain: its value, or the error its `kind` names.
@@ -232,14 +234,14 @@ fn read_slot(text: &str) -> Result<String, HostError> {
             ok: false,
             kind: Some(kind),
             error: Some(error),
-            flag,
+            length,
             ..
-        } => Err(match (kind.as_str(), flag) {
-            ("meta", Some(flag)) => HostError::MetaFlag {
-                flag,
+        } => Err(match (kind.as_str(), length) {
+            ("meta", None | Some(serde_json::Value::Null)) => HostError::Meta(error),
+            ("meta", Some(problem)) => HostError::MetaFlag {
+                problem: serde_json::from_value(problem).ok(),
                 message: error,
             },
-            ("meta", None) => HostError::Meta(error),
             ("eval", _) => HostError::Eval(error),
             ("plan", _) => HostError::Plan(error),
             (other, _) => HostError::Runtime(format!("unknown result kind {other}: {error}")),
@@ -366,6 +368,7 @@ fn load_bundle(engine: &mut Session<'_, '_, '_>, start: Instant) -> Result<Durat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LengthProblem;
 
     #[test]
     fn the_slot_maps_to_results_and_kinds() {
@@ -383,21 +386,44 @@ mod tests {
             Err(HostError::Plan("p".into()))
         );
         assert_eq!(
-            read_slot(r#"{"ok":false,"kind":"meta","error":"m","flag":"--length"}"#),
+            read_slot(r#"{"ok":false,"kind":"meta","error":"m","length":{"code":"noSections"}}"#),
             Err(HostError::MetaFlag {
-                flag: "--length".into(),
+                problem: Some(LengthProblem::NoSections),
                 message: "m".into()
             })
         );
-        // Only `meta` carries a flag; on another kind it is ignored.
+        // Only `meta` carries a length problem; on another kind it is ignored.
         assert_eq!(
-            read_slot(r#"{"ok":false,"kind":"plan","error":"p","flag":"--length"}"#),
+            read_slot(r#"{"ok":false,"kind":"plan","error":"p","length":{"code":"noSections"}}"#),
             Err(HostError::Plan("p".into()))
         );
         assert_eq!(
-            read_slot(r#"{"ok":false,"kind":"meta","error":"m","flag":null}"#),
+            read_slot(r#"{"ok":false,"kind":"meta","error":"m","length":null}"#),
             Err(HostError::Meta("m".into()))
         );
+        // A stale bundle's untyped flag reads as the plain meta error.
+        assert_eq!(
+            read_slot(r#"{"ok":false,"kind":"meta","error":"m","flag":"--length"}"#),
+            Err(HostError::Meta("m".into()))
+        );
+        // A problem that does not parse keeps the planner's message as a length error.
+        for length in [
+            r#"{"code":"nope"}"#,
+            r#"{"code":"lengthPastEnd","bars":9.5,"clipBars":8}"#,
+            "3",
+        ] {
+            let text = format!(
+                r#"{{"ok":false,"kind":"meta","error":"pass --length N","length":{length}}}"#
+            );
+            assert_eq!(
+                read_slot(&text),
+                Err(HostError::MetaFlag {
+                    problem: None,
+                    message: "pass --length N".into()
+                }),
+                "{text}"
+            );
+        }
         assert_eq!(read_slot("null"), Err(HostError::Unsettled));
         assert_eq!(read_slot("undefined"), Err(HostError::Unsettled));
     }
@@ -410,7 +436,6 @@ mod tests {
             r#"{"ok":false,"value":"v"}"#,
             r#"{"ok":"yes","value":"v"}"#,
             r#"{"ok":true,"value":3}"#,
-            r#"{"ok":false,"kind":"meta","error":"m","flag":3}"#,
             "3",
             "",
         ] {

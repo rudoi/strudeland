@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import {
     loopMode,
+    loopUnavailable,
     MODES,
     roleLabel,
     showMp3Warning,
@@ -28,6 +29,7 @@
   const source = untrack(() => song);
   const store = untrack(() => controller.store);
   const options = $derived($store.options);
+  const unavailable = $derived(loopUnavailable(source, options));
   const activity = $derived($store.activity);
   const quit = $derived($store.quit);
   const locked = $derived(activity.kind !== 'idle' || quit !== null);
@@ -60,7 +62,9 @@
   const files = $derived(
     result && 'files' in result ? result.files : Array.isArray(target) ? target : null,
   );
-  const canExport = $derived(!locked && $store.preview.kind === 'ready' && !$store.result);
+  const canExport = $derived(
+    !locked && !unavailable && $store.preview.kind === 'ready' && !$store.result,
+  );
   const rangeRequired = $derived(
     options.range === 'section'
       ? 'Choose a section to preview the destination.'
@@ -69,13 +73,15 @@
   const exportHelp = $derived(
     locked
       ? lockedHelp
-      : $store.preview.kind === 'loading'
-        ? 'Wait for the destination check to finish.'
-        : $store.preview.kind === 'error'
-          ? 'Resolve the output preview error before exporting.'
-          : $store.preview.kind === 'idle'
-            ? rangeRequired
-            : 'Render the captured editor source to the listed destination.',
+      : unavailable
+        ? 'This song marks no loop; mark one to export a loop preset.'
+        : $store.preview.kind === 'loading'
+          ? 'Wait for the destination check to finish.'
+          : $store.preview.kind === 'error'
+            ? 'Resolve the output preview error before exporting.'
+            : $store.preview.kind === 'idle'
+              ? rangeRequired
+              : 'Render the captured editor source to the listed destination.',
   );
   let dialog: HTMLDialogElement;
 
