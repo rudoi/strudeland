@@ -269,27 +269,22 @@ fn sections_name_the_layout_bars_of_a_real_plan() {
         host.plan_render(&song, &plan_request(length.clone()))
             .unwrap_or_else(|e| panic!("{length:?}: {e}"))
             .sections
-            .into_iter()
-            .map(
-                |PlannedSection {
-                     from_bar,
-                     to_bar,
-                     name,
-                 }| (name, from_bar, to_bar),
-            )
-            .collect::<Vec<_>>()
     };
-    let run = |name: &str, from: u32, to: u32| (name.to_string(), from, to);
+    let run = |from_bar: u32, to_bar: u32, name: &str| PlannedSection {
+        from_bar,
+        to_bar,
+        name: name.to_string(),
+    };
     assert_eq!(
         runs(LengthRequest::Clip { loops: None }),
-        [run("intro", 0, 2), run("body", 2, 10), run("tail", 10, 12)]
+        [run(0, 2, "intro"), run(2, 10, "body"), run(10, 12, "tail")]
     );
     // The lookback bars before the section's first bar are named too.
     assert_eq!(
         runs(LengthRequest::Section {
             name: "body".into()
         }),
-        [run("intro", 0, 2), run("body", 2, 6)]
+        [run(0, 2, "intro"), run(2, 6, "body")]
     );
 }
 

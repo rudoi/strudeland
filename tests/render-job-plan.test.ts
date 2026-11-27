@@ -25,6 +25,7 @@ import type { EvaluateOptions } from '../src/lib/strudel/runtime';
 import { buildStructure, withLoops, type SongStructure } from '../src/lib/strudel/structure';
 import { clipSegments, LINEAR_SEGMENTS, type Segment } from '../src/lib/strudel/transport';
 import { hap, req } from './helpers/fake-offline';
+import { mixedMeterStructure } from './helpers/mixed-meter-structure';
 
 /** Haps on [0, 4): two notes per bar, one with a non-object value (a select error) in bar 1. */
 function songHaps(from: number, to: number): any[] {
@@ -1168,7 +1169,7 @@ describe('PlanJobError flag', () => {
   });
 });
 
-/** `plan.rs`'s bar-to-section mapping at ee91dbd (`section_at`), the independent oracle. */
+/** The clip and linear mappings the Rust refusal used to re-derive, the independent oracle. */
 function oracle(layout: 'clip' | 'linear', s: SongStructure, bar: number): string | null {
   const song = (b: number) =>
     s.sections.find((x) => b >= x.start && b < x.start + x.bars)?.name ?? null;
@@ -1354,26 +1355,7 @@ describe('planRender sections', () => {
   });
 
   test('mixed meter: the meter changes move no bar', async () => {
-    // The `meta` of tests/render/mixed-meter-loop.js.
-    const mixed = buildStructure({
-      bpm: 120,
-      meter: '4/4',
-      sections: [
-        { name: 'opening', bars: 1 },
-        { name: 'F1', bars: 3 },
-        { name: 'F2', bars: 3 },
-        { name: 'E', bars: 4 },
-        { name: 'ending', bars: 1 },
-      ],
-      loop: { from: 'F1', through: 'E' },
-      meterChanges: [
-        { bar: 4, meter: '3/8' },
-        { bar: 5, meter: '4/4' },
-        { bar: 7, meter: '3/8' },
-        { bar: 8, meter: '4/4' },
-      ],
-      loops: 2,
-    });
+    const mixed = mixedMeterStructure;
     expect(mixed.clipBars).toBe(22);
     const clip = [
       r(0, 1, 'opening'),
