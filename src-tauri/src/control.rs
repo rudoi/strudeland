@@ -5,27 +5,20 @@
 //! `control_reply` with the same internal id, or with a timeout error when it does not.
 //!
 //! The bridge sits behind [`RequestEmitter`] and the native snapshot behind [`Snapshotter`], so
-//! both are tested without an `AppHandle`; the listener setup is the free function
-//! [`bind_socket`], tested on a tempdir path.
+//! both are tested without an `AppHandle`; the endpoint is `strudeland_ctl::server`, which binds,
+//! verifies and closes it and is tested there.
 
 use std::collections::HashMap;
-#[cfg(any(unix, test))]
+#[cfg(test)]
 use std::fs;
-#[cfg(unix)]
-use std::fs::{File, TryLockError};
-#[cfg(unix)]
-use std::io;
-#[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt, PermissionsExt};
-#[cfg(unix)]
-use std::os::unix::net::{UnixListener as StdUnixListener, UnixStream as StdUnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use strudeland_ctl::server::{self, AcceptError, Bind, Endpoint};
 use strudeland_ctl::{
     FrameError, LineReader, MAX_LINE_BYTES, Method, PathError, PingResult, Response, RpcError,
     ScreenshotResult, codes, encode_response, parse_request,
@@ -35,12 +28,6 @@ use tokio::io::{
     self as async_io, AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt,
     BufReader,
 };
-#[cfg(unix)]
-use tokio::net::UnixListener;
-#[cfg(all(unix, test))]
-use tokio::net::UnixStream;
-#[cfg(windows)]
-use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::oneshot;
 
 /// The event the webview listens to for requests; its payload is a [`BridgeRequest`].
@@ -124,6 +111,13 @@ pub trait Snapshotter: Send + Sync + 'static {
     fn snapshot(&self, path: PathBuf) -> Result<SnapshotReceiver, String>;
 }
 
+/// The running endpoint: the accept task, and a weak handle to close the endpoint, which that
+/// task owns.
+struct Server {
+    endpoint: Weak<Endpoint>,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+
 /// Pending webview requests and the socket's status.
 pub struct Bridge {
     pending: Mutex<HashMap<u64, oneshot::Sender<Reply>>>,
@@ -132,11 +126,8 @@ pub struct Bridge {
     attached: AtomicBool,
     /// Set once by `start`; `disabled` until then.
     info: Mutex<ControlInfo>,
-    /// The socket's lock file, held for the app's lifetime while listening.
-    #[cfg(unix)]
-    socket_lock: Mutex<Option<File>>,
-    #[cfg(windows)]
-    server: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// Set by `start` while listening; taken by `close_server`.
+    server: Mutex<Option<Server>>,
 }
 
 impl Default for Bridge {
@@ -157,9 +148,6 @@ impl Bridge {
             next_id: AtomicU64::new(1),
             attached: AtomicBool::new(false),
             info: Mutex::new(ControlInfo::new(SocketStatus::Disabled, None, None)),
-            #[cfg(unix)]
-            socket_lock: Mutex::new(None),
-            #[cfg(windows)]
             server: Mutex::new(None),
         }
     }
@@ -170,6 +158,22 @@ impl Bridge {
 
     pub fn info(&self) -> ControlInfo {
         lock(&self.info).clone()
+    }
+
+    fn set_server(&self, server: Server) {
+        *lock(&self.server) = Some(server);
+    }
+
+    /// Closes the endpoint (Unix: removes the socket, then releases the lock) and stops the
+    /// accept task. A no-op when nothing is served.
+    fn close_server(&self) {
+        let Some(server) = lock(&self.server).take() else {
+            return;
+        };
+        if let Some(endpoint) = server.endpoint.upgrade() {
+            endpoint.close();
+        }
+        server.task.abort();
     }
 
     pub fn attached(&self) -> bool {
@@ -442,138 +446,9 @@ async fn serve_connection(
     }
 }
 
-/// The accept loop: one task per connection, no idle timeout, no connection limit.
-#[cfg(unix)]
-async fn serve(
-    listener: UnixListener,
-    bridge: Arc<Bridge>,
-    emitter: Arc<dyn RequestEmitter>,
-    snapshotter: Arc<dyn Snapshotter>,
-) {
-    loop {
-        match listener.accept().await {
-            Ok((stream, _)) => {
-                #[cfg(target_os = "linux")]
-                if strudeland_ctl::path::check_peer(&stream).is_err() {
-                    continue;
-                }
-                tokio::spawn(serve_connection(
-                    stream,
-                    Arc::clone(&bridge),
-                    Arc::clone(&emitter),
-                    Arc::clone(&snapshotter),
-                ));
-            }
-            Err(e) => {
-                eprintln!("control: accept failed: {e}");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    }
-}
-
-/// The result of [`bind_socket`]. `Listening` carries the held lock file: keep it as long as the
-/// socket is served, and remove the socket before dropping it.
-#[derive(Debug)]
-#[cfg(unix)]
-pub enum BindOutcome {
-    Listening(StdUnixListener, File),
-    InUse,
-    Disabled(String),
-}
-
-/// The lock file next to the socket: `ctl.sock` to `ctl.sock.lock`.
-#[cfg(unix)]
-fn lock_path(path: &Path) -> PathBuf {
-    let mut p = path.as_os_str().to_owned();
-    p.push(".lock");
-    PathBuf::from(p)
-}
-
-/// Takes the exclusive lock on the socket's lock file (created `0600`, never removed). `None`
-/// when another instance holds it.
-#[cfg(unix)]
-fn lock_socket(path: &Path) -> Result<Option<File>, String> {
-    let lock = lock_path(path);
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(&lock)
-        .map_err(|e| format!("cannot open {}: {e}", lock.display()))?;
-    match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
-        Err(TryLockError::WouldBlock) => Ok(None),
-        Err(TryLockError::Error(e)) => Err(format!("cannot lock {}: {e}", lock.display())),
-    }
-}
-
-/// Binds the control socket at `path`: creates a missing parent dir `0700`, takes the lock on
-/// `{path}.lock` (held by another instance: in use, the socket untouched), removes a stale
-/// socket, leaves a live socket or a non-socket alone, and makes the new socket `0600` and
-/// non-blocking.
-#[cfg(unix)]
-pub fn bind_socket(path: &Path) -> BindOutcome {
-    let shown = path.display();
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
-        && !parent.exists()
-        && let Err(e) = fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(parent)
-    {
-        return BindOutcome::Disabled(format!("cannot create {}: {e}", parent.display()));
-    }
-    // Only the lock holder probes, removes or binds, so two instances cannot both take the path.
-    let lock = match lock_socket(path) {
-        Ok(Some(lock)) => lock,
-        Ok(None) => return BindOutcome::InUse,
-        Err(detail) => return BindOutcome::Disabled(detail),
-    };
-    match fs::symlink_metadata(path) {
-        Ok(meta) if !meta.file_type().is_socket() => {
-            return BindOutcome::Disabled(format!("{shown} exists and is not a socket"));
-        }
-        Ok(_) => match StdUnixStream::connect(path) {
-            Ok(_probe) => return BindOutcome::InUse,
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
-                ) =>
-            {
-                if let Err(e) = fs::remove_file(path)
-                    && e.kind() != io::ErrorKind::NotFound
-                {
-                    return BindOutcome::Disabled(format!("cannot remove stale {shown}: {e}"));
-                }
-            }
-            Err(e) => return BindOutcome::Disabled(format!("{shown}: {e}")),
-        },
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return BindOutcome::Disabled(format!("{shown}: {e}")),
-    }
-    let listener = match StdUnixListener::bind(path) {
-        Ok(l) => l,
-        Err(e) if e.kind() == io::ErrorKind::AddrInUse => return BindOutcome::InUse,
-        Err(e) => return BindOutcome::Disabled(format!("cannot listen on {shown}: {e}")),
-    };
-    let ready = fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .and_then(|()| listener.set_nonblocking(true));
-    if let Err(e) = ready {
-        drop(listener);
-        let _ = fs::remove_file(path);
-        return BindOutcome::Disabled(format!("cannot listen on {shown}: {e}"));
-    }
-    BindOutcome::Listening(listener, lock)
-}
-
-/// Binds the socket and turns the outcome into a status, with the listener and its held lock
-/// file. Needs a tokio runtime context, for `UnixListener::from_std`.
-#[cfg(unix)]
-fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(UnixListener, File)>) {
+/// Binds the endpoint and turns the outcome into a status, with the endpoint when this instance
+/// owns it. Needs a tokio runtime context: the endpoint registers with it.
+fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<Endpoint>) {
     let path = match path {
         Ok(p) => p,
         Err(e) => {
@@ -583,141 +458,86 @@ fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(UnixListene
             );
         }
     };
-    #[cfg(target_os = "linux")]
-    if let Err(e) = ensure_private_parent(&path) {
-        return (
-            ControlInfo::new(SocketStatus::Disabled, Some(&path), Some(e.to_string())),
+    match server::bind(&path) {
+        Bind::Listening(endpoint) => (
+            ControlInfo::new(SocketStatus::Listening, Some(&path), None),
+            Some(endpoint),
+        ),
+        Bind::InUse(detail) => (
+            ControlInfo::new(SocketStatus::InUse, Some(&path), Some(detail)),
             None,
-        );
-    }
-    match bind_socket(&path) {
-        BindOutcome::Listening(std, lock) => match UnixListener::from_std(std) {
-            Ok(l) => (
-                ControlInfo::new(SocketStatus::Listening, Some(&path), None),
-                Some((l, lock)),
-            ),
-            Err(e) => {
-                let _ = fs::remove_file(&path);
-                let detail = format!("cannot listen on {}: {e}", path.display());
-                (
-                    ControlInfo::new(SocketStatus::Disabled, Some(&path), Some(detail)),
-                    None,
-                )
-            }
-        },
-        BindOutcome::InUse => {
-            let detail = format!("another strudeland is listening on {}", path.display());
-            (
-                ControlInfo::new(SocketStatus::InUse, Some(&path), Some(detail)),
-                None,
-            )
-        }
-        BindOutcome::Disabled(detail) => (
+        ),
+        Bind::Disabled(detail) => (
             ControlInfo::new(SocketStatus::Disabled, Some(&path), Some(detail)),
             None,
         ),
     }
 }
 
-#[cfg(target_os = "linux")]
-fn ensure_private_parent(path: &Path) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "control socket needs a private directory",
-            )
-        })?;
-    // The XDG runtime directory is checked by endpoint discovery; creating only the last
-    // component also prevents creating unchecked intermediate directories for an override.
-    match fs::DirBuilder::new().mode(0o700).create(parent) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(e),
-    }
-    strudeland_ctl::path::check_private_dir(parent)
-}
-
-#[cfg(windows)]
-fn listen(path: Result<PathBuf, PathError>) -> (ControlInfo, Option<(NamedPipeServer, PathBuf)>) {
-    use strudeland_ctl::windows_pipe;
-    let path = match path {
-        Ok(path) => path,
-        Err(e) => {
-            return (
-                ControlInfo::new(SocketStatus::Disabled, None, Some(e.to_string())),
-                None,
-            );
-        }
-    };
-    match windows_pipe::listen(&path, true) {
-        Ok(pipe) => (
-            ControlInfo::new(SocketStatus::Listening, Some(&path), None),
-            Some((pipe, path)),
-        ),
-        Err(e) => {
-            let status = if windows_pipe::owned_existing(&path) {
-                SocketStatus::InUse
-            } else {
-                SocketStatus::Disabled
-            };
-            let message = format!("cannot listen on {}: {e}", path.display());
-            (ControlInfo::new(status, Some(&path), Some(message)), None)
-        }
-    }
-}
-
-#[cfg(windows)]
+/// The accept loop: one task per connection, no idle timeout, no connection limit.
 async fn serve(
-    (mut pipe, path): (NamedPipeServer, PathBuf),
+    endpoint: Arc<Endpoint>,
     bridge: Arc<Bridge>,
     emitter: Arc<dyn RequestEmitter>,
     snapshotter: Arc<dyn Snapshotter>,
 ) {
     let mut clients = tokio::task::JoinSet::new();
     loop {
-        tokio::select! {
-            outcome = pipe.connect() => if let Err(e) = outcome {
-                eprintln!("control: accept failed: {e}");
-                if pipe.disconnect().is_err() {
-                    return;
-                }
-                continue;
-            },
+        let accepted = tokio::select! {
+            accepted = endpoint.accept() => accepted,
             _ = clients.join_next(), if !clients.is_empty() => continue,
-        }
-        // Keep at least one instance alive, and ensure a second client can connect.
-        let next = match strudeland_ctl::windows_pipe::listen(&path, false) {
-            Ok(next) => next,
-            Err(e) => {
-                eprintln!("control: cannot create next pipe instance: {e}");
-                if pipe.disconnect().is_err() {
+        };
+        match accepted {
+            Ok(stream) => {
+                clients.spawn(serve_connection(
+                    stream,
+                    Arc::clone(&bridge),
+                    Arc::clone(&emitter),
+                    Arc::clone(&snapshotter),
+                ));
+            }
+            Err(error) => {
+                match &error {
+                    AcceptError::Accept { source: e, .. } => {
+                        eprintln!("control: accept failed: {e}")
+                    }
+                    AcceptError::NextInstance { source: e, .. } => {
+                        eprintln!("control: cannot create next pipe instance: {e}")
+                    }
+                }
+                if error.closed() {
                     return;
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
+                if let Some(pause) = error.pause() {
+                    tokio::time::sleep(pause).await;
+                }
             }
-        };
-        let connected = std::mem::replace(&mut pipe, next);
-        clients.spawn(serve_connection(
-            connected,
-            Arc::clone(&bridge),
-            Arc::clone(&emitter),
-            Arc::clone(&snapshotter),
-        ));
+        }
     }
 }
 
 /// Starts the control socket. Never fails the app: every problem becomes the bridge's
 /// [`ControlInfo`], logged to stderr.
 pub fn start(app: &AppHandle, bridge: Arc<Bridge>) {
+    let emitter: Arc<dyn RequestEmitter> = Arc::new(TauriEmitter(app.clone()));
+    let snapshotter: Arc<dyn Snapshotter> =
+        Arc::new(crate::snapshot::TauriSnapshotter(app.clone()));
+    start_on(bridge, strudeland_ctl::socket_path(), emitter, snapshotter);
+}
+
+/// `start` without the `AppHandle`: binds `path`, logs the status, and serves it on the tauri
+/// runtime.
+fn start_on(
+    bridge: Arc<Bridge>,
+    path: Result<PathBuf, PathError>,
+    emitter: Arc<dyn RequestEmitter>,
+    snapshotter: Arc<dyn Snapshotter>,
+) {
     // Enter the runtime so the listener is registered, and the status set, before the webview
     // can attach.
     let runtime = tauri::async_runtime::handle();
     let _guard = runtime.inner().enter();
-    let (info, listener) = listen(strudeland_ctl::socket_path());
+    let (info, endpoint) = listen(path);
     match (&info.status, &info.detail) {
         (SocketStatus::Listening, _) => eprintln!(
             "control: listening on {}",
@@ -727,48 +547,22 @@ pub fn start(app: &AppHandle, bridge: Arc<Bridge>) {
         (_, None) => eprintln!("control: disabled"),
     }
     bridge.set_info(info);
-    if let Some(listener) = listener {
-        #[cfg(unix)]
-        let listener = {
-            let (listener, file) = listener;
-            *lock(&bridge.socket_lock) = Some(file);
-            listener
-        };
-        let emitter: Arc<dyn RequestEmitter> = Arc::new(TauriEmitter(app.clone()));
-        let snapshotter: Arc<dyn Snapshotter> =
-            Arc::new(crate::snapshot::TauriSnapshotter(app.clone()));
-        let server =
-            tauri::async_runtime::spawn(serve(listener, Arc::clone(&bridge), emitter, snapshotter));
-        #[cfg(windows)]
-        {
-            *lock(&bridge.server) = Some(server);
-        }
-        #[cfg(unix)]
-        drop(server);
+    if let Some(endpoint) = endpoint {
+        let endpoint = Arc::new(endpoint);
+        let weak = Arc::downgrade(&endpoint);
+        let task =
+            tauri::async_runtime::spawn(serve(endpoint, Arc::clone(&bridge), emitter, snapshotter));
+        bridge.set_server(Server {
+            endpoint: weak,
+            task,
+        });
     }
 }
 
-/// Removes the socket file if this instance created it. Returns whether it removed one.
-#[cfg(unix)]
-fn remove_socket(info: &ControlInfo) -> bool {
-    match (&info.status, &info.path) {
-        (SocketStatus::Listening, Some(path)) => fs::remove_file(path).is_ok(),
-        _ => false,
-    }
-}
-
-/// Removes the socket file on exit, when this instance was listening, then releases the lock.
+/// Closes the endpoint on exit (Unix: removes the socket, then releases the lock) and stops the
+/// accept task.
 pub fn shutdown(app: &AppHandle) {
-    let bridge = app.state::<Arc<Bridge>>();
-    #[cfg(unix)]
-    {
-        remove_socket(&bridge.info());
-        lock(&bridge.socket_lock).take();
-    }
-    #[cfg(windows)]
-    if let Some(server) = lock(&bridge.server).take() {
-        server.abort();
-    }
+    app.state::<Arc<Bridge>>().close_server();
 }
 
 struct TauriEmitter(AppHandle);
@@ -799,8 +593,10 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[cfg(unix)]
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::PermissionsExt;
     use strudeland_ctl::wire_fixtures;
+    #[cfg(unix)]
+    use tokio::net::UnixStream;
 
     type Respond = Box<dyn Fn(&str, &Value) -> ReplyPayload + Send + Sync>;
 
@@ -1209,21 +1005,16 @@ mod tests {
     async fn a_connection_serves_a_screenshot() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
-        let (info, listener) = listen(Ok(path.clone()));
+        let (info, endpoint) = listen(Ok(path.clone()));
         assert_eq!(info.status, SocketStatus::Listening);
-        let (listener, lock) = listener.unwrap();
         let snap = Arc::new(FakeSnapshotter::default());
         let served: Arc<dyn Snapshotter> = Arc::clone(&snap) as Arc<dyn Snapshotter>;
-        tokio::spawn(async move {
-            let _lock = lock;
-            serve(
-                listener,
-                Arc::new(Bridge::new()),
-                Arc::new(FakeEmitter::default()),
-                served,
-            )
-            .await
-        });
+        tokio::spawn(serve(
+            Arc::new(endpoint.unwrap()),
+            Arc::new(Bridge::new()),
+            Arc::new(FakeEmitter::default()),
+            served,
+        ));
         let mut stream = BufReader::new(UnixStream::connect(&path).await.unwrap());
         let shot = dir.path().join("s.png");
         stream
@@ -1679,245 +1470,18 @@ mod tests {
             .unwrap()
     }
 
-    #[cfg(unix)]
-    fn mode(path: &Path) -> u32 {
-        fs::symlink_metadata(path).unwrap().mode() & 0o777
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn binds_a_fresh_path_with_mode_0600() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        let BindOutcome::Listening(_l, _lock) = bind_socket(&path) else {
-            panic!("expected Listening");
-        };
-        assert!(fs::symlink_metadata(&path).unwrap().file_type().is_socket());
-        assert_eq!(mode(&path), 0o600);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn creates_a_missing_parent_dir_0700() {
-        let dir = short_tempdir();
-        let path = dir.path().join("a/b/c.sock");
-        let BindOutcome::Listening(_l, _lock) = bind_socket(&path) else {
-            panic!("expected Listening");
-        };
-        assert_eq!(mode(&dir.path().join("a")), 0o700);
-        assert_eq!(mode(&dir.path().join("a/b")), 0o700);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn keeps_the_mode_of_an_existing_parent_dir() {
-        let dir = short_tempdir();
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        let BindOutcome::Listening(_l, _lock) = bind_socket(&dir.path().join("c.sock")) else {
-            panic!("expected Listening");
-        };
-        assert_eq!(mode(dir.path()), 0o755);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_stale_socket_is_removed_and_bound() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        drop(StdUnixListener::bind(&path).unwrap());
-        assert!(path.exists(), "dropping a listener leaves the file");
-        let BindOutcome::Listening(l, _lock) = bind_socket(&path) else {
-            panic!("expected Listening");
-        };
-        StdUnixStream::connect(&path).unwrap();
-        l.set_nonblocking(false).unwrap();
-        l.accept().unwrap();
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_live_socket_is_in_use_and_left_alone() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        let other = StdUnixListener::bind(&path).unwrap();
-        assert!(matches!(bind_socket(&path), BindOutcome::InUse));
-        StdUnixStream::connect(&path).unwrap();
-        other.accept().unwrap();
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_held_lock_is_in_use_and_the_stale_socket_is_left_alone() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        drop(StdUnixListener::bind(&path).unwrap()); // stale: nothing accepts
-        let BindOutcome::Listening(l, held) = bind_socket(&path) else {
-            panic!("expected Listening");
-        };
-        drop(l);
-        assert!(path.exists());
-        let before = fs::symlink_metadata(&path).unwrap().ino();
-        assert!(matches!(bind_socket(&path), BindOutcome::InUse));
-        assert_eq!(
-            fs::symlink_metadata(&path).unwrap().ino(),
-            before,
-            "the lock holder's socket is not removed"
-        );
-        let lock = lock_path(&path);
-        assert_eq!(lock, dir.path().join("c.sock.lock"));
-        assert_eq!(mode(&lock), 0o600);
-        drop(held);
-        assert!(matches!(bind_socket(&path), BindOutcome::Listening(_, _)));
-        assert!(lock.exists(), "the lock file is never removed");
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_regular_file_is_disabled_and_left_alone() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        fs::write(&path, "keep me").unwrap();
-        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(
-            detail,
-            format!("{} exists and is not a socket", path.display())
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "keep me");
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn an_uncreatable_parent_is_disabled() {
-        let dir = short_tempdir();
-        let ro = dir.path().join("ro");
-        fs::create_dir(&ro).unwrap();
-        fs::set_permissions(&ro, fs::Permissions::from_mode(0o500)).unwrap();
-        let outcome = bind_socket(&ro.join("a/c.sock"));
-        let e = fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(ro.join("a"))
-            .unwrap_err();
-        fs::set_permissions(&ro, fs::Permissions::from_mode(0o700)).unwrap();
-        let BindOutcome::Disabled(detail) = outcome else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(
-            detail,
-            format!("cannot create {}: {e}", ro.join("a").display())
-        );
-
-        // A path under a regular file skips the create and fails at the lock instead.
-        let file = dir.path().join("f");
-        fs::write(&file, "").unwrap();
-        let lock = file.join("c.sock.lock");
-        let e = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&lock)
-            .unwrap_err();
-        let BindOutcome::Disabled(detail) = bind_socket(&file.join("c.sock")) else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(detail, format!("cannot open {}: {e}", lock.display()));
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn an_unopenable_lock_is_disabled() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        let lock = lock_path(&path);
-        fs::create_dir(&lock).unwrap();
-        let e = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&lock)
-            .unwrap_err();
-        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(detail, format!("cannot open {}: {e}", lock.display()));
-        assert!(!path.exists());
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn an_unremovable_stale_socket_is_disabled() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        drop(StdUnixListener::bind(&path).unwrap()); // stale: nothing accepts
-        fs::write(lock_path(&path), "").unwrap();
-        let before = fs::symlink_metadata(&path).unwrap().ino();
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o500)).unwrap();
-        let outcome = bind_socket(&path);
-        let e = fs::remove_file(&path).unwrap_err();
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        let BindOutcome::Disabled(detail) = outcome else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(
-            detail,
-            format!("cannot remove stale {}: {e}", path.display())
-        );
-        assert_eq!(fs::symlink_metadata(&path).unwrap().ino(), before);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_probe_error_is_disabled() {
-        let dir = short_tempdir();
-        let path = dir.path().join("c.sock");
-        drop(StdUnixListener::bind(&path).unwrap()); // stale: nothing accepts
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        let e = StdUnixStream::connect(&path).unwrap_err();
-        assert!(
-            !matches!(
-                e.kind(),
-                io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
-            ),
-            "{e}"
-        );
-        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(detail, format!("{}: {e}", path.display()));
-        assert!(path.exists());
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn an_unbindable_path_is_disabled() {
-        let dir = short_tempdir();
-        let path = dir.path().join("s".repeat(110));
-        assert!(path.as_os_str().len() > 108);
-        let e = StdUnixListener::bind(&path).unwrap_err();
-        let BindOutcome::Disabled(detail) = bind_socket(&path) else {
-            panic!("expected Disabled");
-        };
-        assert_eq!(detail, format!("cannot listen on {}: {e}", path.display()));
-    }
-
     #[tokio::test]
     #[cfg(unix)]
     async fn listen_reports_each_status() {
         let dir = short_tempdir();
         let path = dir.path().join("c.sock");
-        let (info, listener) = listen(Ok(path.clone()));
+        let (info, endpoint) = listen(Ok(path.clone()));
         assert_eq!(info.status, SocketStatus::Listening);
         assert_eq!(info.path.as_deref(), Some(path.to_str().unwrap()));
-        assert!(listener.is_some());
+        assert!(endpoint.is_some());
 
         // The first listener's lock is still held (same process, separate open file).
-        let (info, listener) = listen(Ok(path.clone()));
+        let (info, endpoint) = listen(Ok(path.clone()));
         assert_eq!(info.status, SocketStatus::InUse);
         assert_eq!(
             info.detail,
@@ -1926,53 +1490,90 @@ mod tests {
                 path.display()
             ))
         );
-        assert!(listener.is_none());
+        assert!(endpoint.is_none());
 
-        let (info, listener) = listen(Err(PathError::NoHome));
+        let (info, endpoint) = listen(Err(PathError::NoHome));
         assert_eq!(info.status, SocketStatus::Disabled);
         assert_eq!(info.path, None);
         assert_eq!(info.detail, Some(PathError::NoHome.to_string()));
-        assert!(listener.is_none());
+        assert!(endpoint.is_none());
     }
 
     #[test]
-    #[cfg(unix)]
-    fn remove_socket_only_when_listening() {
+    fn start_path_serves_and_closes_a_temp_endpoint() {
+        #[cfg(unix)]
         let dir = short_tempdir();
+        #[cfg(unix)]
         let path = dir.path().join("c.sock");
-        let _l = StdUnixListener::bind(&path).unwrap();
-        for status in [SocketStatus::InUse, SocketStatus::Disabled] {
-            assert!(!remove_socket(&ControlInfo::new(status, Some(&path), None)));
-            assert!(path.exists());
+        #[cfg(windows)]
+        let path = PathBuf::from(format!(
+            r"\\.\pipe\strudeland-app-test-{}",
+            std::process::id()
+        ));
+        let bridge = Arc::new(Bridge::new());
+        start_on(
+            Arc::clone(&bridge),
+            Ok(path.clone()),
+            Arc::new(FakeEmitter::default()),
+            Arc::new(FakeSnapshotter::default()),
+        );
+        assert_eq!(bridge.info().status, SocketStatus::Listening);
+
+        let mut client = strudeland_ctl::Client::connect(&path, Duration::from_secs(1)).unwrap();
+        let result = client.call_raw("ping", json!({})).unwrap();
+        assert_eq!(result["attached"], json!(false));
+        drop(client);
+        bridge.close_server();
+
+        let not_running = || {
+            matches!(
+                strudeland_ctl::Client::connect(&path, Duration::from_secs(1)),
+                Err(strudeland_ctl::CallError::NotRunning { .. })
+            )
+        };
+        #[cfg(unix)]
+        {
+            assert!(!path.exists());
+            assert!(lock_path_of(&path).exists());
+            assert!(not_running());
         }
-        assert!(!remove_socket(&ControlInfo::new(
-            SocketStatus::Listening,
-            None,
-            None
-        )));
-        assert!(remove_socket(&ControlInfo::new(
-            SocketStatus::Listening,
-            Some(&path),
-            None
-        )));
-        assert!(!path.exists());
+        #[cfg(windows)]
+        {
+            // `close` does nothing on Windows; the aborted task drops the pipe asynchronously.
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while !not_running() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the pipe is still served"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        // A second close is a no-op.
+        bridge.close_server();
+        #[cfg(unix)]
+        assert!(lock_path_of(&path).exists());
+    }
+
+    /// `{path}.lock`, the lock file `strudeland_ctl::server` keeps next to the socket.
+    #[cfg(unix)]
+    fn lock_path_of(path: &Path) -> PathBuf {
+        let mut p = path.as_os_str().to_owned();
+        p.push(".lock");
+        PathBuf::from(p)
     }
 
     #[cfg(unix)]
     async fn serve_on(path: &Path, bridge: Arc<Bridge>, emitter: Arc<dyn RequestEmitter>) {
-        let (info, listener) = listen(Ok(path.to_path_buf()));
+        let (info, endpoint) = listen(Ok(path.to_path_buf()));
         assert_eq!(info.status, SocketStatus::Listening);
-        let (listener, lock) = listener.unwrap();
-        tokio::spawn(async move {
-            let _lock = lock;
-            serve(
-                listener,
-                bridge,
-                emitter,
-                Arc::new(FakeSnapshotter::default()),
-            )
-            .await
-        });
+        tokio::spawn(serve(
+            Arc::new(endpoint.unwrap()),
+            bridge,
+            emitter,
+            Arc::new(FakeSnapshotter::default()),
+        ));
     }
 
     #[cfg(unix)]

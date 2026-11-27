@@ -177,7 +177,7 @@ the V8 download the host brings.
   method share a conditional selection edit. `strudeland-cli/src/run/instruments.rs` shares
   instrument operations with its local stdio MCP server in `src/run/mcp.rs`.
 - `crates/strudeland-ctl/` the control protocol (JSON-RPC types, framing, error codes, `socket_path`,
-  blocking `Client`) and, behind its `server` feature, the endpoint the app listens on:
+  blocking `Client`) and, behind its `server` feature (on in the app only), the endpoint the app listens on:
   `server::bind` (the lock, the stale probe and the modes on Unix, the first-instance pipe on
   Windows), and `Endpoint::accept` (the Linux peer check, the next pipe instance) and `close`.
   Windows uses per-user named pipes. Linux uses private XDG Unix sockets
@@ -190,8 +190,8 @@ the V8 download the host brings.
   docs`); `scripts/extract-strudel-docs.ts` generates the JSON from
   `vendor/strudel/doc.json`. `skill/SKILL.md` is the Claude Code skill, embedded by `src/skill.rs`
   (`strudeland skill print/install`).
-- `src-tauri/src/control.rs` the control socket listener; it bridges requests to the webview and
-  replies, and answers `ping` and `screenshot` itself. `src-tauri/src/snapshot.rs` the native webview
+- `src-tauri/src/control.rs` the control socket server: it serves the endpoint `strudeland_ctl::server`
+  binds, bridges requests to the webview and replies, and answers `ping` and `screenshot` itself. `src-tauri/src/snapshot.rs` the native webview
   screenshot behind the `Snapshotter` trait (WKWebView, WebView2 and WebKitGTK). `src/lib/control/` the webview side: `protocol.ts`, `handler.ts` (methods on the
   session and runtime), `events.ts` (haps to inspectable events with bar, beat, section and source
   line/col; pure), `api.ts`. `src/lib/editor/claude-mark.ts` marks lines changed by Claude.
