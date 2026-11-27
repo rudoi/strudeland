@@ -1,10 +1,10 @@
 # strudeland-transcribe
 
 Melody transcription for a monophonic voice: a sung or hummed take in, notes quantized to a bar
-grid and Strudel mini-notation out. A pure library (no Tauri, V8, audio I/O, threads, global state
-or `unsafe`); `strudeland transcribe` (`crates/strudeland-cli`) is its only caller. It takes samples
-and a `GridHint`, never paths or a sidecar, so other callers (drum transcription, an app command)
-can use it on any audio.
+grid and Strudel mini-notation out. A pure library (no Tauri, V8, audio devices, threads, global
+state or `unsafe`); `strudeland transcribe` (`crates/strudeland-cli`) is its only caller.
+`load_wav_span` reads a span of a WAV file. The stages take samples and a `GridHint`, never a
+sidecar, so other callers (drum transcription, an app command) can use them on any audio.
 
 ## Stages
 

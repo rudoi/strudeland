@@ -330,7 +330,7 @@ the V8 download the host brings.
   `DevicePicker` and `ui/Meter`. Tests use `tests/helpers/fake-recording-api.ts` and
   `fake-audio-graph.ts`.
 - Melody transcription: `crates/strudeland-transcribe/`
-  (pure library, no Tauri, V8 or audio I/O; stages `load`, `pitch` (`PitchTracker`, pYIN),
+  (pure library, no Tauri, V8 or audio devices; stages `load`, `pitch` (`PitchTracker`, pYIN),
   `tuning`, `onset`, `segment`, `grid`, `quantize`, `key`, `notation`, `report`, `suggest` (grid
   division and shift suggestions), shared maths in `util`, every threshold in `consts.rs`; `Options.bars`
   (`--bars A-B`) is notated as exactly bars A to B by `notation::window`, other spans from the

@@ -1,11 +1,12 @@
 //! Melody transcription for a monophonic voice: a sung or hummed take in, notes quantized to a
 //! bar grid and Strudel mini-notation out.
 //!
-//! The crate is pure: it takes samples and a grid hint, never paths, sidecars, devices or the
-//! network, and it holds no global state. The stages (`load`, pitch tracking, segmentation, grid,
-//! quantizing, key, notation) are plain functions over plain data, and the result is the
-//! serializable [`Transcription`]. `eval` (behind the `eval` feature, and in the crate's own unit
-//! tests) is test support: a seeded synthetic melody generator and a note-level scorer.
+//! The crate is pure: it holds no global state and reads no sidecars, devices or network. The
+//! `load` module reads a span of a WAV file. The other stages take samples and a grid hint. The
+//! stages (`load`, pitch tracking, segmentation, grid, quantizing, key, notation) are plain
+//! functions over plain data, and the result is the serializable [`Transcription`]. `eval` (behind
+//! the `eval` feature, and in the crate's own unit tests) is test support: a seeded synthetic
+//! melody generator and a note-level scorer.
 
 pub mod consts;
 mod error;
@@ -189,25 +190,9 @@ pub fn transcribe(
         GridOutcome::Known(grid, warnings) => {
             out.warnings.extend(warnings);
             let q = quantize(&raw, &grid, opts.grid)?;
-            let division = suggest::suggest_division(&raw, &grid, opts.grid);
-            // the shift on the suggested division when there is one, so the two go together
-            let (shift_division, spread) = match &division {
-                Some(s) => (s.division, s.spread_ms),
-                None => (opts.grid, q.timing_spread_ms),
-            };
-            let shift = suggest::suggest_shift(&raw, &grid, shift_division, spread);
+            let s = suggest::suggest(&raw, &grid, opts.grid, q.timing_spread_ms, opts.shift_ms);
             out.warnings.extend(q.warnings);
-            if let Some(s) = &division {
-                out.warnings
-                    .push(suggest::division_warning(s, q.timing_spread_ms));
-            }
-            if let Some(delta) = shift {
-                out.warnings.push(suggest::shift_warning(
-                    delta,
-                    opts.shift_ms,
-                    division.as_ref().map(|s| s.division),
-                ));
-            }
+            out.warnings.extend(s.warnings);
             out.timing_spread = (!q.notes.is_empty()).then_some(q.timing_spread_ms);
             out.notes = q.notes;
             out.dropped = q.dropped;
@@ -231,8 +216,8 @@ pub fn transcribe(
                 confidence: grid.confidence,
                 steps_per_bar: q.steps_per_bar,
                 division: opts.grid,
-                suggested_division: division.map(|s| s.division),
-                suggested_shift_ms: shift.map(|delta| opts.shift_ms + delta),
+                suggested_division: s.division,
+                suggested_shift_ms: s.shift_ms,
             });
         }
         GridOutcome::Unresolved(warnings) => {
