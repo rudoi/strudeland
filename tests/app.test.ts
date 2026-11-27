@@ -1185,12 +1185,24 @@ describe('createApp options', () => {
     app.destroy();
   });
 
-  test('the runtime has no rust backend', () => {
+  test('the runtime has no rust backend', async () => {
     const { log, superdough } = fakeBackends();
     const app = appWith({ superdough });
     log.length = 0;
     app.runtime.setLimiter(true);
     expect(log).toEqual(['superdough limiter true']);
+    // A song that asks for rust still plays on superdough.
+    const proto = HTMLCanvasElement.prototype as any;
+    const getContext = proto.getContext;
+    proto.getContext = () => ({ clearRect: () => {}, canvas: { width: 0, height: 0 } });
+    try {
+      expect(await app.runtime.evaluate('$: s("a")', { engine: 'rust', autostart: false })).toBe(
+        true,
+      );
+    } finally {
+      proto.getContext = getContext;
+    }
+    expect(get(app.runtime.store)).toMatchObject({ backend: 'superdough', engine: 'superdough' });
     app.destroy();
   });
 
@@ -1205,6 +1217,26 @@ describe('createApp options', () => {
       status: 'error',
       message: 'audio output is unavailable',
     });
+    app.destroy();
+  });
+
+  test('typed-note auditions call prepareAudition as it is when they are typed', async () => {
+    const { superdough } = fakeBackends();
+    const app = appWith({ superdough });
+    app.attachView(createEditor(document.body, '', app.runtime, app.hooks));
+    await app.prefs.setAuditionNotes(true);
+    expect(app.arbiter.auditionsAvailable()).toBe(true);
+    let prepares = 0;
+    app.runtime.prepareAudition = async () => (prepares++, false);
+    app.hooks.onAuditionEdit?.({
+      kind: 'note',
+      from: 6,
+      to: 8,
+      pitch: 55,
+      sound: 'triangle',
+      controls: {},
+    });
+    expect(prepares).toBeGreaterThanOrEqual(1);
     app.destroy();
   });
 

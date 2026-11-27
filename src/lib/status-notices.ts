@@ -9,7 +9,7 @@ import type { MemoPlayerState } from './audio/memo-player';
 import type { ControlInfo } from './control/protocol';
 import type { PrefsState } from './prefs/store';
 import type { SessionState } from './project/session';
-import { recordingNotices, type NoticeAction, type RecordingNotice } from './recording/memo-ui';
+import { recordingNotices, type RecordingNotice } from './recording/memo-ui';
 import type { RecordingUiState } from './recording/types';
 import type { RuntimeState } from './strudel/runtime';
 
@@ -26,15 +26,9 @@ export interface StatusNoticesInput {
   platform?: Navigator['platform'];
 }
 
-export interface StatusNotice {
-  /** Stable per source, so a changed message updates in place. */
-  id: string;
-  tone: RecordingNotice['tone']; // 'warning' | 'danger'
-  text: string;
+export interface StatusNotice extends RecordingNotice {
   /** The tooltip; never set with `action`. */
   title?: string;
-  /** The control after the text, rendered with its help by the component. */
-  action?: NoticeAction;
 }
 
 export function statusNotices(input: StatusNoticesInput): StatusNotice[] {

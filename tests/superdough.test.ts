@@ -111,7 +111,7 @@ describe('superdough backend graph()', () => {
 
   test('null before audio runs, without asking superdough (that would create a context)', () => {
     const s = setup();
-    expect(s.be.graph!()).toBeNull();
+    expect(s.be.graph()).toBeNull();
     expect(s.calls()).toBe(0);
   });
 
@@ -119,7 +119,7 @@ describe('superdough backend graph()', () => {
     const s = setup();
     await s.be.resume();
     const before = s.calls(); // resume() let the master tap look once
-    const g = s.be.graph!()!;
+    const g = s.be.graph()!;
     expect(g.destination as unknown).toEqual({ context: s.nodeContext, name: 'a' });
     expect(g.context as unknown).toBe(s.nodeContext);
     expect(s.calls()).toBe(before + 1);
@@ -129,21 +129,21 @@ describe('superdough backend graph()', () => {
     const s = setup();
     await s.be.resume();
     s.setGain(null);
-    expect(s.be.graph!()).toBeNull();
+    expect(s.be.graph()).toBeNull();
     const other = { context: { name: 'ctx2' }, name: 'b' };
     s.setGain(other);
-    expect(s.be.graph!()!.destination as unknown).toBe(other);
-    expect(s.be.graph!()!.context as unknown).toBe(other.context);
+    expect(s.be.graph()!.destination as unknown).toBe(other);
+    expect(s.be.graph()!.context as unknown).toBe(other.context);
   });
 
   test('null when the context is suspended again or superdough throws', async () => {
     const s = setup();
     await s.be.resume();
     s.ctx.state = 'suspended';
-    expect(s.be.graph!()).toBeNull();
+    expect(s.be.graph()).toBeNull();
     s.ctx.state = 'running';
     s.fail();
-    expect(s.be.graph!()).toBeNull();
+    expect(s.be.graph()).toBeNull();
   });
 
   test('null without getController', async () => {
@@ -154,7 +154,7 @@ describe('superdough backend graph()', () => {
       setSeed: () => {},
     });
     await be.resume();
-    expect(be.graph!()).toBeNull();
+    expect(be.graph()).toBeNull();
   });
 });
 
@@ -225,7 +225,7 @@ describe('superdough backend master tap', () => {
     s.be.setLimiter!(false);
     expect(s.log).toEqual(['off', 'limiter true', 'limiter false']);
     expect(s.be.limiterAvailable!()).toBe(false);
-    expect(s.be.masterLatencySec!()).toBe(0.0015);
+    expect(s.be.masterLatencySec()).toBe(0.0015);
   });
 
   test('init() waits for the master tap before resolving, every time', async () => {
@@ -279,11 +279,11 @@ describe('superdough backend master tap', () => {
     const init = be.init().then(() => void (initDone = true));
     await new Promise((r) => setTimeout(r, 5));
     expect(initDone).toBe(false); // still waiting for the module
-    expect(be.masterLatencySec!()).toBe(0);
+    expect(be.masterLatencySec()).toBe(0);
     loaded();
     await init;
     expect([...edges].sort()).toEqual(['gain->worklet', 'worklet->dest']);
-    expect(be.masterLatencySec!()).toBe(72 / 48000);
+    expect(be.masterLatencySec()).toBe(72 / 48000);
     await be.output({} as any, 0, 1);
     expect([...edges].sort()).toEqual(['gain->worklet', 'worklet->dest']);
   });
@@ -311,7 +311,7 @@ describe('superdough backend master tap', () => {
       console.error = err;
     }
     expect(be.limiterAvailable!()).toBe(false);
-    expect(be.masterLatencySec!()).toBe(0);
+    expect(be.masterLatencySec()).toBe(0);
   });
 
   test('the default tap stays out of the way without a controller', async () => {
@@ -324,7 +324,7 @@ describe('superdough backend master tap', () => {
     await be.resume();
     await be.output({} as any, 0, 1);
     expect(be.limiterAvailable!()).toBe(true);
-    expect(be.masterLatencySec!()).toBe(0);
+    expect(be.masterLatencySec()).toBe(0);
   });
 });
 

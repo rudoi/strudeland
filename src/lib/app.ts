@@ -85,7 +85,8 @@ export interface AppOptions {
   api?: ProjectApi;
   /**
    * Whether the page runs in Tauri; default `isTauri`. It picks the defaults below and turns on
-   * the Rust backend, the piano-roll inspection and the window title.
+   * the Rust backend, the piano-roll inspection and the window title. It is also the session's
+   * `isTauri` (project features).
    */
   inTauri?: () => boolean;
   /** Default: Tauri's in Tauri. With `null` the control socket is not attached. */

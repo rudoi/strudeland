@@ -89,7 +89,7 @@
                 help="Dismiss this memo playback message."
                 onclick={() => memos?.stopPlayback()}>dismiss</Button
               >
-            {:else}
+            {:else if action.kind === 'dismiss'}
               <Button
                 size="sm"
                 variant="quiet"
