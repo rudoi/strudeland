@@ -6,7 +6,7 @@ import { createMemoPlayer } from './audio/memo-player';
 import { createMetronome } from './audio/metronome';
 import { createOutputClock } from './audio/output-clock';
 import { tauriPlaybackApi } from './audio/playback-api';
-import { createRustBackend } from './audio/rust';
+import { createRustBackend, type RustBackend } from './audio/rust';
 import { createSuperdoughBackend, type SuperdoughBackend } from './audio/superdough';
 import { createTauriControlApi, type ControlApi } from './control/api';
 import { createControlHandler, replyTo, type ControlHandler } from './control/handler';
@@ -79,20 +79,40 @@ export interface App {
   destroy(): void;
 }
 
-/**
- * Composition root: the live backends, one runtime, one session per window. `api`, `controlApi` and
- * `recordingApi` are test seams; `controlApi` defaults to Tauri's in Tauri, and with `null` the
- * control socket is not attached. `recordingApi` defaults to Tauri's when the page really runs in
- * Tauri; with `null` there is no recording controller and no memo list. `prefsApi` defaults to
- * Tauri's in Tauri; with `null` the prefs live in memory only.
- */
-export function createApp(
-  api: ProjectApi = createTauriProjectApi(),
-  inTauri: () => boolean = isTauri,
-  controlApi: ControlApi | null = inTauri() ? createTauriControlApi() : null,
-  recordingApi: RecordingApi | null = isTauri() ? createTauriRecordingApi() : null,
-  prefsApi: PrefsApi | null = inTauri() ? createTauriPrefsApi() : null,
-): App {
+/** `createApp`'s test seams. Every field is optional; `createApp()` builds the real app. */
+export interface AppOptions {
+  /** Default: Tauri's. */
+  api?: ProjectApi;
+  /**
+   * Whether the page runs in Tauri; default `isTauri`. It picks the defaults below and turns on
+   * the Rust backend, the piano-roll inspection and the window title.
+   */
+  inTauri?: () => boolean;
+  /** Default: Tauri's in Tauri. With `null` the control socket is not attached. */
+  controlApi?: ControlApi | null;
+  /**
+   * Default: Tauri's when the page really runs in Tauri (`isTauri`, not `inTauri`). With `null`
+   * there is no recording controller and no memo list.
+   */
+  recordingApi?: RecordingApi | null;
+  /** Default: Tauri's in Tauri. With `null` the prefs live in memory only. */
+  prefsApi?: PrefsApi | null;
+  /**
+   * The live backends. Default: a superdough backend, plus in Tauri a Rust backend over the
+   * playback API. Given without `rust`, every song plays on superdough.
+   */
+  backends?: { superdough: SuperdoughBackend; rust?: RustBackend };
+}
+
+/** Composition root: the live backends, one runtime, one session per window. */
+export function createApp(options: AppOptions = {}): App {
+  const {
+    api = createTauriProjectApi(),
+    inTauri = isTauri,
+    controlApi = inTauri() ? createTauriControlApi() : null,
+    recordingApi = isTauri() ? createTauriRecordingApi() : null,
+    prefsApi = inTauri() ? createTauriPrefsApi() : null,
+  } = options;
   const prefs = createPrefs(prefsApi);
   const rollInspection = createInspectionQueue(inTauri() ? inspectPianoRoll : null);
   const vimMode = createVimMode();
@@ -102,9 +122,11 @@ export function createApp(
     getView: () => view,
     getScheduler: () => runtime.drawingScheduler,
   });
-  const superdough = createSuperdoughBackend();
-  // The Rust engine plays through the app; in a plain browser every song plays on superdough.
-  const rust = inTauri() ? createRustBackend(tauriPlaybackApi) : undefined;
+  const { superdough, rust } = options.backends ?? {
+    superdough: createSuperdoughBackend(),
+    // The Rust engine plays through the app; in a plain browser every song plays on superdough.
+    rust: inTauri() ? createRustBackend(tauriPlaybackApi) : undefined,
+  };
   runtime = createRuntime({
     backends: { superdough, rust },
     async prebake() {
@@ -133,7 +155,8 @@ export function createApp(
   }
   const audition = createAuditionQueue({
     eligible: canAudition,
-    prepare: runtime.prepareAudition,
+    // Read at call time, so a replaced `prepareAudition` is the one called.
+    prepare: () => runtime.prepareAudition(),
     play(note) {
       rollAudition = null;
       const editor = view;
@@ -148,7 +171,7 @@ export function createApp(
   });
   const instrumentPreview = createInstrumentPreview({
     eligible: auditionsAvailable,
-    prepare: runtime.prepareAudition,
+    prepare: () => runtime.prepareAudition(),
     graph: auditionGraph,
     render: (version) => api.instrumentPreview(version),
   });

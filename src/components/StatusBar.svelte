@@ -145,7 +145,7 @@
         </button>
       </div>
       <MasterMeter
-        drain={runtime.drainLevels}
+        drain={() => runtime.drainLevels()}
         limiter={$rt.limiter}
         available={$rt.limiterAvailable}
         onlimiter={prefs.setLimiter}
