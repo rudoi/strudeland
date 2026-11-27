@@ -339,59 +339,95 @@ mod tests {
     #[test]
     fn suggest_is_its_parts() {
         let g = grid(2.0);
-        // (notes, requested division): a division suggestion with its shift, a shift alone
+        let sixteenths = Some(GridDivision::Sixteenth);
+        let fits = |spread: &str| format!("timing fits --grid 16 better (spread {spread})");
+        // (notes, requested division, given shift, division, shift, warnings in order)
         let cases = [
-            (dotted_eighths(2.0, 16), GridDivision::Eighth),
-            (dotted_eighths(2.06, 16), GridDivision::Eighth),
-            (dotted_eighths(2.06, 16), GridDivision::Sixteenth),
+            // a division suggestion alone
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Eighth,
+                0.0,
+                sixteenths,
+                None,
+                vec![fits("18 ms vs 163 ms")],
+            ),
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Eighth,
+                25.0,
+                sixteenths,
+                None,
+                vec![fits("18 ms vs 163 ms")],
+            ),
+            // a division suggestion with its shift, on the given shift
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Eighth,
+                0.0,
+                sixteenths,
+                Some(60.0),
+                vec![
+                    fits("75 ms vs 125 ms"),
+                    "notes sit ~60 ms after the --grid 16 grid; try --grid 16 --shift 60".into(),
+                ],
+            ),
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Eighth,
+                25.0,
+                sixteenths,
+                Some(85.0),
+                vec![
+                    fits("75 ms vs 125 ms"),
+                    "notes sit ~60 ms after the --grid 16 grid; try --grid 16 --shift 85".into(),
+                ],
+            ),
+            // a shift alone
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Sixteenth,
+                0.0,
+                None,
+                Some(60.0),
+                vec!["notes sit ~60 ms after the grid; try --shift 60".to_string()],
+            ),
+            (
+                dotted_eighths(2.06, 16),
+                GridDivision::Sixteenth,
+                25.0,
+                None,
+                Some(85.0),
+                vec!["notes sit ~60 ms after the grid; try --shift 85".to_string()],
+            ),
+            // nothing to suggest: sixteenths on the grid already
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Sixteenth,
+                0.0,
+                None,
+                None,
+                vec![],
+            ),
+            (
+                dotted_eighths(2.0, 16),
+                GridDivision::Sixteenth,
+                25.0,
+                None,
+                None,
+                vec![],
+            ),
         ];
-        let mut seen = (false, false);
-        for (notes, requested) in &cases {
-            let q = quantize(notes, &g, *requested).unwrap();
-            for given in [0.0, 25.0] {
-                let division = suggest_division(notes, &g, *requested);
-                let (d, spread) = match &division {
-                    Some(s) => (s.division, s.spread_ms),
-                    None => (*requested, q.timing_spread_ms),
-                };
-                let shift = suggest_shift(notes, &g, d, spread);
-                let mut warnings = Vec::new();
-                if let Some(s) = &division {
-                    warnings.push(division_warning(s, q.timing_spread_ms));
-                }
-                if let Some(delta) = shift {
-                    warnings.push(shift_warning(
-                        delta,
-                        given,
-                        division.as_ref().map(|s| s.division),
-                    ));
-                }
-                seen.0 |= division.is_some();
-                seen.1 |= shift.is_some();
-                let expected = Suggestions {
-                    division: division.map(|s| s.division),
-                    shift_ms: shift.map(|delta| given + delta),
-                    warnings,
-                };
-                assert_eq!(
-                    suggest(notes, &g, *requested, q.timing_spread_ms, given),
-                    expected,
-                    "{requested:?} given {given}"
-                );
-            }
-        }
-        assert_eq!(seen, (true, true), "the fixtures suggest both");
-        // nothing to suggest: sixteenths on the grid already
-        let on = dotted_eighths(2.0, 16);
-        let q = quantize(&on, &g, GridDivision::Sixteenth).unwrap();
-        for given in [0.0, 25.0] {
+        for (notes, requested, given, division, shift_ms, warnings) in cases {
+            let q = quantize(&notes, &g, requested).unwrap();
             assert_eq!(
-                suggest(&on, &g, GridDivision::Sixteenth, q.timing_spread_ms, given),
+                suggest(&notes, &g, requested, q.timing_spread_ms, given),
                 Suggestions {
-                    division: None,
-                    shift_ms: None,
-                    warnings: vec![],
-                }
+                    division,
+                    shift_ms,
+                    warnings,
+                },
+                "{requested:?} given {given}"
             );
         }
     }

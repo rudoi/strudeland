@@ -2,11 +2,11 @@
 //! bar grid and Strudel mini-notation out.
 //!
 //! The crate is pure: it holds no global state and reads no sidecars, devices or network. The
-//! `load` module reads a span of a WAV file. The other stages take samples and a grid hint. The
-//! stages (`load`, pitch tracking, segmentation, grid, quantizing, key, notation) are plain
-//! functions over plain data, and the result is the serializable [`Transcription`]. `eval` (behind
-//! the `eval` feature, and in the crate's own unit tests) is test support: a seeded synthetic
-//! melody generator and a note-level scorer.
+//! `load` module reads a span of a WAV file. The stages after it (pitch tracking, segmentation,
+//! grid, quantizing, key, notation) take samples and a grid hint and are plain functions over
+//! plain data, and the result is the serializable [`Transcription`]. `eval` (behind the `eval`
+//! feature, and in the crate's own unit tests) is test support: a seeded synthetic melody
+//! generator and a note-level scorer.
 
 pub mod consts;
 mod error;
@@ -38,7 +38,7 @@ use std::borrow::Cow;
 use consts::{ANALYSIS_RATE, FRAME, MAX_NOTATION_BARS, TUNING_WARN_CENTS};
 use grid::{Grid, GridOutcome, meter_label, resolve_grid};
 use key::detect_key;
-use notation::{Window, WindowStart, midi_to_name, render_notation};
+use notation::{Window, midi_to_name, render_notation};
 use onset::onset_strength_of_signal;
 use pitch::{PitchTracker, PyinTracker};
 use quantize::quantize;
@@ -65,8 +65,8 @@ pub struct Options {
     pub memo_seconds: Option<f64>,
     /// `--bars A-B` as `(A, B)`: memo bars, 1-based and inclusive, `1 <= A <= B`. The
     /// notation then covers exactly bars A to B, rest bars included, whatever bar the samples
-    /// start in. `None` notates from the bar the samples start in (or the pickup bar) to the
-    /// last bar with a note.
+    /// start in; there is no notation when no notated note falls in A to B. `None` notates
+    /// from the bar the samples start in (or the pickup bar) to the last bar with a note.
     pub bars: Option<(u32, u32)>,
     /// Fill `Transcription::{frames, onsets}`.
     pub debug: bool,
@@ -184,7 +184,7 @@ pub fn transcribe(
         n.end += span_start;
     }
 
-    // (steps per bar, what fixes the notation's first bar)
+    // (steps per bar, the bar the span starts in)
     let mut notation_grid = None;
     match resolve_grid(&hint, &onsets, span_start, memo_seconds, opts.shift_ms)? {
         GridOutcome::Known(grid, warnings) => {
@@ -196,11 +196,7 @@ pub fn transcribe(
             out.timing_spread = (!q.notes.is_empty()).then_some(q.timing_spread_ms);
             out.notes = q.notes;
             out.dropped = q.dropped;
-            let start = match opts.bars {
-                Some((from, to)) => WindowStart::Requested { from, to },
-                None => WindowStart::SpanBar(span_bar(span_start, &grid)),
-            };
-            notation_grid = Some((q.steps_per_bar, start));
+            notation_grid = Some((q.steps_per_bar, span_bar(span_start, &grid)));
             out.grid = Some(GridReport {
                 bpm: grid.bpm,
                 meter: hint
@@ -241,7 +237,7 @@ pub fn transcribe(
         },
     };
     notation::fill_degrees(&mut out.notes, out.key.as_ref());
-    if let Some((spb, start)) = notation_grid {
+    if let Some((spb, start_bar)) = notation_grid {
         // the notes the notation can show: not those more than a bar before bar 1
         let notated: Vec<Note> = out
             .notes
@@ -249,7 +245,7 @@ pub fn transcribe(
             .filter(|n| !n.early && n.step.is_some() && n.steps.is_some())
             .cloned()
             .collect();
-        match notation::window(start, &notated) {
+        match notation::window(opts.bars, start_bar, &notated) {
             Window::TooLong { last_bar } => out.warnings.push(format!(
                 "the notes reach bar {last_bar}; notation is limited to {MAX_NOTATION_BARS} bars"
             )),

@@ -281,7 +281,8 @@ notes sung there (an upbeat during the count-in) are bar 0, and the code then st
 bars. The take started at `backing.startSection` (a section name from the song's `meta`), so map
 a memo bar to a song bar by that section's first bar: `strudeland events --section NAME` shows
 where it starts, or read the song's `meta`. `notation.firstBar` is the memo bar the code's first
-bar is; with `--bars 3-6` it is 3. `notation.lastBar` is its last bar: the last bar with a note, or B exactly for `--bars A-B` (empty bars at the end are `~`). The pattern is one bar per cycle, so it plays at the song's
+bar is; with `--bars 3-6` it is 3. With `--bars A-B` the code always starts at bar A, so a
+pickup before A (in bar 0 for `--bars 1-B`) is only in `notes`, not in the code. `notation.lastBar` is its last bar: the last bar with a note, or B exactly for `--bars A-B` (empty bars at the end are `~`). The pattern is one bar per cycle, so it plays at the song's
 tempo when placed in the song at the right bar.
 
 ### Workflow

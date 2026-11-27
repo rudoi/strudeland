@@ -2966,10 +2966,7 @@ mod tests {
             assert_eq!(notation["firstBar"], 2, "{run}: {notation}");
             assert_eq!(notation["lastBar"], 3, "{run}: {notation}");
             let note = notation["note"].as_str().unwrap();
-            assert!(!note.starts_with("<~"), "{run}: {note}");
-            if run == "flags" {
-                assert_eq!(note, "<[g4 a4 b4 c5] [c5 b4 a4 g4]>");
-            }
+            assert_eq!(note, "<[g4 a4 b4 c5] [c5 b4 a4 g4]>", "{run}");
         }
         let (_, out, _) = transcribe_run(&flags, &root);
         assert!(out.lines().next().unwrap().ends_with("(bars 2-3)"), "{out}");

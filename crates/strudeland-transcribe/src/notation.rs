@@ -278,15 +278,6 @@ pub fn render_notation(
     }
 }
 
-/// What fixes the notation's first bar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WindowStart {
-    /// `Options.bars`: exactly `from..=to`.
-    Requested { from: u32, to: u32 },
-    /// The bar the samples start in (`span_bar`; 0 before bar 1): today's rule.
-    SpanBar(u32),
-}
-
 /// The bars to notate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Window {
@@ -302,15 +293,15 @@ pub(crate) enum Window {
     Empty,
 }
 
-/// The bars to notate of `notated`, the notes the notation can show. A requested window is
-/// exactly its bars. A span bar starts the notation there (bar 1 at the earliest), or at the
-/// pickup bar, bar 0, when the span starts before bar 1 and has notes there; it ends at the last
-/// bar with a note.
-pub(crate) fn window(start: WindowStart, notated: &[Note]) -> Window {
+/// The bars to notate of `notated`, the notes the notation can show. A bars request
+/// (`Options.bars`) is exactly its bars. Without one the notation starts at `span_bar`, the bar
+/// the samples start in (bar 1 at the earliest), or at the pickup bar, bar 0, when the span
+/// starts before bar 1 and has notes there; it ends at the last bar with a note.
+pub(crate) fn window(bars: Option<(u32, u32)>, span_bar: u32, notated: &[Note]) -> Window {
     let note_bar = notated.iter().filter_map(|n| n.bar).max();
-    let (first, last) = match start {
-        WindowStart::Requested { from, to } => (from, to),
-        WindowStart::SpanBar(span_bar) => {
+    let (first, last) = match bars {
+        Some((from, to)) => (from, to),
+        None => {
             // a span from before bar 1 with notes in the pickup bar starts at bar 0
             let pickup = span_bar == 0 && notated.iter().any(|n| n.bar == Some(0));
             let first = if pickup { 0 } else { span_bar.max(1) };
@@ -701,40 +692,25 @@ mod tests {
     #[test]
     fn window_rules() {
         use Window::{Bars, Empty, TooLong};
-        use WindowStart::{Requested, SpanBar};
         let max = MAX_NOTATION_BARS;
-        for (start, bars, want) in [
-            (
-                Requested { from: 2, to: 3 },
-                vec![1, 2, 3],
-                Bars { first: 2, last: 3 },
-            ),
+        // (bars, span bar, notes' bars, window); the span bar does not move a bars request
+        for (bars, span_bar, notes, want) in [
+            (Some((2, 3)), 1, vec![1, 2, 3], Bars { first: 2, last: 3 }),
             // the pickup does not move a bars request
-            (
-                Requested { from: 1, to: 4 },
-                vec![0, 1, 2],
-                Bars { first: 1, last: 4 },
-            ),
-            (
-                Requested {
-                    from: 2,
-                    to: max + 1,
-                },
-                vec![],
-                TooLong { last_bar: max + 1 },
-            ),
-            (Requested { from: 3, to: 4 }, vec![1, 2], Empty),
-            (SpanBar(0), vec![0, 2], Bars { first: 0, last: 2 }),
-            (SpanBar(0), vec![1, 2], Bars { first: 1, last: 2 }),
-            (SpanBar(3), vec![2, 5], Bars { first: 3, last: 5 }),
-            (SpanBar(3), vec![], Empty),
-            (SpanBar(1), vec![max + 1], TooLong { last_bar: max + 1 }),
-            (SpanBar(u32::MAX), vec![2], Empty),
+            (Some((1, 4)), 0, vec![0, 1, 2], Bars { first: 1, last: 4 }),
+            (Some((2, max + 1)), 2, vec![], TooLong { last_bar: max + 1 }),
+            (Some((3, 4)), 3, vec![1, 2], Empty),
+            (None, 0, vec![0, 2], Bars { first: 0, last: 2 }),
+            (None, 0, vec![1, 2], Bars { first: 1, last: 2 }),
+            (None, 3, vec![2, 5], Bars { first: 3, last: 5 }),
+            (None, 3, vec![], Empty),
+            (None, 1, vec![max + 1], TooLong { last_bar: max + 1 }),
+            (None, u32::MAX, vec![2], Empty),
         ] {
             assert_eq!(
-                window(start, &bars_of(&bars)),
+                window(bars, span_bar, &bars_of(&notes)),
                 want,
-                "{start:?} over {bars:?}"
+                "{bars:?} at span bar {span_bar} over {notes:?}"
             );
         }
     }
@@ -775,10 +751,24 @@ mod tests {
             for bars in sets {
                 let notated = bars_of(bars);
                 assert_eq!(
-                    window(WindowStart::SpanBar(b), &notated),
+                    window(None, b, &notated),
                     todays_window(b, &notated, None),
                     "span bar {b} over {bars:?}"
                 );
+                // a request for bars b to `to`, cut from bar b (so no pickup), is today's rule
+                // with that last bar
+                if b >= 1 {
+                    for to in [b, b.saturating_add(1), b.saturating_add(5), max, max + 1] {
+                        if to < b {
+                            continue;
+                        }
+                        assert_eq!(
+                            window(Some((b, to)), b, &notated),
+                            todays_window(b, &notated, Some(to)),
+                            "bars {b}-{to} over {bars:?}"
+                        );
+                    }
+                }
             }
         }
     }
