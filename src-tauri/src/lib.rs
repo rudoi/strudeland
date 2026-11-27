@@ -6,6 +6,7 @@ mod commands;
 mod control;
 mod export_audio;
 mod instruments;
+mod lifecycle;
 mod piano_roll;
 mod playback;
 mod project;
@@ -37,14 +38,14 @@ pub fn run() {
         // A reload or HMR of the main webview: requests answer `not ready` until it attaches again.
         .on_page_load(|webview, payload| {
             if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Started) {
-                webview.state::<app_quit::QuitState>().detach();
-                webview.state::<Arc<control::Bridge>>().detach();
-                if let Some(recorder) = webview.try_state::<recording::RecorderState>() {
-                    recorder.0.on_reload();
-                }
-                if let Some(p) = webview.try_state::<playback::PlaybackState>() {
-                    playback::end_session(&p);
-                }
+                let recorder = webview.try_state::<recording::RecorderState>();
+                let session = webview.try_state::<playback::PlaybackState>();
+                lifecycle::on_reload(
+                    &webview.state::<app_quit::QuitState>(),
+                    &webview.state::<Arc<control::Bridge>>(),
+                    recorder.as_ref().map(|r| &*r.0),
+                    session.as_deref(),
+                );
             }
         })
         .setup(move |app| {
@@ -112,15 +113,13 @@ pub fn run() {
         .expect("error while building the strudeland application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                // Audio stops first.
-                if let Some(p) = app.try_state::<playback::PlaybackState>() {
-                    playback::end_session(&p);
-                }
-                // Before the control socket, so a slow socket cannot delay the audio.
-                if let Some(recorder) = app.try_state::<recording::RecorderState>() {
-                    recorder.0.shutdown();
-                }
-                control::shutdown(app);
+                let session = app.try_state::<playback::PlaybackState>();
+                let recorder = app.try_state::<recording::RecorderState>();
+                lifecycle::on_exit(
+                    session.as_deref(),
+                    recorder.as_ref().map(|r| &*r.0),
+                    &app.state::<Arc<control::Bridge>>(),
+                );
             }
         });
 }
