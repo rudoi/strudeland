@@ -1,6 +1,5 @@
 <script lang="ts">
   import { readable, type Readable } from 'svelte/store';
-  import { engineNotices } from '../lib/audio/engine-notices';
   import type { ControlInfo } from '../lib/control/protocol';
   import { vimChip, type VimMode } from '../lib/editor/vim-mode';
   import { helpTarget } from '../lib/help/targets';
@@ -8,8 +7,8 @@
   import type { Session } from '../lib/project/session';
   import type { RecordingController } from '../lib/recording/controller';
   import type { Memos } from '../lib/recording/memos';
-  import { recordingNotices } from '../lib/recording/memo-ui';
   import type { RecordingUiState } from '../lib/recording/types';
+  import { statusNotices } from '../lib/status-notices';
   import type { Runtime } from '../lib/strudel/runtime';
   import Button from './ui/Button.svelte';
   import Chip from './ui/Chip.svelte';
@@ -58,39 +57,21 @@
   // svelte-ignore state_referenced_locally
   const vimStore = vimMode.store;
   const chip = $derived(vimChip($ps.vim ? ($vimStore ?? { mode: 'normal' }) : null));
-  const notices = $derived(recordingNotices($recStore, $playerStore));
+  // The notices in order, from every source; the action controls and their help stay here.
+  const notices = $derived(
+    statusNotices({
+      runtime: $rt,
+      session: $ss,
+      prefs: $ps,
+      control: $cs,
+      recording: $recStore,
+      player: $playerStore,
+    }),
+  );
 </script>
 
 <footer>
   <div class="notices">
-    {#if $rt.evalError}
-      <Notice tone="danger">error: {$rt.evalError}</Notice>
-    {:else if $rt.outputError}
-      <Notice tone="danger">audio error: {$rt.outputError}</Notice>
-    {/if}
-    {#if $ss.error}
-      <Notice tone="danger">{$ss.error}</Notice>
-    {/if}
-    {#if $ss.metaError}
-      <Notice tone="danger">meta: {$ss.metaError}</Notice>
-    {/if}
-    {#if $ps.error}
-      <Notice tone="danger">prefs: {$ps.error}</Notice>
-    {/if}
-    {#if $rt.tempoOverride}
-      <Notice tone="warning">setcps in the code overrides meta.bpm</Notice>
-    {/if}
-    {#each engineNotices($rt.engineWarnings) as n (n.key)}
-      <Notice tone="warning" title={n.detail}>{n.text}</Notice>
-    {/each}
-    {#if $ss.notice}
-      <Notice tone="warning">Claude edited {$ss.notice.title}</Notice>
-    {/if}
-    {#if $cs.status === 'in-use'}
-      <Notice tone="warning" title={$cs.path ?? ''}>control socket in use</Notice>
-    {:else if $cs.status === 'disabled'}
-      <Notice tone="warning">control disabled: {$cs.detail}</Notice>
-    {/if}
     {#each notices as n (n.id)}
       {#if n.action}
         {@const action = n.action}
@@ -121,7 +102,7 @@
           {/snippet}
         </Notice>
       {:else}
-        <Notice tone={n.tone}>{n.text}</Notice>
+        <Notice tone={n.tone} title={n.title}>{n.text}</Notice>
       {/if}
     {/each}
     {#if $rt.audio === 'suspended'}
