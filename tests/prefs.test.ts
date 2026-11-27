@@ -357,6 +357,51 @@ describe('prefs store', () => {
   });
 });
 
+describe('prefs load cleanliness', () => {
+  it('is clean only after a load that read a good or missing file', async () => {
+    const api = fakePrefsApi({ vim: true });
+    const p = createPrefs(api);
+    expect(p.loadedClean()).toBe(false);
+    await p.load();
+    expect(p.loadedClean()).toBe(true);
+  });
+
+  it('is unclean after a bad file gave the defaults', async () => {
+    const api = fakePrefsApi({ vim: true });
+    api.clean = false;
+    const p = createPrefs(api);
+    await p.load();
+    expect(p.loadedClean()).toBe(false);
+    expect(p.vim()).toBe(false);
+  });
+
+  it('is unclean after a failed load and without an api', async () => {
+    const api = fakePrefsApi();
+    api.failGet = true;
+    const log = spyOn(console, 'error').mockImplementation(() => {});
+    const p = createPrefs(api);
+    try {
+      await p.load();
+    } finally {
+      log.mockRestore();
+    }
+    expect(p.loadedClean()).toBe(false);
+    const memory = createPrefs(null);
+    await memory.load();
+    expect(memory.loadedClean()).toBe(false);
+  });
+
+  it('never sends the flag back in a save', async () => {
+    const api = fakePrefsApi();
+    const p = createPrefs(api);
+    await p.load();
+    await p.setVim(true);
+    expect(Object.keys(api.saved[0]).sort()).toEqual(
+      ['auditionNotes', 'formatOnSave', 'limiter', 'pianoRollOpen', 'vim'].sort(),
+    );
+  });
+});
+
 describe('limiter migration', () => {
   const KEY = 'strudeland.limiter';
 
@@ -375,12 +420,48 @@ describe('limiter migration', () => {
     return storage;
   }
 
-  async function loaded(initial: Parameters<typeof fakePrefsApi>[0] = {}) {
+  async function loaded(initial: Parameters<typeof fakePrefsApi>[0] = {}, clean = true) {
     const api = fakePrefsApi(initial);
+    api.clean = clean;
     const prefs = createPrefs(api);
     await prefs.load();
     return { api, prefs };
   }
+
+  it('after an unclean load saves nothing, applies nothing and keeps the key', async () => {
+    for (const value of ['1', '0']) {
+      const { api, prefs } = await loaded({ vim: true, limiter: true }, false);
+      const storage = fakeStorage(value);
+      await migrateLimiter(prefs, () => storage);
+      expect(api.saved).toEqual([]);
+      expect(prefs.limiter()).toBe(false);
+      expect(storage.map.get(KEY)).toBe(value);
+      expect(storage.removed).toBe(0);
+      expect(get(prefs.store).error).toBeNull();
+    }
+  });
+
+  it('after a failed load saves nothing, shows no error and keeps the key', async () => {
+    const api = fakePrefsApi();
+    api.failGet = true;
+    const log = spyOn(console, 'error').mockImplementation(() => {});
+    const prefs = createPrefs(api);
+    const storage = fakeStorage('1');
+    try {
+      await prefs.load();
+      expect(log).toHaveBeenCalledTimes(1);
+      // A later get would succeed: the migration must not retry the load to save.
+      api.failGet = false;
+      await migrateLimiter(prefs, () => storage);
+      expect(log).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
+    }
+    expect(api.saved).toEqual([]);
+    expect(prefs.limiter()).toBe(false);
+    expect(get(prefs.store).error).toBeNull();
+    expect(storage.map.get(KEY)).toBe('1');
+  });
 
   it("moves '1' into prefs and removes the key", async () => {
     const { api, prefs } = await loaded();

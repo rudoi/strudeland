@@ -1032,6 +1032,19 @@ describe('limiter migration wiring', () => {
     app.destroy();
   });
 
+  test('after a bad prefs file gave the defaults the key stays and nothing is saved', async () => {
+    localStorage.setItem(KEY, '1');
+    const prefs = fakePrefsApi({ vim: true });
+    prefs.clean = false;
+    const app = createApp(apiFor(), () => true, null, null, prefs);
+    await app.ready;
+    await flush();
+    expect(prefs.saved).toEqual([]);
+    expect(localStorage.getItem(KEY)).toBe('1');
+    expect(get(app.runtime.store).limiter).toBe(false);
+    app.destroy();
+  });
+
   test('without a prefs api the key stays and the limiter stays off', async () => {
     localStorage.setItem(KEY, '1');
     const app = createApp(apiFor(), () => true, null, null, null);

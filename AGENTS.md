@@ -163,8 +163,10 @@ the V8 download the host brings.
   bad-file policy (a missing, unreadable, corrupt or wrong-schema file gives the defaults, stays
   in place and is reported to the caller to log), for `prefs.json` (app preferences),
   `recent.json` (recent projects) and `recording.json` (the saved recording input,
-  `RecordingInput`). The app resolves it once as `AppDataState`. No Tauri
-  dependency, so the CLI can reuse it.
+  `RecordingInput`). The app resolves it once at start as `AppDataState` for the project,
+  prefs and recording commands. The instrument commands (`src-tauri/src/instruments.rs`) still
+  locate it on each call through `InstrumentLibrary::open_default`. No Tauri dependency, so the
+  CLI can reuse it.
 - The instrument library store and project pins live in `crates/strudeland-project`.
   `src/lib/strudel/instruments.ts` binds the pinned snapshot as `instruments` at
   evaluation. The project session refreshes the snapshot through the watcher, and the desktop

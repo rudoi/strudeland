@@ -17,6 +17,11 @@ export interface PrefsStore {
   limiter(): boolean;
   /** Whether this session set `key`; a value the user chose before the load wins over a migration. */
   edited(key: keyof Prefs): boolean;
+  /**
+   * Whether a load succeeded and read a good (or missing) file. False before the load, after a
+   * failed one, and when a bad file gave the defaults: only then may a save be made unasked.
+   */
+  loadedClean(): boolean;
   /** Loads the initial preference snapshot. Never rejects. */
   load(): Promise<void>;
   /** Resolves whether the save landed; never rejects. */
@@ -38,12 +43,14 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
   state.subscribe((s) => (current = s));
   let edits: Partial<Prefs> = {};
   let initial: Promise<Prefs> | undefined;
+  let clean = false;
   let chain: Promise<void> = Promise.resolve();
 
   function loadInitial(): Promise<Prefs> {
     if (!api) return Promise.resolve(DEFAULT_PREFS);
     return (initial ??= (async () => {
-      const saved = await api.get();
+      const { prefs: saved, clean: wasClean } = await api.get();
+      clean = wasClean;
       state.update((s) => ({ ...s, ...saved, ...edits }));
       return saved;
     })().catch((e) => {
@@ -83,6 +90,7 @@ export function createPrefs(api: PrefsApi | null): PrefsStore {
     formatOnSave: () => current.formatOnSave,
     limiter: () => current.limiter,
     edited: (key) => key in edits,
+    loadedClean: () => clean,
     async load() {
       try {
         await loadInitial();

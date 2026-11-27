@@ -452,6 +452,12 @@ impl InstrumentLibrary {
                 "cannot locate user data directory",
             ));
         };
+        // A relative single-component dir (`AppData::at("x")`) has an empty parent.
+        let base = if base.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            base
+        };
         fs::create_dir_all(base).map_err(|e| ProjectError::io(base, e))?;
         let base = base.canonicalize().map_err(|e| ProjectError::io(base, e))?;
         let base = checked_directory(&base)?;
@@ -1190,5 +1196,29 @@ mod tests {
         );
         assert!(library.path().is_dir());
         assert!(library.entries().unwrap().is_empty());
+    }
+
+    #[test]
+    fn open_in_a_relative_single_component_dir_resolves_against_the_cwd() {
+        /// Removes the dir it names, so a failing test leaves nothing in the crate.
+        struct Remove(PathBuf);
+        impl Drop for Remove {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let name = format!(".open-in-relative-test-{}", std::process::id());
+        let cleanup = Remove(std::env::current_dir().unwrap().join(&name));
+        let library = InstrumentLibrary::open_in(&AppData::at(&name)).unwrap();
+        assert_eq!(
+            library.path(),
+            Path::new(".")
+                .canonicalize()
+                .unwrap()
+                .join(&name)
+                .join(INSTRUMENTS_DIR)
+        );
+        assert!(library.path().is_dir());
+        drop(cleanup);
     }
 }

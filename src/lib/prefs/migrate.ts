@@ -10,8 +10,12 @@ const KEY = 'strudeland.limiter';
 export const webStorage = (): Storage | undefined => globalThis.localStorage;
 
 /**
- * Moves the old `localStorage` limiter value into prefs once. The key is removed only after a
- * save landed; a toggle made before the load wins over the stored value. Never rejects.
+ * Moves the old `localStorage` limiter value into prefs once. Call it after `prefs.load()`
+ * settled. It saves only after a clean load, so a bad `prefs.json` that gave the defaults is
+ * never overwritten unasked, and a failed load skips it. After an unclean or failed load it does
+ * nothing at all, not even in memory (the store's state stays the loaded prefs plus the user's
+ * edits, which every save writes), and the key stays for a later launch. The key is removed only
+ * after a save landed; a toggle made before the load wins over the stored value. Never rejects.
  */
 export async function migrateLimiter(
   prefs: PrefsStore,
@@ -27,6 +31,7 @@ export async function migrateLimiter(
   }
   if (!store || value === null) return;
   if (value !== '1' && value !== '0') return;
+  if (!prefs.loadedClean()) return;
   // The user already chose this session: save that value again so a failed save keeps the key.
   const on = prefs.edited('limiter') ? prefs.limiter() : value === '1';
   if (!(await prefs.setLimiter(on))) return;

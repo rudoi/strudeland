@@ -32,7 +32,11 @@ pub struct AppDataState(Result<AppData, String>);
 
 impl AppDataState {
     pub fn locate() -> Self {
-        AppDataState(AppData::locate().map_err(|e| e.to_string()))
+        Self::from_located(AppData::locate())
+    }
+
+    fn from_located(located: Result<AppData, ProjectError>) -> Self {
+        AppDataState(located.map_err(|e| e.to_string()))
     }
 
     pub fn get(&self) -> Result<&AppData, CommandError> {
@@ -295,9 +299,28 @@ pub async fn recent_list(
     Ok(Recents::list(app_data.get()?).log("recents"))
 }
 
+/// The prefs `prefs_get` returns, and whether the file loaded cleanly: `clean` is false when a
+/// bad file (unreadable, corrupt, another schema) gave the defaults, so the frontend must not
+/// save on its own initiative over a file it could not read. Never sent back in `prefs_set`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PrefsLoad {
+    pub prefs: Prefs,
+    pub clean: bool,
+}
+
+/// Loads the prefs, logging any problem; a missing file is clean.
+fn load_prefs(app_data: &AppData) -> PrefsLoad {
+    let loaded = Prefs::load(app_data);
+    let clean = loaded.problem.is_none();
+    PrefsLoad {
+        prefs: loaded.log("prefs"),
+        clean,
+    }
+}
+
 #[tauri::command]
-pub async fn prefs_get(app_data: State<'_, AppDataState>) -> Result<Prefs, CommandError> {
-    Ok(Prefs::load(app_data.get()?).log("prefs"))
+pub async fn prefs_get(app_data: State<'_, AppDataState>) -> Result<PrefsLoad, CommandError> {
+    Ok(load_prefs(app_data.get()?))
 }
 
 /// Replaces the whole prefs object.
@@ -1000,6 +1023,79 @@ mod tests {
                 "core:window:allow-set-title",
                 "core:window:allow-destroy",
             ]
+        );
+    }
+
+    #[test]
+    fn app_data_state_passes_a_located_dir_through_and_refuses_a_missing_one() {
+        let env = Env::new();
+        let state = AppDataState::from_located(Ok(env.app_data()));
+        assert_eq!(state.get().unwrap(), &env.app_data());
+
+        let state = AppDataState::from_located(Err(ProjectError::NoDataDir));
+        let err = state.get().unwrap_err();
+        assert_eq!(err.kind, CommandErrorKind::Other);
+        assert_eq!(err.message, "cannot locate the user data directory");
+    }
+
+    #[test]
+    fn prefs_load_is_clean_for_a_good_or_missing_file() {
+        let env = Env::new();
+        let app = env.app_data();
+        assert_eq!(
+            load_prefs(&app),
+            PrefsLoad {
+                prefs: Prefs::default(),
+                clean: true
+            }
+        );
+        let prefs = Prefs {
+            limiter: true,
+            ..Prefs::default()
+        };
+        prefs.save(&app).unwrap();
+        assert_eq!(load_prefs(&app), PrefsLoad { prefs, clean: true });
+    }
+
+    #[test]
+    fn prefs_load_of_a_bad_file_is_unclean_and_leaves_the_file() {
+        let env = Env::new();
+        let app = env.app_data();
+        fs::create_dir_all(app.dir()).unwrap();
+        let file = app.dir().join("prefs.json");
+        for text in ["{", r#"{"schema":2,"vim":true}"#] {
+            fs::write(&file, text).unwrap();
+            assert_eq!(
+                load_prefs(&app),
+                PrefsLoad {
+                    prefs: Prefs::default(),
+                    clean: false
+                },
+                "{text}"
+            );
+            assert_eq!(fs::read(&file).unwrap(), text.as_bytes());
+        }
+    }
+
+    #[test]
+    fn prefs_load_serialises_prefs_and_clean() {
+        let value = serde_json::to_value(PrefsLoad {
+            prefs: Prefs::default(),
+            clean: false,
+        })
+        .unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "prefs": {
+                    "vim": false,
+                    "auditionNotes": false,
+                    "formatOnSave": false,
+                    "pianoRollOpen": false,
+                    "limiter": false
+                },
+                "clean": false
+            })
         );
     }
 }
