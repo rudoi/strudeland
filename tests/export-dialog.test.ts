@@ -4,6 +4,8 @@ import type { ExportApi, ExportProgress, ExportResult, ExportTarget } from '../s
 import {
   captureExportSong,
   createExportDialog,
+  loopUnavailable,
+  MODES,
   showMp3Warning,
 } from '../src/lib/export/controller';
 import { ExportError } from '../src/lib/export/error';
@@ -410,5 +412,73 @@ describe('export dialog', () => {
     folder.resolve(null);
     await picking;
     expect(dialog.canClose()).toBe(true);
+  });
+
+  test('loopUnavailable holds exactly for a loop preset on a song whose header marks no loop', () => {
+    const structures = {
+      looped: structure,
+      unlooped: buildStructure({
+        sections: [
+          { name: 'a', bars: 2 },
+          { name: 'b', bars: 2 },
+        ],
+      }),
+      range: buildStructure({
+        sections: [
+          { name: 'a', bars: 2 },
+          { name: 'b', bars: 2 },
+          { name: 'c', bars: 2 },
+        ],
+        loop: { from: 'a', through: 'b' },
+      }),
+      empty: buildStructure({}),
+      none: null,
+    };
+    const loopModes = ['intro-loop', 'tagged-loop', 'folded-loop'];
+    const noLoop = ['unlooped', 'empty', 'none'];
+    const table = MODES.flatMap(({ id: mode }) =>
+      Object.entries(structures).map(([name, s]) => ({
+        mode,
+        name,
+        got: loopUnavailable({ structure: s }, { mode }),
+      })),
+    );
+    expect(table).toHaveLength(MODES.length * 5);
+    for (const row of table) {
+      expect(row).toEqual({
+        ...row,
+        got: loopModes.includes(row.mode) && noLoop.includes(row.name),
+      });
+    }
+    expect(table.filter((row) => row.got)).toHaveLength(9);
+  });
+
+  test('start refuses a loop preset while the song marks no loop', async () => {
+    const { api, dialog, state } = setup({ ...editor, structure: buildStructure({}) });
+    dialog.select({ mode: 'tagged-loop' });
+    await next();
+    expect(state().preview.kind).toBe('ready');
+    await dialog.start();
+    expect(api.start).not.toHaveBeenCalled();
+    expect(state().activity.kind).toBe('idle');
+    dialog.select({ mode: 'one-shot', range: 'length', bars: '2' });
+    await next();
+    expect(state().preview.kind).toBe('ready');
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledTimes(1);
+  });
+
+  test('a loop preset on a looped song still starts', async () => {
+    const { api, dialog, state } = setup();
+    dialog.select({ mode: 'folded-loop' });
+    await next();
+    expect(state().preview.kind).toBe('ready');
+    await dialog.start();
+    expect(api.start).toHaveBeenCalledWith(
+      expect.objectContaining({ preset: 'folded-loop' }),
+      editor.source,
+      [audio],
+      expect.any(Function),
+    );
   });
 });

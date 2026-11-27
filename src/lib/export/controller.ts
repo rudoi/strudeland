@@ -2,7 +2,7 @@ import { writable } from 'svelte/store';
 import { errorMessage } from '../errors';
 import { ExportError } from './error';
 import type { SessionState } from '../project/session';
-import type { SongStructure } from '../strudel/structure';
+import { authoredLoop, type SongStructure } from '../strudel/structure';
 import type {
   ExportApi,
   ExportFormat,
@@ -115,6 +115,15 @@ export const loopMode = (mode: Mode): mode is Exclude<ExportPreset, 'one-shot'> 
 
 export const showMp3Warning = ({ mode, format }: Options): boolean =>
   loopMode(mode) && format === 'mp3';
+
+/** A loop preset with no loop to export: the song's header, as typed, marks neither a
+ *  `meta.loop` range nor a section with `loop: true`. The planner reads the evaluated song,
+ *  so a loop that only `song()` registers is not seen here (the dialog words its ranges
+ *  from the header too). */
+export const loopUnavailable = (
+  song: Pick<ExportSong, 'structure'>,
+  { mode }: Pick<Options, 'mode'>,
+): boolean => loopMode(mode) && (song.structure === null || authoredLoop(song.structure) === null);
 
 export const roleLabel = (role: ExportRole): string =>
   ({ intro: 'opening', loop: 'loop', single: 'audio' })[role];
@@ -259,7 +268,14 @@ export function createExportDialog(song: ExportSong, api: ExportApi) {
   }
 
   async function start() {
-    if (disposed || !canClose() || state.preview.kind !== 'ready' || state.result) return;
+    if (
+      disposed ||
+      !canClose() ||
+      state.preview.kind !== 'ready' ||
+      state.result ||
+      loopUnavailable(song, state.options)
+    )
+      return;
     const { target, request } = state.preview;
     let receivingProgress = true;
     hasUnacknowledgedOutcome = false;

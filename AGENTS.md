@@ -163,6 +163,8 @@ the V8 download the host brings.
   feature. The native command confirms replacements and atomically publishes new files without
   replacing a competing file. The macOS app enables the renderer's `host-jitless` feature.
   For stems, the dialog previews a new set directory and reports the published paths.
+  The dialog words the planner's length problems with `export::dialog_text`, and disables a loop
+  preset export while `loopUnavailable` holds: the header marks no loop.
 - Application Quit on macOS starts in `src-tauri/src/app_quit.rs`. The AppKit callback defers to
   the webview through `src/lib/app-quit.ts` and the shell's `onQuit`. The export dialog shows the wait decision and final
   outcome. The project session's `guardShutdown` shares the unsaved prompt with window close.
