@@ -34,9 +34,10 @@ Three findings correct or extend it:
    `app_quit.rs` and to `control.rs`. For takes it uses the record crate's
    `strudeland_record::testing::TakesRig` directly. That type is always public, and
    `recording/rig.rs` wraps the same rig, so `recording/` stays untouched.
-3. **An order seam fits in about 16 lines,** so the order test is in. A `#[cfg(test)]`
-   thread-local step log takes about 9 lines, and one `step("…")` call follows each of the 7
-   calls. In the app build `step` is an empty function. No production call changes or moves.
+3. **An order seam fits in 18 lines,** so the order test is in. A `#[cfg(test)]` thread-local
+   step log takes 11 lines, and one `step("…")` call follows each of the 7 calls. A test-only
+   `RefCell` import keeps the log's `static` line within the width. In the app build `step` is
+   an empty function. No production call changes or moves.
 
 ## Scope
 
@@ -100,12 +101,15 @@ both states are managed before `build`.
 
 - **An order or behaviour slip.** Four guards cover it:
   - the order test;
-  - a hook grep showing `lib.rs` makes no hook call of its own;
+  - a hook gate: `lib.rs` makes no hook call of its own, and `lifecycle.rs` holds each call
+    once (`end_session` twice, once per hook) and seven `step` markers, with each function's
+    calls in the documented line order;
   - literal counts of the moved comments and every stderr text;
   - a listed review of the call order (001 Validation).
 - **The step log reads as production code.** It is a `#[cfg(test)]` thread-local with a
-  `#[cfg(not(test))]` empty twin, and it sits next to the calls it names. If it needs more than
-  20 lines, the order test is dropped and the docs carry the order. That is a STOP-and-report
+  `#[cfg(not(test))]` empty twin, and it sits next to the calls it names. It is 18 lines; if it
+  needed more than 20, the order test would be dropped and the docs and the hook gate's
+  line-order check would carry the order. That is a STOP-and-report
   case, not a silent workaround.
 - **Thread-local state across tests.** Each test thread has its own log. The order test clears
   it with `take()` before each hook.

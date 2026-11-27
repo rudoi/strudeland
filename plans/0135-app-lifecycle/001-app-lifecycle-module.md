@@ -31,7 +31,9 @@ Nothing observable changes (see [000-prompt.md](000-prompt.md), Rules).
      `lifecycle.rs`, and the deleted `shutdown` doc line. The other 9 rows and the
      `eprintln!` total (20) pass.
    - `L hooks-base "$S/0135-hooks.sh"`. Exit 1, with `FAIL` on every check except
-     `transcript.rs unchanged`. The no-own-call check reads `got 7`.
+     `transcript.rs unchanged`. The no-own-call check reads `got 7`. `lifecycle.rs` does not
+     exist yet, so its seven call counts read `got 0` and its two call-order checks read
+     `got ` (empty).
 
    Any other result on the unchanged tree means that the scripts or the tree differ from the
    plan's: STOP. These red runs show that the scripts detect the change they guard.
@@ -134,6 +136,9 @@ Nothing observable changes (see [000-prompt.md](000-prompt.md), Rules).
    //!   open across a reload, a piano roll inspection is bounded, and the preview keeps no
    //!   native state. At exit, the end of the process stops them.
 
+   #[cfg(test)]
+   use std::cell::RefCell;
+
    use strudeland_record::takes::Takes;
 
    use crate::app_quit::QuitState;
@@ -179,7 +184,7 @@ Nothing observable changes (see [000-prompt.md](000-prompt.md), Rules).
 
    #[cfg(test)]
    thread_local! {
-       static STEPS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
+       static STEPS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
    }
 
    /// Records that a call ran, so the tests can check the order. Does nothing in the app.
@@ -197,10 +202,12 @@ Nothing observable changes (see [000-prompt.md](000-prompt.md), Rules).
      rename the parameter `session` in both functions; do not rename the module path.
    - Intra-doc links to private items (`Bridge::close_server` is now `pub`, the rest already
      are) must not warn under `cargo doc`. If one does, write it as plain backticks.
-   - **Seam size.** Count the seam lines: the `thread_local!` block, both `step` definitions
-     with their attributes and doc, and the 7 `step(…)` calls. As sketched that is about 16,
-     after `cargo fmt`. More than 20 is a STOP: drop the order test (step 5, test 5), the log
-     and the calls, and report it.
+   - **Seam size.** Count the seam lines: the `thread_local!` block with its attribute (4),
+     both `step` definitions with their attributes and doc (7), and the 7 `step(…)` calls. As
+     sketched that is 18, after `cargo fmt`. The test-only `RefCell` import (2 lines) only keeps
+     the `static` line within the width and is reported next to the count. More than 20 seam
+     lines is a STOP: drop the order test (step 5, test 5), the log and the calls, and report
+     it.
 
 5. **Tests** (`lifecycle.rs`, `#[cfg(test)] mod tests`). They use only real states:
    - `QuitState::default()` and `ExportState::default()`;
@@ -225,6 +232,10 @@ Nothing observable changes (see [000-prompt.md](000-prompt.md), Rules).
       - `rig.takes.status(&rig.app_data()).state == RecState::Idle`;
       - `rig.files() == ["main-01.json", "main-01.wav"]`;
       - `playback::stop(&state, id)` is `Err` with kind `CommandErrorKind::Stale`.
+
+      A one-line comment notes that `Bridge::detach` failing pending requests is covered by
+      `control.rs`'s existing `detach_fails_pending_requests_and_later_ones_are_not_ready`, so
+      this test does not repeat it.
    2. `a_reload_keeps_an_approved_exit`: set up `quit.approved(&exports)`, then call
       `on_reload(&quit, &Bridge::new(), None, None)`. Assert that
       `quit.view() == (false, None, true)` and that `exports.reserve().is_err()`. This pins the
@@ -318,7 +329,8 @@ Also check these:
 
 - The filter (`label == "main"`, `PageLoadEvent::Started`, `RunEvent::Exit`) is unchanged.
 - The only new statements in `lib.rs` are state lookups: no side effects, and no call moves.
-- Test 5 passes, and gates 6 and 7 pass.
+- Test 5 passes, and gates 6 and 7 pass (gate 6 also counts each call in `lifecycle.rs` and
+  checks their line order per function).
 
 ## Commit message
 
@@ -398,6 +410,26 @@ check ".on_reload()/.shutdown() callers: lifecycle.rs and the transcript" \
 check ".close_server() callers: control.rs and lifecycle.rs" \
   "$(grep -rlF '.close_server()' src-tauri/src | sort | tr '\n' ' ')" \
   "src-tauri/src/control.rs src-tauri/src/lifecycle.rs "
+life=src-tauri/src/lifecycle.rs
+cnt() { if [ -f "$life" ]; then grep -cF -- "$1" "$life"; else echo 0; fi; }
+check "lifecycle.rs: quit.detach() once" "$(cnt 'quit.detach()')" 1
+check "lifecycle.rs: bridge.detach() once" "$(cnt 'bridge.detach()')" 1
+check "lifecycle.rs: takes.on_reload() once" "$(cnt 'takes.on_reload()')" 1
+check "lifecycle.rs: end_session( twice" "$(cnt 'end_session(')" 2
+check "lifecycle.rs: takes.shutdown() once" "$(cnt 'takes.shutdown()')" 1
+check "lifecycle.rs: bridge.close_server() once" "$(cnt 'bridge.close_server()')" 1
+check "lifecycle.rs: step(\" seven times" "$(cnt 'step("')" 7
+# The calls of one function, in line order: from `pub fn NAME` to the next `}` in column 0.
+calls() {
+  [ -f "$life" ] || return 0
+  awk -v f="pub fn $1(" 'index($0, f) == 1 { on = 1; next } on && /^}/ { exit } on' "$life" |
+    grep -oE 'quit\.detach\(\)|bridge\.detach\(\)|takes\.on_reload\(\)|end_session\(|takes\.shutdown\(\)|bridge\.close_server\(\)|step\("[a-z]+"\)' |
+    tr '\n' ' '
+}
+check "on_reload call order" "$(calls on_reload)" \
+  'quit.detach() step("quit") bridge.detach() step("bridge") takes.on_reload() step("takes") end_session( step("playback") '
+check "on_exit call order" "$(calls on_exit)" \
+  'end_session( step("playback") takes.shutdown() step("takes") bridge.close_server() step("bridge") '
 check "transcript.rs unchanged" \
   "$(shasum -a 256 src-tauri/src/recording/transcript.rs | cut -d' ' -f1)" \
   230c83361d7a29b16e7abcff81576a1cfa8fbcfe4dfbaf717dc31fbca88a2e81

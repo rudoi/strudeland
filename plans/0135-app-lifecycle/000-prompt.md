@@ -78,7 +78,7 @@ L() { log="$S/0135-001-$1.log"; shift; { date; "$@"; echo "exit $?"; date; } > "
 | 3 | `L test-app cargo test --locked -p strudeland-app` | exit 0. The log lists the five `lifecycle::tests::` names from 001 step 5 as `ok` |
 | 4 | `L test cargo test --locked --workspace` | exit 0 |
 | 5 | `L ipc bun run ipc:build`, then `L ipc-diff git diff --exit-code -- src/lib/ipc/bindings.ts` | both exit 0, and `ipc-diff` prints nothing |
-| 6 | `L hooks "$S/0135-hooks.sh"` | exit 0: every line `PASS` |
+| 6 | `L hooks "$S/0135-hooks.sh"` | exit 0: every line `PASS`, including the seven call counts and the two call-order lines for `lifecycle.rs` |
 | 7 | `L literals "$S/0135-literals.sh"` | exit 0: no `FAIL` row |
 | 8 | `L touched git diff --name-only 00feb37 HEAD -- . ":(exclude)plans"` | exactly `AGENTS.md`, `src-tauri/src/app_quit.rs`, `src-tauri/src/control.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/lifecycle.rs` |
 
@@ -94,7 +94,7 @@ Notes:
   - the exit line of every log;
   - the step 6 and 7 tables;
   - the five new test names;
-  - the seam's line count (001 step 4);
+  - the seam's line count (001 step 4: 18 as sketched, plus the 2-line `RefCell` import);
   - the call-order review from 001 Validation.
 
 ## STOP, and report to the user, on any of these
