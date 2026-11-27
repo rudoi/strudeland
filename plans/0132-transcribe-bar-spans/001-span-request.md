@@ -1,4 +1,4 @@
-# 001: record the baseline, then carry the span request into the transcriber
+# 001: record the baseline, then carry the requested bars into the transcriber
 
 ## Goal
 
@@ -8,10 +8,10 @@ First, before any source edit, record what the base code does:
 - the eval table and a per-case dump of every eval transcription;
 - red runs of the two regression tests.
 
-Then make the fix as a refactor. `Options` carries a `SpanRequest` and a `Placement` in place
-of `span_start_seconds`, `memo_seconds` and `last_bar`. A private `notation::window` notates
-exactly bars A..B for a `Bars` request and keeps today's rule otherwise. The CLI maps its
-flags to the request once.
+Then make the fix. `Options.bars: Option<(u32, u32)>` replaces `Options.last_bar`;
+`span_start_seconds` and `memo_seconds` stay. A private `notation::window` notates exactly
+bars A..B when `bars` is set and keeps today's rule otherwise. The CLI sets
+`bars: args.bars`; `resolve_span` is unchanged.
 
 At the end, the grid runs again, and a classifier accepts only one kind of difference: a
 `--bars` case whose notation started at A-1 now starts at A. Eval is byte-identical.
@@ -63,14 +63,33 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      Build with
      `CARGO_TARGET_DIR="$S/0132-gen/target" cargo build --release --offline --manifest-path "$S/0132-gen/Cargo.toml"`.
      If the offline resolve fails, STOP and report: do not let it fetch newer crates.
+     `float_roundtrip` matters because the grid's bar 1 is `bar1Frame / rate`, and a
+     `bar1Frame` off by one ulp can move a predicted hit. The CLI reads sidecars through
+     `strudeland-project`, and its `serde_json` has `float_roundtrip` by feature unification
+     (`strudeland-project/Cargo.toml:17` and `strudeland-transcribe/Cargo.toml:16` both turn
+     it on), so it parses `bar1Frame` back to the exact `f64` that was written. The generator
+     declares the feature too, so its own `serde_json` (the `Sidecar` it builds and the eval
+     dump) parses and prints floats exactly as well. The predictor reads each sidecar back
+     with `Project::recordings()`, as the CLI does, so it uses the very `f64` the CLI uses.
    - **`memos`** writes `$S/0132-grid/` from scratch (it removes the directory first):
-     - `proj/` is a project, made with `Project::create(&dir, "grid")`, plus
-       `proj/recordings/`;
-     - each memo's WAV is written with `eval::synth::write_wav` and its sidecar with
-       `Project::write_sidecar`, from a `Sidecar` built by `serde_json::from_value` on the same
-       shape as `sidecar_value` (`run.rs:1987-2005`). Set `input.sampleRate` to the memo's
-       rate, `tempo.bpm`, `tempo.meter` and `tempo.beatsPerBar` to the memo's, and
-       `timing.bar1Frame` to the memo's bar-1 frame;
+     - `proj/` is a project, made with `Project::create(&dir, "grid")`. It creates
+       `proj/recordings/` itself (`project.rs:418`);
+     - each memo's WAV is written with `eval::synth::write_wav`, then its sidecar with
+       `Project::write_sidecar` (which validates it and needs the WAV first), from a `Sidecar`
+       built by `serde_json::from_value` on the same shape as `sidecar_value`
+       (`run.rs:1987-2005`). Set `input.sampleRate` to the memo's rate, `tempo.bpm`,
+       `tempo.meter` and `tempo.beatsPerBar` to the memo's, and `timing.bar1Frame` to the
+       memo's bar-1 frame. The `unheard` memo is the exception: `Sidecar::validate` refuses a
+       `bar1Frame` and a `countIn: true` without a song or metronome
+       (`strudeland-project/src/recordings.rs:251-252`, `:283-296`), so it has
+       `backing.song`, `backing.metronome` and `backing.countIn` all false, and
+       `timing.bar1Frame` and `timing.bar1HostNs` null. `badside`'s sidecar is not a
+       `Sidecar`: write the bytes `{nope` to `proj/recordings/badside.json` with
+       `std::fs::write`, after its WAV;
+     - memo ids are valid stems (`is_valid_stem`, `strudeland-project/src/project.rs:923-931`:
+       ASCII letters, digits, space, `_` or `-`, 1 to 64 bytes, no dots or slashes). Write a
+       decimal point as `p` and a meter's slash as `-`: `core-48000-133p5-0p73`,
+       `meter-44100-7-8`, `kind-fracframe`;
      - `memos.tsv` and `requests.tsv`, described below.
 
      **The melody.** A `Case` built field by field. Its `truth` holds, for each bar
@@ -79,9 +98,12 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      - MIDI from the C-major run `60 62 64 65 67 69 71 72`, indexed by `(k + i) % 8`.
 
      Two extras:
-     - the last beat note of bar 3 lasts `1.5*beat`, so it crosses into bar 4 (a tie);
+     - the last beat note of bar 3 lasts `1.5*beat`, so it crosses into bar 4 (a tie). The
+       render plays one note at a time, so bar 4's first note then sounds from `0.5*beat`
+       into the bar;
      - when the memo has `pickup`, a note at `origin - 0.5*beat`, `0.4*beat` long, MIDI 55
-       (bar 0).
+       (bar 0). Insert it first in `truth`: `Case::render` walks `truth` in order and assumes
+       sorted starts (`eval/synth.rs:421-427`).
 
      `settings` is `SynthSettings { lead_in_seconds: origin, ..default() }`. The WAV is
      `case.render(rate)`.
@@ -103,19 +125,27 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      - `debug`: `--json`, with `--debug` appended.
 
      Every `human` request has a `json` twin with the same arguments. Here `O` is the origin,
-     `B` the bar in seconds, `D` the WAV's length in seconds, and every number is printed with
-     Rust's `{}` (shortest round-trip), so clap parses back the same `f64`. For every memo:
+     `B` the bar in seconds, `D` the WAV's length in seconds as its header states it (the
+     `load::Audio::memo_seconds` the CLI's past-the-end checks use; for `trunc` this is the
+     uncut length, longer than its data), and every number is printed with Rust's `{}`
+     (shortest round-trip), so clap parses back the same `f64`. For every memo, except where
+     `long` is excluded:
 
      | Requests | Forms |
      |---|---|
      | whole | json, human, debug |
      | `--start 1.3 --end 6.1`; `--start {O+2B} --end {O+4B}` (a barline) | json, human |
-     | `--start 0 --end {D+1}`; `--start {O+2B-0.004} --end {O+3B}`; `--start 5 --end 4`; `--start {D+5} --end {D+6}` | json |
+     | `--start 0 --end {D+1}` (not on `long`); `--start {O+2B-0.004} --end {O+3B}`; `--start 5 --end 4`; `--start {D+5} --end {D+6}` | json |
      | `--bars` `1-1`, `1-2`, `2-2`, `2-3`, `3-4`, `2-5`, `4-6`, `5-6`, `6-9`, `1-6` | json, human |
-     | `--bars 2-3 --shift 40`; `--bars 2-3 --shift -40`; `--bars 1-2 --shift -{O*1000+30}` (a negative start); `--bars 30-31`; `--bars 2-100001` | json |
+     | `--bars 2-3 --shift 40`; `--bars 2-3 --shift -40`; `--bars 1-2 --shift -{O*1000+30}` (a negative start); `--bars 30-31`; `--bars 2-100001` (not on `long`) | json |
      | `--bars 2-3 --grid 8`; `--grid 8t`; `--grid 4` | json |
      | `--bars 2-4 --key C:major` | json, human |
      | `--bpm {bpm} --meter {meter} --bar1 {O} --bars 2-3`, and the same with `--grid 4` | json, human; json |
+
+     `long` is left out of the two rows that would analyse almost all of its 601 s
+     (`--start 0 --end {D+1}` and `--bars 2-100001`): each would cost minutes in the debug
+     binary and covers nothing the other memos do not. `long`'s whole request still checks the
+     over-10-minute refusal.
 
      Four named rows, on the `none` memos, re-run reverify §1's cases (ids `repro-a` to
      `repro-d`):
@@ -127,18 +157,26 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      | `repro-c` | `none`, 48 kHz, 100 bpm | `--bpm 100 --meter 4/4 --bar1 0.5 --bars 2-3` | no hit |
      | `repro-d` | `none`, 48 kHz, 120 bpm | `--bpm 120 --meter 4/4 --bar1 0.50001 --bars 2-3` | hit |
 
-     **`predict`.** It is `hit`, `nohit` or `na`. Non-bars rows are `na`. So is a bars row
-     whose grid is not known before the audio is read: no sidecar and no flags, `unheard`,
-     `recovered` and `badside` without flags. A bars row whose start is negative or past the
-     end is also `na`. Otherwise the generator repeats the code's arithmetic in `f64`:
-     - `bar1` is the `--bar1` flag's value, else `bar1Frame / f64::from(rate)`;
-     - `beats` is `strudeland_transcribe::parse_meter(meter)` for a `--meter` flag, else the
-       sidecar's `beatsPerBar`;
-     - `origin = bar1 + shift_ms / 1000.0`, `bar = beats * 60.0 / bpm`,
-       `start = origin + (f64::from(from) - 1.0) * bar` (`grid.rs:101-118`);
-     - `frame = (start * rate).round() as u64`, `s = frame as f64 / rate` (`load.rs:119`, `:93`);
-     - `index = ((s - origin + 1e-6) / bar).floor() + 1.0` (`lib.rs:301-305`);
-     - the row is `hit` when `index < f64::from(from)`.
+     **`predict`.** It is `hit`, `nohit` or `na`. Non-bars rows are `na`. For a bars row the
+     generator uses the crate's own code wherever it is public, and copies only `span_bar`'s
+     formula:
+     - It builds the `GridHint` as `build_hint` does (`run.rs:559-588`). The trusted sidecar
+       is the memo's sidecar unless it is missing, unreadable (`badside`) or `recovered`.
+       `bpm` is `Hinted::flag(--bpm)`, else `Hinted::sidecar(tempo.bpm)`. `beats_per_bar` is
+       `Hinted::flag(parse_meter(--meter))`, else `Hinted::sidecar(tempo.beatsPerBar)`.
+       `origin_seconds` is `Hinted::flag(--bar1)`, else
+       `Hinted::sidecar(bar1Frame / f64::from(rate))`. `meter` is `--meter`, else
+       `tempo.meter`. `tempo_unheard` is the trusted sidecar's `!song && !metronome`.
+     - `hint.bar_span(from, to, shift_ms)` gives `(start, end)`. `None` (no grid before the
+       audio is read: no sidecar and no flags, `unheard`, `recovered` or `badside` without
+       flags) makes the row `na`.
+     - `load::load_wav_span(path, Span::Seconds { start, end: Some(end) })`. An error (a
+       negative start, a start past the end) makes the row `na`. Otherwise
+       `s = audio.start_seconds`.
+     - With `origin = hint origin + shift_ms / 1000.0` and `bar = beats * 60.0 / bpm`, from
+       the same hint values: `index = ((s - origin + 1e-6) / bar).floor() + 1.0`
+       (`lib.rs:301-305`, copied).
+     - The row is `hit` when `index < f64::from(from)`, else `nohit`.
 
      `repro-a` and `repro-d` must be `hit`, and `repro-b` and `repro-c` `nohit`. If they are
      not, STOP: the generator's arithmetic disagrees with reverify.
@@ -163,7 +201,7 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      `fix-leading-rest`. It exits 0 only if every row is accepted.
      - **Every row:** `.err` and `.code` are byte-identical. A row with a nonzero code also
        has a byte-identical `.out`.
-     - **`na` and `nohit` rows:** `.out` is byte-identical (class `identical`).
+     - **`na` and `nohit` rows, every form:** `.out` is byte-identical (class `identical`).
      - **`hit` rows, `json` and `debug`:** both `.out` files parse as JSON. Every key except
        `notation` is equal. Then:
        - The base notation is null, or its `firstBar` is not `from - 1`: the outputs must be
@@ -171,20 +209,29 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
          here).
        - Otherwise the base `firstBar` is `from - 1`, and the row must differ.
          - If the after notation is not null, it must have `firstBar == from`,
-           `lastBar == to`, the base `lastBar == to`, and the same `scale`. Its class is
+           `lastBar == to`, the base `lastBar == to`, and the same `scale`. With
+           `k = to - from + 2` (the base's bar count), its class is
              - `fix-leading-rest` when the base `note` is `<~ G…>` and the after `note` is
                the same groups without the leading `~`. For one remaining group, its
                brackets are stripped. The groups are split at bracket depth 0. The same rule
-               holds for `n`;
-             - `fix-ties` when the base `note` is a `[…]/k` sequence;
+               holds for `n` when it is not null;
+             - `fix-ties` when the base `note` is `[X]/k` and the after `note` is `[Y]/(k-1)`
+               (a slow sequence over one bar fewer), and the same holds for `n` when it is
+               not null;
              - `fix-other` otherwise (bar A-1 had notes in the base output).
          - If the after notation is null, the class is `fix-none`. It is accepted only when
            no note in `notes` has `bar >= from` and a non-null `step`.
-     - **`hit` rows, `human`:** accepted only if the `json` twin is a `fix-*` or
-       `hit-unchanged`. For a `fix-*` twin, the files may differ only in the first line, which
-       ends in `(bars {from-1}-{to})` before and in `(bars {from}-{to})` (`(bar {from})` when
-       `from == to`) after, and in the `note("…")` and `n("…")` lines with the blank line
-       before them. Everything else is byte-identical.
+     - **`hit` rows, `human`:** classified by their `json` twin.
+       - `hit-unchanged` twin: `.out` is byte-identical.
+       - `fix-leading-rest`, `fix-ties` or `fix-other` twin: the files may differ only in the
+         first line, which ends in `  (bars {from-1}-{to})` before and in `  (bars {from}-{to})`
+         (`  (bar {from})` when `from == to`) after, and in the `note("…")` and `n("…")`
+         lines. Everything else, the blank line before `note(` included, is byte-identical.
+       - `fix-none` twin: the after first line is the base first line without its
+         `  (bars {from-1}-{to})` suffix, and the after file is the base file without its
+         blank line, `note("…")` line and `n("…")` line (when present). Everything else is
+         byte-identical.
+       - Any other twin class rejects the row.
      - **Required:** `repro-a` and `repro-d` are `fix-*`, and every rate has at least one
        `fix-*` row.
    - **`grid.sh N`**:
@@ -197,18 +244,25 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
 
      It exits with the last check's code.
    - **`$S/0132-frozen.sh N`**:
-     - Every path in `git diff --name-only 4af3182` (working tree included) must be in the
+     - Every path in `git diff --name-only 4af3182` (working tree included) and in
+       `git ls-files --others --exclude-standard` (new untracked files) must be in the
        stage's allowed list:
        - `001`: `crates/strudeland-transcribe/src/lib.rs`, `…/src/notation.rs`,
          `…/README.md`, `crates/strudeland-cli/src/run.rs`, `AGENTS.md`, and
          `plans/0132-transcribe-bar-spans/*`;
        - `002`: the same plus `crates/strudeland-transcribe/src/suggest.rs`.
      - Every README hunk in `git diff -U0 4af3182 -- crates/strudeland-transcribe/README.md`
-       starts at or before line 34, on both sides. The evaluation section (`:35` onward) is
-       untouched.
+       lies within lines 1-34 on the old side: for a header `@@ -a,b +c,d @@` (`b` is 1 when
+       omitted), its end `a + b - 1` (or `a` when `b` is 0) is at most 34. And the text from
+       the line `## Evaluation` to the end of the file is byte-identical to `4af3182`'s
+       (`sed -n '/^## Evaluation/,$p'` of both, then `cmp`), so the evaluation section
+       (`:35` onward) is untouched whatever the intro's line count.
      - For `002` only: `git diff --name-only C001` must list only `lib.rs`, `suggest.rs`,
-       `README.md` and plan files. `C001` is
-       `git log -1 --format=%H --grep '^fix(transcribe): notate exactly'`.
+       `README.md`, `AGENTS.md` and plan files. `C001` is
+       `git log -1 --format=%H --grep '^fix(transcribe): notate exactly'`. The AGENTS.md
+       change is one line: `git diff -U0 C001 -- AGENTS.md` has one hunk, one `-` line and
+       one `+` line, and the `+` line is the `-` line with `audio I/O` replaced by
+       `audio devices`.
    - **`$S/0132-literals.sh N`** counts the lines that contain each fixed string in the
      non-test part of a file: the lines before the first `^mod tests`, via
      `awk '/^mod tests/{exit} {print}'`. Rows marked "whole" count the whole file. It prints
@@ -225,8 +279,12 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      | `"tuning is {c:.0} cents off the nearest semitone; the note names may be a semitone out. Pass --tuning"` | lib.rs | 1 | 1 | 1 |
      | `"the bars must be 1 <= A <= B (got {from}-{to})"` | lib.rs | 0 | 1 | 1 |
      | `const BARLINE_SLACK_SECONDS: f64 = 1e-6;` | lib.rs | 1 | 1 | 1 |
-     | `span_start_seconds` | lib.rs (whole) | 12 | 0 | 0 |
+     | `pub span_start_seconds: f64,` | lib.rs | 1 | 1 | 1 |
+     | `pub memo_seconds: Option<f64>,` | lib.rs | 1 | 1 | 1 |
+     | `pub bars: Option<(u32, u32)>,` | lib.rs | 0 | 1 | 1 |
+     | `span_start_seconds` | lib.rs (whole) | 12 | 13 | 13 |
      | `last_bar: Some(` | lib.rs (whole) | 2 | 0 | 0 |
+     | `opts.last_bar` | lib.rs (whole) | 1 | 0 | 0 |
      | `suggest::division_warning(` | lib.rs | 1 | 1 | 0 |
      | `suggest::suggest(` | lib.rs | 0 | 0 | 1 |
      | `"timing fits --grid {} better (spread {:.0} ms vs {:.0} ms)"` | `transcribe/src/suggest.rs` | 1 | 1 | 1 |
@@ -235,7 +293,14 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
      | `"no sidecar; the grid is inferred from the audio"` | `cli/src/run.rs` | 1 | 1 | 1 |
      | `"the memo was recovered after a crash; its tempo is a placeholder"` | run.rs | 1 | 1 | 1 |
      | `TranscribeError::BarsNeedGrid` | run.rs | 1 | 1 | 1 |
-     | `span_start_seconds` | run.rs (whole) | 1 | 0 | 0 |
+     | `span_start_seconds: audio.start_seconds,` | run.rs | 1 | 1 | 1 |
+     | `last_bar: args.bars.map(` | run.rs | 1 | 0 | 0 |
+     | `bars: args.bars,` | run.rs | 0 | 1 | 1 |
+
+     The base count of `span_start_seconds` in the whole of `lib.rs` is 12 (`:61`, `:63`,
+     `:78`, `:93`, `:523`, `:558`, `:564`, `:609`, `:639`, `:846`, `:873`, `:1048`). 001 adds
+     exactly one line with it, the step 5 lib test's `Options` literal; no other new code or
+     doc names it.
 
      If `cargo fmt` would split a literal, do not let it: keep each literal on one line, as
      today.
@@ -270,11 +335,16 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
        `GridHint { bpm: Some(Hinted::flag(110.0)), beats_per_bar: Some(Hinted::flag(4.0)), origin_seconds: Some(Hinted::flag(0.5)), ..Default::default() }`,
        `bar_span(2, 3, 0.0)` gives a start with `start - (start * 48000.0).round() / 48000.0 > 1e-6`.
        So the cut rounds early by more than the slack.
-     - For the sidecar run (`["take48", "--bars", "2-3"]`) and the flags run
+     - The flags run first
        (`["take48", "--bpm", "110", "--meter", "4/4", "--bar1", "0.5", "--grid", "4", "--bars", "2-3"]`),
-       the JSON must have exit 0 and `notation.firstBar == 2`, `lastBar == 3`, and a `note`
-       that does not start with `<~`.
-     - The flags run's `note` is exactly `<[g4 a4 b4 c5] [c5 b4 a4 g4]>`.
+       then the sidecar run (`["take48", "--bars", "2-3"]`). For each, in this order:
+       - exit 0, with stderr as the message;
+       - `assert_eq!(v["notation"]["firstBar"], 2, "{}", v["notation"])`: the message is the
+         whole `notation` value, so a red run logs the base `note` and `n`;
+       - `lastBar == 3`, with the same message;
+       - a `note` that does not start with `<~`.
+     - The flags run's `note` is exactly `<[g4 a4 b4 c5] [c5 b4 a4 g4]>`, asserted after its
+       `firstBar` and `lastBar`.
      - The human form of the flags run has a first line that ends in `(bars 2-3)`.
    - **Lib**, in `lib.rs`'s test module after `a_requested_last_bar_keeps_trailing_rest_bars`:
      `a_bars_request_starts_at_its_bar_when_the_cut_rounds_early`.
@@ -284,16 +354,26 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
        frames, as `span_frames` does: `a = (from * 48000.0).round()`,
        `b = min((to * 48000.0).round(), len)`. Set `start = a / 48000.0`, and assert
        `from - start > BARLINE_SLACK_SECONDS`.
-     - The bars run (red form, with today's fields: `span_start_seconds: start`,
-       `memo_seconds: Some(len / 48000.0)`, `last_bar: Some(3)`) must give
-       `(first_bar, last_bar) == (2, 3)`.
-     - The seconds run (the same placement, `last_bar: None`) keeps today's rule: its
-       `first_bar` is 1, and its `note` is `<~ ` followed by the bars run's `note` without its
-       leading `<`. This is the oracle that only the leading rest bar goes.
+     - One `Options` literal, `seconds`, with `span_start_seconds: start` and
+       `memo_seconds: Some(len / 48000.0)`, and `last_bar` left at its default `None`. It is the only
+       new line in the file that names `span_start_seconds` (the literal-count table relies on
+       it).
+     - **The seconds run first**, with `seconds`. It keeps today's rule, and its assertions
+       are proved on the base code before the red assertion is reached: `(first_bar,
+       last_bar) == (1, 3)`, and its `note` starts with `<~ `.
+     - **Then the bars run**, with `Options { last_bar: Some(3), ..seconds.clone() }` (red
+       form; `bars: Some((2, 3))` after step 10, the only edit). First
+       `assert_eq!(bars.notes, seconds.notes)`: the same samples and placement give the same
+       notes, on the base code too. Then the red assertion,
+       `(first_bar, last_bar) == (2, 3)`, with the bars notation in its message.
+     - Last, the oracle that only the leading rest bar goes: the seconds run's `note` equals
+       `format!("<~ {}", &bars_note[1..])`.
 
    Run `L red sh -c 'cargo test --locked -p strudeland-cli transcribe_bars_start_at_their_bar_on_a_48k_take; cargo test --locked -p strudeland-transcribe --features eval --lib a_bars_request_starts_at_its_bar'`
    with `N=001`. Both tests must **fail**, each on its first `firstBar`/`first_bar` assertion
-   (2 expected, 1 found). The CLI failure shows the base `note`. If it is not
+   (2 expected, 1 found): the CLI test on the flags run, the lib test on the bars run, after
+   its seconds-run assertions passed. The CLI failure message is the flags run's whole base
+   `notation`, so the log shows the base `note`. If it is not
    `<~ [g4 a4 b4 c5] [c5 b4 a4 g4]>`, correct the flags run's expected `note` to the base
    one without its leading `~ `, and say so in the report. That is the one edit allowed after
    the red run. If either test passes, or fails on its precondition, STOP.
@@ -304,23 +384,16 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
 ### The change
 
 7. **`lib.rs` API.**
-   - Add `SpanRequest` and `Placement` above `Options`, with the docs and derives given in the
-     proposal ("The crate API"). `Placement::of(audio: &load::Audio) -> Placement` gives
-     `Placement { start_seconds: audio.start_seconds, memo_seconds: Some(audio.memo_seconds) }`.
-   - `Options`: remove `span_start_seconds`, `memo_seconds` and `last_bar`. Add `span` and
-     `placement` in their place, after `shift_ms`, with the proposal's docs. Keep `Default`.
-   - `transcribe`:
-     - its doc says "`opts.placement` places it in the memo" in place of
-       `opts.span_start_seconds`;
-     - `let span_start = opts.placement.start_seconds;` keeps the local name, so the `bad`
-       literals and every later use (`:173-176`, `:180`) are unchanged;
-     - the `memo_seconds` check reads `opts.placement.memo_seconds`;
-     - after the four finite checks, `if let SpanRequest::Bars { from, to } = opts.span && (from == 0 || from > to)`
-       returns `BadOption(format!("the bars must be 1 <= A <= B (got {from}-{to})"))`;
-     - `:119` reads `opts.placement.memo_seconds`.
-   - `BARLINE_SLACK_SECONDS` doc: "Slack when a seconds span starts on a barline, in
-     seconds, so a start computed as the barline's time, but a rounding short of it, starts
-     in that bar." The value is unchanged.
+   - `Options`: replace `last_bar` and its doc with `bars: Option<(u32, u32)>` and the doc the
+     proposal gives ("The crate API"), in the same place. `span_start_seconds`,
+     `memo_seconds` and their docs are unchanged. Keep `Default` (`bars: None`).
+   - `transcribe`: after the four finite checks (unchanged),
+     `if let Some((from, to)) = opts.bars && (from == 0 || from > to)` returns
+     `BadOption(format!("the bars must be 1 <= A <= B (got {from}-{to})"))`. The rest of the
+     validation, the `span_start` local and every use of `memo_seconds` are unchanged.
+   - `BARLINE_SLACK_SECONDS` doc: "Slack when a whole or seconds span starts on a barline,
+     in seconds, so a start computed as the barline's time, but a rounding short of it,
+     starts in that bar." The value is unchanged.
 8. **`notation.rs` `window`.** Add `WindowStart`, `Window` and `window` after
    `render_notation`, as the proposal gives them, with `use crate::consts::MAX_NOTATION_BARS`.
    The body is today's `lib.rs:255-273` with the two starts. Keep the order: compute `first`
@@ -328,41 +401,33 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
    Clone, Copy, PartialEq, Eq)]` on both enums, for the tests.
 9. **`lib.rs` uses it.**
    - In the `Known` arm, `notation_grid = Some((q.steps_per_bar, start))`, where `start` is
-     `WindowStart::Requested { from, to }` for `SpanRequest::Bars { from, to }`, and
-     `WindowStart::SpanBar(span_bar(span_start, &grid))` otherwise.
+     `WindowStart::Requested { from, to }` for `opts.bars == Some((from, to))`, and
+     `WindowStart::SpanBar(span_bar(span_start, &grid))` for `None`.
    - At `:247`, after `notated` (`:249-254`, unchanged), match `notation::window(start, &notated)`:
      - `TooLong { last_bar }` pushes today's literal;
      - `Bars { first, last }` calls `render_notation(&notated, spb, first, last, out.key.as_ref())`;
      - `Empty` does nothing.
    - Remove the now-unused `note_bar`, `pickup`, `first_bar` and `last_bar` locals from
      `lib.rs`. Import `notation::{Window, WindowStart}`.
-10. **The lib tests move to the new fields.** Only the `Options` construction changes:
-    - `never_panics_on_odd_input` (`:446`):
-      - the bad list's `span_start_seconds: f64::NAN` and `memo_seconds: Some(f64::NEG_INFINITY)`
-        become `placement: Placement { start_seconds: f64::NAN, ..Placement::default() }` and
-        `placement: Placement { memo_seconds: Some(f64::NEG_INFINITY), ..Placement::default() }`;
-      - add `span: SpanRequest::Bars { from: 0, to: 1 }` and
-        `span: SpanRequest::Bars { from: 3, to: 2 }` to the bad list;
-      - the extreme `span_start_seconds: 1e12` becomes `placement.start_seconds`, and so does
-        the `if` that reads it (`:564`).
-    - `a_span_later_in_the_memo_starts_its_notation_at_its_bar` (`:598`):
-      `span: SpanRequest::Bars { from: 5, to: 8 }` with
-      `placement: Placement { start_seconds: from, memo_seconds: Some(…) }`.
-    - `a_requested_last_bar_keeps_trailing_rest_bars` (`:626`):
-      - `last_bar: Some(8)` becomes `span: SpanRequest::Bars { from: 5, to: 8 }`;
-      - the "without it" run becomes `span: SpanRequest::Seconds { start: from, end: to }`;
-      - the over-the-limit run becomes `span: SpanRequest::Bars { from: 5, to: MAX_NOTATION_BARS + 1 }`;
-      - the placement is as in the test above.
-    - `debug_fills_frames_and_onsets_only_when_set` (`:840`),
-      `span_offset_is_added_to_note_times` (`:869`, including its `no_len` copy) and
-      `a_pickup_bar_starts_the_notation` (`:1028`): `span_start_seconds`/`memo_seconds`
-      become `placement` fields, and the request stays the default.
-    - `span_bar_is_the_bar_the_span_starts_in` (`:667`) is unchanged.
-    - The step 5 lib test switches its red-form fields to
-      `span: SpanRequest::Bars { from: 2, to: 3 }` (bars run) and
-      `span: SpanRequest::Seconds { start: from, end: to }` (seconds run), with
-      `placement: Placement { start_seconds: start, memo_seconds: Some(…) }`. Its assertions
-      are frozen.
+10. **The one existing lib test that moves.** In
+    `a_requested_last_bar_keeps_trailing_rest_bars` (`:626`), only the three `last_bar`
+    settings change, and nothing else in it:
+    - `last_bar: Some(8)` (`:641`) becomes `bars: Some((5, 8))`;
+    - `last_bar: None` (`:652`, the "without it" run) becomes `bars: None`;
+    - `last_bar: Some(MAX_NOTATION_BARS + 1)` (`:659`) becomes
+      `bars: Some((5, MAX_NOTATION_BARS + 1))`.
+
+    Its `span_start_seconds: from` (the unrounded start) stays: with `bars` set the window no
+    longer reads it, and with `None` it is today's seconds rule. Every other lib test is
+    unchanged, `never_panics_on_odd_input`, `debug_fills_frames_and_onsets_only_when_set`,
+    `span_offset_is_added_to_note_times`, `a_pickup_bar_starts_the_notation` and
+    `span_bar_is_the_bar_the_span_starts_in` included. So is
+    `a_span_later_in_the_memo_starts_its_notation_at_its_bar` (`:598`): it sets no
+    `last_bar`, so it stays on the seconds rule (`bars` `None`) and keeps checking that a
+    span started on a barline (unrounded) starts in that bar. Do not give it `bars`.
+
+    The step 5 lib test's `last_bar: Some(3)` becomes `bars: Some((2, 3))`. That is its only
+    edit, and its assertions are frozen.
 11. **New lib and notation tests.**
     - `notation.rs` `window_rules`: a table over `WindowStart` × note-bar sets (built with the
       `note` helper, `notation.rs:286`):
@@ -382,42 +447,30 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
       `window(SpanBar(b), …)` equals the oracle.
     - `lib.rs` `a_bars_request_from_bar_1_leaves_the_pickup_in_the_notes`: the
       `a_pickup_bar_starts_the_notation` fixture (`audio(&melody(), voice())`,
-      `grid_at(1.0)`). With `span: Bars { from: 1, to: 2 }`, notation is `(1, 2)`. The `notes`
-      equal the whole run's `notes`, and they include a bar-0 note. The whole run's notation
-      still starts at 0.
-    - `lib.rs` `bad_bars_requests_are_bad_options`: `Bars { 0, 1 }` gives exactly
-      `BadOption("the bars must be 1 <= A <= B (got 0-1)")` and `Bars { 3, 2 }` gives
+      `grid_at(1.0)`). With `bars: Some((1, 2))`, notation is `(1, 2)`. The `notes` equal the
+      whole run's `notes`, and they include a bar-0 note. The whole run's notation still
+      starts at 0.
+    - `lib.rs` `bad_bars_requests_are_bad_options`: `bars: Some((0, 1))` gives exactly
+      `BadOption("the bars must be 1 <= A <= B (got 0-1)")` and `bars: Some((3, 2))` gives
       `… (got 3-2)`.
-    - `lib.rs` `placement_of_a_loaded_span`: write a 48 kHz WAV of 1 s to a tempdir, load
-      `Span::Seconds { start: 0.25, end: Some(0.75) }`, and assert
-      `Placement::of(&audio) == Placement { start_seconds: 0.25, memo_seconds: Some(1.0) }`.
 
     Targeted: `cargo test --locked -p strudeland-transcribe --features eval --lib`.
-12. **The CLI (`run.rs`).**
-    - The imports add `SpanRequest` and `Placement`.
-    - Add `span_request` and the new `resolve_span` signature as the proposal gives them. Its
-      arms are today's, with the request in place of `args`, and the same `BarsNeedGrid`
-      mapping. The doc comment keeps its wording, plus "for `request`".
-    - In `run_transcribe`, at `:633`:
-      - `let request = span_request(args);`
-      - `let span = resolve_span(&request, &hint, args.shift)?;`
-      - `Options { …, span: request, placement: Placement::of(&audio), debug: args.debug }`.
-    - New `transcribe_span_request_follows_the_flags`: through `Cli::try_parse_from`,
-      - no span flags give `Whole`;
-      - `--start 1 --end 2` gives `Seconds { start: 1.0, end: 2.0 }`;
-      - `--bars 2-5` gives `Bars { from: 2, to: 5 }`.
+12. **The CLI (`run.rs`).** In `run_transcribe`'s `Options` literal, `last_bar:
+    args.bars.map(|(_, to)| to)` (`:644`) becomes `bars: args.bars`. Nothing else in the
+    non-test code changes: `resolve_span` keeps its signature `(args, hint)` and its body,
+    and `span_start_seconds: audio.start_seconds` and `memo_seconds: Some(audio.memo_seconds)`
+    stay.
 
     Targeted: `cargo test --locked -p strudeland-cli transcribe`. The step 5 CLI test is now
     green, unchanged.
 13. **Docs.**
     - The README notation row (`:24`): "`note("…")` names and `n("…").scale("…")` degrees,
-      one cycle per bar: exactly bars A to B for a bars request (`SpanRequest::Bars`), else
-      from the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied
-      parts play as one held note".
-    - `AGENTS.md:332-339`: after "every threshold in `consts.rs`;", add "`Options.span` is
-      the request (`SpanRequest`: the whole memo, seconds, or bars A-B, notated as exactly A
-      to B by `notation::window`) and `Options.placement` where the loaded samples sit in the
-      memo (`Placement::of` a `load::Audio`);".
+      one cycle per bar: exactly bars A to B for a bars request (`Options.bars`), else from
+      the bar the span starts in (`firstBar`), or from bar 0 when it has a pickup; tied parts
+      play as one held note".
+    - `AGENTS.md:332-339`: after "every threshold in `consts.rs`;", add "`Options.bars`
+      (`--bars A-B`) is notated as exactly bars A to B by `notation::window`, other spans
+      from the bar their samples start in;".
     - `SKILL.md` is unchanged: the fix makes `:283-284` true.
 
 ## Tests
@@ -425,12 +478,14 @@ At the end, the grid runs again, and a classifier accepts only one kind of diffe
 - New, red on the base (step 5): `transcribe_bars_start_at_their_bar_on_a_48k_take` (CLI)
   and `a_bars_request_starts_at_its_bar_when_the_cut_rounds_early` (lib).
 - New: `window_rules`, `span_bar_window_is_todays_rule` (notation),
-  `a_bars_request_from_bar_1_leaves_the_pickup_in_the_notes`,
-  `bad_bars_requests_are_bad_options`, `placement_of_a_loaded_span` (lib), and
-  `transcribe_span_request_follows_the_flags` (CLI).
-- Moved to the new fields with unchanged assertions: the six lib tests of step 10.
-- Unchanged: every CLI transcribe test (`run.rs:2338-2900`), the `grid.rs` `bar_span` tests,
-  `load.rs` tests, `tests/eval.rs` and `tests/perf_budget.rs`.
+  `a_bars_request_from_bar_1_leaves_the_pickup_in_the_notes` and
+  `bad_bars_requests_are_bad_options` (lib).
+- Moved: only `a_requested_last_bar_keeps_trailing_rest_bars`, its three `last_bar`
+  settings and nothing else (step 10).
+- Unchanged: every other lib test (`a_span_later_in_the_memo_starts_its_notation_at_its_bar`
+  and `never_panics_on_odd_input` included), every CLI transcribe test
+  (`run.rs:2338-2900`), the `grid.rs` `bar_span` tests, `load.rs` tests, `tests/eval.rs` and
+  `tests/perf_budget.rs`.
 
 ## Validation
 
@@ -462,11 +517,11 @@ Rounding a start up to half a sample early is more than the barline
 slack, so at ordinary tempos (110 bpm at 48 kHz, --bars 2-3) the
 notation began a bar early with a rest bar.
 
-Options now carries the span request (whole, seconds or bars) and the
-placement of the loaded samples, in place of the span start, memo
-length and last bar. A bars request is notated as exactly bars A to
-B. Whole memos and seconds spans keep their rule, and every other
-output is unchanged.
+Options now carries the requested bars in place of the last bar, so
+the notation's bars come from the request and not from the rounded
+start. A bars request is notated as exactly bars A to B. Whole memos
+and seconds spans keep their rule, and every other output is
+unchanged.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ```

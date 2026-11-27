@@ -4,11 +4,15 @@
 - **Base:** `4af3182`. Diff against it, never against a local `main`, which may be stale. The
   branch commits on top of it before stage 001 are plan documents only
   (`git diff --name-only 4af3182 HEAD` lists only `plans/`).
-- **Design:** [proposal.md](proposal.md). The API, the window rule, the "why `Bars` output
-  matches today" argument and the stage rationale are there.
+- **Design:** [proposal.md](proposal.md). The `Options.bars` field, the window rule, the "why
+  `bars` output matches today" argument and the stage rationale are there. Only `last_bar`
+  becomes `bars`; there is no `SpanRequest` and no `Placement` ([reverify.md](reverify.md),
+  Decisions).
 - **Evidence:** [reverify.md](reverify.md), with file and line at `4af3182`. Its **Decisions**
   section is binding. Read §1 (the round trip), §2 (callers), §3 (outputs that must stay
   identical) and §4 (tests) before you edit anything.
+- **Coverage:** [loss-check.md](loss-check.md) maps every proposal item to the stage that does
+  it.
 - **Background reading:**
   - `AGENTS.md`: the transcription layout bullet (`:332-339`) and the Transcription rule
     (`:492-500`: the eval pins are never loosened);
@@ -39,10 +43,13 @@
   - everything under `crates/strudeland-cli/` except `src/run.rs` (001). `skill/SKILL.md`,
     `cli.rs`, `output.rs` and `tests/` are frozen;
   - `Cargo.lock`, every `Cargo.toml`, and everything outside these two crates except
-    `AGENTS.md` and `plans/0132-transcribe-bar-spans/`.
-- **Tests keep their assertions.** A lib or CLI test that sets the old `Options` fields changes
-  only how it builds `Options`. No expected value, literal or assertion changes. The new
-  regression tests are frozen once their red run is logged.
+    `AGENTS.md` (001: the transcription bullet; 002: the one word on `:333`) and
+    `plans/0132-transcribe-bar-spans/`.
+- **Tests keep their assertions.** `Options` keeps `span_start_seconds` and `memo_seconds`, so
+  only one existing test changes: the three `last_bar` settings of
+  `a_requested_last_bar_keeps_trailing_rest_bars` (`lib.rs:641`, `:652`, `:659`) become
+  `bars` settings. No other field, expected value, literal or assertion changes, in that test
+  or any other. The new regression tests are frozen once their red run is logged.
 - **New logic ships with tests** in the same commit.
 - **Run `cargo fmt --all`** before each commit. No frontend file changes. If a stage needs
   one, STOP.

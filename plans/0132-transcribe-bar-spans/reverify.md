@@ -109,12 +109,13 @@ The public surface that would change:
 Baseline at 4af3182 (logged once, all green):
 - `cargo test -p strudeland-transcribe --features eval`: 208 lib tests, 6 eval tiers and
   `perf_budget` (1 ignored, by hand).
-- `cargo test -p strudeland-cli transcribe`: 33 lib tests (all in `run.rs:2338-2890`, plus the
-  `cli.rs:802-930` parser tests). `tests/e2e.rs` has no transcribe test.
+- `cargo test -p strudeland-cli transcribe`: 33 lib tests, 25 in `run.rs` (`:2338-2890`) and
+  8 parser tests in `cli.rs` (`:802-930`). `tests/e2e.rs` has no transcribe test.
 
 What would move:
-- Lib `a_span_later…` (`:597`) and `a_requested_last_bar…` (`:625`) would build a bars request
-  instead of `span_start_seconds`/`last_bar`.
+- Lib `a_requested_last_bar…` (`:625`) would set `bars` instead of `last_bar` (its three
+  settings, `:641`, `:652`, `:659`). `a_span_later…` (`:597`) sets no `last_bar`, so it stays on
+  the seconds rule unchanged (refine review).
 - `span_bar_is_the_bar_the_span_starts_in` (`:666-693`) stays for seconds spans, or moves to
   notation.
 - `grid.rs` `bar_span` tests stay, because the CLI still needs seconds to cut the file.
@@ -182,6 +183,7 @@ Visible-behaviour decisions:
 - **No output field changes (user):** no field is added or renamed. `--start/--end` keep today's rule, including the 1e-6 slack.
 - **Kept as is (recommended):** the `BadSpan` texts stay worded in seconds, and the `MAX_NOTATION_BARS` warning text is unchanged.
 - **Scope (recommended):**
-  - In scope: `Options` carries the span request (`Whole | Seconds | Bars{from,to}`); a `notation` window function; the two suggestion calls fold into one private result; the crate doc's "never paths" line is fixed.
+  - In scope: `Options` carries the span request (`Whole | Seconds | Bars{from,to}`); a `notation` window function; the two suggestion calls fold into one private result; the crate doc's "never paths" line is fixed. (The span request form is superseded by the refine review decision below.)
   - Out of scope: `load_wav_span`'s path argument, `memo`/`backing` and `LOW_CONFIDENCE` stay where they are.
 - **Filed separately:** the "no sidecar; the grid is inferred" message prints even when flags give the whole grid.
+- **The smaller `Options` form (refine review, taken):** only `last_bar: Option<u32>` becomes `bars: Option<(u32, u32)>`, the same type as `TranscribeArgs::bars`. `span_start_seconds` and `memo_seconds` stay. There is no `SpanRequest` and no `Placement`. `notation::window` uses the requested bars when `bars` is `Some`, today's rule otherwise. The `bars` validation (`from == 0` or `from > to` is `BadOption`) stays, library-only. Why: the interface is smaller (one field changes, no new public type, the CLI's `resolve_span` keeps its shape, and the only existing test that changes is the one that sets `last_bar`), and the bug is still fixed, because for a bars request the window no longer comes from the rounded start. `span_start_seconds` still places the notes, exactly as today.

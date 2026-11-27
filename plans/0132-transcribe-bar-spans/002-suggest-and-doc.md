@@ -9,6 +9,8 @@ Two private tidy-ups with no visible change:
   fields and the warnings from it. The helpers it composes become private to `suggest`.
 - The crate doc (`lib.rs:1-8`) and the README intro (`README.md:3-7`) stop saying the crate
   never takes paths. `load::load_wav_span` reads a WAV from a path. The stages take samples.
+  The README's "no … audio I/O" becomes "no … audio devices", and so does the same phrase in
+  the AGENTS.md transcription bullet (`AGENTS.md:333`), so the two stay consistent.
 
 Every grid output, the eval table and the eval dump are byte-identical to stage 001's.
 
@@ -25,14 +27,16 @@ Every grid output, the eval table and the eval dump are byte-identical to stage 
 ## Files
 
 - Edited: `crates/strudeland-transcribe/src/suggest.rs`, `src/lib.rs`, `README.md` (lines
-  3-7).
+  3-7), and one line of `AGENTS.md` (`:333`: "audio I/O" to "audio devices").
 - Frozen, on top of the shared list: `notation.rs` and `crates/strudeland-cli/src/run.rs`
-  (001 is done with them), and `AGENTS.md`. The bullet still says what `suggest` holds.
+  (001 is done with them), and the rest of `AGENTS.md`. The bullet still says what `suggest`
+  holds.
 
 ## Steps
 
 1. **`suggest.rs`.**
-   - Add `Suggestions` and `suggest` as the proposal gives them ("The suggestion fold"), after
+   - Add `Suggestions` (with `#[derive(Debug, Clone, PartialEq)]`, for the test's whole-value
+     comparisons) and `suggest` as the proposal gives them ("The suggestion fold"), after
      `DivisionSuggestion`.
    - The body of `suggest` is `lib.rs:184-200` moved, in the same order, with `opts.grid`
      as `requested`, `q.timing_spread_ms` as `requested_spread_ms` and `opts.shift_ms` as
@@ -80,7 +84,10 @@ Every grid output, the eval table and the eval dump are byte-identical to stage 
    audio." The stages table and everything after it are unchanged.
 
    "audio I/O" becomes "audio devices": the crate does read files.
-4. Targeted runs:
+4. **`AGENTS.md:333`.** In "(pure library, no Tauri, V8 or audio I/O; stages …", only
+   "audio I/O" becomes "audio devices". No other byte of `AGENTS.md` changes (the frozen
+   script checks it).
+5. Targeted runs:
    - `cargo test --locked -p strudeland-transcribe --features eval --lib suggest`;
    - `cargo test --locked -p strudeland-transcribe --features eval --lib suggestions_name_a_better_grid_and_leave_the_notes_alone`
      (`lib.rs:964`, unchanged; it checks both fields and both warnings end to end).
@@ -99,8 +106,8 @@ Run [the full gate](000-prompt.md#the-full-gate) with `N=002`: steps 1-11.
   needed, because this stage changes no output.
 - Step 8 compares against the base dump, and so against 001's too. Also
   `cmp "$S/0132-001-evaldump.jsonl" "$S/0132-002-evaldump.jsonl"`, logged as `evaldump-001`.
-- Step 10 checks that, against the 001 commit, only `lib.rs`, `suggest.rs`, `README.md` and
-  plan files changed.
+- Step 10 checks that, against the 001 commit, only `lib.rs`, `suggest.rs`, `README.md`,
+  the one `AGENTS.md` line and plan files changed.
 - Step 11's 002 column: `suggest::division_warning(` 0 and `suggest::suggest(` 1 in `lib.rs`,
   and the three suggestion literals still once each in `suggest.rs`.
 
@@ -108,7 +115,8 @@ Run [the full gate](000-prompt.md#the-full-gate) with `N=002`: steps 1-11.
 
 - Any `diff -r` output in step 9, or any eval or dump difference.
 - A suggestion literal that has to change, or a `GridReport` field whose value would change.
-- A needed edit to `notation.rs`, `run.rs` or any shared frozen file.
+- A needed edit to `notation.rs`, `run.rs`, any shared frozen file, or any `AGENTS.md` line
+  other than `:333`.
 - Anything in the shared STOP list.
 
 ## Commit message
@@ -120,7 +128,8 @@ The grid division and shift suggestions come from one call that
 returns both report fields and their warnings in order, so the
 transcriber no longer threads the division into the shift by hand.
 The crate and README docs now say that load reads a WAV file and the
-other stages take samples. No output changes.
+other stages take samples, and say "no audio devices" where they said
+"no audio I/O". No output changes.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ```

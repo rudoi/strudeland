@@ -8,18 +8,22 @@ seconds back into a bar. The rounding can put the start up to `0.5/rate` before 
 10 times the `1e-6` slack, so the notation starts at bar A-1 with a leading `~`. This happens
 at ordinary tempos (110 bpm at 48 kHz, `--bars 2-3`; [reverify.md](reverify.md) §1).
 
-After this change, the request reaches the transcriber as a request:
+After this change, the bars reach the transcriber as bars:
 
-- `Options` carries a `SpanRequest` (`Whole`, `Seconds { start, end }` or
-  `Bars { from, to }`), and a `Placement` that says where the loaded samples sit in the memo.
-  The old fields `span_start_seconds`, `memo_seconds` and `last_bar` go away.
-- A new private `notation::window` picks the notation's bars. A `Bars` request gives exactly
-  A..B. `Whole` and `Seconds` keep today's rule, the 1e-6 slack included, byte for byte.
-- The CLI maps its flags to the request once. It still turns the request into seconds for
-  `load_wav_span`, and `load_wav_span` still takes a path.
+- `Options.bars: Option<(u32, u32)>` replaces `Options.last_bar: Option<u32>`. It is
+  `--bars A-B` as `(A, B)`, the same type as `TranscribeArgs::bars`. `span_start_seconds` and
+  `memo_seconds` stay as they are.
+- A new private `notation::window` picks the notation's bars. With `bars` set it gives exactly
+  A..B. With `bars` `None` it keeps today's rule, the 1e-6 slack included, byte for byte.
+- The CLI still cuts the file in seconds (`resolve_span` is unchanged) and sets
+  `bars: args.bars`. `load_wav_span` still takes a path.
 - The two suggestion calls (`lib.rs:184-200`) become one private `suggest::suggest` that
   returns a `Suggestions`.
 - The crate doc stops saying "never paths" (`lib.rs:4`, README `:5-6`).
+
+The bug is fixed because, for a bars request, the window no longer comes from the rounded
+start: `span_start_seconds` still places notes and onsets in the memo, but it no longer picks
+the first bar.
 
 **One visible change, the fix.** For `--bars A-B`, the notation always starts at A. Every other
 output stays byte-identical for every input: human and `--json` output, warnings, and the exit
@@ -57,30 +61,29 @@ The user's decisions (reverify, Decisions):
 4. The `BadSpan` texts stay worded in seconds, also for a `--bars` request. The
    `MAX_NOTATION_BARS` warning text does not change.
 5. `load_wav_span`'s path argument, `memo`/`backing`, and `LOW_CONFIDENCE` stay where they are.
+6. The smaller `Options` form: only `last_bar` becomes `bars`. No `SpanRequest`, no
+   `Placement` (reverify, Decisions, refine review).
 
 ## Scope
 
 In:
 
 1. `crates/strudeland-transcribe/src/lib.rs`:
-   - `SpanRequest` and `Placement` (public, re-exported at the root);
-   - `Options.span` and `Options.placement` replace `span_start_seconds`, `memo_seconds` and
-     `last_bar`;
-   - validation of a `Bars` request;
+   - `Options.bars` replaces `Options.last_bar`;
+   - validation of `bars` (`from == 0` or `from > to` is `BadOption`);
    - the window through `notation::window`;
-   - the doc of `transcribe` and of `BARLINE_SLACK_SECONDS`.
+   - the doc of `BARLINE_SLACK_SECONDS`.
 2. `crates/strudeland-transcribe/src/notation.rs`: `WindowStart`, `Window`, `window`, and
    their tests.
-3. `crates/strudeland-cli/src/run.rs`:
-   - `span_request(args) -> SpanRequest`;
-   - `resolve_span(&SpanRequest, &GridHint, shift_ms) -> Result<load::Span, Failure>`;
-   - `Options { span, placement: Placement::of(&audio), .. }`;
-   - a 48 kHz regression test.
-4. The lib tests that set the old fields move to the new ones. Their assertions stay as they
-   are. New lib tests: the 48 kHz frame-rounded regression, `--bars 1-B` over a pickup, the
-   `Bars` validation, and `Placement::of`.
-5. Stage 002: `suggest::suggest` returns `Suggestions`, and the four helpers it composes
-   become private. The crate doc (`lib.rs:1-8`) and README intro (`:3-7`) are fixed.
+3. `crates/strudeland-cli/src/run.rs`: `bars: args.bars` in the `Options` literal, and a
+   48 kHz regression test. `resolve_span` keeps its signature and body.
+4. Lib tests: only the three `last_bar` settings of `a_requested_last_bar_keeps_trailing_rest_bars`
+   (`:641`, `:652`, `:659`) change, and only those fields. Their assertions stay. New lib
+   tests: the 48 kHz frame-rounded regression, `--bars 1-B` over a pickup, and the `bars`
+   validation.
+5. Stage 002: `suggest::suggest` returns `Suggestions`, and the helpers it composes become
+   private. The crate doc (`lib.rs:1-8`), the README intro (`:3-7`) and the one AGENTS.md
+   word that goes with it (`:333`, "audio I/O" to "audio devices") are fixed.
 6. Docs: the README notation row (`:24`) and the AGENTS.md transcription layout bullet
    (`:332-339`).
 
@@ -89,7 +92,9 @@ Out:
 - Rewording `BadSpan` in bars, the `MAX_NOTATION_BARS` text, and any new output field
   (Decisions 3 and 4).
 - `load_wav_span` taking samples or a reader. Its `Wav` error carries the path.
-- `GridHint::bar_span`. It stays `pub`, unchanged: the CLI still cuts the file in seconds.
+- `GridHint::bar_span` and `resolve_span`. They stay as they are: the CLI still cuts the file
+  in seconds.
+- A span request type or a placement type in `Options` (Decision 6).
 - `memo`/`backing`, `LOW_CONFIDENCE`, and the `no sidecar; the grid is inferred…` message
   (reverify item 7, filed separately).
 - `SKILL.md`. The fix makes `:283-284` ("with `--bars 3-6` it is 3") true. No sentence
@@ -102,93 +107,68 @@ Out:
 ```
 strudeland-cli run.rs                       strudeland-transcribe
 ────────────────────────────────            ─────────────────────────────────────────────
-flags ──span_request──► SpanRequest ───────► Options.span
-           │                                   │ (only Bars changes behaviour)
-           ▼                                   ▼
-resolve_span(req, hint, shift)              transcribe(samples, rate, hint, opts)
-  Bars    → hint.bar_span → load::Span        placement.start_seconds: notes and onsets to
-  Seconds → load::Span::Seconds                 memo time, resolve_grid's span_start
-  Whole   → load::Span::Whole                 placement.memo_seconds: Bar1PastEnd
-           │                                   │
+args.bars ─────────────────────────────────► Options.bars (only Some changes behaviour)
+   │
+resolve_span(args, hint)   (unchanged)      transcribe(samples, rate, hint, opts)
+  --bars  → hint.bar_span → load::Span        span_start_seconds: notes and onsets to memo
+  --start → load::Span::Seconds                 time, resolve_grid's span_start (unchanged)
+  else    → load::Span::Whole                 memo_seconds: Bar1PastEnd (unchanged)
+   │                                           │
 load_wav_span(path, span) → load::Audio        grid Known:
-           │                                     start = Bars{from,to} → Requested{from,to}
-Placement::of(&audio) ─────────────────────►             otherwise     → SpanBar(span_bar(..))
-                                               notation::window(start, &notated)
+   │                                             bars Some((a, b)) → Requested{from: a, to: b}
+   ├─ audio.start_seconds ──► span_start_seconds          None     → SpanBar(span_bar(..))
+   └─ audio.memo_seconds ───► memo_seconds     notation::window(start, &notated)
                                                  → Bars{first,last} → render_notation
                                                  → TooLong{last_bar} → today's warning
                                                  → Empty
 ```
 
 The CLI still cuts the WAV in seconds. Only the way back from seconds to a bar goes away: for a
-bars request the notation's bars come from the request, not from the rounded start.
+bars request the notation's bars come from `opts.bars`, not from the rounded start.
 
 ## Technical design
 
 ### The crate API (`lib.rs`)
 
 ```rust
-/// The part of the memo the caller asked for. Only `Bars` changes what `transcribe` does: its
-/// notation covers exactly bars `from` to `to`. `Whole` and `Seconds` are notated from the bar
-/// the samples start in (`Placement::start_seconds`), or from the pickup bar.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum SpanRequest {
-    /// The whole memo.
-    #[default]
-    Whole,
-    /// `--start S --end S`, as asked (memo seconds).
-    Seconds { start: f64, end: f64 },
-    /// `--bars A-B`: memo bars, 1-based and inclusive, `1 <= from <= to`.
-    Bars { from: u32, to: u32 },
-}
-
-/// Where the samples sit in the memo, as `load_wav_span` read them.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Placement {
-    /// Memo seconds of `samples[0]` (`load::Audio::start_seconds`; 0.0 for the whole memo).
-    pub start_seconds: f64,
-    /// The memo's whole length in seconds, for `Bar1PastEnd`; `None` is the end of the
-    /// samples.
-    pub memo_seconds: Option<f64>,
-}
-
-impl Placement {
-    /// The placement of a loaded span.
-    pub fn of(audio: &load::Audio) -> Placement;
-}
-
 pub struct Options {
     pub grid: GridDivision,
     pub key: Option<Key>,
     pub tuning_cents: Option<f32>,
     pub shift_ms: f64,
-    pub span: SpanRequest,      // replaces last_bar, and the start of the round trip
-    pub placement: Placement,   // replaces span_start_seconds and memo_seconds
+    pub span_start_seconds: f64,     // unchanged
+    pub memo_seconds: Option<f64>,   // unchanged
+    /// `--bars A-B` as `(A, B)`: memo bars, 1-based and inclusive, `1 <= A <= B`. The
+    /// notation then covers exactly bars A to B, rest bars included, whatever bar the samples
+    /// start in. `None` notates from the bar the samples start in (or the pickup bar) to the
+    /// last bar with a note.
+    pub bars: Option<(u32, u32)>,    // replaces last_bar
     pub debug: bool,
 }
 ```
 
-Why a `Placement` beside the request, and not the request alone: the crate must place notes at
-the frame-rounded start, because the JSON note times, `onsets` and `resolve_grid`'s
-`span_start` use it today and must not move by a microsecond. The requested start
-(`Seconds.start`, or `bar_span`'s start) is not that value. Taking both from the loaded
-`Audio` with `Placement::of` means the CLI cannot pass the requested start by mistake. It also
-keeps `memo_seconds` from the header for a truncated file (`load.rs:57-58`), where it is
-longer than the samples. `SpanRequest::Seconds { start, end }` carries the asked values
-because the CLI derives `load::Span` from the request (`resolve_span`). The crate does not
-read them.
+**Why a tuple and not a named struct.** `TranscribeArgs::bars` (`cli.rs:435`) is already
+`Option<(u32, u32)>`, validated by `parse_memo_bars` (`cli.rs:467`), so the CLI passes it
+through as is. A named `{ from, to }` struct would be one more public type for two fields
+whose order the doc states. The crate destructures it once, as `(from, to)`.
 
-Validation in `transcribe` (`lib.rs:90-109`): the same checks and texts, read from
-`opts.placement`. The literals `"the span start"` and `"the memo length"` are unchanged. One
-check is new: a `Bars { from, to }` that is not `1 <= from <= to` is
+`span_start_seconds` keeps its meaning: the crate must place notes at the frame-rounded start,
+because the JSON note times, `onsets` and `resolve_grid`'s `span_start` use it today and must
+not move by a microsecond. A bars request with samples that do not start at bar A gets A..B
+anyway. That is the contract, and the doc says so.
+
+Validation in `transcribe` (`lib.rs:90-109`): the four finite checks and their texts are
+unchanged. One check is new, after them: `Some((from, to))` with `from == 0 || from > to` is
 `BadOption(format!("the bars must be 1 <= A <= B (got {from}-{to})"))`. The CLI cannot reach
-it, because `parse_memo_bars` (`cli.rs:467`) refuses such input first.
+it, because `parse_memo_bars` refuses such input first. It stays, library-only, because
+`from == 0` would otherwise silently mean the pickup bar.
 
 ### The window (`notation.rs`)
 
 ```rust
 /// What fixes the notation's first bar.
 pub(crate) enum WindowStart {
-    /// A bars request: exactly `from..=to`.
+    /// `Options.bars`: exactly `from..=to`.
     Requested { from: u32, to: u32 },
     /// The bar the samples start in (`span_bar`; 0 before bar 1): today's rule.
     SpanBar(u32),
@@ -214,7 +194,7 @@ The body is today's `lib.rs:255-273`, with the two starts:
 - `SpanBar(b)`: `pickup = b == 0 && notated has a bar-0 note`;
   `first = if pickup { 0 } else { b.max(1) }`; `last = note_bar.unwrap_or(0)`. This is
   today's code with `opts.last_bar` `None`. Today the CLI sets `last_bar` only for `--bars`,
-  so `Whole` and `Seconds` keep their output.
+  so whole and seconds spans keep their output.
 - Then, in today's order: `last > MAX_NOTATION_BARS` gives `TooLong { last_bar: last }`.
   Otherwise `note_bar.is_some_and(|b| b >= first) && last >= first` gives `Bars`. Otherwise
   `Empty`.
@@ -222,12 +202,13 @@ The body is today's `lib.rs:255-273`, with the two starts:
 `lib.rs` keeps the warning text exactly: `format!("the notes reach bar {last_bar}; notation
 is limited to {MAX_NOTATION_BARS} bars")`, bound from `Window::TooLong { last_bar }`.
 `span_bar` and `BARLINE_SLACK_SECONDS` stay in `lib.rs`, unchanged in value. Only the slack's
-doc changes, because it now serves seconds spans only.
+doc changes, because it now serves whole and seconds spans only.
 
-`WindowStart` is chosen inside the `GridOutcome::Known` arm (`lib.rs:206`) and carried in
-`notation_grid` in place of the span bar. For a `Bars` request, `span_bar` is not computed.
+`WindowStart` is chosen inside the `GridOutcome::Known` arm (`lib.rs:206`) from `opts.bars`
+and carried in `notation_grid` in place of the span bar. With `bars` set, `span_bar` is not
+computed.
 
-**Why `Bars` output matches today wherever the bug does not hit.** For `--bars A-B` the grid
+**Why `bars` output matches today wherever the bug does not hit.** For `--bars A-B` the grid
 is the hint's grid: `bar_span` returns `None` under an unheard sidecar tempo, so a grid
 inferred from the audio never pairs with a bars request. Its origin is
 `bar1 + shift_ms/1000` on both sides (`grid.rs:109`, `:295`). The loaded start is within
@@ -237,32 +218,17 @@ inferred from the audio never pairs with a bars request. Its origin is
 
 ### The CLI (`run.rs`)
 
-```rust
-/// The span the flags ask for: `--bars`, `--start`/`--end`, or the whole memo.
-fn span_request(args: &TranscribeArgs) -> SpanRequest {
-    match (args.bars, args.start, args.end) {
-        (Some((from, to)), _, _) => SpanRequest::Bars { from, to },
-        (None, Some(start), Some(end)) => SpanRequest::Seconds { start, end },
-        _ => SpanRequest::Whole,
-    }
-}
-
-/// The part of the file `transcribe` reads for `request`: bars through the hint's grid (its
-/// bar 1 moved by `shift_ms`, as the grid's is), seconds as given, or the whole memo.
-fn resolve_span(request: &SpanRequest, hint: &GridHint, shift_ms: f64) -> Result<Span, Failure>;
-```
-
-`resolve_span`'s arms and errors are today's (`run.rs:663-680`). `run_transcribe` calls
-`span_request` once and passes the request to `resolve_span` and to `Options.span`, and builds
-`placement: Placement::of(&audio)`. The order of work does not change: hint, key, span
-(`BarsNeedGrid` before any read), load, transcribe. So every exit 4 and exit 1 path, and its
-text, is reached in the same order.
+One line of `run_transcribe` changes: `last_bar: args.bars.map(|(_, to)| to)` (`:644`)
+becomes `bars: args.bars`. `resolve_span`, `build_hint` and the order of work (hint, key,
+span with `BarsNeedGrid` before any read, load, transcribe) are unchanged, so every exit 4 and
+exit 1 path, and its text, is reached in the same order.
 
 ### The suggestion fold (stage 002, `suggest.rs`)
 
 ```rust
 /// The suggestions for `raw` on `grid` quantized at `requested` with timing spread
 /// `requested_spread_ms`, under the `--shift` already `given_shift_ms`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Suggestions {
     /// `GridReport::suggested_division`.
     pub division: Option<GridDivision>,
@@ -276,10 +242,11 @@ pub fn suggest(raw: &[RawNote], grid: &Grid, requested: GridDivision,
                requested_spread_ms: f32, given_shift_ms: f64) -> Suggestions;
 ```
 
-The body is `lib.rs:184-200` moved. The shift is measured on the suggested division when
-there is one, else on the requested one with `requested_spread_ms`. The `shift_warning` gets
-the same arguments. `shift_ms` is `given_shift_ms + delta`, the same f64 addition as
-`lib.rs:223`. `lib.rs` then:
+The derives are for `suggest_is_its_parts`, which compares whole values. The body is
+`lib.rs:184-200` moved. The shift is measured on the suggested division when there is one,
+else on the requested one with `requested_spread_ms`. The `shift_warning` gets the same
+arguments. `shift_ms` is `given_shift_ms + delta`, the same f64 addition as `lib.rs:223`.
+`lib.rs` then:
 
 1. calls `suggest` (it needs `q.timing_spread_ms`);
 2. extends `out.warnings` with `q.warnings`, then with the suggestion warnings, which is
@@ -294,7 +261,7 @@ the module is private).
 
 | Text | Where | Stage |
 |---|---|---|
-| `the span start must be a finite number (got …)`, `the memo length …`, `--shift …`, `--tuning …` (`bad(...)`) | `lib.rs:90-109` | 001 moves the reads, not the literals |
+| `the span start must be a finite number (got …)`, `the memo length …`, `--shift …`, `--tuning …` (`bad(...)`) | `lib.rs:90-109` | 001 leaves them as they are |
 | `the notes reach bar {last_bar}; notation is limited to {MAX_NOTATION_BARS} bars` | `lib.rs:260-263` | 001 |
 | `timing fits --grid {} better (spread {:.0} ms vs {:.0} ms)`, both `notes sit ~{:.0} ms {side} …` forms | `suggest.rs:144-171` | 002 |
 | every `BadSpan` text | `load.rs:106-146` | frozen |
@@ -309,11 +276,10 @@ Stage 001 writes a literal-count script over these, and both stages run it.
    - the base binary's outputs;
    - the eval table and a per-case JSON dump of every eval transcription;
    - red runs of the two regression tests: the CLI one in its final form, the lib one written
-     against the old `Options` fields.
+     with `last_bar` (the one field that changes).
 
-   Then `SpanRequest`, `Placement`, `notation::window`, the CLI mapping, the tests moved to
-   the new fields, and the new tests. The grid runs again and a classifier checks every
-   difference.
+   Then `Options.bars`, `notation::window`, the CLI line, the three `last_bar` settings moved
+   to `bars`, and the new tests. The grid runs again and a classifier checks every difference.
 2. [002-suggest-and-doc.md](002-suggest-and-doc.md). The suggestion fold and the doc fixes.
    Every grid output and the eval dump must be byte-identical to 001's.
 
@@ -333,8 +299,9 @@ The stages are sequential: 002's zero-diff check compares against 001's outputs.
 ## Dependencies
 
 None new. The scratch generator (`$S/0132-gen/`, never committed) depends on
-`strudeland-transcribe` (feature `eval`) and `strudeland-project` by path. It builds with a
-copy of the workspace `Cargo.lock`, `--offline`, in its own target directory.
+`strudeland-transcribe` (feature `eval`) and `strudeland-project` by path, and on
+`serde_json` with `float_roundtrip`. It builds with a copy of the workspace `Cargo.lock`,
+`--offline`, in its own target directory.
 
 ## Risks
 
@@ -342,25 +309,18 @@ copy of the workspace `Cargo.lock`, `--offline`, in its own target directory.
   meters, bar 1 at 0, 0.5 and 0.73 s and at a fractional sidecar frame, the sidecar kinds
   (heard, none, unheard, recovered, unreadable), a pickup, a tie across a barline, a truncated
   file and an over-10-minute file, with seconds, bars, shift, grid, key, debug and every
-  error request. The generator predicts each bars case's hit from the same f64 arithmetic as
-  the code. The classifier requires every predicted hit with a notation at A-1 to change, and
-  every other case to stay identical. A prediction that disagrees with the base output is a
-  STOP.
+  error request. The generator predicts each bars case's hit with the crate's own
+  `GridHint::bar_span` and `load_wav_span`, and only `span_bar`'s formula copied. The
+  classifier requires every predicted hit with a notation at A-1 to change, and every other
+  case to stay identical. A prediction that disagrees with the base output is a STOP.
 - **f64 drift from moving code.** `window` and `suggest` move expressions without changing
   them. The eval dump (every eval transcription as JSON, `float_roundtrip`) and the grid
   outputs compare bytes, so a reordered float operation shows up.
-- **`Placement` for a library caller.** A caller that passes a `Bars` request with samples
-  that do not start at bar A gets A..B anyway. That is the contract, and the doc says so.
-  `Whole` with a nonzero `start_seconds` is accepted, as `span_start_seconds` was.
+- **A library caller's `bars`.** A caller that sets `bars` with samples that do not start at
+  bar A gets A..B anyway. That is the contract, and the doc says so. `None` with a nonzero
+  `span_start_seconds` behaves as today.
 
 ## Open questions
 
-1. `Placement` is a new public type beside `SpanRequest`, so `Options` has the request and
-   where the samples are, and no loose seconds fields. The alternative is to keep
-   `span_start_seconds` and `memo_seconds` as two fields and only replace `last_bar` with
-   `span`. That is smaller, but it keeps the field the bug went through as a free `f64`. The
-   plan takes `Placement`. Say so if you prefer the smaller form: only 001's lib edits change.
-2. The new `Bars` validation (`BadOption` for `from == 0` or `from > to`) is a library-only
-   text the CLI cannot reach. It can be dropped, in which case `window` would notate whatever
-   `from..=to` gives. The plan keeps it, because `from == 0` would silently mean the pickup
-   bar.
+None. The refine review settled both earlier ones: the smaller `Options` form (Decision 6),
+and the library-only `bars` validation stays.
