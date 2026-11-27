@@ -5,9 +5,7 @@ use std::time::Instant;
 
 use strudeland_engine::EngineJob;
 use strudeland_engine::capability::{UnsupportedSignature, unsupported_signatures};
-use strudeland_host::{
-    ExportPreset, Host, Layout, PlannedRender, PlannedWindow, RenderPlanRequest, Structure,
-};
+use strudeland_host::{ExportPreset, Host, PlannedRender, PlannedSection, RenderPlanRequest};
 
 use crate::{RenderError, RenderOptions, Unsupported};
 
@@ -55,15 +53,15 @@ pub(crate) fn take_jobs(planned: &mut PlannedRender) -> Result<Vec<EngineJob>, R
         signatures.extend(unsupported_signatures(&job));
         jobs.push(job);
     }
-    refuse(&planned.window, &planned.structure, signatures)?;
+    refuse(&planned.sections, signatures)?;
     Ok(jobs)
 }
 
 /// `Err(Unsupported)` when there is any signature: deduplicated by `(s, keys)` with the minimum
-/// `first_bar`, each named with the section its bar plays in, sorted by bar, then sound.
+/// `first_bar`, each named with the section the plan places its bar in
+/// (`PlannedRender::sections`), sorted by bar, then sound.
 pub(crate) fn refuse(
-    window: &PlannedWindow,
-    structure: &Structure,
+    sections: &[PlannedSection],
     signatures: impl IntoIterator<Item = UnsupportedSignature>,
 ) -> Result<(), RenderError> {
     let mut first: BTreeMap<(String, Vec<String>), i64> = BTreeMap::new();
@@ -79,7 +77,7 @@ pub(crate) fn refuse(
     let mut list: Vec<Unsupported> = first
         .into_iter()
         .map(|((s, keys), layout_bar)| Unsupported {
-            section: section_at(window.layout, structure, layout_bar).map(str::to_string),
+            section: section_name(sections, layout_bar).map(str::to_string),
             s,
             keys,
             layout_bar,
@@ -89,194 +87,19 @@ pub(crate) fn refuse(
     Err(RenderError::Unsupported(list))
 }
 
-/// The section playing in layout bar `bar`.
-fn section_at(layout: Layout, structure: &Structure, bar: i64) -> Option<&str> {
-    match layout {
-        Layout::Clip => section_of_clip_bar(structure, bar),
-        Layout::Linear => section_of_song_bar(structure, bar),
-    }
-}
-
-/// The section containing song bar `bar` (the linear timeline); `None` outside every section.
-pub(crate) fn section_of_song_bar(structure: &Structure, bar: i64) -> Option<&str> {
-    structure
-        .sections
-        .iter()
-        .find(|s| {
-            let start = i64::from(s.start);
-            bar >= start && bar < start + i64::from(s.bars)
-        })
+/// The section of the run in `sections` (sorted, disjoint) that contains layout bar `bar`;
+/// `None` for a bar in no run, a negative bar included.
+fn section_name(sections: &[PlannedSection], bar: i64) -> Option<&str> {
+    let i = sections.partition_point(|s| i64::from(s.to_bar) <= bar);
+    sections
+        .get(i)
+        .filter(|s| i64::from(s.from_bar) <= bar)
         .map(|s| s.name.as_str())
-}
-
-/// The section playing in clip bar `bar`: the intro (bars before `intro_end`) maps linearly, the
-/// `loops * loop_bars` bars after it are the loop section, and later bars map to the sections
-/// after the loop section. Without a loop section, the linear mapping.
-pub(crate) fn section_of_clip_bar(structure: &Structure, bar: i64) -> Option<&str> {
-    let (start, end) = if let Some(range) = structure.loop_range {
-        (i64::from(range.start), i64::from(range.end))
-    } else if let Some(section) = structure.loop_index.and_then(|i| structure.sections.get(i)) {
-        let start = i64::from(section.start);
-        (start, start + i64::from(section.bars))
-    } else {
-        return section_of_song_bar(structure, bar);
-    };
-    let period = end - start;
-    if period <= 0 || bar < start {
-        return section_of_song_bar(structure, bar);
-    }
-    let elapsed = bar - start;
-    // Divide before comparing to avoid multiplying arbitrary plan lengths.
-    let authored = if elapsed / period < i64::from(structure.loops) {
-        start + elapsed % period
-    } else {
-        end.checked_add(elapsed - period * i64::from(structure.loops))?
-    };
-    section_of_song_bar(structure, authored)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strudeland_host::{Meter, Section};
-
-    fn section(name: &str, start: u32, bars: u32, is_loop: bool) -> Section {
-        Section {
-            name: name.into(),
-            start,
-            bars,
-            is_loop,
-        }
-    }
-
-    /// `song-linear.js`: intro 2, body 4 (loop), tail 2; `loops: 2`; the clip is 12 bars.
-    fn song_linear() -> Structure {
-        Structure {
-            bpm: 120.0,
-            meter: Meter { num: 4, den: 4 },
-            beats_per_bar: 4.0,
-            cps: 0.5,
-            sections: vec![
-                section("intro", 0, 2, false),
-                section("body", 2, 4, true),
-                section("tail", 6, 2, false),
-            ],
-            loop_index: Some(1),
-            loop_range: None,
-            meter_changes: None,
-            loops: 2,
-            total_bars: 8,
-            intro_end: 2,
-            end_of_song: None,
-            clip_bars: 12,
-            clip_seconds: 24.0,
-        }
-    }
-
-    fn no_sections() -> Structure {
-        Structure {
-            sections: vec![],
-            loop_index: None,
-            loops: 1,
-            total_bars: 0,
-            intro_end: 0,
-            end_of_song: Some(0),
-            clip_bars: 0,
-            clip_seconds: 0.0,
-            ..song_linear()
-        }
-    }
-
-    #[test]
-    fn clip_bars_map_through_the_loop() {
-        let s = song_linear();
-        let names: Vec<Option<&str>> = (-1..14).map(|b| section_of_clip_bar(&s, b)).collect();
-        assert_eq!(
-            names,
-            vec![
-                None,
-                Some("intro"),
-                Some("intro"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("tail"),
-                Some("tail"),
-                None,
-                None,
-            ]
-        );
-        // Three loops push the tail to clip bars 14 and 15.
-        let three = Structure {
-            loops: 3,
-            clip_bars: 16,
-            ..song_linear()
-        };
-        assert_eq!(section_of_clip_bar(&three, 13), Some("body"));
-        assert_eq!(section_of_clip_bar(&three, 14), Some("tail"));
-        assert_eq!(section_of_clip_bar(&three, 15), Some("tail"));
-        assert_eq!(section_of_clip_bar(&three, 16), None);
-    }
-
-    #[test]
-    fn clip_diagnostics_follow_each_section_inside_a_repeated_range() {
-        let mut s = song_linear();
-        s.loop_range = Some(strudeland_host::LoopRange {
-            first: 0,
-            last: 1,
-            start: 0,
-            end: 6,
-        });
-        assert_eq!(section_of_clip_bar(&s, 6), Some("intro"));
-        assert_eq!(section_of_clip_bar(&s, 8), Some("body"));
-        assert_eq!(section_of_clip_bar(&s, 12), Some("tail"));
-    }
-
-    #[test]
-    fn song_bars_map_linearly() {
-        let s = song_linear();
-        let names: Vec<Option<&str>> = (-1..9).map(|b| section_of_song_bar(&s, b)).collect();
-        assert_eq!(
-            names,
-            vec![
-                None,
-                Some("intro"),
-                Some("intro"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("body"),
-                Some("tail"),
-                Some("tail"),
-                None,
-            ]
-        );
-        // Without a loop section the clip mapping is the linear one.
-        let no_loop = Structure {
-            sections: vec![section("a", 0, 3, false), section("b", 3, 1, false)],
-            loop_index: None,
-            loops: 1,
-            total_bars: 4,
-            intro_end: 4,
-            end_of_song: Some(4),
-            clip_bars: 4,
-            ..song_linear()
-        };
-        for b in -1..6 {
-            assert_eq!(
-                section_of_clip_bar(&no_loop, b),
-                section_of_song_bar(&no_loop, b),
-                "bar {b}"
-            );
-        }
-        assert_eq!(section_of_song_bar(&no_sections(), 0), None);
-        assert_eq!(section_of_clip_bar(&no_sections(), 0), None);
-    }
 
     fn sig(s: &str, keys: &[&str], first_bar: i64) -> UnsupportedSignature {
         UnsupportedSignature {
@@ -286,36 +109,50 @@ mod tests {
         }
     }
 
-    fn window(from_bar: u32, to_bar: u32, layout: Layout) -> PlannedWindow {
-        PlannedWindow {
+    fn run(from_bar: u32, to_bar: u32, name: &str) -> PlannedSection {
+        PlannedSection {
             from_bar,
             to_bar,
-            layout,
+            name: name.into(),
         }
     }
 
-    fn refused(
-        window: &PlannedWindow,
-        structure: &Structure,
-        sigs: Vec<UnsupportedSignature>,
-    ) -> Vec<Unsupported> {
-        match refuse(window, structure, sigs) {
+    fn refused(sections: &[PlannedSection], sigs: Vec<UnsupportedSignature>) -> Vec<Unsupported> {
+        match refuse(sections, sigs) {
             Err(RenderError::Unsupported(list)) => list,
             other => panic!("not refused: {other:?}"),
         }
     }
 
     #[test]
+    fn section_name_looks_bars_up_in_the_runs() {
+        let runs = [run(0, 2, "intro"), run(2, 10, "body"), run(12, 14, "tail")];
+        assert_eq!(section_name(&runs, -1), None);
+        assert_eq!(section_name(&runs, 0), Some("intro"));
+        assert_eq!(section_name(&runs, 1), Some("intro"));
+        assert_eq!(section_name(&runs, 2), Some("body"));
+        assert_eq!(section_name(&runs, 9), Some("body"));
+        assert_eq!(section_name(&runs, 10), None);
+        assert_eq!(section_name(&runs, 11), None);
+        assert_eq!(section_name(&runs, 12), Some("tail"));
+        assert_eq!(section_name(&runs, 13), Some("tail"));
+        assert_eq!(section_name(&runs, 14), None);
+        assert_eq!(section_name(&runs, i64::MAX), None);
+        for bar in [i64::MIN, -1, 0, 1, 13, 14, i64::MAX] {
+            assert_eq!(section_name(&[], bar), None, "bar {bar}");
+        }
+    }
+
+    #[test]
     fn nothing_unsupported_is_not_refused() {
-        assert!(refuse(&window(0, 4, Layout::Linear), &no_sections(), vec![]).is_ok());
+        assert!(refuse(&[], vec![]).is_ok());
     }
 
     #[test]
     fn signatures_dedupe_by_sound_and_keys_with_the_minimum_bar() {
         // Chunk order is not bar order: a later chunk's lookback can hold an earlier bar.
         let list = refused(
-            &window(0, 12, Layout::Linear),
-            &no_sections(),
+            &[],
             vec![
                 sig("kick", &[], 8),
                 sig("hat", &["speed"], 4),
@@ -348,9 +185,9 @@ mod tests {
 
     #[test]
     fn the_clip_layout_names_the_clip_section() {
+        // `song-linear.js`'s clip runs: intro 2, body (the loop section, twice) 8, tail 2.
         let list = refused(
-            &window(0, 12, Layout::Clip),
-            &song_linear(),
+            &[run(0, 2, "intro"), run(2, 10, "body"), run(10, 12, "tail")],
             vec![
                 sig("zzfx", &[], 10),
                 sig("kick", &[], 0),
@@ -365,10 +202,11 @@ mod tests {
 
     #[test]
     fn the_linear_layout_names_the_song_section() {
-        // A `--section body` render ([2, 6) linear) whose lookback reaches into the intro.
+        // `song-linear.js`'s linear runs (intro 2, body 4, tail 2): the song's linear layout.
+        // This tests the lookup and the text; a real `--section body` plan's runs stop at bar 6,
+        // so a bar-6 signature cannot come from one.
         let list = refused(
-            &window(2, 6, Layout::Linear),
-            &song_linear(),
+            &[run(0, 2, "intro"), run(2, 6, "body"), run(6, 8, "tail")],
             vec![sig("zzfx", &[], 1), sig("kick", &["speed"], 6)],
         );
         assert_eq!(list[0].section.as_deref(), Some("intro"));

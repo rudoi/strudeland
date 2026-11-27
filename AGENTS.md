@@ -283,7 +283,8 @@ the V8 download the host brings.
   builds the `AssembledWindow` for `--planner batch`), `chunks.ts` `renderChunkPlans`. `crates/strudeland-host/` also has
   `plan_render` (the `plan-render` subcommand), the planning timeout (a watchdog thread,
   `HostError::Timeout`) and `HostError::MetaFlag`. `crates/strudeland-render/` the pipeline as a
-  library: `plan` (host to jobs, refusal of unsupported material; the only V8 caller) and
+  library: `plan` (host to jobs, refusal of unsupported material, its sections named from the
+  plan's `sections`; the only V8 caller) and
   `render_planned` (in `pipeline_audio`: a plan to joined audio through an injected chunk renderer),
   `render` (the worker pool), `join` (sample-exact joiner), `finish` (the one finishing loop: the
   `Leveling` switch between Limited and RepeatSafeStatic, through the `Codec` seam), `splice` (the
