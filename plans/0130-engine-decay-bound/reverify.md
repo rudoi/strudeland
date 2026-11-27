@@ -219,6 +219,28 @@ touch `lookback.ts`, so it would need `host:build`, `engine:refs --write` and `h
 ## Decisions (2026-11-26)
 
 - **Re-scoped.** The bound stays in TS. This task adds checks that pin it to the engine: a test comparing the TS constants with the engine's, and a completeness test that renders single-hap one-shot cases past `tailFrames`. No planner file changes, so no export changes.
-- **DJ filter (user):** keep the 0.5 s allowance. The completeness test measures the leftover. If it is below the floor, the gap is written down as a known difference. If it is above, the test fails and the user decides again.
+- **DJ filter (user):** keep the 0.5 s allowance. The completeness test measures the leftover. If it is below the floor, the gap is written down as a known difference. If it is above, the test fails and the user decides again. Superseded by the next decision, after the prototype measured it.
 - **Delay:** the echo cut stays at -60 dB, documented (recommended).
 - **Floor:** -90 dBFS, from the engine's `MAX_TAIL_AMPLITUDE`, with delay judged at -60 dB (recommended).
+- **DJ filter, re-decided (user, 2026-11-26, after the refine prototype):** the djf tail stays
+  as it is, so exports do not change. Measured on one-shot renders past the bound (5 s window,
+  base voice `note(36).s("sawtooth").gain(1)`, peak over both channels):
+
+  | djf | source | peak before the bound | peak after the bound | above −90.3 dBFS for |
+  |---|---|---|---|---|
+  | 0.03 | sawtooth | −72.1 dBFS | −76.9 dBFS | ≈4.57 s |
+  | 0.53 | sawtooth | −11.1 dBFS | −76.9 dBFS | ≈4.57 s |
+  | 0.05 | sawtooth | −54.1 dBFS | −76.3 dBFS | ≈0.44 s |
+  | 0.55 | sawtooth | −11.1 dBFS | −76.3 dBFS | ≈0.44 s |
+  | 0.03, 0.05, 0.53, 0.55 | `s("sine").note(60).gain(1)` | −81.1 to −10.5 dBFS | −90.7 dBFS | (passes) |
+
+  So the absolute need, at this source level, is about 5.1 s at djf 0.03/0.53 and about 0.94 s
+  at 0.05/0.55, against the 0.5 s allowance. The leftover grows with the source level (it is the
+  source's sub-audio content held in the SVF state). The completeness test judges every djf case
+  against its own floor of −70 dBFS, about 6 dB above the measured peaks, so a regression still
+  fails; every other case keeps `MAX_TAIL_AMPLITUDE`. The gap is documented as a known
+  difference in `crates/strudeland-render/README.md` with these numbers and the source level.
+  A djf case above −70 dBFS still STOPs.
+- **Delay margins (measured):** the −60 dB delay floor holds with 2.4 dB to spare at feedback
+  0.98 and 0.99 (time 0.1), 1.5 dB at time 1.5 / feedback 0.9, and 8.3 dB at 0.5 / 0.5. The
+  floors are unchanged.

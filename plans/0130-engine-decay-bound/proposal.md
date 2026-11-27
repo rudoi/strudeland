@@ -27,13 +27,16 @@ In:
    | `+1 s` per vowel | the largest `6·Q/f` over `vowel::FORMANTS` (0.96 s, `ue`) must not exceed it |
    | `SAMPLE_RATE = 44100` (tail frames) | `SAMPLE_RATE` |
 
-2. **Completeness.** Single-hap one-shot cases per control family, planned through the host
-   (`plan-render` with `preset: one-shot`), rendered with the engine past `tailFrames`. The peak
-   after the bound must be at most `MAX_TAIL_AMPLITUDE` (1/32768, −90.3 dBFS). Delay is judged
-   at −60 dB relative to the render's peak before the bound (decision 3).
-3. **Documentation.** The bound, its −60 dB delay cut and (if the measurement allows) the DJ
-   filter's flat 0.5 s are written down in `crates/strudeland-render/README.md`, with the
-   measured numbers.
+2. **Completeness.** 33 single-hap one-shot cases per control family (beside the 11 parity
+   cases), planned through the host (`plan-render` with `preset: one-shot`), rendered with the
+   engine past `tailFrames`. The peak after the bound must be at most `MAX_TAIL_AMPLITUDE`
+   (1/32768, −90.3 dBFS). Delay is judged at −60 dB relative to the render's peak before the
+   bound (decision 3). The DJ filter cases are judged against their own floor of −70 dBFS (the
+   user's re-decision, reverify Decisions: the measured leftover is −76.9 dBFS at most, so
+   about 6 dB of margin still catches a regression).
+3. **Documentation.** The bound, its −60 dB delay cut with the measured margins, and the DJ
+   filter's flat 0.5 s as a known difference (the measured leftover and need, at the measured
+   source level) are written down in `crates/strudeland-render/README.md`.
 
 Out:
 
@@ -41,8 +44,8 @@ Out:
 - Any change to a `PLANNER_FILES` file (`scripts/engine/provenance.ts:30-39`), engine DSP,
   job, golden, ref, vector, `host.js` or export output. So no `host:build`, `engine:refs --write`
   or `host:parity` obligations arise.
-- Changing the djf allowance. If the measured leftover is above the floor, the task stops
-  and the user decides again.
+- Changing the djf allowance. The user kept it (reverify Decisions, re-decided): exports do
+  not change. A djf case above its −70 dBFS floor still stops the task.
 
 ## Design
 
@@ -100,8 +103,9 @@ stage report and the README.
 ## Risks
 
 - **A case leaks above the floor.** That is the finding the test exists for, and the task
-  STOPs. The likely candidates are djf at 0.03 and 0.53 (reverify §4: 30 s to −90 dB) and the
-  reverb (if the convolver has latency past the IR length).
+  STOPs. The prototype measured every case: only the sawtooth djf cases sit above −90.3 dBFS
+  (−76.9 and −76.3 dBFS), which the user accepted with the −70 dBFS djf floor. The tightest
+  delay margin is 1.5 dB (time 1.5, feedback 0.9). The reverb tail is below −239 dBFS.
 - **Runtime.** The longest cases are the 30 s modulator cap and the high-feedback delay; keep
   `delaytime` at 0.1 for those. The engine is built at opt-level 3 in dev (`Cargo.toml:5-9`).
 - **Cross-platform levels.** `jsmath` `pow`/`tanh` use the host libm, but floor assertions

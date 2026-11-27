@@ -23,9 +23,9 @@ render README. Change no planner file, no engine behaviour and no generated file
 
 | File | Change |
 |---|---|
-| `crates/strudeland-engine/src/lib.rs` | add `pub mod decay` (re-exports only, with a doc comment naming `exportFilterTailSec`/`exportDecay` and the test) |
+| `crates/strudeland-engine/src/lib.rs` | add `pub mod decay` (re-exports only, with a doc comment naming `exportFilterTailSec`/`exportDecay` and the test, and no Blink source file: no `*.cc`/`*.h` word, no `third_party/blink`, which `tests/licence.rs` would treat as a port needing the Blink header) |
 | `crates/strudeland-engine/src/delay.rs` | drop `#[cfg(test)]` from `FEEDBACK_EXTRA_FRAMES` (`:42`) |
-| `crates/strudeland-engine/src/reverb.rs` | `pub const IR_DURATION_FACTOR: f64 = 1.5;` beside the other constants (`:74-89`), used at `:269` (`d * IR_DURATION_FACTOR`) |
+| `crates/strudeland-engine/src/reverb.rs` | `pub const IR_DURATION_FACTOR: f64 = 1.5;` beside the other constants (`:74-89`), used at the one non-test use, `:269` (`d * IR_DURATION_FACTOR`). The `1.5` in the module doc (`:12`, `:27`) and in the tests (`:1235` onward) stays as written |
 | `crates/strudeland-render/tests/decay_bound.rs` | new |
 | `crates/strudeland-render/README.md` | new subsection under "Game audio presets" |
 | `AGENTS.md` | one sentence in the render pipeline rule |
@@ -51,6 +51,11 @@ a visibility change only.
    length) still pass.
 
 2. **Harness** (in `decay_bound.rs`, with no shared `common` dependency needed):
+   - Imports: `strudeland_host::{Host, RenderPlanRequest, LengthRequest, ExportPreset,
+     PlannedRender}` and `strudeland_engine::{EngineJob, render, SAMPLE_RATE,
+     capability::unsupported_signatures}`, plus `strudeland_engine::decay`. Both crates are
+     already normal dependencies of `strudeland-render`, so `Cargo.toml` does not change (no
+     dev-dependency is added).
    - `SR = strudeland_engine::SAMPLE_RATE as f64`.
    - `song(voice: &str) -> String` returns `"const meta = { bpm: 120 }\n$: " + voice`. The
      song is one bar of 2 s at 4/4, and the pattern gives exactly one hap per bar. Strings
@@ -75,7 +80,7 @@ a visibility change only.
    - `peak(channels, range)` returns the maximum `|x|` over both channels, and `dbfs(x)` returns
      `20·log10(x)`.
 
-3. **Parity test** `the_bound_uses_the_engine_constants`. Plan each voice with `tail`. For
+3. **Parity test** `the_bound_uses_the_engine_constants` (11 cases). Plan each voice with `tail`. For
    cases 2 onward, `ΔF = tail(case) − tail(dry)`. Assert `|ΔF − expected| ≤ 1` frame. Collect
    every case's line (case, ΔF, expected), print the table with `eprintln!`, then fail once
    with all mismatches.
@@ -113,12 +118,16 @@ a visibility change only.
    `modConfigs` in `schedule.ts`. If the spelling is right and ΔF still differs, that is a
    parity mismatch: STOP.
 
-4. **Completeness test** `one_shots_decay_below_the_floor_after_the_bound`. `EXTRA = 5·SR`
-   frames. For each case:
+4. **Completeness test** `one_shots_decay_below_the_floor_after_the_bound` (33 cases, the
+   table below). `EXTRA = 5·SR` frames. For each case:
    - plan it, take the job, and `render_past(job, EXTRA)`;
    - `after = peak(long, frames..frames+EXTRA)`;
-   - the floor is `MAX_TAIL_AMPLITUDE`, except for the delay cases, where it is
-     `1e-3 · peak(long, 0..frames)`.
+   - the floor is `MAX_TAIL_AMPLITUDE`, except:
+     - the delay cases: `1e-3 · peak(long, 0..frames)`;
+     - the 8 DJ filter cases: their own floor, a named constant of −70 dBFS
+       (`10^(−70/20)`), with a comment citing the user's re-decision (reverify Decisions): the
+       djf tail is kept, the measured leftover is −76.9 dBFS at most, and the floor sits about
+       6 dB above it so a regression still fails.
 
    Evaluate every case, print one table row per case (name, `tail_frames`, `after` in dBFS, the
    floor in dBFS, pass/fail), then fail once with the list of failing cases. This way one run
@@ -140,12 +149,20 @@ a visibility change only.
    | reverb | `B.room(1).roomsize(0.5)`, `B.room(1)` (default 2), `B.room(1).roomsize(10)` |
    | delay (−60 dB) | `B.delay(1).delaytime(0.1).delayfeedback(0.98)`, `B.delay(1).delaytime(0.1).delayfeedback(0.99)`, `B.delay(1).delaytime(0.5).delayfeedback(0.5)`, `B.delay(1).delaytime(1.5).delayfeedback(0.9)` |
 
+   That is 3 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 2 + 2 + 8 + 3 + 4 = 33 cases.
+
+   The prototype (`$S/proto/complete.log` of the refine session) measured: everything except
+   the four sawtooth djf cases at −999 dBFS (exact zero) or, for reverb, below −239 dBFS; the
+   sine djf cases at −90.7 dBFS; the sawtooth djf cases at −76.9 dBFS (0.03, 0.53) and
+   −76.3 dBFS (0.05, 0.55); delay margins of 2.4 dB (0.1/0.98 and 0.1/0.99), 1.5 dB (1.5/0.9)
+   and 8.3 dB (0.5/0.5). A run that departs from these is worth a line in the report.
+
    If a spelling does not reach the intended control (for example the ladder or phaser name),
    check it against the corpus and `crates/strudeland-engine/controls.md`, and fix the
    spelling. A case that is right and still refused is a STOP.
 
-5. **Run the targeted test** (gate step 1). It is green, or it STOPs: any failing case goes to
-   the user with the printed table, unaltered.
+5. **Run the targeted test** (gate step 1). It is green, or it STOPs: any failing case (a djf
+   case above −70 dBFS included) goes to the user with the printed table, unaltered.
 
 6. **README.** Add `### Post-roll bound` under "Game audio presets" in
    `crates/strudeland-render/README.md`. Short prose covering these points:
@@ -156,15 +173,22 @@ a visibility change only.
      at most 0.98, delay time at most 1 s).
    - **The delay cut is intended.** Echoes below −60 dB are dropped from one-shots and are not
      folded into loops. Going to −90 dB would add about 50 % post-roll to delayed songs
-     (reverify, decision 3).
+     (reverify, decision 3). State the measured margins under the −60 dB floor: 2.4 dB at
+     feedback 0.98 and 0.99 (time 0.1), 1.5 dB at time 1.5 / feedback 0.9, 8.3 dB at 0.5 / 0.5
+     (or the numbers the run gives). The floors are unchanged.
    - Filter rings are budgeted to about e^−19, below 24-bit resolution.
-   - **Known difference, the DJ filter.** The planner allows a flat 0.5 s. The engine's SVF at
-     djf 0.03/0.53 needs up to about 30 s to fall 90 dB (reverify §4 table). State the measured
-     leftover after the bound for each tested djf value and source, against the −90.3 dBFS
-     floor.
-   - `tests/decay_bound.rs` pins the constants to the engine (`strudeland_engine::decay`) and
-     renders a one-shot per control family past the bound. Its floors are never loosened to
-     absorb a defect.
+   - **Known difference, the DJ filter.** The planner allows a flat 0.5 s, and the tail is kept
+     as it is (the user's decision, so exports do not change). Write only the measured numbers,
+     with the source level (`note(36).s("sawtooth").gain(1)`; before the bound it peaks at
+     −11.1 dBFS through djf 0.53/0.55 and at −72.1/−54.1 dBFS through 0.03/0.05): after the bound the sawtooth peaks at −76.9 dBFS at djf 0.03/0.53 (above
+     −90.3 dBFS for about 4.57 s) and −76.3 dBFS at 0.05/0.55 (about 0.44 s), so the absolute
+     need is about 5.1 s and 0.94 s; the sine source (`s("sine").note(60).gain(1)`) ends at
+     −90.7 dBFS. The leftover grows with the source level. The test judges djf cases against
+     −70 dBFS, about 6 dB above the measured peaks. Do not write a "seconds to fall 90 dB"
+     figure from the pole model.
+   - `tests/decay_bound.rs` pins the constants to the engine (`strudeland_engine::decay`, 11
+     parity cases) and renders 33 one-shots, one or more per control family, past the bound.
+     Its floors are never loosened to absorb a defect.
 
 7. **AGENTS.md.** Add one sentence to the render pipeline rule: the preset post-roll bound is
    pinned to the engine by `crates/strudeland-render/tests/decay_bound.rs` (constant parity
@@ -176,7 +200,8 @@ a visibility change only.
 ## Validation
 
 - Every gate step has passed, as stated in 000.
-- The measured table, the parity ΔF lines and the djf README numbers are in the stage report.
+- The measured table (33 rows), the parity ΔF lines (11), the delay margins and the djf README
+  numbers are in the stage report.
 - `git diff b7b18ce -- crates/strudeland-engine/src` shows only the decay module, the removed
   `#[cfg(test)]` and the named reverb factor.
 

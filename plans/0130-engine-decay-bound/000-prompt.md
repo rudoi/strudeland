@@ -25,20 +25,25 @@
 - **New:** `crates/strudeland-render/tests/decay_bound.rs`, with two groups of tests:
   - *parity*: the TS bound's constants, read from host `plan-render` one-shot tails, equal the
     engine's;
-  - *completeness*: every family case, rendered past `tail_frames`, stays under its floor.
+  - *completeness*: every family case (33), rendered past `tail_frames`, stays under its floor.
+  - The parity group has 11 cases.
 - **Engine, visibility and naming only:**
   - `pub mod decay` in `strudeland-engine/src/lib.rs` re-exports `biquad::{MAX_TAIL_TIME,
     MAX_TAIL_AMPLITUDE}`, `delay::{MAX_FEEDBACK, MAX_DELAY_TIME, FEEDBACK_EXTRA_FRAMES}`,
     `reverb::IR_DURATION_FACTOR` and `vowel::FORMANTS`;
   - `FEEDBACK_EXTRA_FRAMES` loses `#[cfg(test)]`;
-  - `reverb.rs` names its `1.5` as `IR_DURATION_FACTOR` at its one use.
+  - `reverb.rs` names its `1.5` as `IR_DURATION_FACTOR` at the one non-test use (`:269`); the
+    doc and test literals stay as they are;
+  - the `decay` module's doc comment names no Blink source file (no `*.cc`/`*.h` word and no
+    `third_party/blink`), or `tests/licence.rs` would demand the Blink header on `lib.rs`.
 
   No rendered sample changes.
 - **Docs:**
   - `crates/strudeland-render/README.md` gains a subsection describing the post-roll bound: what
-    it budgets, the delay echoes cut at −60 dB (intended, decision 3), the filter ring budgeted
-    below 24-bit resolution, the DJ filter's flat 0.5 s with the measured leftover, and the test
-    that pins it;
+    it budgets, the delay echoes cut at −60 dB (intended, decision 3) with the measured margins,
+    the filter ring budgeted below 24-bit resolution, the DJ filter's flat 0.5 s as a known
+    difference (the measured leftover and need, the source level, and that the leftover grows
+    with it), and the test that pins it;
   - `AGENTS.md` gets one sentence in the render pipeline rule.
 - **No visible change.** Every engine job, plan, export file, one-shot length, golden, ref,
   vector, `host.js`, CLI output and `SKILL.md` line is byte-identical.
@@ -71,6 +76,8 @@ There is one stage: [001-decay-bound-checks.md](001-decay-bound-checks.md), one 
   - The general floor is `decay::MAX_TAIL_AMPLITUDE`, the constant itself (1/32768 ≈ −90.3 dBFS,
     at least as strict as decision 4's −90 dBFS).
   - Delay cases use `1e-3 ×` the render's peak before the bound (−60 dB, decision 3).
+  - DJ filter cases use their own floor, −70 dBFS (the user's re-decision, reverify Decisions:
+    about 6 dB above the measured −76.9 dBFS).
   - The parity tolerance is ±1 frame.
   - The window after the bound is `EXTRA = 5 s`.
 
@@ -131,14 +138,17 @@ Not needed, because no planner file, bundle input or Chromium-side input changes
 - the measured table from step 1 (every case: `tail_frames`, peak after the bound in dBFS, the
   floor);
 - each parity case's `ΔF` against its expected value;
-- the djf numbers as written into the README.
+- the djf numbers as written into the README;
+- each delay case's margin under its −60 dB floor (the prototype measured 2.4 dB at feedback
+  0.98/0.99, time 0.1; 1.5 dB at time 1.5, feedback 0.9; 8.3 dB at 0.5/0.5).
 
 ## STOP, and report to the user, on any of these
 
 Do not work around them:
 
 - **a completeness failure:** any case whose peak after the bound is above its floor, the djf
-  cases included (the user decides the djf allowance again, per the Decisions);
+  cases included: a djf case above −70 dBFS still STOPs, and the user decides the djf allowance
+  again;
 - **a parity mismatch:** a TS value that differs from the engine constant beyond ±1 frame, or a
   vowel formant whose `6·Q/f` exceeds the 1 s allowance;
 - **a case the host or engine refuses** (plan error, unsupported signature, render error), or a
