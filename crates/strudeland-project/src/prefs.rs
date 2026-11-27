@@ -8,7 +8,7 @@ use crate::app_data::{self, AppData, Loaded};
 use crate::error::ProjectError;
 
 /// The prefs file name inside the app data dir.
-pub const PREFS_FILE: &str = "prefs.json";
+const PREFS_FILE: &str = "prefs.json";
 
 const PREFS_SCHEMA: u32 = 1;
 
@@ -44,11 +44,8 @@ impl Prefs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::tempdir;
     use std::fs;
-
-    fn tempdir() -> tempfile::TempDir {
-        tempfile::tempdir().expect("tempdir")
-    }
 
     const ALL_TRUE_TEXT: &str = "{\n  \"schema\": 1,\n  \"vim\": true,\n  \"auditionNotes\": true,\n  \"formatOnSave\": true,\n  \"pianoRollOpen\": true,\n  \"limiter\": true\n}\n";
     const DEFAULT_TEXT: &str = "{\n  \"schema\": 1,\n  \"vim\": false,\n  \"auditionNotes\": false,\n  \"formatOnSave\": false,\n  \"pianoRollOpen\": false,\n  \"limiter\": false\n}\n";

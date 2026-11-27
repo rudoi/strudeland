@@ -223,7 +223,8 @@ impl TakesRig {
         AppData::at(self.dir.join("data"))
     }
 
-    /// The saved input's file, `dir/data/recording.json`.
+    /// The saved input's file, `dir/data/recording.json` (the name predates the app data
+    /// documents; the frozen recording transcript calls it).
     pub fn prefs(&self) -> PathBuf {
         RecordingInput::file(&self.app_data())
     }

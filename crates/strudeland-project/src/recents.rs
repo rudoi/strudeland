@@ -85,15 +85,15 @@ impl Recents {
     }
 
     /// Records `project_root` as the most recent project. Best effort. Returns the load's
-    /// problem, for the caller to log.
-    pub fn touch_and_save(app: &AppData, project_root: &Path) -> Option<String> {
+    /// problem as a `Loaded<()>`, for the caller to [`Loaded::log`].
+    pub fn touch_and_save(app: &AppData, project_root: &Path) -> Loaded<()> {
         let Loaded {
             value: mut recents,
             problem,
         } = Recents::load(app);
         recents.touch(project_root);
         recents.save_best_effort();
-        problem
+        Loaded { value: (), problem }
     }
 
     /// Loads the list, prunes it and, only if pruning dropped an entry, writes the pruned list
@@ -146,12 +146,8 @@ impl Recents {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::tempdir;
     use std::fs;
-    use tempfile::TempDir;
-
-    fn tempdir() -> TempDir {
-        tempfile::tempdir().expect("tempdir")
-    }
 
     fn paths(names: &[&str]) -> Vec<PathBuf> {
         names

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use strudeland_project::{
-    HostNs, Project, RecordingEntry, SidecarBacking, SidecarClockOffsets, SidecarOutput,
+    AppData, HostNs, Project, RecordingEntry, SidecarBacking, SidecarClockOffsets, SidecarOutput,
     SidecarTempo,
 };
 use strudeland_record::takes::{
@@ -422,6 +422,11 @@ pub fn system_state(app: &AppHandle) -> RecorderState {
 
 // --- Tauri commands ---
 
+/// The app data dir the commands read and save the input in.
+fn app_data(app: &AppHandle) -> Result<AppData, CommandError> {
+    Ok(app.state::<AppDataState>().get()?.clone())
+}
+
 /// Runs `f` on a blocking thread with the app's states.
 async fn blocking<T: Send + 'static>(
     app: AppHandle,
@@ -438,13 +443,13 @@ async fn blocking<T: Send + 'static>(
 
 #[tauri::command]
 pub async fn recording_status(app: AppHandle) -> Result<RecordingStatus, CommandError> {
-    let app_data = app.state::<AppDataState>().get()?.clone();
+    let app_data = app_data(&app)?;
     blocking(app, move |takes, _| Ok(takes.status(&app_data).into())).await
 }
 
 #[tauri::command]
 pub async fn recording_devices(app: AppHandle) -> Result<DevicesResult, CommandError> {
-    let app_data = app.state::<AppDataState>().get()?.clone();
+    let app_data = app_data(&app)?;
     blocking(app, move |takes, _| {
         takes
             .devices(&app_data)
@@ -460,7 +465,7 @@ pub async fn recording_arm(
     device_id: Option<String>,
     channel: Option<u16>,
 ) -> Result<RecordingStatus, CommandError> {
-    let app_data = app.state::<AppDataState>().get()?.clone();
+    let app_data = app_data(&app)?;
     blocking(app, move |takes, _| {
         takes
             .arm(&app_data, device_id, channel)
@@ -472,7 +477,7 @@ pub async fn recording_arm(
 
 #[tauri::command]
 pub async fn recording_disarm(app: AppHandle) -> Result<RecordingStatus, CommandError> {
-    let app_data = app.state::<AppDataState>().get()?.clone();
+    let app_data = app_data(&app)?;
     blocking(app, move |takes, _| {
         takes
             .disarm(&app_data)

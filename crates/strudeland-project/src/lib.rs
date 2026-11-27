@@ -21,14 +21,14 @@ pub use instruments::{
     MAX_INSTRUMENT_ENTRIES, instrument_dir_entries, instrument_file_candidate,
     validate_instrument_snapshot,
 };
-pub use prefs::{PREFS_FILE, Prefs};
+pub use prefs::Prefs;
 pub use project::{
     MANIFEST_FILE, Manifest, Project, ProjectInfo, RenderSet, SCHEMA, SONG_EXT, SONGS_DIR,
     SongEntry, atomic_create_bytes, atomic_write_bytes, is_song_file, is_song_file_name,
     list_songs, render_exists, render_filename, song_rel_path,
 };
 pub use recents::{MAX_RECENTS, RECENTS_FILE, RecentProject, Recents};
-pub use recording_input::{RECORDING_INPUT_FILE, RecordingInput};
+pub use recording_input::RecordingInput;
 pub use recordings::{
     ClockOffsetSample, HostNs, OffsetNs, RECORDINGS_DIR, RecordingEntry, RecoveredRecording,
     RepairReport, RepairSkip, SIDECAR_SCHEMA, Sidecar, SidecarApp, SidecarBacking,

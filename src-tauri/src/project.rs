@@ -18,8 +18,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use strudeland_project::{
-    AppData, InstrumentEntry, InstrumentSnapshot, Loaded, Prefs, Project, ProjectError,
-    ProjectInfo, RecentProject, Recents, SongEntry,
+    AppData, InstrumentEntry, InstrumentSnapshot, Prefs, Project, ProjectError, ProjectInfo,
+    RecentProject, Recents, SongEntry,
 };
 use tauri::{AppHandle, Emitter, State};
 
@@ -40,14 +40,6 @@ impl AppDataState {
             .as_ref()
             .map_err(|msg| CommandError::other(msg.clone()))
     }
-}
-
-/// Logs a loaded document's problem as `{what}: {problem}` and returns its value.
-fn logged<T>(what: &str, loaded: Loaded<T>) -> T {
-    if let Some(problem) = loaded.problem {
-        eprintln!("{what}: {problem}");
-    }
-    loaded.value
 }
 
 /// The project open in this window, if any. Dropping it stops its watcher.
@@ -127,9 +119,7 @@ fn install(
 ) -> Result<ProjectInfo, CommandError> {
     let result = project.info()?;
     let watcher = watch(&project).map_err(CommandError::other)?;
-    if let Some(problem) = Recents::touch_and_save(app_data, project.root()) {
-        eprintln!("recents: {problem}");
-    }
+    Recents::touch_and_save(app_data, project.root()).log("recents");
     let project = Arc::new(project);
     state.replace(Some(OpenProject {
         project: Arc::clone(&project),
@@ -174,7 +164,7 @@ pub fn open_last(
     app_data: &AppData,
     watch: impl Fn(&Project) -> Result<Watcher, String>,
 ) -> Result<Option<ProjectInfo>, CommandError> {
-    let recents = logged("recents", Recents::load_pruned(app_data));
+    let recents = Recents::load_pruned(app_data).log("recents");
     Ok(recents
         .open_each()
         .find_map(|(_, project)| install(state, app_data, project, &watch).ok()))
@@ -302,12 +292,12 @@ pub async fn project_last(
 pub async fn recent_list(
     app_data: State<'_, AppDataState>,
 ) -> Result<Vec<RecentProject>, CommandError> {
-    Ok(logged("recents", Recents::list(app_data.get()?)))
+    Ok(Recents::list(app_data.get()?).log("recents"))
 }
 
 #[tauri::command]
 pub async fn prefs_get(app_data: State<'_, AppDataState>) -> Result<Prefs, CommandError> {
-    Ok(logged("prefs", Prefs::load(app_data.get()?)))
+    Ok(Prefs::load(app_data.get()?).log("prefs"))
 }
 
 /// Replaces the whole prefs object.

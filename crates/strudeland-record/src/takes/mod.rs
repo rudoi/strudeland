@@ -41,11 +41,7 @@ use sidecar::{TakeMeta, complete_ended, memo, publish_fallback};
 
 /// The saved input, or the defaults when the file is missing or invalid (logged, left in place).
 fn read_input(app: &AppData) -> RecordingInput {
-    let loaded = RecordingInput::load(app);
-    if let Some(problem) = loaded.problem {
-        eprintln!("recording: {problem}");
-    }
-    loaded.value
+    RecordingInput::load(app).log("recording")
 }
 
 // --- domain types ---

@@ -1,5 +1,5 @@
 //! The saved input choice, one document of the app data dir (`recording.json`, `"schema": 1`),
-//! read by `strudeland-record`'s `Takes`.
+//! read and saved by `strudeland-record`'s `Takes`.
 
 use std::path::PathBuf;
 
@@ -9,7 +9,7 @@ use crate::app_data::{self, AppData, Loaded};
 use crate::error::ProjectError;
 
 /// The recording input file name inside the app data dir.
-pub const RECORDING_INPUT_FILE: &str = "recording.json";
+const RECORDING_INPUT_FILE: &str = "recording.json";
 
 const RECORDING_INPUT_SCHEMA: u32 = 1;
 
@@ -42,15 +42,12 @@ impl RecordingInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::tempdir;
     use std::fs;
 
     const DEVICE_TEXT: &str =
         "{\n  \"schema\": 1,\n  \"deviceId\": \"coreaudio:abc\",\n  \"channel\": 3\n}\n";
     const NULL_TEXT: &str = "{\n  \"schema\": 1,\n  \"deviceId\": null,\n  \"channel\": 0\n}\n";
-
-    fn tempdir() -> tempfile::TempDir {
-        tempfile::tempdir().expect("tempdir")
-    }
 
     #[test]
     fn today_text_loads_and_resaves_byte_identically() {

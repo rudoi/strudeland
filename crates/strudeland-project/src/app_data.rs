@@ -52,6 +52,16 @@ pub struct Loaded<T> {
     pub problem: Option<String>,
 }
 
+impl<T> Loaded<T> {
+    /// Logs the problem, if any, to stderr as `{what}: {problem}` and returns the value.
+    pub fn log(self, what: &str) -> T {
+        if let Some(problem) = self.problem {
+            eprintln!("{what}: {problem}");
+        }
+        self.value
+    }
+}
+
 impl<T: Default> Loaded<T> {
     fn fallback(problem: Option<String>) -> Loaded<T> {
         Loaded {
@@ -105,6 +115,12 @@ pub(crate) fn save<T: Serialize>(file: &Path, schema: u32, value: &T) -> Result<
     atomic_write(file, &json)
 }
 
+/// A fresh temporary dir for this crate's tests.
+#[cfg(test)]
+pub(crate) fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir().expect("tempdir")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,10 +139,6 @@ mod tests {
             flag: true,
             name: Some("n".into()),
         }
-    }
-
-    fn tempdir() -> tempfile::TempDir {
-        tempfile::tempdir().expect("tempdir")
     }
 
     fn ignoring(file: &Path) -> String {
@@ -273,6 +285,20 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             "{\n  \"schema\": 1,\n  \"flag\": false,\n  \"name\": null\n}\n"
         );
+    }
+
+    #[test]
+    fn log_returns_the_value_with_or_without_a_problem() {
+        let clean = Loaded {
+            value: 1,
+            problem: None,
+        };
+        assert_eq!(clean.log("test"), 1);
+        let bad = Loaded {
+            value: 2,
+            problem: Some("ignoring x: bad".to_string()),
+        };
+        assert_eq!(bad.log("test"), 2);
     }
 
     #[test]
